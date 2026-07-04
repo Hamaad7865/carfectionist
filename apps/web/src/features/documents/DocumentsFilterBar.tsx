@@ -2,10 +2,13 @@
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 
-const STATUSES = ["draft", "issued", "accepted", "declined", "expired", "partly_paid", "paid", "void"];
-
-const selectCls =
-  "h-9 rounded-md border border-graphite-700 bg-graphite-850 px-2.5 text-[13px] text-graphite-100 outline-none focus:border-teal";
+const TYPES = [
+  { value: "", label: "All" },
+  { value: "invoice", label: "Invoices" },
+  { value: "quote", label: "Quotes" },
+  { value: "credit_note", label: "Credit notes" },
+];
+const STATUSES = ["draft", "issued", "accepted", "partly_paid", "paid", "void"];
 
 export function DocumentsFilterBar() {
   const router = useRouter();
@@ -19,40 +22,50 @@ export function DocumentsFilterBar() {
     router.replace(`${pathname}?${p.toString()}`);
   }
 
-  const has = sp.toString().length > 0;
+  const type = sp.get("type") ?? "";
+  const status = sp.get("status") ?? "";
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <select className={selectCls} value={sp.get("type") ?? ""} onChange={(e) => set("type", e.target.value)}>
-        <option value="">All types</option>
-        <option value="quote">Quotes</option>
-        <option value="invoice">Invoices</option>
-        <option value="credit_note">Credit notes</option>
-      </select>
+    <div className="flex flex-wrap items-center gap-2.5">
+      {/* type tabs */}
+      <div className="flex gap-1.5">
+        {TYPES.map((t) => {
+          const on = type === t.value;
+          return (
+            <button
+              key={t.value}
+              onClick={() => set("type", t.value)}
+              className={`h-[38px] rounded-[10px] px-4 text-[13px] font-bold ${
+                on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body hover:border-faint"
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
+      </div>
 
-      <select className={selectCls} value={sp.get("status") ?? ""} onChange={(e) => set("status", e.target.value)}>
-        <option value="">All statuses</option>
-        {STATUSES.map((s) => (
-          <option key={s} value={s}>
-            {s.replace(/_/g, " ")}
-          </option>
-        ))}
-      </select>
+      <div className="mx-1 h-6 w-px bg-line-2" />
 
-      <input
-        type="date"
-        aria-label="From date"
-        className={selectCls}
-        value={sp.get("from") ?? ""}
-        onChange={(e) => set("from", e.target.value)}
-      />
-      <input
-        type="date"
-        aria-label="To date"
-        className={selectCls}
-        value={sp.get("to") ?? ""}
-        onChange={(e) => set("to", e.target.value)}
-      />
+      {/* status chips */}
+      <div className="flex flex-wrap gap-1.5">
+        {STATUSES.map((s) => {
+          const on = status === s;
+          return (
+            <button
+              key={s}
+              onClick={() => set("status", on ? "" : s)}
+              className={`h-8 rounded-lg px-3 text-[12px] font-semibold capitalize ${
+                on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-muted hover:text-body"
+              }`}
+            >
+              {s.replace(/_/g, " ")}
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex-1" />
 
       <input
         type="search"
@@ -63,14 +76,10 @@ export function DocumentsFilterBar() {
           if (e.key === "Enter") set("customer", (e.target as HTMLInputElement).value);
         }}
         onBlur={(e) => set("customer", e.target.value)}
-        className={`${selectCls} w-40`}
+        className="h-9 w-44 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] text-ink outline-none placeholder:text-faint focus:border-brand"
       />
-
-      {has && (
-        <button
-          onClick={() => router.replace(pathname)}
-          className="h-9 rounded-md px-3 text-[13px] text-graphite-400 hover:text-graphite-100"
-        >
+      {sp.toString() && (
+        <button onClick={() => router.replace(pathname)} className="h-9 px-2 text-[13px] text-muted hover:text-body">
           Clear
         </button>
       )}

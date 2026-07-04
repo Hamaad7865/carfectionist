@@ -18,7 +18,10 @@ export interface DocListRow {
   total_incl: string;
   amount_paid: string;
   customerName: string | null;
+  methodLabel: string;
 }
+
+const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank" };
 
 /** Documents list (quotes + invoices + credit notes), RLS-scoped, filtered. */
 export async function listDocuments(f: DocFilters): Promise<DocListRow[]> {
@@ -28,7 +31,7 @@ export async function listDocuments(f: DocFilters): Promise<DocListRow[]> {
 
   let q = sb
     .from("documents")
-    .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, ${rel}`)
+    .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, payments(method), ${rel}`)
     .order("created_at", { ascending: false })
     .limit(200);
 
@@ -42,15 +45,22 @@ export async function listDocuments(f: DocFilters): Promise<DocListRow[]> {
   if (error) throw new Error(error.message);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((d: any) => ({
-    id: d.id,
-    doc_type: d.doc_type,
-    status: d.status,
-    number: d.number,
-    issue_date: d.issue_date,
-    created_at: d.created_at,
-    total_incl: d.total_incl,
-    amount_paid: d.amount_paid,
-    customerName: d.customers?.name ?? null,
-  }));
+  return (data ?? []).map((d: any) => {
+    const methods: string[] = Array.from(
+      new Set(((d.payments ?? []) as { method: string; amount?: number }[]).map((p) => p.method)),
+    );
+    const methodLabel = methods.length === 0 ? "—" : methods.length > 1 ? "Split" : (METHOD_LABEL[methods[0]] ?? methods[0]);
+    return {
+      id: d.id,
+      doc_type: d.doc_type,
+      status: d.status,
+      number: d.number,
+      issue_date: d.issue_date,
+      created_at: d.created_at,
+      total_incl: d.total_incl,
+      amount_paid: d.amount_paid,
+      customerName: d.customers?.name ?? null,
+      methodLabel,
+    };
+  });
 }
