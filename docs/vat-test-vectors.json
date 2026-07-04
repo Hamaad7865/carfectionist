@@ -1,0 +1,25 @@
+{
+  "description": "Canonical VAT/rounding vectors shared by the web (lib/money) and Android (Kotlin) clients. Both must reproduce these exactly; the Postgres generated columns are the ultimate authority. Money is integer cents (rupees x 100). VAT is line-level, 2dp, round half away from zero, then summed.",
+  "cases": [
+    {
+      "name": "Diamondbrite quote — the Rs 88,780 verification case",
+      "lines": [
+        { "qty": 1, "unitCents": 3200000, "discountPct": 0, "vatRatePct": 15 },
+        { "qty": 4, "unitCents": 380000,  "discountPct": 0, "vatRatePct": 15 },
+        { "qty": 1, "unitCents": 3000000, "discountPct": 0, "vatRatePct": 15 }
+      ],
+      "expect": { "subtotalCents": 7720000, "vatCents": 1158000, "totalCents": 8878000 },
+      "expectWords": "EIGHTY EIGHT THOUSAND SEVEN HUNDRED EIGHTY RUPEES ONLY"
+    },
+    {
+      "name": "Single service",
+      "lines": [ { "qty": 1, "unitCents": 3200000, "discountPct": 0, "vatRatePct": 15 } ],
+      "expect": { "subtotalCents": 3200000, "vatCents": 480000, "totalCents": 3680000 }
+    },
+    {
+      "name": "Percentage discount, single line",
+      "lines": [ { "qty": 2, "unitCents": 150000, "discountPct": 10, "vatRatePct": 15 } ],
+      "expect": { "subtotalCents": 270000, "vatCents": 40500, "totalCents": 310500 }
+    }
+  ]
+}
