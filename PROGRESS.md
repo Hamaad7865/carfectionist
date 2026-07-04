@@ -30,7 +30,7 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
   (Diamondbrite layout: header/footer banners, From/For, Item/Quantity/Rate/
   Amount, VAT + Total (MUR), Total-in-words, bank details, terms) +
   `lib/pdf/fiscal-lock.ts`. Reproduces the 88,780 document strings.
-- [ ] 4. **Documents list (`/sales`)** — server-rendered table of quotes +
+- [x] 4. **Documents list (`/sales`)** — server-rendered table of quotes +
   invoices with filters (type, status, date, customer) via searchParams.
 - [ ] 5. **Document builder** — `/sales/new` + `/sales/[id]/edit`: reducer
   state, catalogue ProductPicker + ad-hoc typed lines, qty / unit price /
@@ -51,3 +51,4 @@ _(one line per completed item)_
 - 1. RPCs live + verified end-to-end via `scripts/verify-money-path.mjs` (77,200/11,580/88,780 → A00116 → INV-0001 → split → paid, fiscal lock rejects issued-line edits); run rolls back so the series stays at 116/1. Fixed a `text→doc_status` cast in the payment status CASE.
 - 2. rpc.ts wrappers (the seam) + zod server actions (saveDraft/issue/recordPayment/convert); cents→rupees mapper unit-tested (5 tests). Build + 39 tests green.
 - 3. DocumentA4 (Diamondbrite layout, inline styles, embedded print CSS) + fiscal-lock resolver; render test asserts Rs 77,200/11,580/88,780 + amount-in-words + column headers, and invoice keeps legal identity when config hides it. 50 tests green.
+- 4. /sales list: server-rendered table + client filter bar (type/status/date/customer via searchParams) + New quote/invoice; RLS query runs clean, empty-state verified in-browser.
