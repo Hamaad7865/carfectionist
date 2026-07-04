@@ -26,7 +26,7 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
 - [x] 2. **Typed RPC wrappers + server actions** — `lib/supabase/rpc.ts` (the
   numbering/MRA seam) + `features/documents/actions.ts` (zod-validated server
   actions: saveDraft, issueDocument, recordPayment, convertQuoteToInvoice).
-- [ ] 3. **DocumentA4 template + fiscal-lock resolver** — `components/pdf/*`
+- [x] 3. **DocumentA4 template + fiscal-lock resolver** — `components/pdf/*`
   (Diamondbrite layout: header/footer banners, From/For, Item/Quantity/Rate/
   Amount, VAT + Total (MUR), Total-in-words, bank details, terms) +
   `lib/pdf/fiscal-lock.ts`. Reproduces the 88,780 document strings.
@@ -50,3 +50,4 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
 _(one line per completed item)_
 - 1. RPCs live + verified end-to-end via `scripts/verify-money-path.mjs` (77,200/11,580/88,780 → A00116 → INV-0001 → split → paid, fiscal lock rejects issued-line edits); run rolls back so the series stays at 116/1. Fixed a `text→doc_status` cast in the payment status CASE.
 - 2. rpc.ts wrappers (the seam) + zod server actions (saveDraft/issue/recordPayment/convert); cents→rupees mapper unit-tested (5 tests). Build + 39 tests green.
+- 3. DocumentA4 (Diamondbrite layout, inline styles, embedded print CSS) + fiscal-lock resolver; render test asserts Rs 77,200/11,580/88,780 + amount-in-words + column headers, and invoice keeps legal identity when config hides it. 50 tests green.
