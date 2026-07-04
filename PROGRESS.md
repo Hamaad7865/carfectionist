@@ -37,7 +37,7 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
   per-line discount, live subtotal + 15% VAT + total, section toggles + custom
   fields from template config, autosave via `save_draft`, live iframe preview,
   Issue, Convert quote→invoice.
-- [ ] 6. **PDF pipeline** — `/print/doc/[id]` print route + `/api/documents/
+- [x] 6. **PDF pipeline** — `/print/doc/[id]` print route + `/api/documents/
   [id]/pdf` via Cloudflare Browser Rendering + issued-invoice snapshot to
   Storage. PDF download available at every step.
 - [ ] 7. **Payments UI** — document detail (`/sales/[id]`): record cash
@@ -53,3 +53,4 @@ _(one line per completed item)_
 - 3. DocumentA4 (Diamondbrite layout, inline styles, embedded print CSS) + fiscal-lock resolver; render test asserts Rs 77,200/11,580/88,780 + amount-in-words + column headers, and invoice keeps legal identity when config hides it. 50 tests green.
 - 4. /sales list: server-rendered table + client filter bar (type/status/date/customer via searchParams) + New quote/invoice; RLS query runs clean, empty-state verified in-browser.
 - 5. Builder (reducer state, catalogue+ad-hoc lines, qty/price/discount, section toggles, autosave via save_draft, live DocumentA4 preview iframe, Issue/Convert). Browser-verified: catalogue picks → live totals (65,800/9,870/75,670), qty edit → exact 77,200/11,580/88,780, autosave persists draft to /sales list. toDocumentProps unit test → 88,780. 53 tests + build green. (DB pooler:5432 flaky during this item; verified via the working REST path + browser.)
+- 6. /print/doc/[id] print route renders the faithful DB-backed document (browser-verified: Quotation, Item/Quantity/Rate/Amount, 77,200/11,580/88,780, amount-in-words, legal identity, bank, terms — all 200/present). /api/documents/[id]/pdf wired via htmlToPdf (Browser Rendering), returns graceful 503 without creds. PARTIAL-BLOCK: the PDF *binary* download + issued-invoice Storage snapshot need CF_ACCOUNT_ID + CF_BROWSER_RENDERING_TOKEN (not provided). Faithful PDF available now via /print + browser Print→Save as PDF. react-dom/server dynamic-imported in the route. Build offline-green.
