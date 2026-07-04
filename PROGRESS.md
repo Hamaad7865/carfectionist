@@ -40,7 +40,7 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
 - [x] 6. **PDF pipeline** — `/print/doc/[id]` print route + `/api/documents/
   [id]/pdf` via Cloudflare Browser Rendering + issued-invoice snapshot to
   Storage. PDF download available at every step.
-- [ ] 7. **Payments UI** — document detail (`/sales/[id]`): record cash
+- [x] 7. **Payments UI** — document detail (`/sales/[id]`): record cash
   (tendered/change), card/juice/bank_transfer (external ref), split payments;
   status auto-derived (paid / partly_paid) from SUM(payments).
 - [ ] 8. **Template settings** — `/settings/templates`: edit the Diamondbrite
@@ -54,3 +54,4 @@ _(one line per completed item)_
 - 4. /sales list: server-rendered table + client filter bar (type/status/date/customer via searchParams) + New quote/invoice; RLS query runs clean, empty-state verified in-browser.
 - 5. Builder (reducer state, catalogue+ad-hoc lines, qty/price/discount, section toggles, autosave via save_draft, live DocumentA4 preview iframe, Issue/Convert). Browser-verified: catalogue picks → live totals (65,800/9,870/75,670), qty edit → exact 77,200/11,580/88,780, autosave persists draft to /sales list. toDocumentProps unit test → 88,780. 53 tests + build green. (DB pooler:5432 flaky during this item; verified via the working REST path + browser.)
 - 6. /print/doc/[id] print route renders the faithful DB-backed document (browser-verified: Quotation, Item/Quantity/Rate/Amount, 77,200/11,580/88,780, amount-in-words, legal identity, bank, terms — all 200/present). /api/documents/[id]/pdf wired via htmlToPdf (Browser Rendering), returns graceful 503 without creds. PARTIAL-BLOCK: the PDF *binary* download + issued-invoice Storage snapshot need CF_ACCOUNT_ID + CF_BROWSER_RENDERING_TOKEN (not provided). Faithful PDF available now via /print + browser Print→Save as PDF. react-dom/server dynamic-imported in the route. Build offline-green.
+- 7. Document detail (/sales/[id]) + RecordPaymentForm (cash tendered/change, card/juice/bank ref, split). FULL DoD verified in-browser: A00116 → convert → INV-0001 → card Rs 50,000 (partly_paid, outstanding 38,780) → cash Rs 38,780 tendered 40,000 (change 1,220) → PAID (outstanding 0.00). Status auto-derived from SUM(payments). NOTE: this consumed the real series (A00116/INV-0001 now exist, paid); a fresh rebuild issues A00117/INV-0002.
