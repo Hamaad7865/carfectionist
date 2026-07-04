@@ -23,7 +23,7 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
   `sale` stock movements for stocked lines), `record_payment` (+ status),
   `reverse_payment`, `save_draft` (upsert doc + replace lines, `expected_rev`),
   `convert_quote_to_invoice`, `void_document`; idempotency; grants. Pushed to DB.
-- [ ] 2. **Typed RPC wrappers + server actions** — `lib/supabase/rpc.ts` (the
+- [x] 2. **Typed RPC wrappers + server actions** — `lib/supabase/rpc.ts` (the
   numbering/MRA seam) + `features/documents/actions.ts` (zod-validated server
   actions: saveDraft, issueDocument, recordPayment, convertQuoteToInvoice).
 - [ ] 3. **DocumentA4 template + fiscal-lock resolver** — `components/pdf/*`
@@ -49,3 +49,4 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
 ## Notes log
 _(one line per completed item)_
 - 1. RPCs live + verified end-to-end via `scripts/verify-money-path.mjs` (77,200/11,580/88,780 → A00116 → INV-0001 → split → paid, fiscal lock rejects issued-line edits); run rolls back so the series stays at 116/1. Fixed a `text→doc_status` cast in the payment status CASE.
+- 2. rpc.ts wrappers (the seam) + zod server actions (saveDraft/issue/recordPayment/convert); cents→rupees mapper unit-tested (5 tests). Build + 39 tests green.
