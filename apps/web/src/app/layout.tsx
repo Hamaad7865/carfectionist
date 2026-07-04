@@ -1,20 +1,21 @@
 import type { Metadata } from "next";
+import { Archivo, Manrope, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
 
-// NOTE: Fonts are a self-contained system stack (see globals.css) so the build
-// never depends on a live Google Fonts fetch. Restoring self-hosted Archivo +
-// IBM Plex (next/font/local) is a follow-up once the network is stable.
+const archivo = Archivo({ subsets: ["latin"], variable: "--font-archivo", display: "swap" });
+const manrope = Manrope({ subsets: ["latin"], variable: "--font-manrope", display: "swap" });
+const jetbrains = JetBrains_Mono({ subsets: ["latin"], variable: "--font-jetbrains", display: "swap" });
 
 export const metadata: Metadata = {
-  title: "Carfectionist",
-  description: "Carfectionist — detailing studio management",
+  title: "Carfection",
+  description: "Carfection — detailing studio management",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className="h-full">
+    <html lang="en" className={`${archivo.variable} ${manrope.variable} ${jetbrains.variable} h-full`}>
       <body className="min-h-full">{children}</body>
     </html>
   );

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LogOut } from "lucide-react";
+import { Plus, LogOut, ChevronDown } from "lucide-react";
 import { navForRole, ROLE_LABEL, type Role } from "@/lib/auth/roles";
 import { signOut } from "@/lib/auth/actions";
 import { Brand } from "./Brand";
@@ -20,12 +20,23 @@ export function Sidebar({ role, displayName }: { role: Role; displayName: string
   const name = displayName.replace(/\s*\(.*\)\s*$/, "").trim();
 
   return (
-    <aside className="flex w-60 shrink-0 flex-col border-r border-graphite-700 bg-graphite-900">
-      <div className="flex h-14 items-center border-b border-graphite-700 px-5">
+    <nav
+      className="flex w-[236px] shrink-0 flex-col border-r border-line px-[13px] py-[18px]"
+      style={{ background: "linear-gradient(180deg,#ffffff,#f6f8fb)" }}
+    >
+      <div className="px-2 pb-[18px] pt-1">
         <Brand />
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-3">
+      <Link
+        href="/sales/new?type=invoice"
+        className="grad-brand shadow-brand mx-0.5 mb-3.5 flex h-11 items-center justify-center gap-2 rounded-[11px] text-[14px] font-bold text-white"
+      >
+        <Plus size={17} strokeWidth={2.4} />
+        New document
+      </Link>
+
+      <div className="flex flex-col gap-[3px] overflow-y-auto">
         {items.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
           const Icon = item.icon;
@@ -34,42 +45,42 @@ export function Sidebar({ role, displayName }: { role: Role; displayName: string
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`relative flex h-10 items-center gap-3 px-5 text-[13px] transition-colors ${
+              className={`relative flex h-11 items-center gap-3 rounded-[10px] px-[13px] text-[13.5px] font-semibold transition-colors ${
                 active
-                  ? "bg-graphite-850 text-teal"
-                  : "text-graphite-400 hover:bg-graphite-850/60 hover:text-graphite-100"
+                  ? "bg-[rgba(43,140,255,0.10)] text-link"
+                  : "text-[#3d4a59] hover:bg-[rgba(15,23,32,0.04)]"
               }`}
             >
-              {active && (
-                <span className="iris-rail absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-full" />
-              )}
-              <Icon size={17} strokeWidth={active ? 2.2 : 1.8} />
-              <span className={active ? "font-medium" : undefined}>{item.label}</span>
+              {active && <span className="grad-rail absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-[3px]" />}
+              <Icon size={18} strokeWidth={active ? 2.3 : 2} />
+              <span className="flex-1">{item.label}</span>
             </Link>
           );
         })}
-      </nav>
-
-      <div className="border-t border-graphite-700 p-3">
-        <div className="flex items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-md bg-graphite-800 font-display text-sm font-semibold text-teal">
-            {initials(displayName)}
-          </span>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-[13px] text-graphite-100">{name}</p>
-            <p className="text-[11px] text-graphite-500">{ROLE_LABEL[role]}</p>
-          </div>
-          <form action={signOut}>
-            <button
-              type="submit"
-              title="Sign out"
-              className="grid size-8 place-items-center rounded-md text-graphite-500 transition-colors hover:bg-graphite-800 hover:text-danger"
-            >
-              <LogOut size={16} />
-            </button>
-          </form>
-        </div>
       </div>
-    </aside>
+
+      <div className="mt-auto flex items-center gap-2.5 rounded-xl border border-line bg-[rgba(15,23,32,0.04)] px-2.5 py-[11px]">
+        <span
+          className="grid size-[34px] shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-[#3f5065]"
+          style={{ background: "linear-gradient(140deg,#e5eaf1,#d2dae4)" }}
+        >
+          {initials(displayName)}
+        </span>
+        <div className="min-w-0 flex-1 leading-tight">
+          <div className="truncate text-[13px] font-bold text-ink">{name}</div>
+          <div className="text-[11px] font-medium text-muted">{ROLE_LABEL[role]} · Admin</div>
+        </div>
+        <form action={signOut}>
+          <button
+            type="submit"
+            title="Sign out"
+            className="grid size-8 place-items-center rounded-lg text-faint transition-colors hover:bg-white hover:text-rose"
+          >
+            <LogOut size={16} />
+          </button>
+        </form>
+        <ChevronDown size={16} className="text-faint" />
+      </div>
+    </nav>
   );
 }

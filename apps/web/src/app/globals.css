@@ -1,9 +1,46 @@
 @import "tailwindcss";
 
-/* ── Carfectionist design tokens ──────────────────────────────────────────
-   Deep graphite surfaces + one electric-teal accent (ceramic-coating
-   iridescence). Engineered, instrument-panel feel — not a generic admin. */
+/* ── Carfection — LIGHT design system (from the Claude Design handoff) ──────
+   Archivo (display) · Manrope (UI) · JetBrains Mono (numbers).
+   Blue→purple brand with teal/amber/rose semantics on light surfaces. */
 @theme {
+  /* surfaces */
+  --color-app: #eef2f6;
+  --color-card: #ffffff;
+  --color-sub: #f6f8fb;
+  --color-band: #eff3f7;
+  --color-line: rgba(15, 23, 32, 0.08);
+  --color-line-2: rgba(15, 23, 32, 0.12);
+
+  /* ink */
+  --color-ink: #172130;
+  --color-ink-strong: #111927;
+  --color-body: #2a3747;
+  --color-muted: #68737f;
+  --color-faint: #8c96a1;
+  --color-fainter: #9aa3ad;
+
+  /* brand (blue → purple) */
+  --color-brand: #2b8cff;
+  --color-brand-2: #4f74ff;
+  --color-brand-3: #6a5cff;
+  --color-link: #1e6fe0;
+
+  /* semantic */
+  --color-mint: #0da77c;
+  --color-mint-2: #10b5aa;
+  --color-amber: #f5a623;
+  --color-amber-ink: #b07c14;
+  --color-rose: #d63b50;
+  --color-pink: #ff5468;
+
+  /* fonts */
+  --font-sans: var(--font-manrope), system-ui, sans-serif;
+  --font-display: var(--font-archivo), var(--font-manrope), sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, monospace;
+
+  /* ── legacy dark tokens (temporary — removed in Phase F once every screen
+     is re-skinned; keeps un-migrated screens from rendering unstyled) ── */
   --color-graphite-950: #0a0c0e;
   --color-graphite-900: #0f1316;
   --color-graphite-850: #14181c;
@@ -15,68 +52,61 @@
   --color-graphite-300: #aab4bc;
   --color-graphite-200: #c8d0d6;
   --color-graphite-100: #e9edf0;
-
   --color-teal: #17e1c5;
   --color-teal-bright: #4df5de;
   --color-teal-deep: #0c9e8b;
   --color-cyan-iris: #22c6f0;
-
   --color-success: #35d9a0;
   --color-warning: #f4b740;
   --color-danger: #f0564a;
-
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --font-display: "Segoe UI", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: ui-monospace, "Cascadia Code", "Segoe UI Mono", Consolas, "Liberation Mono", monospace;
 }
 
 @layer base {
-  *,
-  ::before,
-  ::after {
-    border-color: var(--color-graphite-700);
-  }
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
   body {
-    background: var(--color-graphite-950);
-    color: var(--color-graphite-100);
+    background: radial-gradient(1400px 800px at 50% -20%, #f3f5f8, #e2e7ed 72%);
+    color: var(--color-body);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
   }
   ::selection {
-    background: color-mix(in oklab, var(--color-teal) 32%, transparent);
-    color: #fff;
+    background: color-mix(in oklab, var(--color-brand) 24%, transparent);
+    color: #0b1220;
   }
   :focus-visible {
-    outline: 2px solid var(--color-teal);
+    outline: 2px solid var(--color-brand);
     outline-offset: 2px;
   }
-  * {
-    scrollbar-width: thin;
-    scrollbar-color: var(--color-graphite-600) transparent;
+  ::-webkit-scrollbar {
+    width: 9px;
+    height: 9px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgba(15, 23, 32, 0.14);
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
   }
 }
 
-/* ── Signature: ceramic-coating iridescence ─────────────────────────────── */
-/* The single accent flourish — a teal→cyan sheen, like light on a fresh coat. */
-.iris-rail {
-  background-image: linear-gradient(180deg, var(--color-teal-bright), var(--color-cyan-iris));
-  box-shadow: 0 0 12px -1px color-mix(in oklab, var(--color-teal) 55%, transparent);
+/* Brand gradients (specific hues — used sparingly) */
+.grad-brand {
+  background: linear-gradient(135deg, #2b8cff, #4f74ff);
 }
-.teal-glow {
-  background: radial-gradient(
-    620px circle at 50% -10%,
-    color-mix(in oklab, var(--color-teal) 14%, transparent),
-    transparent 70%
-  );
+.grad-logo {
+  background: linear-gradient(140deg, #2b8cff, #6a5cff);
 }
-/* Machined top edge on panels */
-.edge-hi {
-  box-shadow: inset 0 1px 0 0 color-mix(in oklab, var(--color-graphite-600) 60%, transparent);
+.grad-rail {
+  background: linear-gradient(#2b8cff, #6a5cff);
 }
+.shadow-brand {
+  box-shadow: 0 6px 16px rgba(43, 140, 255, 0.3);
+}
+
 /* Instrument-gauge figures */
 .num {
   font-family: var(--font-mono);
