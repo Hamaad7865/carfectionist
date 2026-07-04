@@ -32,7 +32,7 @@ to **INV-0001** → record split Rs 50,000 card + Rs 38,780 cash → invoice sho
   `lib/pdf/fiscal-lock.ts`. Reproduces the 88,780 document strings.
 - [x] 4. **Documents list (`/sales`)** — server-rendered table of quotes +
   invoices with filters (type, status, date, customer) via searchParams.
-- [ ] 5. **Document builder** — `/sales/new` + `/sales/[id]/edit`: reducer
+- [x] 5. **Document builder** — `/sales/new` + `/sales/[id]/edit`: reducer
   state, catalogue ProductPicker + ad-hoc typed lines, qty / unit price /
   per-line discount, live subtotal + 15% VAT + total, section toggles + custom
   fields from template config, autosave via `save_draft`, live iframe preview,
@@ -52,3 +52,4 @@ _(one line per completed item)_
 - 2. rpc.ts wrappers (the seam) + zod server actions (saveDraft/issue/recordPayment/convert); cents→rupees mapper unit-tested (5 tests). Build + 39 tests green.
 - 3. DocumentA4 (Diamondbrite layout, inline styles, embedded print CSS) + fiscal-lock resolver; render test asserts Rs 77,200/11,580/88,780 + amount-in-words + column headers, and invoice keeps legal identity when config hides it. 50 tests green.
 - 4. /sales list: server-rendered table + client filter bar (type/status/date/customer via searchParams) + New quote/invoice; RLS query runs clean, empty-state verified in-browser.
+- 5. Builder (reducer state, catalogue+ad-hoc lines, qty/price/discount, section toggles, autosave via save_draft, live DocumentA4 preview iframe, Issue/Convert). Browser-verified: catalogue picks → live totals (65,800/9,870/75,670), qty edit → exact 77,200/11,580/88,780, autosave persists draft to /sales list. toDocumentProps unit test → 88,780. 53 tests + build green. (DB pooler:5432 flaky during this item; verified via the working REST path + browser.)
