@@ -1,0 +1,24 @@
+{
+  "name": "carfectionist",
+  "version": "0.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "db:push": "node scripts/db-push.mjs",
+    "db:seed-users": "node scripts/seed-users.mjs",
+    "db:seed": "node scripts/db-seed.mjs",
+    "db:types": "node scripts/db-types.mjs",
+    "db:setup": "node scripts/db-push.mjs && node scripts/seed-users.mjs && node scripts/db-seed.mjs && node scripts/db-types.mjs"
+  },
+  "devDependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "dotenv": "^16.4.5",
+    "pg": "^8.13.0",
+    "supabase": "^2.0.0"
+  },
+  "optionalDependencies": {
+    "@supabase/cli-windows-x64": "^2.109.0"
+  }
+}

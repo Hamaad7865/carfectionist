@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Secrets / env — NEVER commit these
+.env
+.env.local
+.env*.local
+.dev.vars
+apps/web/.env
+apps/web/.env.local
+
+# Next.js / OpenNext / Wrangler build output
+.next/
+out/
+.open-next/
+.wrangler/
+.vercel/
+
+# Supabase CLI
+supabase/.branches/
+supabase/.temp/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+*.iml
+
+# Testing / coverage
+coverage/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
