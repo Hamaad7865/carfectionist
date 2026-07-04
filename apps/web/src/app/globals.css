@@ -1,26 +1,85 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* ── Carfectionist design tokens ──────────────────────────────────────────
+   Deep graphite surfaces + one electric-teal accent (ceramic-coating
+   iridescence). Engineered, instrument-panel feel — not a generic admin. */
+@theme {
+  --color-graphite-950: #0a0c0e;
+  --color-graphite-900: #0f1316;
+  --color-graphite-850: #14181c;
+  --color-graphite-800: #1a1f24;
+  --color-graphite-700: #232a31;
+  --color-graphite-600: #333c45;
+  --color-graphite-500: #5a6570;
+  --color-graphite-400: #8a95a0;
+  --color-graphite-300: #aab4bc;
+  --color-graphite-200: #c8d0d6;
+  --color-graphite-100: #e9edf0;
+
+  --color-teal: #17e1c5;
+  --color-teal-bright: #4df5de;
+  --color-teal-deep: #0c9e8b;
+  --color-cyan-iris: #22c6f0;
+
+  --color-success: #35d9a0;
+  --color-warning: #f4b740;
+  --color-danger: #f0564a;
+
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-archivo), var(--font-plex-sans), sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  *,
+  ::before,
+  ::after {
+    border-color: var(--color-graphite-700);
+  }
+  html {
+    color-scheme: dark;
+  }
+  body {
+    background: var(--color-graphite-950);
+    color: var(--color-graphite-100);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--color-teal) 32%, transparent);
+    color: #fff;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-teal);
+    outline-offset: 2px;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-graphite-600) transparent;
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+/* ── Signature: ceramic-coating iridescence ─────────────────────────────── */
+/* The single accent flourish — a teal→cyan sheen, like light on a fresh coat. */
+.iris-rail {
+  background-image: linear-gradient(180deg, var(--color-teal-bright), var(--color-cyan-iris));
+  box-shadow: 0 0 12px -1px color-mix(in oklab, var(--color-teal) 55%, transparent);
+}
+.teal-glow {
+  background: radial-gradient(
+    620px circle at 50% -10%,
+    color-mix(in oklab, var(--color-teal) 14%, transparent),
+    transparent 70%
+  );
+}
+/* Machined top edge on panels */
+.edge-hi {
+  box-shadow: inset 0 1px 0 0 color-mix(in oklab, var(--color-graphite-600) 60%, transparent);
+}
+/* Instrument-gauge figures */
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
 }

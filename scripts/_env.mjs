@@ -9,6 +9,7 @@ config({ path: resolve(__dirname, '..', '.env') });
 export const PROJECT_REF = process.env.SUPABASE_PROJECT_REF?.trim();
 export const DB_URL = process.env.SUPABASE_DB_URL?.trim();
 export const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+export const ACCESS_TOKEN = process.env.SUPABASE_ACCESS_TOKEN?.trim();
 export const SUPABASE_URL = PROJECT_REF ? `https://${PROJECT_REF}.supabase.co` : undefined;
 
 export function requireEnv(name, value) {
