@@ -7,6 +7,7 @@ import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
+import { VoidButton } from "@/features/documents/VoidButton";
 import { formatMUR } from "@/lib/money";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
@@ -19,6 +20,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
 
   const isInvoice = doc.docType === "invoice";
   const canPay = isInvoice && (doc.status === "issued" || doc.status === "partly_paid");
+  const canVoid = isInvoice && doc.status === "issued" && doc.paidCents === 0;
   const title = doc.docType === "quote" ? "Quotation" : doc.docType === "credit_note" ? "Credit note" : "Invoice";
 
   return (
@@ -42,9 +44,20 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             </a>
             {doc.docType === "quote" && <ReviseButton quoteId={doc.id} />}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
+            {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
             {doc.docType === "quote" && <ConvertButton quoteId={doc.id} />}
           </div>
         </div>
+
+        {doc.status === "void" && (
+          <div className="mt-4 flex items-start gap-3 rounded-[13px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.06)] px-4 py-3">
+            <span className="mt-0.5 rounded-full bg-rose px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Void</span>
+            <div className="text-[12.5px] text-body">
+              This {doc.docType} was voided{doc.voidedAt ? ` on ${doc.voidedAt.slice(0, 10)}` : ""}
+              {doc.voidReason ? <> — <span className="font-semibold">{doc.voidReason}</span></> : ""}. Stock movements were reversed; the number is retained.
+            </div>
+          </div>
+        )}
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
           {/* Lines */}

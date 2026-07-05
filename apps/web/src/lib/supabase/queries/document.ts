@@ -24,6 +24,8 @@ export interface DocumentDetail {
   totalCents: number;
   paidCents: number;
   outstandingCents: number;
+  voidReason: string | null;
+  voidedAt: string | null;
   lines: { title: string; description: string | null; qty: number; rateCents: number; amountCents: number }[];
   payments: PaymentView[];
 }
@@ -56,6 +58,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     totalCents,
     paidCents,
     outstandingCents: totalCents - paidCents,
+    voidReason: d.void_reason ?? null,
+    voidedAt: d.voided_at ?? null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,

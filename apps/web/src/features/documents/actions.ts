@@ -116,6 +116,21 @@ export async function reviseQuoteAction(quoteId: string): Promise<ActionResult<r
   }
 }
 
+export async function voidDocumentAction(id: string, reason: string): Promise<ActionResult<rpc.DocumentRow>> {
+  await requireRole("owner", "manager");
+  const clean = reason.trim();
+  if (!clean) return { ok: false, error: "A void reason is required." };
+  const sb = await createClient();
+  try {
+    const doc = await rpc.voidDocument(sb, id, clean);
+    revalidatePath("/sales");
+    revalidatePath(`/sales/${id}`);
+    return { ok: true, data: doc };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function duplicateDocumentAction(id: string): Promise<ActionResult<rpc.DocumentRow>> {
   await requireRole(...WRITE_ROLES);
   const sb = await createClient();
