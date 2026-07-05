@@ -29,11 +29,12 @@ function qs(params: Record<string, string | undefined>) {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ r?: string; from?: string; to?: string }>;
+  searchParams: Promise<{ r?: string; from?: string; to?: string; m?: string }>;
 }) {
   const sp = await searchParams;
   const report = REPORTS.some((x) => x.key === sp.r) ? sp.r! : "collected";
-  const data = await getReportsData(sp.from, sp.to);
+  const method = ["cash", "card", "juice", "bank_transfer"].includes(sp.m ?? "") ? sp.m : undefined;
+  const data = await getReportsData(sp.from, sp.to, method);
   const cash = report === "cash" ? await getCashSessions() : null;
   const extra = EXTRA.includes(report) ? await getExtraReports(sp.from, sp.to) : null;
   const rangeLabel = sp.from || sp.to ? `${sp.from ?? "…"} → ${sp.to ?? "…"}` : "All time";
@@ -83,7 +84,7 @@ export default async function ReportsPage({
           <span className="num text-[11.5px] text-muted">{rangeLabel}</span>
           <div className="flex-1" />
           {report === "collected" && (
-            <a href={`/api/reports/payments/csv${qs({ from: sp.from, to: sp.to })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body">
+            <a href={`/api/reports/payments/csv${qs({ from: sp.from, to: sp.to, m: method })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body">
               <Download size={14} /> CSV
             </a>
           )}
@@ -92,6 +93,21 @@ export default async function ReportsPage({
         <div className="flex-1 overflow-y-auto p-5">
           {report === "collected" && (
             <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Method</span>
+                {[undefined, "cash", "card", "juice", "bank_transfer"].map((mkey) => {
+                  const on = method === mkey;
+                  return (
+                    <Link
+                      key={mkey ?? "all"}
+                      href={`/reports${qs({ r: "collected", from: sp.from, to: sp.to, m: mkey })}`}
+                      className={`inline-flex h-8 items-center justify-center rounded-lg px-3 text-[12px] font-semibold ${on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-muted hover:text-body"}`}
+                    >
+                      {mkey ? METHOD_LABEL[mkey] : "All"}
+                    </Link>
+                  );
+                })}
+              </div>
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
                 <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
                   <div className="text-[12px] font-semibold text-[#3d5978]">Cash received · {rangeLabel}</div>

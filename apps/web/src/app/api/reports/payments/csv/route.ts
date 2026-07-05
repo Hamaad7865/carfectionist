@@ -12,7 +12,11 @@ export async function GET(req: Request) {
     return new Response("Unauthorized", { status: 401 });
   }
   const url = new URL(req.url);
-  const data = await getReportsData(url.searchParams.get("from") ?? undefined, url.searchParams.get("to") ?? undefined);
+  const data = await getReportsData(
+    url.searchParams.get("from") ?? undefined,
+    url.searchParams.get("to") ?? undefined,
+    url.searchParams.get("m") ?? undefined,
+  );
 
   const rows: (string | number)[][] = [
     ["Date", "Document", "Customer", "Method", "Amount (Rs)"],

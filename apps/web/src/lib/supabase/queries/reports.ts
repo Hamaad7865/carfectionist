@@ -25,7 +25,9 @@ function daysBetween(iso: string, now: number): number {
   return Number.isNaN(t) ? 0 : Math.floor((now - t) / 86_400_000);
 }
 
-export async function getReportsData(from?: string, to?: string): Promise<ReportsData> {
+const PAYMENT_METHODS = ["cash", "card", "juice", "bank_transfer"];
+
+export async function getReportsData(from?: string, to?: string, method?: string): Promise<ReportsData> {
   const sb = await createClient();
 
   let payQ = sb
@@ -35,6 +37,7 @@ export async function getReportsData(from?: string, to?: string): Promise<Report
     .limit(500);
   if (from) payQ = payQ.gte("received_at", from);
   if (to) payQ = payQ.lte("received_at", `${to}T23:59:59`);
+  if (method && PAYMENT_METHODS.includes(method)) payQ = payQ.eq("method", method);
 
   const [payRes, invRes, expRes] = await Promise.all([
     payQ,
