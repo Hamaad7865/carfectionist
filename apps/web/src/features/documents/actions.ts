@@ -67,6 +67,15 @@ export async function recordPaymentAction(
   const parsed = recordPaymentSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid payment" };
   const sb = await createClient();
+
+  // Link cash to the open till so the end-of-day cash-up reconciles.
+  let cashSessionId: string | null = null;
+  if (parsed.data.method === "cash") {
+    const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    cashSessionId = (sess as any)?.id ?? null;
+  }
+
   try {
     const pay = await rpc.recordPayment(sb, {
       invoiceId: parsed.data.invoiceId,
@@ -74,6 +83,7 @@ export async function recordPaymentAction(
       amount: parsed.data.amountCents / 100,
       tendered: parsed.data.tenderedCents != null ? parsed.data.tenderedCents / 100 : null,
       externalRef: parsed.data.externalRef ?? null,
+      cashSessionId,
     });
     revalidatePath(`/sales/${parsed.data.invoiceId}`);
     return { ok: true, data: pay };

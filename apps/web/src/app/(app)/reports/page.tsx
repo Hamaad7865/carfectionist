@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
 import { getReportsData } from "@/lib/supabase/queries/reports";
+import { getCashSessions } from "@/lib/supabase/queries/cash";
+import { CashSessions } from "@/features/cash/CashSessions";
 import { formatMUR } from "@/lib/money";
 
 const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c", juice: "#6a5cff", bank_transfer: "#f5a623" };
@@ -10,8 +12,9 @@ const REPORTS = [
   { key: "collected", label: "Collected by method" },
   { key: "vat", label: "VAT report" },
   { key: "receivables", label: "Aged receivables" },
+  { key: "cash", label: "End-of-day cash-up" },
 ];
-const SOON = ["Simple P&L", "Best-sellers", "Revenue by technician", "End-of-day cash-up"];
+const SOON = ["Simple P&L", "Best-sellers", "Revenue by technician"];
 
 function qs(params: Record<string, string | undefined>) {
   const p = new URLSearchParams();
@@ -28,6 +31,7 @@ export default async function ReportsPage({
   const sp = await searchParams;
   const report = REPORTS.some((x) => x.key === sp.r) ? sp.r! : "collected";
   const data = await getReportsData(sp.from, sp.to);
+  const cash = report === "cash" ? await getCashSessions() : null;
   const rangeLabel = sp.from || sp.to ? `${sp.from ?? "…"} → ${sp.to ?? "…"}` : "All time";
 
   const now = new Date();
@@ -199,6 +203,8 @@ export default async function ReportsPage({
               })}
             </div>
           )}
+
+          {report === "cash" && cash && <CashSessions open={cash.open} recent={cash.recent} />}
         </div>
       </div>
     </div>
