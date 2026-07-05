@@ -2,6 +2,8 @@ import Link from "next/link";
 import { getInventory } from "@/lib/supabase/queries/inventory";
 import { getTransfers } from "@/lib/supabase/queries/transfers";
 import { TransfersPanel } from "@/features/transfers/TransfersPanel";
+import { getRecipes } from "@/lib/supabase/queries/recipes";
+import { RecipesPanel } from "@/features/recipes/RecipesPanel";
 import { formatMUR } from "@/lib/money";
 
 const KIND_LABEL: Record<string, string> = { service: "Service", consumable: "Consumable", product: "Product" };
@@ -16,6 +18,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const tab = sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : "catalogue";
   const rows = tab === "catalogue" ? await getInventory() : [];
   const transferData = tab === "transfers" ? await getTransfers() : null;
+  const recipeData = tab === "recipes" ? await getRecipes() : null;
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -58,11 +61,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       )}
 
       {tab === "transfers" && transferData && <TransfersPanel transfers={transferData.transfers} refData={transferData.ref} />}
-      {tab === "recipes" && (
-        <div className="rounded-[15px] border border-line bg-card p-8 text-center text-[13px] text-muted">
-          Service recipes (bill of materials) arrive in <span className="font-semibold text-body">Phase 3</span>.
-        </div>
-      )}
+      {tab === "recipes" && recipeData && <RecipesPanel data={recipeData} />}
     </div>
   );
 }
