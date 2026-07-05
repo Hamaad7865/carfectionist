@@ -75,3 +75,21 @@ _(one line per completed item)_
 - [x] **Reports: P&L / best-sellers / revenue-by-technician** — added to the accounting rail. Verified: Revenue 77,420 → Gross 77,065 → Net 74,665; best-sellers ranked; technician split (fixed an ambiguous jobs→app_users embed via `jobs_technician_id_fkey`).
 
 **Test data left in DB (harmless):** Auto Supplies Ltd supplier + received PO; Walk-in customer + INV-0002; a service recipe; a completed transfer; 2 certificates. On-hand/cost figures above reflect these.
+
+---
+
+# Phase 2 — CRUD organs (built, verified, committed)
+
+> Fills the Phase 2 gaps that were read-only. Shared `components/ui/Modal.tsx` +
+> `form.tsx` (Field/inputCls/FormError). All writes are RLS-scoped zod server
+> actions (schemas use transforms → typed via `z.input`).
+
+- [x] **Customers & vehicles CRUD** — `/contacts`: New/Edit customer (name, phone, email, address, BRN, VAT, notes) + add/edit/delete vehicles (plate, make, model, year, colour, VIN; duplicate-plate guard). Verified in-browser (create persisted, `saveVehicleAction` ran).
+- [x] **Suppliers CRUD** — `/contacts?tab=suppliers`: New/Edit supplier (replaces the read-only table). Verified (Meguiars Distributor created).
+- [x] **Products catalogue CRUD incl. barcode** — `/products`: New product + click-row-to-edit (name, SKU, description, category, unit, sell/cost price, VAT override, barcode, stock tracking + low-stock threshold, active toggle); services forced non-stocked; Show-archived toggle. Verified (Snow Foam Shampoo 5L created w/ barcode+stock; edit → Rs 999).
+- [x] **Inventory — manual adjustments + movements ledger** — `/products?tab=inventory`: record +/- `adjustment` movements (owner/manager, RLS-permitted direct insert, valued at current cost) + full stock-movements ledger. Verified (+12 → on-hand 0→12, ledger row).
+- [x] **Payments register method filter** — `/reports` collected: All/Cash/Card/Juice/Bank chips (`?m=`), CSV export carries the method. Verified (All 89,033 → Card 50,000 → Cash 39,033).
+
+**Still open for Phase 3:** credit-note/void UI (+ CN- migration), CSV/PDF on every report, staff/team + business-profile settings, maintenance reminders, enquiry edge function, report SQL-view RPCs + customer statement, PDF binary/Storage snapshot (blocked on Cloudflare creds), deploy.
+
+**More test data (harmless):** customer "Vikram Patel" (+ Toyota vehicle); supplier "Meguiars Distributor"; product "Snow Foam Shampoo 5L" (barcode, +12 on-hand).
