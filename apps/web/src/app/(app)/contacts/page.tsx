@@ -1,6 +1,9 @@
 import Link from "next/link";
-import { Car, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import { getContacts } from "@/lib/supabase/queries/contacts";
+import { CustomerDialog } from "@/features/contacts/CustomerDialog";
+import { VehiclesEditor } from "@/features/contacts/VehiclesEditor";
+import { SuppliersPanel } from "@/features/contacts/SuppliersPanel";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 
@@ -24,9 +27,11 @@ export default async function ContactsPage({
 
   return (
     <div className="flex flex-col gap-4 p-6">
-      <div className="flex gap-1.5">
+      <div className="flex items-center gap-1.5">
         <Link href="/contacts" className={tabCls(tab === "customers")}>Customers</Link>
         <Link href="/contacts?tab=suppliers" className={tabCls(tab === "suppliers")}>Suppliers</Link>
+        <div className="flex-1" />
+        {tab === "customers" && <CustomerDialog />}
       </div>
 
       {tab === "customers" ? (
@@ -66,9 +71,12 @@ export default async function ContactsPage({
                   <div className="font-display text-[19px] font-extrabold text-ink-strong">{sel.name}</div>
                   <div className="mt-0.5 text-[12px] text-muted">{[sel.phone, sel.email].filter(Boolean).join(" · ") || "—"}</div>
                 </div>
-                <Link href="/sales/new?type=invoice" className="grad-brand shadow-brand flex h-[38px] items-center gap-1.5 rounded-[10px] px-3.5 text-[12.5px] font-bold text-white">
-                  <Plus size={14} /> New document
-                </Link>
+                <div className="flex items-center gap-2">
+                  <CustomerDialog customer={sel} />
+                  <Link href="/sales/new?type=invoice" className="grad-brand shadow-brand flex h-[38px] items-center gap-1.5 rounded-[10px] px-3.5 text-[12.5px] font-bold text-white">
+                    <Plus size={14} /> New document
+                  </Link>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-3 p-[22px]">
@@ -83,18 +91,7 @@ export default async function ContactsPage({
               </div>
 
               <div className="px-[22px] pb-2">
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]">Vehicles</div>
-                <div className="flex flex-col gap-2">
-                  {sel.vehicles.length === 0 && <div className="rounded-[11px] border border-dashed border-line-2 p-4 text-center text-[12px] text-faint">No vehicles on file.</div>}
-                  {sel.vehicles.map((v, i) => (
-                    <div key={i} className="flex items-center gap-3 rounded-[11px] border border-line px-3.5 py-2.5">
-                      <Car size={20} className="text-link" strokeWidth={1.8} />
-                      <span className="flex-1 text-[13px] font-bold text-body">{v.make}</span>
-                      <span className="num text-[12px] text-muted">{v.plate}</span>
-                      <span className="text-[12px] text-muted">{v.color}</span>
-                    </div>
-                  ))}
-                </div>
+                <VehiclesEditor customerId={sel.id} vehicles={sel.vehicles} />
               </div>
 
               <div className="px-[22px] pb-[22px] pt-3.5">
@@ -117,24 +114,7 @@ export default async function ContactsPage({
           )}
         </div>
       ) : (
-        <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-          <div className="grid grid-cols-[1fr_180px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
-            <span>Supplier</span>
-            <span>Phone</span>
-            <span>Email</span>
-          </div>
-          {data.suppliers.length === 0 ? (
-            <div className="px-5 py-14 text-center text-[13px] text-faint">No suppliers yet. Supplier management arrives with Purchases (Phase 2/3).</div>
-          ) : (
-            data.suppliers.map((s) => (
-              <div key={s.id} className="grid grid-cols-[1fr_180px_1fr] gap-3 border-b border-line px-5 py-3.5 text-[13px]">
-                <span className="font-bold text-body">{s.name}</span>
-                <span className="num text-muted">{s.phone ?? "—"}</span>
-                <span className="text-muted">{s.email ?? "—"}</span>
-              </div>
-            ))
-          )}
-        </div>
+        <SuppliersPanel suppliers={data.suppliers} />
       )}
     </div>
   );

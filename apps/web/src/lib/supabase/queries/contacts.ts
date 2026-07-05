@@ -2,9 +2,14 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 
 export interface ContactVehicle {
-  make: string;
+  id: string;
   plate: string;
-  color: string;
+  make: string | null;
+  model: string | null;
+  year: number | null;
+  color: string | null;
+  vin: string | null;
+  notes: string | null;
 }
 export interface ContactDoc {
   id: string;
@@ -18,6 +23,11 @@ export interface CustomerSummary {
   name: string;
   phone: string | null;
   email: string | null;
+  address: string | null;
+  brn: string | null;
+  vatNumber: string | null;
+  notes: string | null;
+  country: string;
   vehicleCount: number;
   outstandingCents: number;
 }
@@ -31,6 +41,10 @@ export interface SupplierRow {
   name: string;
   phone: string | null;
   email: string | null;
+  address: string | null;
+  brn: string | null;
+  vatNumber: string | null;
+  notes: string | null;
 }
 
 export interface ContactsData {
@@ -42,10 +56,10 @@ export interface ContactsData {
 export async function getContacts(selectedId?: string): Promise<ContactsData> {
   const sb = await createClient();
   const [custRes, vehRes, docRes, supRes] = await Promise.all([
-    sb.from("customers").select("id, name, phone, email").order("name"),
-    sb.from("vehicles").select("id, customer_id, make, model, plate, color"),
+    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country").order("name"),
+    sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, vin, notes"),
     sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at"),
-    sb.from("suppliers").select("id, name, phone, email").order("name"),
+    sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,6 +85,11 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     name: c.name,
     phone: c.phone,
     email: c.email,
+    address: c.address,
+    brn: c.brn,
+    vatNumber: c.vat_number,
+    notes: c.notes,
+    country: c.country ?? "MU",
     vehicleCount: vehicles.filter((v) => v.customer_id === c.id).length,
     outstandingCents: outstandingByCust.get(c.id) ?? 0,
   }));
@@ -84,7 +103,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
       spendCents: spendByCust.get(selId) ?? 0,
       vehicles: vehicles
         .filter((v) => v.customer_id === selId)
-        .map((v) => ({ make: [v.make, v.model].filter(Boolean).join(" "), plate: v.plate, color: v.color ?? "" })),
+        .map((v) => ({ id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, color: v.color, vin: v.vin, notes: v.notes })),
       history: docs
         .filter((d) => d.customer_id === selId)
         .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
@@ -102,6 +121,6 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     customers,
     selected,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    suppliers: ((supRes.data ?? []) as any[]).map((s) => ({ id: s.id, name: s.name, phone: s.phone, email: s.email })),
+    suppliers: ((supRes.data ?? []) as any[]).map((s) => ({ id: s.id, name: s.name, phone: s.phone, email: s.email, address: s.address, brn: s.brn, vatNumber: s.vat_number, notes: s.notes })),
   };
 }
