@@ -7,12 +7,7 @@ import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { formatMUR } from "@/lib/money";
 
-const METHOD_LABEL: Record<string, string> = {
-  cash: "Cash",
-  card: "Card",
-  juice: "Juice",
-  bank_transfer: "Bank transfer",
-};
+const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
 
 export default async function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -25,29 +20,22 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const title = doc.docType === "quote" ? "Quotation" : doc.docType === "credit_note" ? "Credit note" : "Invoice";
 
   return (
-    <div className="p-8">
+    <div className="p-6">
       <div className="mx-auto max-w-5xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <Link href="/sales" className="text-[13px] text-graphite-400 hover:text-graphite-100">
-              ← Sales
-            </Link>
+            <Link href="/sales" className="text-[13px] font-semibold text-muted hover:text-body">← Sales</Link>
             <div className="mt-1 flex items-center gap-3">
-              <h2 className="font-display text-2xl font-semibold text-graphite-100">{title}</h2>
-              <span className="num text-graphite-400">{doc.number}</span>
+              <h2 className="font-display text-[22px] font-extrabold text-ink-strong">{title}</h2>
+              <span className="num text-muted">{doc.number}</span>
               <StatusPill status={doc.status} />
             </div>
-            <p className="mt-1 text-sm text-graphite-500">
+            <p className="mt-1 text-[13px] text-muted">
               {doc.customerName ?? "—"} · {doc.issueDate ?? doc.createdAt.slice(0, 10)}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <a
-              href={`/print/doc/${doc.id}`}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-graphite-700 bg-graphite-850 px-3 text-[13px] text-graphite-100 hover:border-graphite-600"
-            >
+            <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
               <Printer size={15} /> Print / PDF
             </a>
             {doc.docType === "quote" && <ConvertButton quoteId={doc.id} />}
@@ -55,80 +43,58 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
-          {/* Lines + totals */}
-          <div className="overflow-hidden rounded-xl border border-graphite-700">
-            <table className="w-full text-[13px]">
-              <thead>
-                <tr className="bg-graphite-850 text-left text-[11px] uppercase tracking-wider text-graphite-500">
-                  <th className="px-4 py-2.5 font-medium">Item</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Qty</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Rate</th>
-                  <th className="px-4 py-2.5 text-right font-medium">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {doc.lines.map((l, i) => (
-                  <tr key={i} className="border-t border-graphite-700 align-top">
-                    <td className="px-4 py-2.5">
-                      <div className="text-graphite-100">{l.title}</div>
-                      {l.description && <div className="whitespace-pre-wrap text-[12px] text-graphite-500">{l.description}</div>}
-                    </td>
-                    <td className="num px-4 py-2.5 text-right text-graphite-300">{l.qty}</td>
-                    <td className="num px-4 py-2.5 text-right text-graphite-300">{formatMUR(l.rateCents)}</td>
-                    <td className="num px-4 py-2.5 text-right text-graphite-100">{formatMUR(l.amountCents)}</td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="border-t border-graphite-700">
-                  <td colSpan={3} className="px-4 py-2 text-right text-graphite-400">Subtotal</td>
-                  <td className="num px-4 py-2 text-right text-graphite-100">{formatMUR(doc.subtotalCents)}</td>
-                </tr>
-                <tr>
-                  <td colSpan={3} className="px-4 py-2 text-right text-graphite-400">VAT</td>
-                  <td className="num px-4 py-2 text-right text-graphite-100">{formatMUR(doc.vatCents)}</td>
-                </tr>
-                <tr className="border-t border-graphite-700 bg-graphite-850">
-                  <td colSpan={3} className="px-4 py-2.5 text-right font-semibold text-graphite-100">Total (MUR)</td>
-                  <td className="num px-4 py-2.5 text-right font-semibold text-teal">{formatMUR(doc.totalCents)}</td>
-                </tr>
-              </tfoot>
-            </table>
+          {/* Lines */}
+          <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+            <div className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-faint">
+              <span>Item</span>
+              <span className="text-right">Qty</span>
+              <span className="text-right">Rate</span>
+              <span className="text-right">Amount</span>
+            </div>
+            {doc.lines.map((l, i) => (
+              <div key={i} className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line px-5 py-2.5">
+                <div>
+                  <div className="text-[13px] font-semibold text-ink">{l.title}</div>
+                  {l.description && <div className="whitespace-pre-wrap text-[12px] text-muted">{l.description}</div>}
+                </div>
+                <span className="num text-right text-[12.5px] text-muted">{l.qty}</span>
+                <span className="num text-right text-[12.5px] text-body">{formatMUR(l.rateCents)}</span>
+                <span className="num text-right text-[13px] font-semibold text-ink">{formatMUR(l.amountCents)}</span>
+              </div>
+            ))}
+            <div className="flex justify-end px-5 py-3">
+              <div className="w-56 text-[13px]">
+                <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(doc.subtotalCents)}</span></div>
+                <div className="flex justify-between py-1 text-muted"><span>VAT</span><span className="num text-ink">{formatMUR(doc.vatCents)}</span></div>
+                <div className="mt-1 flex justify-between border-t border-line pt-2 font-bold"><span className="text-ink">Total (MUR)</span><span className="num text-brand">{formatMUR(doc.totalCents)}</span></div>
+              </div>
+            </div>
           </div>
 
           {/* Payments */}
           <div className="space-y-4">
             {isInvoice && (
-              <div className="rounded-xl border border-graphite-700 bg-graphite-900 p-4 text-[13px]">
-                <div className="flex justify-between py-1 text-graphite-400">
-                  <span>Paid</span>
-                  <span className="num text-graphite-100">{formatMUR(doc.paidCents)}</span>
-                </div>
+              <div className="rounded-[15px] border border-line bg-card p-4 text-[13px]">
+                <div className="flex justify-between py-1 text-muted"><span>Paid</span><span className="num text-ink">{formatMUR(doc.paidCents)}</span></div>
                 <div className="flex justify-between py-1">
-                  <span className="text-graphite-400">Outstanding</span>
-                  <span className={`num font-semibold ${doc.outstandingCents <= 0 ? "text-success" : "text-warning"}`}>
-                    {formatMUR(doc.outstandingCents)}
-                  </span>
+                  <span className="text-muted">Outstanding</span>
+                  <span className={`num font-bold ${doc.outstandingCents <= 0 ? "text-mint" : "text-amber-ink"}`}>{formatMUR(doc.outstandingCents)}</span>
                 </div>
               </div>
             )}
 
             {doc.payments.length > 0 && (
-              <div className="rounded-xl border border-graphite-700">
-                <div className="border-b border-graphite-700 px-4 py-2 text-[11px] uppercase tracking-wider text-graphite-500">
-                  Payments
-                </div>
-                <ul className="divide-y divide-graphite-700 text-[13px]">
+              <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+                <div className="border-b border-line px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Payments</div>
+                <ul className="divide-y divide-line text-[13px]">
                   {doc.payments.map((p) => (
                     <li key={p.id} className="flex items-center justify-between px-4 py-2.5">
                       <div>
-                        <span className="text-graphite-100">{METHOD_LABEL[p.method] ?? p.method}</span>
-                        {p.externalRef && <span className="ml-2 text-[11px] text-graphite-500">{p.externalRef}</span>}
-                        {p.changeCents != null && p.changeCents > 0 && (
-                          <span className="ml-2 text-[11px] text-graphite-500">change {formatMUR(p.changeCents)}</span>
-                        )}
+                        <span className="font-semibold text-ink">{METHOD_LABEL[p.method] ?? p.method}</span>
+                        {p.externalRef && <span className="ml-2 text-[11px] text-faint">{p.externalRef}</span>}
+                        {p.changeCents != null && p.changeCents > 0 && <span className="ml-2 text-[11px] text-faint">change {formatMUR(p.changeCents)}</span>}
                       </div>
-                      <span className="num text-graphite-100">{formatMUR(p.amountCents)}</span>
+                      <span className="num font-bold text-ink">{formatMUR(p.amountCents)}</span>
                     </li>
                   ))}
                 </ul>

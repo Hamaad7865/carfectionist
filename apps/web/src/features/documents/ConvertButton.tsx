@@ -19,7 +19,7 @@ export function ConvertButton({ quoteId }: { quoteId: string }) {
     <button
       onClick={convert}
       disabled={busy}
-      className="inline-flex h-9 items-center rounded-md bg-teal px-3 text-[13px] font-semibold text-graphite-950 hover:bg-teal-bright disabled:opacity-60"
+      className="grad-brand shadow-brand inline-flex h-9 items-center rounded-[10px] px-3.5 text-[13px] font-bold text-white disabled:opacity-60"
     >
       {busy ? "Converting…" : "Convert to invoice"}
     </button>

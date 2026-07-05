@@ -13,7 +13,8 @@ const METHODS = [
 ] as const;
 
 const field =
-  "h-9 w-full rounded-md border border-graphite-700 bg-graphite-850 px-2.5 text-[13px] text-graphite-100 outline-none focus:border-teal";
+  "h-9 w-full rounded-[10px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand";
+const lbl = "mb-1 block text-[11px] font-bold uppercase tracking-wide text-faint";
 
 export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: string; outstandingCents: number }) {
   const router = useRouter();
@@ -46,17 +47,15 @@ export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: 
       setTendered("");
       setRef("");
       router.refresh();
-    } else {
-      setError(res.error);
-    }
+    } else setError(res.error);
   }
 
   return (
-    <div className="rounded-lg border border-graphite-700 bg-graphite-900 p-4">
-      <p className="mb-3 text-[13px] font-medium text-graphite-100">Record payment</p>
+    <div className="rounded-[14px] border border-line bg-card p-4">
+      <p className="mb-3 text-[13px] font-bold text-ink">Record payment</p>
       <div className="grid grid-cols-2 gap-3">
         <label className="block">
-          <span className="mb-1 block text-[11px] uppercase tracking-wide text-graphite-500">Method</span>
+          <span className={lbl}>Method</span>
           <select className={field} value={method} onChange={(e) => setMethod(e.target.value)}>
             {METHODS.map((m) => (
               <option key={m.value} value={m.value}>
@@ -66,43 +65,37 @@ export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: 
           </select>
         </label>
         <label className="block">
-          <span className="mb-1 block text-[11px] uppercase tracking-wide text-graphite-500">Amount (Rs)</span>
+          <span className={lbl}>Amount (Rs)</span>
           <input className={`${field} num text-right`} value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" />
         </label>
 
         {isCash ? (
           <>
             <label className="block">
-              <span className="mb-1 block text-[11px] uppercase tracking-wide text-graphite-500">Tendered (Rs)</span>
-              <input
-                className={`${field} num text-right`}
-                value={tendered}
-                onChange={(e) => setTendered(e.target.value)}
-                inputMode="decimal"
-                placeholder={(amountCents / 100).toFixed(2)}
-              />
+              <span className={lbl}>Tendered (Rs)</span>
+              <input className={`${field} num text-right`} value={tendered} onChange={(e) => setTendered(e.target.value)} inputMode="decimal" placeholder={(amountCents / 100).toFixed(2)} />
             </label>
             <div className="block">
-              <span className="mb-1 block text-[11px] uppercase tracking-wide text-graphite-500">Change</span>
-              <div className={`${field} num flex items-center justify-end ${changeCents != null && changeCents < 0 ? "text-danger" : "text-graphite-300"}`}>
+              <span className={lbl}>Change</span>
+              <div className={`${field} num flex items-center justify-end ${changeCents != null && changeCents < 0 ? "text-rose" : "text-body"}`}>
                 {changeCents != null ? formatMUR(changeCents) : "—"}
               </div>
             </div>
           </>
         ) : (
           <label className="col-span-2 block">
-            <span className="mb-1 block text-[11px] uppercase tracking-wide text-graphite-500">External reference</span>
+            <span className={lbl}>External reference</span>
             <input className={field} value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Terminal / transaction ref" />
           </label>
         )}
       </div>
 
-      {error && <p className="mt-3 text-[12px] text-danger">{error}</p>}
+      {error && <p className="mt-3 text-[12px] text-rose">{error}</p>}
 
       <button
         onClick={submit}
         disabled={busy}
-        className="mt-4 h-9 w-full rounded-md bg-teal text-[13px] font-semibold text-graphite-950 hover:bg-teal-bright disabled:opacity-60"
+        className="grad-brand shadow-brand mt-4 h-9 w-full rounded-[10px] text-[13px] font-bold text-white disabled:opacity-60"
       >
         {busy ? "Recording…" : `Record ${formatMUR(amountCents)}`}
       </button>
