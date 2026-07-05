@@ -1,4 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getSessionContext } from "@/lib/auth/session";
 
 export interface BusinessProfile {
   id: string;
@@ -39,4 +41,40 @@ export async function getBusinessProfile(): Promise<BusinessProfile | null> {
     quoteSeries: `${d.quote_prefix}… · next ${d.quote_next_number}`,
     invoiceSeries: `${d.invoice_prefix}… · next ${d.invoice_next_number}`,
   };
+}
+
+export interface TeamMember {
+  id: string;
+  name: string;
+  role: string;
+  email: string | null;
+  active: boolean;
+  isSelf: boolean;
+}
+
+export async function getTeam(): Promise<TeamMember[]> {
+  const sb = await createClient();
+  const session = await getSessionContext();
+  const { data: users } = await sb.from("app_users").select("id, auth_user_id, role, display_name, is_active").order("display_name");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows = (users ?? []) as any[];
+
+  // Emails live in auth.users — look them up (service role) only for this tenant's members.
+  const emailById = new Map<string, string>();
+  try {
+    const admin = createAdminClient();
+    const { data: authList } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
+    for (const u of authList?.users ?? []) if (u.email) emailById.set(u.id, u.email);
+  } catch {
+    /* emails are best-effort */
+  }
+
+  return rows.map((u) => ({
+    id: u.id,
+    name: u.display_name,
+    role: u.role,
+    email: emailById.get(u.auth_user_id) ?? null,
+    active: u.is_active,
+    isSelf: session?.userId === u.auth_user_id,
+  }));
 }
