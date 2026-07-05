@@ -19,7 +19,7 @@ Phase-2/3 screens stay as light placeholders until their real phases.
   performance, best-sellers, recent invoices (real data where available).
 - [x] C. **Sales list** — tabs + status chips + table (Number/Customer/Date/
   Method/Status/Total) + footer count/total.
-- [ ] D. **Document builder** — controls (doc-type toggle, catalogue search,
+- [x] D. **Document builder** — controls (doc-type toggle, catalogue search,
   ad-hoc entry, qty steppers, per-line VAT, sections, custom fields) + live preview.
 - [ ] E. **Document detail + payments** — re-skin detail summary + payment form.
 - [ ] F. **Settings + placeholders** — settings/templates re-skin; Phase-2/3
@@ -30,3 +30,4 @@ _(one line per phase)_
 - A. Light tokens + Archivo/Manrope/JetBrains fonts; shell (Sidebar/Topbar/Brand/StatusPill/PagePlaceholder) re-skinned.
 - B. Dashboard: KPI cards (invoiced/collected/outstanding/count), collected-by-method donut, catalogue, recent docs, best-sellers — all real data.
 - C. Sales list: type tabs + status chips filter bar, comp grid table (Number/Customer/Date/Method/Status/Total), count+total footer.
+- D. Builder re-skinned to comp: light split layout, doc-type toggle, bill-to chips, catalogue search, ad-hoc entry, qty steppers, per-line VAT toggle, section switches; DocumentA4 preview kept as the fiscal artifact.
