@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown } from "lucide-react";
+import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -21,6 +21,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const router = useRouter();
   const [state, dispatch] = useReducer(reducer, initial);
   const [busy, setBusy] = useState(false);
+  const [showPreview, setShowPreview] = useState(true);
   const [catQuery, setCatQuery] = useState("");
   const [adName, setAdName] = useState("");
   const [adPrice, setAdPrice] = useState("");
@@ -129,6 +130,15 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
           {state.save === "saving" ? "Saving…" : state.save === "saved" ? "Saved" : ""}
         </span>
         <div className="flex-1" />
+        <button
+          onClick={() => setShowPreview((v) => !v)}
+          title={showPreview ? "Hide preview" : "Show preview"}
+          aria-pressed={showPreview}
+          className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[12.5px] font-semibold text-body hover:border-brand"
+        >
+          {showPreview ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
+          {showPreview ? "Hide preview" : "Preview"}
+        </button>
         {!readOnly && (
           <button onClick={onIssue} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center gap-2 rounded-[10px] px-[18px] font-display text-[13px] font-extrabold text-white disabled:opacity-60">
             {busy ? "Working…" : `Issue ${state.docType}`}
@@ -154,7 +164,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
 
       {state.saveError && <div className="border-b border-[rgba(214,59,80,.3)] bg-[rgba(214,59,80,.08)] px-[22px] py-2 text-[13px] text-rose">{state.saveError}</div>}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[1fr_520px]">
+      <div className={`grid min-h-0 flex-1 grid-cols-1 ${showPreview ? "lg:grid-cols-2" : ""}`}>
         {/* CONTROLS */}
         <div className="flex flex-col gap-4 overflow-y-auto p-[22px]">
           {/* doc type + bill to */}
@@ -298,9 +308,11 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
         </div>
 
         {/* PREVIEW */}
-        <div className="min-h-0 overflow-hidden border-l border-line">
-          <iframe title="Preview" srcDoc={previewHtml} className="h-full w-full border-0" />
-        </div>
+        {showPreview && (
+          <div className="min-h-0 overflow-hidden border-l border-line bg-[#e2e7ee]">
+            <iframe title="Preview" srcDoc={previewHtml} className="h-full w-full border-0" />
+          </div>
+        )}
       </div>
     </div>
   );
