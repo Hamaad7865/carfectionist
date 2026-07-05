@@ -33,3 +33,8 @@ _(one line per phase)_
 - D. Builder re-skinned to comp: light split layout, doc-type toggle, bill-to chips, catalogue search, ad-hoc entry, qty steppers, per-line VAT toggle, section switches; DocumentA4 preview kept as the fiscal artifact.
 - E. Document detail + RecordPaymentForm + ConvertButton re-skinned light.
 - F. Settings/templates + login re-skinned; placeholder pages already light via PagePlaceholder; legacy dark tokens removed (grep-verified no remaining users).
+
+## Build-out (comp screens with real data)
+- [x] G. Contacts — customers master-detail (list, vehicles, lifetime spend, outstanding, service history) + suppliers tab. Verified live.
+- [x] H. Products & Inventory — catalogue table (cost/sell/margin/store/floor/on-hand + LOW badges); transfers/recipes tabs stubbed for Phase 2/3. Verified live.
+- Template SAVE verified end-to-end (clicked Save → persisted).
