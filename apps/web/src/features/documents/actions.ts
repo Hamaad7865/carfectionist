@@ -115,3 +115,15 @@ export async function reviseQuoteAction(quoteId: string): Promise<ActionResult<r
     return { ok: false, error: (e as Error).message };
   }
 }
+
+export async function duplicateDocumentAction(id: string): Promise<ActionResult<rpc.DocumentRow>> {
+  await requireRole(...WRITE_ROLES);
+  const sb = await createClient();
+  try {
+    const dup = await rpc.duplicateDocument(sb, id);
+    revalidatePath("/sales");
+    return { ok: true, data: dup };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}

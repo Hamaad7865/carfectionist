@@ -84,6 +84,9 @@ export const convertQuoteToInvoice = (sb: Client, quoteId: string) =>
 export const reviseQuote = (sb: Client, quoteId: string) =>
   callRpc<DocumentRow>(sb, "revise_quote", { p_quote_id: quoteId });
 
+export const duplicateDocument = (sb: Client, id: string) =>
+  callRpc<DocumentRow>(sb, "duplicate_document", { p_id: id });
+
 export interface RecordPaymentArgs {
   invoiceId: string;
   method: "cash" | "card" | "juice" | "bank_transfer";
