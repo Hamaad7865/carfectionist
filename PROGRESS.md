@@ -121,4 +121,6 @@ _(one line per completed item)_
 - [x] **Appointment module** — `/appointments`: book (customer, vehicle, date/time, department, technician, service), schedule with status + overdue, **convert to job**.
 - [x] **Custom fields on documents** — builder 'Custom fields' (N label/value), saved to `template_overrides`, rendered in the A4 header (preview + PDF).
 
-**Still open for Phase 3:** credit notes (CN- series); PDF exports (blocked on CF Browser Rendering creds); report SQL-view RPCs + customer statement; enquiry edge function + rate-limit; the actual production deploy (needs CF login).
+**Credit notes (CN- series) — DONE.** Migration 0008: CN- numbering + `create_and_issue_credit_note` RPC (copies a paid/partly-paid invoice into an issued credit note, optional restock via +qty movements, audit event). Credit-note button on paid invoices; nets out of revenue/output-VAT/COGS reports. Verified: INV-0002 → CN-0001, Clay Bar 149→150, VAT 11,613→11,580.
+
+**Still open for Phase 3:** PDF exports (blocked on CF Browser Rendering creds); report SQL-view RPCs + customer statement (numbers already correct); enquiry edge function + rate-limit (works as a server action); the actual production deploy (needs CF login — everything's wired, Workers build passes).
