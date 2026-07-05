@@ -106,3 +106,19 @@ _(one line per completed item)_
 **Still open for Phase 3:** credit-note **CN- series** (additive migration + issue branch — void covers unpaid; credit notes are for *paid* corrections), **PDF export** on reports + **PDF binary/Storage snapshot** (both blocked on Cloudflare Browser Rendering creds), report **SQL-view RPCs** + **customer statement**, enquiry **edge function** (currently a server action), **deploy** (OpenNext → Workers).
 
 **More Phase 3 test data (harmless):** staff login "Priya Naiko" (cashier); a voided INV-0003 + its draft duplicate/duplicated drafts; A00117 revision draft; a "done" maintenance reminder for Vikram Patel.
+
+---
+
+# Deploy + product requests (built, verified, committed)
+
+**Deploy — Cloudflare Workers (OpenNext).** Wired `@opennextjs/cloudflare` + wrangler (wrangler.jsonc, open-next.config.ts, next.config dev hook, cf-build/preview/deploy scripts, DEPLOY.md). OpenNext build produces `.open-next/worker.js` cleanly. **Middleware refactor:** Next 16's `proxy.ts` is Node-only and OpenNext hard-blocks Node middleware, so the proxy was removed — route protection was already server-side ((app) layout `requireSession` + RLS), token-refresh moved to a client `AuthKeepalive`, `/login` gained a signed-in bounce. **The live push is gated on the user's Cloudflare login** (API token + account id) — one command (`npm run deploy`) from live.
+
+**Owner requests (migration 0007: jobs.department + appointments):**
+- [x] **Date range filter** (From/To) on Sales list + Reports (reusable `DateRangeFilter`).
+- [x] **VAT-inclusive price toggle** in the product form (gross → stored net using the effective rate; business VAT default threaded in).
+- [x] **Departments ("Place of work")** on jobs — dropdown (Detailing studio / Car wash / Technical jobs / Garage) on intake + job card + board badge.
+- [x] **Create-customer in job intake** — Existing/New toggle; New captures customer + vehicle and creates all three in one call.
+- [x] **Appointment module** — `/appointments`: book (customer, vehicle, date/time, department, technician, service), schedule with status + overdue, **convert to job**.
+- [x] **Custom fields on documents** — builder 'Custom fields' (N label/value), saved to `template_overrides`, rendered in the A4 header (preview + PDF).
+
+**Still open for Phase 3:** credit notes (CN- series); PDF exports (blocked on CF Browser Rendering creds); report SQL-view RPCs + customer statement; enquiry edge function + rate-limit; the actual production deploy (needs CF login).
