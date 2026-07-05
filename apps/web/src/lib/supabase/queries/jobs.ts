@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { departmentLabel } from "@/lib/departments";
 
 export const JOB_COLUMNS = [
   { status: "scheduled", label: "Scheduled", dot: "#8c96a1" },
@@ -16,6 +17,7 @@ export interface JobCardSummary {
   plate: string | null;
   technician: string | null;
   technicianInitials: string | null;
+  department: string | null;
   running: boolean;
 }
 
@@ -35,7 +37,7 @@ function nameById(rows: any[], id: string | null, field = "display_name"): strin
 export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> {
   const sb = await createClient();
   const [jobsRes, custRes, vehRes, usersRes, timerRes] = await Promise.all([
-    sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, created_at").order("created_at", { ascending: false }),
+    sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at").order("created_at", { ascending: false }),
     sb.from("customers").select("id, name"),
     sb.from("vehicles").select("id, make, model, plate"),
     sb.from("app_users").select("id, display_name"),
@@ -64,6 +66,7 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
       plate: v?.plate ?? null,
       technician: tech ? tech.replace(/\s*\(.*\)\s*$/, "").trim() : null,
       technicianInitials: initials(tech),
+      department: departmentLabel(j.department),
       running: running.has(j.id),
     };
     (board[j.status] ?? (board[j.status] = [])).push(card);
@@ -79,6 +82,7 @@ export interface JobDetail {
   vehicle: string | null;
   plate: string | null;
   technicianId: string | null;
+  department: string | null;
   revision: number;
   checklist: { label: string; done: boolean }[];
   elapsedSeconds: number;
@@ -123,6 +127,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       vehicle: j.vehicles ? [j.vehicles.make, j.vehicles.model].filter(Boolean).join(" ") : null,
       plate: j.vehicles?.plate ?? null,
       technicianId: j.technician_id,
+      department: j.department ?? null,
       revision: 0,
       checklist: Array.isArray(j.checklist) ? j.checklist : [],
       elapsedSeconds: elapsed,

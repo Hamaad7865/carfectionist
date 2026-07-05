@@ -25,27 +25,59 @@ const DEFAULT_CHECKLIST = [
 ];
 
 const createSchema = z.object({
-  customerId: z.string().min(1),
-  vehicleId: z.string().min(1),
+  customerId: z.string().optional(),
+  vehicleId: z.string().optional(),
+  newCustomerName: z.string().trim().optional(),
+  newCustomerPhone: z.string().trim().optional(),
+  newVehiclePlate: z.string().trim().optional(),
+  newVehicleMake: z.string().trim().optional(),
   service: z.string().optional(),
   technicianId: z.string().nullable().optional(),
+  department: z.string().nullable().optional(),
 });
 
-export async function createJobAction(input: z.infer<typeof createSchema>): Promise<Result<{ id: string }>> {
+export async function createJobAction(input: z.input<typeof createSchema>): Promise<Result<{ id: string }>> {
   const ctx = await requireRole(...ROLES);
   const p = createSchema.safeParse(input);
-  if (!p.success) return { ok: false, error: "Pick a customer and vehicle." };
+  if (!p.success) return { ok: false, error: "Invalid job details." };
   const sb = await createClient();
-  if (!(await existsInTenant(sb, "customers", p.data.customerId))) return { ok: false, error: "Unknown customer." };
-  if (!(await existsInTenant(sb, "vehicles", p.data.vehicleId))) return { ok: false, error: "Unknown vehicle." };
+
+  // Resolve customer — pick an existing one or create a new one inline.
+  let customerId = p.data.customerId || null;
+  if (customerId) {
+    if (!(await existsInTenant(sb, "customers", customerId))) return { ok: false, error: "Unknown customer." };
+  } else {
+    const name = p.data.newCustomerName ?? "";
+    if (!name) return { ok: false, error: "Pick a customer or add a new one." };
+    const { data: c, error: ce } = await sb.from("customers").insert({ tenant_id: ctx.tenantId, name, phone: p.data.newCustomerPhone || null }).select("id").single();
+    if (ce) return { ok: false, error: ce.message };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    customerId = (c as any).id;
+  }
+
+  // Resolve vehicle — existing or new (linked to the customer above).
+  let vehicleId = p.data.vehicleId || null;
+  if (vehicleId) {
+    if (!(await existsInTenant(sb, "vehicles", vehicleId))) return { ok: false, error: "Unknown vehicle." };
+  } else {
+    const plate = p.data.newVehiclePlate ?? "";
+    if (!plate) return { ok: false, error: "Pick a vehicle or add one." };
+    const { data: v, error: ve } = await sb.from("vehicles").insert({ tenant_id: ctx.tenantId, customer_id: customerId, plate, make: p.data.newVehicleMake || null }).select("id").single();
+    if (ve) return { ok: false, error: /duplicate|unique/i.test(ve.message) ? "A vehicle with that plate already exists." : ve.message };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vehicleId = (v as any).id;
+  }
+
   if (p.data.technicianId && !(await existsInTenant(sb, "app_users", p.data.technicianId))) return { ok: false, error: "Unknown technician." };
+
   const { data, error } = await sb
     .from("jobs")
     .insert({
       tenant_id: ctx.tenantId,
-      customer_id: p.data.customerId,
-      vehicle_id: p.data.vehicleId,
+      customer_id: customerId,
+      vehicle_id: vehicleId,
       technician_id: p.data.technicianId || null,
+      department: p.data.department || null,
       notes: p.data.service || null,
       status: "scheduled",
       checklist: DEFAULT_CHECKLIST,
@@ -56,6 +88,16 @@ export async function createJobAction(input: z.infer<typeof createSchema>): Prom
   revalidatePath("/jobs");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { ok: true, data: { id: (data as any).id } };
+}
+
+export async function setJobDepartmentAction(jobId: string, department: string | null): Promise<Result> {
+  await requireRole(...ROLES);
+  const sb = await createClient();
+  const { error } = await sb.from("jobs").update({ department }).eq("id", jobId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/jobs");
+  return { ok: true };
 }
 
 export async function assignTechnicianAction(jobId: string, technicianId: string | null): Promise<Result> {

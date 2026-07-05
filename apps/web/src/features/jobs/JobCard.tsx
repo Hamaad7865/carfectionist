@@ -6,9 +6,11 @@ import Link from "next/link";
 import { Play, Square, Plus, Check, Trash2 } from "lucide-react";
 import { StatusPill } from "@/components/ui/StatusPill";
 import type { JobDetail, JobRefData } from "@/lib/supabase/queries/jobs";
+import { DEPARTMENTS } from "@/lib/departments";
 import {
   toggleTimerAction,
   assignTechnicianAction,
+  setJobDepartmentAction,
   updateChecklistAction,
   setJobStatusAction,
   completeJobAction,
@@ -96,8 +98,8 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         )}
       </div>
 
-      {/* technician */}
-      <div className="mt-4 flex items-center gap-3 rounded-[13px] border border-line bg-card px-4 py-3">
+      {/* technician + place of work */}
+      <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[13px] border border-line bg-card px-4 py-3">
         <span className="text-[13px] font-semibold text-body">Assigned to</span>
         <select
           className={field}
@@ -107,6 +109,16 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         >
           <option value="">— unassigned —</option>
           {refData.technicians.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        <span className="ml-2 text-[13px] font-semibold text-body">Place of work</span>
+        <select
+          className={field}
+          value={job.department ?? ""}
+          disabled={readOnly}
+          onChange={(e) => run(() => setJobDepartmentAction(job.id, e.target.value || null))}
+        >
+          <option value="">— department —</option>
+          {DEPARTMENTS.map((d) => <option key={d.slug} value={d.slug}>{d.label}</option>)}
         </select>
       </div>
 

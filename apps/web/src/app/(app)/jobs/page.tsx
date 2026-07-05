@@ -32,6 +32,7 @@ export default async function JobsPage() {
                     </div>
                     <div className="mt-2 text-[14px] font-bold leading-tight text-ink-strong">{j.vehicle ?? "—"}</div>
                     <div className="num text-[12px] text-muted">{j.plate ?? ""}</div>
+                    {j.department && <span className="mt-2 inline-block rounded-[6px] bg-[rgba(43,140,255,0.1)] px-2 py-0.5 text-[10px] font-bold tracking-wide text-link">{j.department}</span>}
                     {j.service && <div className="mt-2 text-[12.5px] text-body">{j.service}</div>}
                     <div className="mt-3 flex items-center gap-2 border-t border-line pt-2.5">
                       <span className="grid size-6 place-items-center rounded-[7px] bg-band font-display text-[10px] font-extrabold text-[#3f5065]">{j.technicianInitials ?? "–"}</span>
