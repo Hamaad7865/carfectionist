@@ -90,6 +90,19 @@ _(one line per completed item)_
 - [x] **Inventory — manual adjustments + movements ledger** — `/products?tab=inventory`: record +/- `adjustment` movements (owner/manager, RLS-permitted direct insert, valued at current cost) + full stock-movements ledger. Verified (+12 → on-hand 0→12, ledger row).
 - [x] **Payments register method filter** — `/reports` collected: All/Cash/Card/Juice/Bank chips (`?m=`), CSV export carries the method. Verified (All 89,033 → Card 50,000 → Cash 39,033).
 
-**Still open for Phase 3:** credit-note/void UI (+ CN- migration), CSV/PDF on every report, staff/team + business-profile settings, maintenance reminders, enquiry edge function, report SQL-view RPCs + customer statement, PDF binary/Storage snapshot (blocked on Cloudflare creds), deploy.
-
 **More test data (harmless):** customer "Vikram Patel" (+ Toyota vehicle); supplier "Meguiars Distributor"; product "Snow Foam Shampoo 5L" (barcode, +12 on-hand).
+
+---
+
+# Phase 3 — Client-ready (in progress; built, verified, committed)
+
+- [x] **Revise quote / Duplicate invoice** — issued docs stay locked, but a quote gets a **Revise** button and an invoice a **Duplicate** button that clone it into a fresh draft (source_document_id link, own number on re-issue). RPCs `revise_quote` (0005), `duplicate_document` (0006). Verified against A00117 and INV-0001.
+- [x] **Void invoice flow** — Void button on issued, unpaid invoices (owner/manager) → confirm+reason → `void_document` (keeps number, reverses stock, audit event); voided banner on detail. Verified (INV-0003 voided).
+- [x] **Business profile settings** — `/settings` edits business_settings (identity, contact, bank, VAT rate); numbering counters read-only. New Settings sub-nav.
+- [x] **Team & roles** — `/settings/team`: list (emails via admin client), add staff (admin createUser + app_users, rollback on failure), change role, activate/deactivate; self-lockout guards. Verified (created a cashier login).
+- [x] **CSV export on every report** — dynamic `/api/reports/[slug]/csv` for all 7 reports (range + method aware). Verified (all 200 text/csv).
+- [x] **Maintenance reminders** — `/certificates?tab=reminders`: create + pending→sent/done/dismissed, overdue flagging. Verified.
+
+**Still open for Phase 3:** credit-note **CN- series** (additive migration + issue branch — void covers unpaid; credit notes are for *paid* corrections), **PDF export** on reports + **PDF binary/Storage snapshot** (both blocked on Cloudflare Browser Rendering creds), report **SQL-view RPCs** + **customer statement**, enquiry **edge function** (currently a server action), **deploy** (OpenNext → Workers).
+
+**More Phase 3 test data (harmless):** staff login "Priya Naiko" (cashier); a voided INV-0003 + its draft duplicate/duplicated drafts; A00117 revision draft; a "done" maintenance reminder for Vikram Patel.
