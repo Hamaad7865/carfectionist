@@ -6,20 +6,17 @@ export default async function TemplatesSettingsPage() {
   const template = await getDefaultTemplate();
 
   return (
-    <div className="p-8">
+    <div className="p-6">
       <div className="mx-auto max-w-3xl">
-        <p className="text-[11px] uppercase tracking-[0.15em] text-graphite-500">Settings</p>
-        <h2 className="mt-1 font-display text-2xl font-semibold text-graphite-100">Document template</h2>
-        <p className="mt-1.5 text-sm text-graphite-400">
-          The Diamondbrite template — the default for both quotes and invoices.
-        </p>
+        <h2 className="font-display text-[20px] font-extrabold text-ink-strong">Document template</h2>
+        <p className="mt-1 text-[13px] text-muted">The Diamondbrite template — the default for both quotes and invoices.</p>
 
-        <div className="mt-8">
+        <div className="mt-6">
           {template ? (
             <TemplateEditor template={template} />
           ) : (
-            <p className="text-sm text-graphite-500">
-              No default template found. Reseed the database (<Link href="/dashboard" className="text-teal">dashboard</Link>).
+            <p className="text-sm text-muted">
+              No default template found. Reseed the database (<Link href="/dashboard" className="text-link">dashboard</Link>).
             </p>
           )}
         </div>

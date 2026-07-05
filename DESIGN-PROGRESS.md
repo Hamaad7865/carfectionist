@@ -21,8 +21,8 @@ Phase-2/3 screens stay as light placeholders until their real phases.
   Method/Status/Total) + footer count/total.
 - [x] D. **Document builder** — controls (doc-type toggle, catalogue search,
   ad-hoc entry, qty steppers, per-line VAT, sections, custom fields) + live preview.
-- [ ] E. **Document detail + payments** — re-skin detail summary + payment form.
-- [ ] F. **Settings + placeholders** — settings/templates re-skin; Phase-2/3
+- [x] E. **Document detail + payments** — re-skin detail summary + payment form.
+- [x] F. **Settings + placeholders** — settings/templates re-skin; Phase-2/3
   placeholder pages light; remove old dark tokens.
 
 ## Notes
@@ -31,3 +31,5 @@ _(one line per phase)_
 - B. Dashboard: KPI cards (invoiced/collected/outstanding/count), collected-by-method donut, catalogue, recent docs, best-sellers — all real data.
 - C. Sales list: type tabs + status chips filter bar, comp grid table (Number/Customer/Date/Method/Status/Total), count+total footer.
 - D. Builder re-skinned to comp: light split layout, doc-type toggle, bill-to chips, catalogue search, ad-hoc entry, qty steppers, per-line VAT toggle, section switches; DocumentA4 preview kept as the fiscal artifact.
+- E. Document detail + RecordPaymentForm + ConvertButton re-skinned light.
+- F. Settings/templates + login re-skinned; placeholder pages already light via PagePlaceholder; legacy dark tokens removed (grep-verified no remaining users).

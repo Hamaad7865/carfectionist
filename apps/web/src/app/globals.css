@@ -38,27 +38,6 @@
   --font-sans: var(--font-manrope), system-ui, sans-serif;
   --font-display: var(--font-archivo), var(--font-manrope), sans-serif;
   --font-mono: var(--font-jetbrains), ui-monospace, monospace;
-
-  /* ── legacy dark tokens (temporary — removed in Phase F once every screen
-     is re-skinned; keeps un-migrated screens from rendering unstyled) ── */
-  --color-graphite-950: #0a0c0e;
-  --color-graphite-900: #0f1316;
-  --color-graphite-850: #14181c;
-  --color-graphite-800: #1a1f24;
-  --color-graphite-700: #232a31;
-  --color-graphite-600: #333c45;
-  --color-graphite-500: #5a6570;
-  --color-graphite-400: #8a95a0;
-  --color-graphite-300: #aab4bc;
-  --color-graphite-200: #c8d0d6;
-  --color-graphite-100: #e9edf0;
-  --color-teal: #17e1c5;
-  --color-teal-bright: #4df5de;
-  --color-teal-deep: #0c9e8b;
-  --color-cyan-iris: #22c6f0;
-  --color-success: #35d9a0;
-  --color-warning: #f4b740;
-  --color-danger: #f0564a;
 }
 
 @layer base {
