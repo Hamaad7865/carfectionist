@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { Plus, ChevronRight } from "lucide-react";
+import { Plus, ChevronRight, Store } from "lucide-react";
 import { listDocuments } from "@/lib/supabase/queries/documents";
 import { DocumentsFilterBar } from "@/features/documents/DocumentsFilterBar";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -29,12 +29,20 @@ export default async function SalesPage({
     <div className="flex flex-col gap-4 p-6">
       <div className="flex items-center justify-between gap-4">
         <h2 className="font-display text-[20px] font-extrabold text-ink-strong">Quotes &amp; Invoices</h2>
-        <Link
-          href="/sales/new?type=invoice"
-          className="grad-brand shadow-brand flex h-10 items-center gap-2 rounded-[11px] px-[18px] text-[13.5px] font-bold text-white"
-        >
-          <Plus size={16} strokeWidth={2.4} /> New document
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/sales/counter"
+            className="flex h-10 items-center gap-2 rounded-[11px] border border-line-2 bg-card px-4 text-[13.5px] font-bold text-body hover:border-brand"
+          >
+            <Store size={16} strokeWidth={2.2} /> Counter sale
+          </Link>
+          <Link
+            href="/sales/new?type=invoice"
+            className="grad-brand shadow-brand flex h-10 items-center gap-2 rounded-[11px] px-[18px] text-[13.5px] font-bold text-white"
+          >
+            <Plus size={16} strokeWidth={2.4} /> New document
+          </Link>
+        </div>
       </div>
 
       <Suspense fallback={null}>
