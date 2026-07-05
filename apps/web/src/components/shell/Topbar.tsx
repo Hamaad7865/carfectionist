@@ -10,6 +10,7 @@ const SUBS: Record<string, string> = {
   "/contacts": "Customers, vehicles & suppliers",
   "/sales": "Quotes & invoices",
   "/products": "Catalogue & inventory",
+  "/certificates": "Warranty certificates",
   "/purchases": "Suppliers, orders & expenses",
   "/reports": "Accounting & reports",
   "/enquiries": "Public enquiry inbox",
