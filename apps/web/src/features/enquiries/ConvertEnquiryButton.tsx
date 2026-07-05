@@ -1,0 +1,29 @@
+"use client";
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import { convertEnquiryAction } from "./actions";
+
+export function ConvertEnquiryButton({ enquiryId, converted }: { enquiryId: string; converted: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+
+  if (converted) return <span className="text-[11px] font-bold text-mint">Converted ✓</span>;
+
+  async function go() {
+    setBusy(true);
+    const r = await convertEnquiryAction(enquiryId);
+    setBusy(false);
+    if (r.ok) router.push(`/contacts?c=${r.customerId}`);
+  }
+
+  return (
+    <button
+      onClick={go}
+      disabled={busy}
+      className="h-9 shrink-0 rounded-[9px] border border-[rgba(43,140,255,0.4)] bg-[rgba(43,140,255,0.1)] px-3.5 text-[12px] font-bold text-[#2f78de] disabled:opacity-60"
+    >
+      {busy ? "…" : "Convert →"}
+    </button>
+  );
+}
