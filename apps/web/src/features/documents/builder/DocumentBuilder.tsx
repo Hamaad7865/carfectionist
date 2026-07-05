@@ -141,7 +141,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
           </a>
         )}
         {readOnly && state.docType === "quote" && (
-          <button onClick={onConvert} disabled={busy} className="grad-brand shadow-brand h-[38px] rounded-[10px] px-4 font-display text-[13px] font-extrabold text-white disabled:opacity-60">
+          <button onClick={onConvert} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center justify-center rounded-[10px] px-4 font-display text-[13px] font-extrabold text-white disabled:opacity-60">
             Convert to invoice
           </button>
         )}
@@ -166,7 +166,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   <button
                     key={t}
                     onClick={() => !readOnly && dispatch({ type: "setDocType", docType: t })}
-                    className={`h-[38px] flex-1 rounded-lg text-[13px] font-bold capitalize ${state.docType === t ? "bg-card text-ink shadow-sm" : "text-muted"}`}
+                    className={`inline-flex h-[38px] flex-1 items-center justify-center rounded-lg text-[13px] font-bold capitalize ${state.docType === t ? "bg-card text-ink shadow-sm" : "text-muted"}`}
                   >
                     {t}
                   </button>
@@ -182,7 +182,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                     <button
                       key={c.id}
                       onClick={() => !readOnly && dispatch({ type: "setCustomer", customerId: on ? null : c.id })}
-                      className={`h-[34px] rounded-[9px] px-3 text-[12px] font-semibold ${on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-body"}`}
+                      className={`inline-flex h-[34px] items-center justify-center rounded-[9px] px-3 text-[12px] font-semibold ${on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-body"}`}
                     >
                       {c.name}
                     </button>
@@ -228,7 +228,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                     <span className="num absolute left-3 top-3 text-[13px] text-faint">Rs</span>
                     <input value={adPrice} onChange={(e) => setAdPrice(e.target.value)} inputMode="numeric" placeholder="0" className="num h-[42px] w-full rounded-[9px] border border-line-2 bg-sub pl-9 pr-3 text-[13px] font-semibold text-ink outline-none" />
                   </div>
-                  <button onClick={addAdhoc} className="h-[42px] rounded-[9px] bg-[#e2e8ef] px-4 text-[13px] font-bold text-body">Add</button>
+                  <button onClick={addAdhoc} className="inline-flex h-[42px] items-center justify-center rounded-[9px] bg-[#e2e8ef] px-4 text-[13px] font-bold text-body">Add</button>
                 </div>
               </>
             )}

@@ -61,20 +61,20 @@ export default async function DashboardPage() {
       </div>
 
       {/* Collected by method + catalogue */}
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1fr_360px]">
+      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,400px)_1fr]">
         <div className={`${card} p-5`}>
           <div className="font-display text-[14px] font-bold text-ink">Collected by method</div>
           <div className="mt-0.5 text-[11.5px] text-muted">All recorded payments</div>
           {d.byMethod.length === 0 ? (
             <div className="py-10 text-center text-[12.5px] text-faint">No payments recorded yet.</div>
           ) : (
-            <div className="mt-3 flex items-center gap-6">
-              <div className="relative grid size-[128px] shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${stops})` }}>
-                <div className="grid size-[86px] place-items-center rounded-full bg-card">
-                  <span className="num text-[15px] font-extrabold text-ink-strong">{formatMUR(d.collectedCents)}</span>
+            <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-4">
+              <div className="relative grid size-[136px] shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${stops})` }}>
+                <div className="grid size-[100px] place-items-center rounded-full bg-card">
+                  <span className="num max-w-[94px] text-center text-[12px] font-extrabold leading-tight text-ink-strong">{formatMUR(d.collectedCents)}</span>
                 </div>
               </div>
-              <div className="flex flex-1 flex-col gap-2.5">
+              <div className="flex min-w-[176px] flex-col gap-2.5">
                 {d.byMethod.map((m) => (
                   <div key={m.method} className="flex items-center gap-2.5">
                     <span className="size-2.5 rounded-[3px]" style={{ background: METHOD_COLOR[m.method] ?? "#8c96a1" }} />

@@ -95,7 +95,7 @@ export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: 
       <button
         onClick={submit}
         disabled={busy}
-        className="grad-brand shadow-brand mt-4 h-9 w-full rounded-[10px] text-[13px] font-bold text-white disabled:opacity-60"
+        className="grad-brand shadow-brand mt-4 flex h-9 w-full items-center justify-center rounded-[10px] text-[13px] font-bold text-white disabled:opacity-60"
       >
         {busy ? "Recording…" : `Record ${formatMUR(amountCents)}`}
       </button>

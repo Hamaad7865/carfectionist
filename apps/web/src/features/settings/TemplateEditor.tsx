@@ -108,7 +108,7 @@ export function TemplateEditor({ template }: { template: TemplateData }) {
       {error && <p className="text-[12px] text-rose">{error}</p>}
 
       <div className="flex items-center gap-3">
-        <button onClick={save} disabled={state === "saving"} className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
+        <button onClick={save} disabled={state === "saving"} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
           {state === "saving" ? "Saving…" : "Save template"}
         </button>
         {state === "saved" && <span className="text-[12px] font-semibold text-mint">Saved · default for quotes &amp; invoices</span>}

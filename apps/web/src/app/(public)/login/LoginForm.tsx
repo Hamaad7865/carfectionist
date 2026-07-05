@@ -30,7 +30,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={pending}
-        className="grad-brand shadow-brand h-11 w-full rounded-[10px] font-bold text-white disabled:opacity-60"
+        className="grad-brand shadow-brand flex h-11 w-full items-center justify-center rounded-[10px] font-bold text-white disabled:opacity-60"
       >
         {pending ? "Signing in…" : "Sign in"}
       </button>

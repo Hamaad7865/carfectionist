@@ -142,7 +142,7 @@ export function PurchaseOrdersPanel({ data }: { data: POData }) {
           </button>
           <div className="flex-1" />
           {lines.length > 0 && <span className="num mr-2 text-[13px] font-bold text-ink">{formatMUR(Math.round(draftTotal * 100))}</span>}
-          <button onClick={create} disabled={busy || lines.length === 0} className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={create} disabled={busy || lines.length === 0} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
             {busy ? "Saving…" : "Create order"}
           </button>
         </div>
@@ -233,7 +233,7 @@ function POCard({
           <select className={`${field} h-9`} value={locId} onChange={(e) => setLocId(e.target.value)}>
             {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
           </select>
-          <button onClick={receive} disabled={busy} className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={receive} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
             Receive stock
           </button>
         </div>

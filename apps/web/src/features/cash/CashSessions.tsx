@@ -63,7 +63,7 @@ export function CashSessions({ open, recent }: { open: OpenTill | null; recent: 
                 <span className={`num font-bold ${varianceCents === 0 ? "text-mint" : varianceCents < 0 ? "text-rose" : "text-amber-ink"}`}>{formatMUR(varianceCents)}</span>
               </div>
             )}
-            <button onClick={closeTill} disabled={busy} className="grad-brand shadow-brand mt-4 h-10 w-full rounded-[11px] font-bold text-white disabled:opacity-60">
+            <button onClick={closeTill} disabled={busy} className="grad-brand shadow-brand mt-4 flex h-10 w-full items-center justify-center rounded-[11px] font-bold text-white disabled:opacity-60">
               {busy ? "Closing…" : "Close till"}
             </button>
           </div>
@@ -76,7 +76,7 @@ export function CashSessions({ open, recent }: { open: OpenTill | null; recent: 
             <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-faint">Opening float (Rs)</span>
             <input className={field} value={floatStr} onChange={(e) => setFloatStr(e.target.value)} inputMode="decimal" placeholder="e.g. 2000" />
           </label>
-          <button onClick={openTill} disabled={busy} className="grad-brand shadow-brand mt-4 h-10 w-full rounded-[11px] font-bold text-white disabled:opacity-60">
+          <button onClick={openTill} disabled={busy} className="grad-brand shadow-brand mt-4 flex h-10 w-full items-center justify-center rounded-[11px] font-bold text-white disabled:opacity-60">
             {busy ? "Opening…" : "Open till"}
           </button>
         </div>

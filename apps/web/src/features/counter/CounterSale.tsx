@@ -178,7 +178,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
               <button
                 key={m.key}
                 onClick={() => setMethod(m.key)}
-                className={`h-9 rounded-[9px] text-[12px] font-bold ${method === m.key ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
+                className={`inline-flex h-9 items-center justify-center rounded-[9px] text-[12px] font-bold ${method === m.key ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
               >
                 {m.label}
               </button>
@@ -212,7 +212,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
           <button
             onClick={complete}
             disabled={busy || cart.length === 0}
-            className="grad-brand shadow-brand mt-3 h-12 w-full rounded-[12px] text-[15px] font-extrabold text-white disabled:opacity-50"
+            className="grad-brand shadow-brand mt-3 flex h-12 w-full items-center justify-center rounded-[12px] text-[15px] font-extrabold text-white disabled:opacity-50"
           >
             {busy ? "Charging…" : `Charge ${formatMUR(totals.totalCents)}`}
           </button>

@@ -118,7 +118,7 @@ export function TransfersPanel({ transfers, refData }: { transfers: Transfer[]; 
             <Plus size={14} /> Add product
           </button>
           <div className="flex-1" />
-          <button onClick={create} disabled={busy || lines.length === 0} className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={create} disabled={busy || lines.length === 0} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
             {busy ? "Saving…" : "Create draft"}
           </button>
         </div>
@@ -202,12 +202,12 @@ function TransferCard({
       {(t.status === "draft" || t.status === "dispatched") && (
         <div className="flex justify-end gap-2 border-t border-line bg-sub px-5 py-3">
           {t.status === "draft" && (
-            <button onClick={onDispatch} disabled={busy} className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+            <button onClick={onDispatch} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
               Dispatch
             </button>
           )}
           {t.status === "dispatched" && (
-            <button onClick={receive} disabled={busy} className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+            <button onClick={receive} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
               Receive into {t.toName}
             </button>
           )}

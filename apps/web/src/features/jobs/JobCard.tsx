@@ -126,7 +126,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         {!readOnly && (
           <div className="mt-2 flex gap-2">
             <input className={`${field} flex-1`} value={newItem} onChange={(e) => setNewItem(e.target.value)} placeholder="Add a checklist item…" onKeyDown={(e) => e.key === "Enter" && addCheck()} />
-            <button onClick={addCheck} className="h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] font-semibold text-body">Add</button>
+            <button onClick={addCheck} className="inline-flex h-9 items-center justify-center rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] font-semibold text-body">Add</button>
           </div>
         )}
       </div>
@@ -158,7 +158,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
           <button
             onClick={() => run(() => completeJobAction({ jobId: job.id, consumptions: consume }))}
             disabled={busy}
-            className="grad-brand shadow-brand mt-4 h-12 w-full rounded-[13px] font-display text-[15px] font-extrabold text-white disabled:opacity-60"
+            className="grad-brand shadow-brand mt-4 flex h-12 w-full items-center justify-center rounded-[13px] font-display text-[15px] font-extrabold text-white disabled:opacity-60"
           >
             Complete job &amp; consume stock →
           </button>
@@ -166,7 +166,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
       )}
 
       {job.status === "ready" && (
-        <button onClick={() => run(() => setJobStatusAction(job.id, "delivered"))} disabled={busy} className="mt-5 h-11 w-full rounded-[12px] border border-line-2 bg-card text-[14px] font-bold text-body">
+        <button onClick={() => run(() => setJobStatusAction(job.id, "delivered"))} disabled={busy} className="mt-5 flex h-11 w-full items-center justify-center rounded-[12px] border border-line-2 bg-card text-[14px] font-bold text-body">
           Mark delivered
         </button>
       )}

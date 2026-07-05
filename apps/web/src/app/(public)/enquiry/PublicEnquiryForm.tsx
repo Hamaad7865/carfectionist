@@ -60,7 +60,7 @@ export function PublicEnquiryForm() {
 
       {error && <p className="rounded-[10px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-xs text-rose">{error}</p>}
 
-      <button onClick={submit} disabled={busy} className="grad-brand shadow-brand h-11 w-full rounded-[10px] font-bold text-white disabled:opacity-60">
+      <button onClick={submit} disabled={busy} className="grad-brand shadow-brand flex h-11 w-full items-center justify-center rounded-[10px] font-bold text-white disabled:opacity-60">
         {busy ? "Sending…" : "Send enquiry"}
       </button>
     </div>

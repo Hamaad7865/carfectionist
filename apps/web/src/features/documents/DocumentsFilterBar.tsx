@@ -35,7 +35,7 @@ export function DocumentsFilterBar() {
             <button
               key={t.value}
               onClick={() => set("type", t.value)}
-              className={`h-[38px] rounded-[10px] px-4 text-[13px] font-bold ${
+              className={`inline-flex h-[38px] items-center justify-center rounded-[10px] px-4 text-[13px] font-bold ${
                 on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body hover:border-faint"
               }`}
             >
@@ -55,7 +55,7 @@ export function DocumentsFilterBar() {
             <button
               key={s}
               onClick={() => set("status", on ? "" : s)}
-              className={`h-8 rounded-lg px-3 text-[12px] font-semibold capitalize ${
+              className={`inline-flex h-8 items-center justify-center rounded-lg px-3 text-[12px] font-semibold capitalize ${
                 on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-muted hover:text-body"
               }`}
             >

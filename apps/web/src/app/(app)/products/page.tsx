@@ -9,7 +9,7 @@ import { formatMUR } from "@/lib/money";
 const KIND_LABEL: Record<string, string> = { service: "Service", consumable: "Consumable", product: "Product" };
 const COLS = "grid-cols-[1fr_110px_90px_90px_70px_80px_80px_80px]";
 const tabCls = (on: boolean) =>
-  `h-[38px] rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
+  `inline-flex h-[38px] items-center justify-center rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
 
 const qty = (n: number | null) => (n == null ? "—" : Number.isInteger(n) ? String(n) : String(n));
 

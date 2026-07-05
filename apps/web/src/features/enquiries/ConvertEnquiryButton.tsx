@@ -21,7 +21,7 @@ export function ConvertEnquiryButton({ enquiryId, converted }: { enquiryId: stri
     <button
       onClick={go}
       disabled={busy}
-      className="h-9 shrink-0 rounded-[9px] border border-[rgba(43,140,255,0.4)] bg-[rgba(43,140,255,0.1)] px-3.5 text-[12px] font-bold text-[#2f78de] disabled:opacity-60"
+      className="inline-flex h-9 shrink-0 items-center justify-center rounded-[9px] border border-[rgba(43,140,255,0.4)] bg-[rgba(43,140,255,0.1)] px-3.5 text-[12px] font-bold text-[#2f78de] disabled:opacity-60"
     >
       {busy ? "…" : "Convert →"}
     </button>

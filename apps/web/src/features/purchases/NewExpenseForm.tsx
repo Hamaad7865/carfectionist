@@ -88,10 +88,10 @@ export function NewExpenseForm({ today }: { today: string }) {
       </div>
       {error && <p className="mt-2 text-[12px] text-rose">{error}</p>}
       <div className="mt-3 flex gap-2">
-        <button onClick={submit} disabled={busy} className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
+        <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
           {busy ? "Saving…" : "Save expense"}
         </button>
-        <button onClick={() => setOpen(false)} className="h-9 rounded-[10px] px-3 text-[13px] font-semibold text-muted">Cancel</button>
+        <button onClick={() => setOpen(false)} className="inline-flex h-9 items-center justify-center rounded-[10px] px-3 text-[13px] font-semibold text-muted">Cancel</button>
       </div>
     </div>
   );

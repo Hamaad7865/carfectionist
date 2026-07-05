@@ -6,7 +6,7 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 
 const tabCls = (on: boolean) =>
-  `h-[38px] rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
+  `inline-flex h-[38px] items-center justify-center rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
 
 export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const sp = await searchParams;
