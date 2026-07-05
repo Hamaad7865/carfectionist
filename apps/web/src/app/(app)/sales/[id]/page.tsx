@@ -22,7 +22,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const isInvoice = doc.docType === "invoice";
   const canPay = isInvoice && (doc.status === "issued" || doc.status === "partly_paid");
   const canVoid = isInvoice && doc.status === "issued" && doc.paidCents === 0;
-  const canCredit = isInvoice && doc.paidCents > 0 && doc.status !== "void";
+  const canCredit = isInvoice && doc.paidCents > 0 && doc.status !== "void" && !doc.creditedByNumber;
   const title = doc.docType === "quote" ? "Quotation" : doc.docType === "credit_note" ? "Credit note" : "Invoice";
 
   return (
@@ -59,6 +59,13 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               This {doc.docType} was voided{doc.voidedAt ? ` on ${doc.voidedAt.slice(0, 10)}` : ""}
               {doc.voidReason ? <> — <span className="font-semibold">{doc.voidReason}</span></> : ""}. Stock movements were reversed; the number is retained.
             </div>
+          </div>
+        )}
+
+        {isInvoice && doc.creditedByNumber && (
+          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
+            <FileMinus size={15} className="text-pink" />
+            Credited by <span className="num font-bold text-pink">{doc.creditedByNumber}</span>.
           </div>
         )}
 

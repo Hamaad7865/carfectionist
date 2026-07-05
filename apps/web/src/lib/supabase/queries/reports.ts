@@ -53,8 +53,8 @@ export async function getReportsData(from?: string, to?: string, method?: string
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  // Keep reversal mirrors (negative amounts) so collected/by-method net correctly.
   const payments: PaymentReportRow[] = ((payRes.data ?? []) as any[])
-    .filter((p) => Number(p.amount) > 0)
     .map((p) => ({
       id: p.id,
       date: (p.received_at as string).slice(0, 16).replace("T", " "),

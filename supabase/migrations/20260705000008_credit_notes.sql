@@ -53,7 +53,6 @@ declare
   v_cn     public.documents;
   v_new    uuid := gen_random_uuid();
   v_number text;
-  v_location uuid;
 begin
   if v_tenant is null then raise exception 'no tenant context'; end if;
   perform app.require_role('owner','manager');
@@ -62,6 +61,19 @@ begin
   if not found then raise exception 'invoice not found'; end if;
   if v_inv.doc_type <> 'invoice' then raise exception 'credit notes are raised against invoices'; end if;
   if v_inv.status not in ('issued','partly_paid','paid') then raise exception 'only an issued invoice can be credited'; end if;
+
+  -- One full-reversal credit note per invoice. The FOR UPDATE lock above
+  -- serializes concurrent callers, so this check can't be raced. Runs before
+  -- any number is drawn, so a rejected call consumes no CN number.
+  if exists (
+    select 1 from public.documents
+     where tenant_id = v_tenant and doc_type = 'credit_note'
+       and source_document_id = v_inv.id and status <> 'void'
+  ) then raise exception 'this invoice already has a credit note'; end if;
+
+  if p_stock_location_id is not null and not exists (
+    select 1 from public.stock_locations where id = p_stock_location_id and tenant_id = v_tenant
+  ) then raise exception 'unknown stock location'; end if;
 
   select * into v_bs from public.business_settings where id = v_tenant;
   if v_inv.customer_id is not null then
@@ -103,16 +115,16 @@ begin
     )
   where id = v_new returning * into v_cn;
 
-  -- 4) restock returned goods (+qty), ref_type='credit_note'
+  -- 4) restock returned goods: mirror the invoice's sale movements (return to
+  -- the same location at the SALE-TIME cost, so COGS nets exactly), like void.
+  -- ref_line_id null sidesteps the sale-dedup index.
   if p_restock then
-    v_location := coalesce(p_stock_location_id, (select id from public.stock_locations where tenant_id = v_tenant and is_default limit 1));
     insert into public.stock_movements
       (tenant_id, product_id, location_id, qty, unit_cost, ref_type, ref_id, ref_line_id, created_by, note)
-    select v_tenant, dl.product_id, v_location, dl.qty, p.cost_price,
-           'credit_note', v_cn.id, dl.id, v_actor, 'credit note restock'
-    from public.document_lines dl
-    join public.products p on p.id = dl.product_id
-    where dl.document_id = v_new and p.is_stocked;
+    select v_tenant, m.product_id, coalesce(p_stock_location_id, m.location_id), -m.qty, m.unit_cost,
+           'credit_note', v_cn.id, null, v_actor, 'credit note restock'
+    from public.stock_movements m
+    where m.tenant_id = v_tenant and m.ref_type = 'invoice' and m.ref_id = v_inv.id and m.ref_line_id is not null;
   end if;
 
   insert into public.audit_events (tenant_id, actor_id, event_type, ref_type, ref_id, payload)
@@ -124,3 +136,8 @@ end $$;
 
 revoke execute on function public.create_and_issue_credit_note(uuid, uuid, boolean) from public;
 grant execute on function public.create_and_issue_credit_note(uuid, uuid, boolean) to authenticated;
+
+-- Defense in depth: at most one live credit note per invoice.
+create unique index if not exists idx_credit_note_one_per_invoice
+  on documents(tenant_id, source_document_id)
+  where doc_type = 'credit_note' and status <> 'void';

@@ -28,6 +28,7 @@ export interface DocumentDetail {
   voidedAt: string | null;
   sourceId: string | null;
   sourceNumber: string | null;
+  creditedByNumber: string | null;
   lines: { title: string; description: string | null; qty: number; rateCents: number; amountCents: number }[];
   payments: PaymentView[];
 }
@@ -50,6 +51,12 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sourceNumber = (src as any)?.number ?? null;
   }
+  let creditedByNumber: string | null = null;
+  if (d.doc_type === "invoice") {
+    const { data: cn } = await sb.from("documents").select("number").eq("source_document_id", id).eq("doc_type", "credit_note").neq("status", "void").maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    creditedByNumber = (cn as any)?.number ?? null;
+  }
   const totalCents = rupeesToCents(Number(d.total_incl));
   const paidCents = rupeesToCents(Number(d.amount_paid));
 
@@ -70,6 +77,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     voidedAt: d.voided_at ?? null,
     sourceId: d.source_document_id ?? null,
     sourceNumber,
+    creditedByNumber,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,
