@@ -24,6 +24,7 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
   const [editId, setEditId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
   const [f, setF] = useState<VForm>(seed());
 
   function launch(v?: ContactVehicle) {
@@ -46,11 +47,12 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
   }
 
   async function remove(id: string) {
+    setListError(null);
     setBusy(true);
     const r = await deleteVehicleAction(id);
     setBusy(false);
     if (r.ok) router.refresh();
-    else setError(r.error);
+    else setListError(r.error);
   }
 
   return (
@@ -61,6 +63,7 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
           <Plus size={13} /> Add vehicle
         </button>
       </div>
+      {listError && <div className="mb-2"><FormError error={listError} /></div>}
       <div className="flex flex-col gap-2">
         {vehicles.length === 0 && <div className="rounded-[11px] border border-dashed border-line-2 p-4 text-center text-[12px] text-faint">No vehicles on file.</div>}
         {vehicles.map((v) => (

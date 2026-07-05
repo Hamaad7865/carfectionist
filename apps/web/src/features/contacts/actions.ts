@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { existsInTenant } from "@/lib/supabase/guards";
 
 const CONTACT_ROLES = ["owner", "manager", "cashier"] as const;
 const SUPPLIER_ROLES = ["owner", "manager"] as const;
@@ -71,6 +72,9 @@ export async function saveVehicleAction(input: z.input<typeof vehicleSchema>): P
   const p = vehicleSchema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid vehicle" };
   const sb = await createClient();
+  if (!p.data.id && !(await existsInTenant(sb, "customers", p.data.customerId))) {
+    return { ok: false, error: "Unknown customer." };
+  }
   const row = { plate: p.data.plate, make: p.data.make, model: p.data.model, year: p.data.year, color: p.data.color, vin: p.data.vin };
   if (p.data.id) {
     const { error } = await sb.from("vehicles").update(row).eq("id", p.data.id);

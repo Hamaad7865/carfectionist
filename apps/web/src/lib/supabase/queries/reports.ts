@@ -39,10 +39,17 @@ export async function getReportsData(from?: string, to?: string, method?: string
   if (to) payQ = payQ.lte("received_at", `${to}T23:59:59`);
   if (method && PAYMENT_METHODS.includes(method)) payQ = payQ.eq("method", method);
 
+  // Input VAT is period revenue/tax, so scope expenses to the range.
+  let expQ = sb.from("expenses").select("vat_amount, expense_date");
+  if (from) expQ = expQ.gte("expense_date", from);
+  if (to) expQ = expQ.lte("expense_date", to);
+
   const [payRes, invRes, expRes] = await Promise.all([
     payQ,
+    // Fetch all invoices (aged receivables = true current position); revenue/VAT
+    // figures are scoped to the range in JS below.
     sb.from("documents").select("total_incl, vat_total, amount_paid, status, issue_date").eq("doc_type", "invoice").in("status", ["issued", "partly_paid", "paid"]),
-    sb.from("expenses").select("vat_amount"),
+    expQ,
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -64,8 +71,12 @@ export async function getReportsData(from?: string, to?: string, method?: string
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const invoices = (invRes.data ?? []) as any[];
-  const invoicedCents = invoices.reduce((s, d) => s + rupeesToCents(Number(d.total_incl)), 0);
-  const outputVat = invoices.reduce((s, d) => s + rupeesToCents(Number(d.vat_total)), 0);
+  // Revenue invoiced + output VAT are period figures → scope to the date range
+  // (issue_date). Outstanding/aged below intentionally stay all-open.
+  const inRange = (d: string | null) => (!from || (d != null && d >= from)) && (!to || (d != null && d <= to));
+  const rangedInvoices = from || to ? invoices.filter((d) => inRange(d.issue_date)) : invoices;
+  const invoicedCents = rangedInvoices.reduce((s, d) => s + rupeesToCents(Number(d.total_incl)), 0);
+  const outputVat = rangedInvoices.reduce((s, d) => s + rupeesToCents(Number(d.vat_total)), 0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inputVat = ((expRes.data ?? []) as any[]).reduce((s, e) => s + rupeesToCents(Number(e.vat_amount)), 0);
 

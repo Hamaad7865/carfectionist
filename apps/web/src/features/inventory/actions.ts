@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { existsInTenant } from "@/lib/supabase/guards";
 
 const ROLES = ["owner", "manager"] as const;
 type Result = { ok: true } | { ok: false; error: string };
@@ -21,10 +22,14 @@ export async function recordAdjustmentAction(input: z.input<typeof schema>): Pro
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid adjustment" };
   const sb = await createClient();
 
+  // Validate the client-supplied FKs belong to the caller's tenant (RLS-scoped
+  // lookups return null for a foreign-tenant id) before writing the movement.
+  const { data: prod } = await sb.from("products").select("id, cost_price").eq("id", p.data.productId).maybeSingle();
+  if (!prod) return { ok: false, error: "Unknown product." };
+  if (!(await existsInTenant(sb, "stock_locations", p.data.locationId))) return { ok: false, error: "Unknown location." };
   // Valuation: use the product's current cost so on-hand value stays consistent.
-  const { data: prod } = await sb.from("products").select("cost_price").eq("id", p.data.productId).maybeSingle();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const unitCost = prod ? Number((prod as any).cost_price) : null;
+  const unitCost = Number((prod as any).cost_price);
   const { data: appUser } = await sb.from("app_users").select("id").eq("auth_user_id", ctx.userId).maybeSingle();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const createdBy = (appUser as any)?.id ?? null;

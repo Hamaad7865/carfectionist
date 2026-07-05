@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { existsInTenant } from "@/lib/supabase/guards";
 import * as rpc from "@/lib/supabase/rpc";
 
 const ROLES = ["owner", "manager", "cashier", "technician"] as const;
@@ -35,6 +36,9 @@ export async function createJobAction(input: z.infer<typeof createSchema>): Prom
   const p = createSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Pick a customer and vehicle." };
   const sb = await createClient();
+  if (!(await existsInTenant(sb, "customers", p.data.customerId))) return { ok: false, error: "Unknown customer." };
+  if (!(await existsInTenant(sb, "vehicles", p.data.vehicleId))) return { ok: false, error: "Unknown vehicle." };
+  if (p.data.technicianId && !(await existsInTenant(sb, "app_users", p.data.technicianId))) return { ok: false, error: "Unknown technician." };
   const { data, error } = await sb
     .from("jobs")
     .insert({
@@ -57,6 +61,7 @@ export async function createJobAction(input: z.infer<typeof createSchema>): Prom
 export async function assignTechnicianAction(jobId: string, technicianId: string | null): Promise<Result> {
   await requireRole(...ROLES);
   const sb = await createClient();
+  if (technicianId && !(await existsInTenant(sb, "app_users", technicianId))) return { ok: false, error: "Unknown technician." };
   const { error } = await sb.from("jobs").update({ technician_id: technicianId }).eq("id", jobId);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/jobs/${jobId}`);

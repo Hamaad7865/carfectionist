@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { existsInTenant } from "@/lib/supabase/guards";
 
 const ROLES = ["owner", "manager", "cashier", "technician"] as const;
 type Result = { ok: true; number: string } | { ok: false; error: string };
@@ -29,6 +30,11 @@ export async function createCertificateAction(input: z.infer<typeof schema>): Pr
   const p = schema.safeParse(input);
   if (!p.success) return { ok: false, error: "Pick a customer, vehicle, warranty period and date." };
   const sb = await createClient();
+
+  // Client-supplied FKs must belong to the caller's tenant.
+  if (!(await existsInTenant(sb, "customers", p.data.customerId))) return { ok: false, error: "Unknown customer." };
+  if (!(await existsInTenant(sb, "vehicles", p.data.vehicleId))) return { ok: false, error: "Unknown vehicle." };
+  if (p.data.productId && !(await existsInTenant(sb, "products", p.data.productId))) return { ok: false, error: "Unknown treatment." };
 
   const expiresAt = addMonths(p.data.appliedAt, p.data.warrantyMonths);
 
