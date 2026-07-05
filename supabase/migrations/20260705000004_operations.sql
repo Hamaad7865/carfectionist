@@ -114,7 +114,7 @@ begin
   end loop;
 
   select coalesce(sum(qty_ordered - qty_received),0) into v_remaining from public.purchase_order_lines where purchase_order_id = v_po.id;
-  update public.purchase_orders set status = case when v_remaining <= 0 then 'received' else 'partially_received' end, received_at = now()
+  update public.purchase_orders set status = (case when v_remaining <= 0 then 'received' else 'partially_received' end)::po_status, received_at = now()
   where id = p_id returning * into v_po;
   return v_po;
 end $$;

@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { getPurchases } from "@/lib/supabase/queries/purchases";
+import { getPurchases, getPurchaseOrders } from "@/lib/supabase/queries/purchases";
 import { NewExpenseForm } from "@/features/purchases/NewExpenseForm";
+import { PurchaseOrdersPanel } from "@/features/purchases/PurchaseOrdersPanel";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 
@@ -10,7 +11,8 @@ const tabCls = (on: boolean) =>
 export default async function PurchasesPage({ searchParams }: { searchParams: Promise<{ tab?: string }> }) {
   const sp = await searchParams;
   const tab = sp.tab === "orders" ? "orders" : "expenses";
-  const data = await getPurchases();
+  const data = tab === "expenses" ? await getPurchases() : null;
+  const poData = tab === "orders" ? await getPurchaseOrders() : null;
   const today = new Date().toISOString().slice(0, 10);
 
   return (
@@ -22,7 +24,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
         {tab === "expenses" && <NewExpenseForm today={today} />}
       </div>
 
-      {tab === "expenses" ? (
+      {tab === "expenses" && data && (
         <div className="overflow-hidden rounded-[14px] border border-line bg-card">
           <div className="grid grid-cols-[100px_150px_1fr_100px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
             <span>Date</span>
@@ -49,31 +51,9 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
             <span className="num text-[14px] font-extrabold text-rose">{formatMUR(data.expenseTotalCents)}</span>
           </div>
         </div>
-      ) : (
-        <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-          <div className="grid grid-cols-[1fr_120px_140px_120px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
-            <span>Supplier / reference</span>
-            <span>Date</span>
-            <span>Status</span>
-            <span className="text-right"> </span>
-          </div>
-          {data.pos.length === 0 ? (
-            <div className="px-5 py-14 text-center text-[13px] text-muted">
-              No purchase orders yet. PO creation and receiving (which fires <span className="num">purchase</span> stock movements) arrive with
-              suppliers in <span className="font-semibold text-body">Phase 2/3</span>.
-            </div>
-          ) : (
-            data.pos.map((p) => (
-              <div key={p.id} className="grid grid-cols-[1fr_120px_140px_120px] items-center gap-3 border-b border-line px-5 py-3.5 text-[13px]">
-                <span className="font-semibold text-body">{p.supplier ?? p.reference ?? "—"}</span>
-                <span className="num text-muted">{p.date ?? "—"}</span>
-                <span><StatusPill status={p.status} /></span>
-                <span />
-              </div>
-            ))
-          )}
-        </div>
       )}
+
+      {tab === "orders" && poData && <PurchaseOrdersPanel data={poData} />}
     </div>
   );
 }
