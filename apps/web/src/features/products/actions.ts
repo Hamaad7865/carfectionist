@@ -8,14 +8,16 @@ import { requireRole } from "@/lib/auth/session";
 const ROLES = ["owner", "manager"] as const;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
 
+// Prices may carry thousands separators / spaces from the input (e.g. "32,000").
+const parseNum = (v: string | number) => (typeof v === "number" ? v : parseFloat(String(v).replace(/[,\s]/g, "")));
 const numOpt = z.union([z.number(), z.string()]).optional().transform((v) => {
   if (v === undefined || v === "" || v === null) return null;
-  const n = typeof v === "number" ? v : parseFloat(v);
+  const n = parseNum(v);
   return Number.isFinite(n) ? n : null;
 });
 const num = z.union([z.number(), z.string()]).optional().transform((v) => {
   if (v === undefined || v === "" || v === null) return 0;
-  const n = typeof v === "number" ? v : parseFloat(v);
+  const n = parseNum(v);
   return Number.isFinite(n) ? n : 0;
 });
 const strOpt = z.string().trim().optional().transform((v) => (v ? v : null));

@@ -28,8 +28,14 @@ export async function createAppointmentAction(input: z.input<typeof createSchema
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid appointment" };
   const sb = await createClient();
   if (!(await existsInTenant(sb, "customers", p.data.customerId))) return { ok: false, error: "Unknown customer." };
-  if (!(await existsInTenant(sb, "vehicles", p.data.vehicleId))) return { ok: false, error: "Unknown vehicle." };
+  const { data: veh } = await sb.from("vehicles").select("id").eq("id", p.data.vehicleId).eq("customer_id", p.data.customerId).maybeSingle();
+  if (!veh) return { ok: false, error: "That vehicle does not belong to the selected customer." };
   if (p.data.technicianId && !(await existsInTenant(sb, "app_users", p.data.technicianId))) return { ok: false, error: "Unknown technician." };
+
+  // datetime-local is a naive wall-clock string — convert to a real UTC instant
+  // so it stores/compares correctly (matches every other timestamp write).
+  const when = new Date(p.data.scheduledAt);
+  if (Number.isNaN(when.getTime())) return { ok: false, error: "Invalid date & time." };
 
   const { error } = await sb.from("appointments").insert({
     tenant_id: ctx.tenantId,
@@ -38,7 +44,7 @@ export async function createAppointmentAction(input: z.input<typeof createSchema
     service: p.data.service || null,
     department: p.data.department || null,
     technician_id: p.data.technicianId || null,
-    scheduled_at: p.data.scheduledAt,
+    scheduled_at: when.toISOString(),
     notes: p.data.notes || null,
     status: "scheduled",
   });
@@ -80,7 +86,12 @@ export async function convertAppointmentToJobAction(id: string): Promise<Result<
   if (!job.ok || !job.data) return { ok: false, error: job.ok ? "Could not create the job." : job.error };
 
   const { error } = await sb.from("appointments").update({ job_id: job.data.id, status: "arrived" }).eq("id", id);
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    // Link failed — roll back the just-created job so we don't leave an orphan
+    // (or allow a duplicate job when the user retries).
+    await sb.from("jobs").delete().eq("id", job.data.id);
+    return { ok: false, error: error.message };
+  }
   revalidatePath("/appointments");
   revalidatePath("/jobs");
   return { ok: true, data: { jobId: job.data.id } };

@@ -28,6 +28,7 @@ const state: BuilderState = {
     { key: "c", productId: "p3", title: "Diamondbrite 3-Year Protection (Exterior Only)", description: "", qty: 1, unitCents: 3000000, discountPct: 0, vatRatePct: 15 },
   ],
   sectionConfig: {},
+  customFields: [],
   dirty: false,
   save: "idle",
   saveError: null,

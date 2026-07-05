@@ -43,6 +43,15 @@ export async function createJobAction(input: z.input<typeof createSchema>): Prom
   const sb = await createClient();
 
   // Resolve customer — pick an existing one or create a new one inline.
+  // Track inline-created rows so we can roll them back if a later insert fails
+  // (three separate inserts, no shared transaction).
+  let newCustomerId: string | null = null;
+  let newVehicleId: string | null = null;
+  const rollback = async () => {
+    if (newVehicleId) await sb.from("vehicles").delete().eq("id", newVehicleId);
+    if (newCustomerId) await sb.from("customers").delete().eq("id", newCustomerId);
+  };
+
   let customerId = p.data.customerId || null;
   if (customerId) {
     if (!(await existsInTenant(sb, "customers", customerId))) return { ok: false, error: "Unknown customer." };
@@ -53,22 +62,37 @@ export async function createJobAction(input: z.input<typeof createSchema>): Prom
     if (ce) return { ok: false, error: ce.message };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     customerId = (c as any).id;
+    newCustomerId = customerId;
   }
 
-  // Resolve vehicle — existing or new (linked to the customer above).
+  // Resolve vehicle — existing (must belong to this customer) or new.
   let vehicleId = p.data.vehicleId || null;
   if (vehicleId) {
-    if (!(await existsInTenant(sb, "vehicles", vehicleId))) return { ok: false, error: "Unknown vehicle." };
+    const { data: v } = await sb.from("vehicles").select("id").eq("id", vehicleId).eq("customer_id", customerId).maybeSingle();
+    if (!v) {
+      await rollback();
+      return { ok: false, error: "That vehicle does not belong to the selected customer." };
+    }
   } else {
     const plate = p.data.newVehiclePlate ?? "";
-    if (!plate) return { ok: false, error: "Pick a vehicle or add one." };
+    if (!plate) {
+      await rollback();
+      return { ok: false, error: "Pick a vehicle or add one." };
+    }
     const { data: v, error: ve } = await sb.from("vehicles").insert({ tenant_id: ctx.tenantId, customer_id: customerId, plate, make: p.data.newVehicleMake || null }).select("id").single();
-    if (ve) return { ok: false, error: /duplicate|unique/i.test(ve.message) ? "A vehicle with that plate already exists." : ve.message };
+    if (ve) {
+      await rollback();
+      return { ok: false, error: /duplicate|unique/i.test(ve.message) ? "A vehicle with that plate already exists." : ve.message };
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     vehicleId = (v as any).id;
+    newVehicleId = vehicleId;
   }
 
-  if (p.data.technicianId && !(await existsInTenant(sb, "app_users", p.data.technicianId))) return { ok: false, error: "Unknown technician." };
+  if (p.data.technicianId && !(await existsInTenant(sb, "app_users", p.data.technicianId))) {
+    await rollback();
+    return { ok: false, error: "Unknown technician." };
+  }
 
   const { data, error } = await sb
     .from("jobs")
@@ -84,7 +108,10 @@ export async function createJobAction(input: z.input<typeof createSchema>): Prom
     })
     .select("id")
     .single();
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    await rollback();
+    return { ok: false, error: error.message };
+  }
   revalidatePath("/jobs");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { ok: true, data: { id: (data as any).id } };

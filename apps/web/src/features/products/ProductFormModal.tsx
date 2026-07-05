@@ -53,13 +53,23 @@ export function ProductFormModal({ open, onClose, product, vatDefault }: { open:
   const isService = f.kind === "service";
 
   // Effective VAT rate (product override else business default) and the net
-  // price we'll store when the entered sell price is VAT-inclusive.
-  const effVat = f.vatRate.trim() !== "" ? parseFloat(f.vatRate) : vatDefault;
-  const enteredSell = parseFloat(f.sellingPrice);
-  const netFromGross = priceInclVat && enteredSell > 0 && effVat >= 0 ? enteredSell / (1 + effVat / 100) : null;
+  // price we'll store when the entered sell price is VAT-inclusive. Prices may
+  // carry thousands separators, so strip them before parsing.
+  const money = (v: string) => parseFloat(v.replace(/[,\s]/g, ""));
+  const effVat = f.vatRate.trim() !== "" ? money(f.vatRate) : vatDefault;
+  const vatValid = Number.isFinite(effVat) && effVat >= 0;
+  const enteredSell = money(f.sellingPrice);
+  const netFromGross = priceInclVat && vatValid && enteredSell > 0 ? enteredSell / (1 + effVat / 100) : null;
+
+  function toggleInclVat(on: boolean) {
+    setPriceInclVat(on);
+    // Blank the field so a prefilled NET price can't be re-read as gross.
+    if (on) set("sellingPrice", "");
+  }
 
   async function submit() {
     setError(null);
+    if (priceInclVat && !vatValid) return setError("Enter a valid VAT rate to store a VAT-inclusive price.");
     setBusy(true);
     const r = await saveProductAction({
       id: product?.id,
@@ -127,11 +137,12 @@ export function ProductFormModal({ open, onClose, product, vatDefault }: { open:
           <Field label="VAT rate %" hint="Blank = default"><input className={inputCls} value={f.vatRate} onChange={(e) => set("vatRate", e.target.value)} inputMode="decimal" placeholder={String(vatDefault)} /></Field>
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-body">
-          <input type="checkbox" checked={priceInclVat} onChange={(e) => setPriceInclVat(e.target.checked)} className="size-4 accent-[#2b8cff]" />
-          The sell price I entered includes {effVat}% VAT
+          <input type="checkbox" checked={priceInclVat} onChange={(e) => toggleInclVat(e.target.checked)} className="size-4 accent-[#2b8cff]" />
+          The sell price I entered includes {vatValid ? `${effVat}%` : ""} VAT
           {netFromGross != null && (
             <span className="text-[12px] font-normal text-muted">→ stored net <span className="num font-semibold text-body">Rs {netFromGross.toFixed(2)}</span> (VAT Rs {(enteredSell - netFromGross).toFixed(2)})</span>
           )}
+          {priceInclVat && !vatValid && <span className="text-[12px] font-normal text-rose">enter a valid VAT rate first</span>}
         </label>
         <div className="grid grid-cols-2 gap-3">
           <Field label="SKU"><input className={inputCls} value={f.sku} onChange={(e) => set("sku", e.target.value)} placeholder="Optional" /></Field>

@@ -50,7 +50,7 @@ export async function getAppointments(nowISO: string): Promise<AppointmentsData>
     status: a.status,
     notes: a.notes,
     jobId: a.job_id,
-    overdue: a.scheduled_at < nowISO && ["scheduled", "confirmed"].includes(a.status),
+    overdue: new Date(a.scheduled_at).getTime() < new Date(nowISO).getTime() && ["scheduled", "confirmed"].includes(a.status),
   }));
 
   const vehByCust = new Map<string, { id: string; label: string }[]>();

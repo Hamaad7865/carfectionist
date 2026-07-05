@@ -17,7 +17,13 @@ const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   cancelled: { label: "Cancelled", cls: "bg-[rgba(214,59,80,0.12)] text-rose" },
   no_show: { label: "No-show", cls: "bg-[rgba(140,150,161,0.16)] text-muted" },
 };
-const fmtWhen = (iso: string) => iso.slice(0, 16).replace("T", " ");
+// Render a stored UTC instant in the viewer's local time.
+const fmtWhen = (iso: string) => {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 16).replace("T", " ");
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+};
 
 export function AppointmentsPanel({ data }: { data: AppointmentsData }) {
   const router = useRouter();
@@ -42,8 +48,12 @@ export function AppointmentsPanel({ data }: { data: AppointmentsData }) {
     setError(null);
     if (!customerId || !vehicleId) return setError("Pick a customer and vehicle.");
     if (!scheduledAt) return setError("Pick a date & time.");
+    // Convert the naive datetime-local (browser wall-clock) to a real UTC instant
+    // here, where the browser knows the timezone — the server may run in UTC.
+    const whenLocal = new Date(scheduledAt);
+    if (Number.isNaN(whenLocal.getTime())) return setError("Invalid date & time.");
     setBusy(true);
-    const r = await createAppointmentAction({ customerId, vehicleId, service: service.trim() || undefined, department: department || null, technicianId: technicianId || null, scheduledAt, notes: notes.trim() || undefined });
+    const r = await createAppointmentAction({ customerId, vehicleId, service: service.trim() || undefined, department: department || null, technicianId: technicianId || null, scheduledAt: whenLocal.toISOString(), notes: notes.trim() || undefined });
     setBusy(false);
     if (r.ok) { setService(""); setScheduledAt(""); setNotes(""); router.refresh(); }
     else setError(r.error);
