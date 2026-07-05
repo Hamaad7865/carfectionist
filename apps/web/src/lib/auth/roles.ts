@@ -1,6 +1,7 @@
 import {
   LayoutDashboard,
   ClipboardList,
+  CalendarClock,
   Users,
   ReceiptText,
   Package,
@@ -37,6 +38,7 @@ const ALL: Role[] = ["owner", "manager", "cashier", "technician", "accountant"];
 export const NAV: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ALL },
   { label: "Jobs", href: "/jobs", icon: ClipboardList, roles: ["owner", "manager", "cashier", "technician"] },
+  { label: "Appointments", href: "/appointments", icon: CalendarClock, roles: ["owner", "manager", "cashier"] },
   { label: "Contacts", href: "/contacts", icon: Users, roles: ["owner", "manager", "cashier", "accountant"] },
   { label: "Sales & Invoices", href: "/sales", icon: ReceiptText, roles: ["owner", "manager", "cashier", "accountant"] },
   { label: "Products & Inventory", href: "/products", icon: Package, roles: ["owner", "manager", "cashier"] },
