@@ -31,11 +31,12 @@ const seed = (p?: InventoryRow): PForm => ({
   isActive: p?.isActive ?? true,
 });
 
-export function ProductFormModal({ open, onClose, product }: { open: boolean; onClose: () => void; product: InventoryRow | null }) {
+export function ProductFormModal({ open, onClose, product, vatDefault }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number }) {
   const router = useRouter();
   const editing = !!product;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [priceInclVat, setPriceInclVat] = useState(false);
   const [f, setF] = useState<PForm>(() => seed(product ?? undefined));
 
   // Re-seed whenever the modal opens for a (different) product.
@@ -43,12 +44,19 @@ export function ProductFormModal({ open, onClose, product }: { open: boolean; on
   if (open && seededFor !== (product?.id ?? null)) {
     setF(seed(product ?? undefined));
     setSeededFor(product?.id ?? null);
+    setPriceInclVat(false);
     setError(null);
   }
   if (!open && seededFor !== undefined) setSeededFor(undefined);
 
   const set = <K extends keyof PForm>(k: K, v: PForm[K]) => setF((s) => ({ ...s, [k]: v }));
   const isService = f.kind === "service";
+
+  // Effective VAT rate (product override else business default) and the net
+  // price we'll store when the entered sell price is VAT-inclusive.
+  const effVat = f.vatRate.trim() !== "" ? parseFloat(f.vatRate) : vatDefault;
+  const enteredSell = parseFloat(f.sellingPrice);
+  const netFromGross = priceInclVat && enteredSell > 0 && effVat >= 0 ? enteredSell / (1 + effVat / 100) : null;
 
   async function submit() {
     setError(null);
@@ -60,7 +68,8 @@ export function ProductFormModal({ open, onClose, product }: { open: boolean; on
       description: f.description,
       kind: f.kind,
       unit: f.unit,
-      sellingPrice: f.sellingPrice,
+      // selling_price is stored VAT-exclusive; convert if the user entered a gross price.
+      sellingPrice: netFromGross != null ? netFromGross.toFixed(2) : f.sellingPrice,
       costPrice: f.costPrice,
       vatRate: f.vatRate,
       barcode: f.barcode,
@@ -113,10 +122,17 @@ export function ProductFormModal({ open, onClose, product }: { open: boolean; on
           </Field>
         </div>
         <div className="grid grid-cols-3 gap-3">
-          <Field label="Sell price (excl. VAT)" hint="Rupees"><input className={inputCls} value={f.sellingPrice} onChange={(e) => set("sellingPrice", e.target.value)} inputMode="decimal" placeholder="0.00" /></Field>
+          <Field label={priceInclVat ? "Sell price (incl. VAT)" : "Sell price (excl. VAT)"} hint="Rupees"><input className={inputCls} value={f.sellingPrice} onChange={(e) => set("sellingPrice", e.target.value)} inputMode="decimal" placeholder="0.00" /></Field>
           <Field label="Cost price" hint="Rupees"><input className={inputCls} value={f.costPrice} onChange={(e) => set("costPrice", e.target.value)} inputMode="decimal" placeholder="0.0000" /></Field>
-          <Field label="VAT rate %" hint="Blank = 15%"><input className={inputCls} value={f.vatRate} onChange={(e) => set("vatRate", e.target.value)} inputMode="decimal" placeholder="15" /></Field>
+          <Field label="VAT rate %" hint="Blank = default"><input className={inputCls} value={f.vatRate} onChange={(e) => set("vatRate", e.target.value)} inputMode="decimal" placeholder={String(vatDefault)} /></Field>
         </div>
+        <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-body">
+          <input type="checkbox" checked={priceInclVat} onChange={(e) => setPriceInclVat(e.target.checked)} className="size-4 accent-[#2b8cff]" />
+          The sell price I entered includes {effVat}% VAT
+          {netFromGross != null && (
+            <span className="text-[12px] font-normal text-muted">→ stored net <span className="num font-semibold text-body">Rs {netFromGross.toFixed(2)}</span> (VAT Rs {(enteredSell - netFromGross).toFixed(2)})</span>
+          )}
+        </label>
         <div className="grid grid-cols-2 gap-3">
           <Field label="SKU"><input className={inputCls} value={f.sku} onChange={(e) => set("sku", e.target.value)} placeholder="Optional" /></Field>
           <Field label="Barcode"><input className={inputCls} value={f.barcode} onChange={(e) => set("barcode", e.target.value)} placeholder="Scan or type" /></Field>

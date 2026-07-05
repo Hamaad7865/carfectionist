@@ -7,6 +7,7 @@ import { getRecipes } from "@/lib/supabase/queries/recipes";
 import { RecipesPanel } from "@/features/recipes/RecipesPanel";
 import { getInventoryOps } from "@/lib/supabase/queries/movements";
 import { InventoryPanel } from "@/features/inventory/InventoryPanel";
+import { getBusinessProfile } from "@/lib/supabase/queries/settings";
 
 const tabCls = (on: boolean) =>
   `inline-flex h-[38px] items-center justify-center rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
@@ -17,6 +18,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : sp.tab === "inventory" ? "inventory" : "catalogue";
   const showArchived = sp.archived === "1";
   const rows = tab === "catalogue" ? await getInventory(showArchived) : [];
+  const vatDefault = tab === "catalogue" ? (await getBusinessProfile())?.vatRate ?? 15 : 15;
   const transferData = tab === "transfers" ? await getTransfers() : null;
   const recipeData = tab === "recipes" ? await getRecipes() : null;
   const invOps = tab === "inventory" ? await getInventoryOps() : null;
@@ -30,7 +32,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         <Link href="/products?tab=recipes" className={tabCls(tab === "recipes")}>Recipes</Link>
       </div>
 
-      {tab === "catalogue" && <CataloguePanel products={rows} showArchived={showArchived} />}
+      {tab === "catalogue" && <CataloguePanel products={rows} showArchived={showArchived} vatDefault={vatDefault} />}
       {tab === "inventory" && invOps && <InventoryPanel data={invOps} />}
       {tab === "transfers" && transferData && <TransfersPanel transfers={transferData.transfers} refData={transferData.ref} />}
       {tab === "recipes" && recipeData && <RecipesPanel data={recipeData} />}

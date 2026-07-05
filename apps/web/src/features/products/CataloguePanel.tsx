@@ -11,7 +11,7 @@ const KIND_LABEL: Record<string, string> = { service: "Service", consumable: "Co
 const COLS = "grid-cols-[1fr_110px_90px_90px_70px_80px_80px_80px]";
 const qty = (n: number | null) => (n == null ? "—" : String(n));
 
-export function CataloguePanel({ products, showArchived }: { products: InventoryRow[]; showArchived: boolean }) {
+export function CataloguePanel({ products, showArchived, vatDefault }: { products: InventoryRow[]; showArchived: boolean; vatDefault: number }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryRow | null>(null);
 
@@ -80,7 +80,7 @@ export function CataloguePanel({ products, showArchived }: { products: Inventory
         )}
       </div>
 
-      <ProductFormModal open={open} onClose={() => setOpen(false)} product={editing} />
+      <ProductFormModal open={open} onClose={() => setOpen(false)} product={editing} vatDefault={vatDefault} />
     </>
   );
 }
