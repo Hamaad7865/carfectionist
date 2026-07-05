@@ -56,3 +56,22 @@ _(one line per completed item)_
 - 6. /print/doc/[id] print route renders the faithful DB-backed document (browser-verified: Quotation, Item/Quantity/Rate/Amount, 77,200/11,580/88,780, amount-in-words, legal identity, bank, terms — all 200/present). /api/documents/[id]/pdf wired via htmlToPdf (Browser Rendering), returns graceful 503 without creds. PARTIAL-BLOCK: the PDF *binary* download + issued-invoice Storage snapshot need CF_ACCOUNT_ID + CF_BROWSER_RENDERING_TOKEN (not provided). Faithful PDF available now via /print + browser Print→Save as PDF. react-dom/server dynamic-imported in the route. Build offline-green.
 - 7. Document detail (/sales/[id]) + RecordPaymentForm (cash tendered/change, card/juice/bank ref, split). FULL DoD verified in-browser: A00116 → convert → INV-0001 → card Rs 50,000 (partly_paid, outstanding 38,780) → cash Rs 38,780 tendered 40,000 (change 1,220) → PAID (outstanding 0.00). Status auto-derived from SUM(payments). NOTE: this consumed the real series (A00116/INV-0001 now exist, paid); a fresh rebuild issues A00117/INV-0002.
 - 8. /settings/templates: TemplateEditor (name, default section toggles, terms add/remove, banner/logo URLs) + updateTemplateAction (zod, requireRole owner/manager, updates document_templates.config). Build-verified. Config READ verified (seeded terms render on documents via /print). PARTIAL-BLOCK: the owner-only SAVE could not be runtime-verified — owner login is failing right now because the proxy getUser() cannot reach Supabase Auth under a transient network outage (same outage hit fonts + DB:5432; auth worked earlier this session). Action mirrors the proven saveDraft/recordPayment pattern.
+
+---
+
+# Phase 2/3 — Deferred backend + POS parity (built, verified, committed)
+
+> Migration `0004_operations.sql` (SECURITY DEFINER, event-sourced) backs these:
+> open/close_cash_session, dispatch/receive_transfer, receive_purchase_order,
+> complete_job. All UI reuses the same invariants (INSERT-only movements, RLS,
+> the numbering seam). Jobs board + job cards shipped in an earlier commit.
+
+- [x] **End-of-day cash sessions** — open till (float) / close (counted vs expected → variance); cash payments link to the open session; wired into the reports rail. Verified: open→close reconciles.
+- [x] **Stock transfers** — `/products?tab=transfers`: draft → dispatch (−qty source) → receive (+qty dest). Verified: Clay Bar Storeroom 40→37, Shop Floor 10→13, on-hand conserved 50.
+- [x] **Service recipes (BOM)** — `/products?tab=recipes`: add/remove component consumables per service, upsert on unique (service, component). Verified: Diamondbrite → Clay Bar ×2 persisted.
+- [x] **Purchase orders** — `/purchases?tab=orders`: inline supplier add + PO create; receive per-line into a location (fires purchase movements + last-cost update). Verified: Clay Bar ×10 @ Rs 130 → Store 37→47, on-hand 50→60, cost 120→130. (Fixed a `po_status` enum cast in receive_purchase_order.)
+- [x] **Counter sale** — `/sales/counter`: touch catalogue + ticket, walk-in customer, issues standalone invoice + payment in one step (cash tender/change, links till). Verified: Clay Bar → INV-0002 Rs 253.00, cash 500 → change 247, on-hand 60→59.
+- [x] **Warranty certificates** — `/certificates` (new nav): issue against customer/vehicle/treatment with computed expiry; CERT-NNNN with collision-retry. Verified: unique numbers, 36-mo expiry math.
+- [x] **Reports: P&L / best-sellers / revenue-by-technician** — added to the accounting rail. Verified: Revenue 77,420 → Gross 77,065 → Net 74,665; best-sellers ranked; technician split (fixed an ambiguous jobs→app_users embed via `jobs_technician_id_fkey`).
+
+**Test data left in DB (harmless):** Auto Supplies Ltd supplier + received PO; Walk-in customer + INV-0002; a service recipe; a completed transfer; 2 certificates. On-hand/cost figures above reflect these.
