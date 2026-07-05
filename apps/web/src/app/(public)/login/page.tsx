@@ -1,7 +1,13 @@
+import { redirect } from "next/navigation";
+import { getSessionContext } from "@/lib/auth/session";
 import { Brand } from "@/components/shell/Brand";
 import { LoginForm } from "./LoginForm";
 
-export default function LoginPage() {
+export default async function LoginPage() {
+  // Already signed in → straight to the dashboard (replaces the old proxy bounce).
+  const ctx = await getSessionContext();
+  if (ctx) redirect("/dashboard");
+
   return (
     <div className="relative grid min-h-dvh place-items-center px-4">
       <div
