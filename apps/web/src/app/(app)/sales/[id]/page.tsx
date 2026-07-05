@@ -5,6 +5,7 @@ import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
+import { ReviseButton } from "@/features/documents/ReviseButton";
 import { formatMUR } from "@/lib/money";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
@@ -38,6 +39,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
               <Printer size={15} /> Print / PDF
             </a>
+            {doc.docType === "quote" && <ReviseButton quoteId={doc.id} />}
             {doc.docType === "quote" && <ConvertButton quoteId={doc.id} />}
           </div>
         </div>

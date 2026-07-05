@@ -103,3 +103,15 @@ export async function convertQuoteToInvoiceAction(quoteId: string): Promise<Acti
     return { ok: false, error: (e as Error).message };
   }
 }
+
+export async function reviseQuoteAction(quoteId: string): Promise<ActionResult<rpc.DocumentRow>> {
+  await requireRole(...WRITE_ROLES);
+  const sb = await createClient();
+  try {
+    const rev = await rpc.reviseQuote(sb, quoteId);
+    revalidatePath("/sales");
+    return { ok: true, data: rev };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}

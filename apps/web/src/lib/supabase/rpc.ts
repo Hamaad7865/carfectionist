@@ -81,6 +81,9 @@ export const issueDocument = (
 export const convertQuoteToInvoice = (sb: Client, quoteId: string) =>
   callRpc<DocumentRow>(sb, "convert_quote_to_invoice", { p_quote_id: quoteId });
 
+export const reviseQuote = (sb: Client, quoteId: string) =>
+  callRpc<DocumentRow>(sb, "revise_quote", { p_quote_id: quoteId });
+
 export interface RecordPaymentArgs {
   invoiceId: string;
   method: "cash" | "card" | "juice" | "bank_transfer";
