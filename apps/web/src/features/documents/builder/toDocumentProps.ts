@@ -68,5 +68,6 @@ export function toDocumentProps(
     },
     terms: opts.terms,
     sectionConfig: state.sectionConfig,
+    customFields: state.customFields.filter((f) => f.label.trim() !== ""),
   };
 }

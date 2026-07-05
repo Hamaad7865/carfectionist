@@ -20,6 +20,7 @@ export interface BuilderState {
   revision: number;
   lines: BuilderLine[];
   sectionConfig: Partial<SectionFlags>;
+  customFields: { label: string; value: string }[];
   dirty: boolean;
   save: "idle" | "saving" | "saved" | "error";
   saveError: string | null;
@@ -42,6 +43,9 @@ export type BuilderAction =
   | { type: "patchLine"; key: string; patch: Partial<BuilderLine> }
   | { type: "removeLine"; key: string }
   | { type: "setSection"; key: keyof SectionFlags; value: boolean }
+  | { type: "addCustomField" }
+  | { type: "patchCustomField"; index: number; patch: Partial<{ label: string; value: string }> }
+  | { type: "removeCustomField"; index: number }
   | { type: "saveStart" }
   | { type: "saveOk"; docId: string; revision: number; number?: string | null; status?: string }
   | { type: "saveError"; error: string }
@@ -66,6 +70,12 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
       return touched({ ...state, lines: state.lines.filter((l) => l.key !== action.key) });
     case "setSection":
       return touched({ ...state, sectionConfig: { ...state.sectionConfig, [action.key]: action.value } });
+    case "addCustomField":
+      return touched({ ...state, customFields: [...state.customFields, { label: "", value: "" }] });
+    case "patchCustomField":
+      return touched({ ...state, customFields: state.customFields.map((f, i) => (i === action.index ? { ...f, ...action.patch } : f)) });
+    case "removeCustomField":
+      return touched({ ...state, customFields: state.customFields.filter((_, i) => i !== action.index) });
     case "saveStart":
       return { ...state, save: "saving", saveError: null };
     case "saveOk":

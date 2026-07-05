@@ -35,7 +35,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     const s = stateRef.current;
     dispatch({ type: "saveStart" });
     const payload: SaveDraftInput = {
-      doc: { id: s.docId, docType: s.docType, customerId: s.customerId, templateOverrides: s.sectionConfig as Record<string, unknown> },
+      doc: { id: s.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown> },
       lines: s.lines.map((l) => ({
         productId: l.productId,
         title: l.title,
@@ -296,6 +296,28 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   );
                 })}
               </div>
+            </div>
+          )}
+
+          {/* custom fields */}
+          {!readOnly && (
+            <div className="border-t border-line pt-4">
+              <div className={`${label} mb-2.5`}>Custom fields</div>
+              {state.customFields.length > 0 && (
+                <div className="mb-2 flex flex-col gap-2">
+                  {state.customFields.map((f, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input value={f.label} onChange={(e) => dispatch({ type: "patchCustomField", index: i, patch: { label: e.target.value } })} placeholder="Label — e.g. PO number" className="h-9 w-[42%] rounded-[9px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand" />
+                      <input value={f.value} onChange={(e) => dispatch({ type: "patchCustomField", index: i, patch: { value: e.target.value } })} placeholder="Value" className="h-9 flex-1 rounded-[9px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand" />
+                      <button onClick={() => dispatch({ type: "removeCustomField", index: i })} className="grid size-9 place-items-center rounded-[9px] text-faint hover:text-rose"><X size={15} /></button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button onClick={() => dispatch({ type: "addCustomField" })} className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-3 text-[12.5px] font-semibold text-body">
+                <Plus size={14} /> Add field
+              </button>
+              <p className="mt-1.5 text-[11px] text-faint">Extra label/value details shown in the document header (e.g. PO number, reference).</p>
             </div>
           )}
 

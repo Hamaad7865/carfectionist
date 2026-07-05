@@ -41,6 +41,7 @@ export interface DocumentA4Props {
   terms?: string[];
   assets?: { headerBannerUrl?: string | null; footerBannerUrl?: string | null; logoUrl?: string | null };
   sectionConfig?: Partial<SectionFlags>;
+  customFields?: { label: string; value: string }[];
 }
 
 const INK = "#14181c";
@@ -203,6 +204,12 @@ export function DocumentA4(props: DocumentA4Props) {
             <div style={s.metaLabel}>Created By</div>
             <div style={s.metaValue}>{createdBy}</div>
           </div>
+          {(props.customFields ?? []).filter((f) => f.label.trim() !== "").map((f, i) => (
+            <div key={i}>
+              <div style={s.metaLabel}>{f.label}</div>
+              <div style={s.metaValue}>{f.value || "—"}</div>
+            </div>
+          ))}
         </div>
 
         {/* From / For */}

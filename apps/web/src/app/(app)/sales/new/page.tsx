@@ -20,6 +20,7 @@ export default async function NewDocumentPage({
     revision: 0,
     lines: [],
     sectionConfig: ctx.templateConfig,
+    customFields: [],
     dirty: false,
     save: "idle",
     saveError: null,

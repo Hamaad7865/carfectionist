@@ -93,6 +93,7 @@ export interface LoadedDraft {
   customerId: string | null;
   revision: number;
   sectionConfig: Partial<SectionFlags>;
+  customFields: { label: string; value: string }[];
   lines: {
     productId: string | null;
     title: string;
@@ -116,6 +117,8 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
+  const to = (d.template_overrides ?? {}) as Record<string, unknown>;
+  const { customFields: cf, ...flags } = to;
   return {
     docId: d.id,
     docType: d.doc_type,
@@ -123,7 +126,8 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     number: d.number,
     customerId: d.customer_id,
     revision: d.revision,
-    sectionConfig: d.template_overrides ?? {},
+    sectionConfig: flags as Partial<SectionFlags>,
+    customFields: Array.isArray(cf) ? (cf as { label: string; value: string }[]) : [],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       productId: l.product_id,

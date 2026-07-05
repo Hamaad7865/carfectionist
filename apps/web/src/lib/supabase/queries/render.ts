@@ -68,5 +68,6 @@ export async function getDocumentProps(id: string): Promise<DocumentA4Props | nu
     },
     terms: Array.isArray(config.terms) ? config.terms : [],
     sectionConfig: d.template_overrides ?? {},
+    customFields: Array.isArray(d.template_overrides?.customFields) ? d.template_overrides.customFields : [],
   };
 }
