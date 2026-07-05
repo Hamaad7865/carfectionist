@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
-import { getReportsData } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports } from "@/lib/supabase/queries/reports";
 import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { CashSessions } from "@/features/cash/CashSessions";
 import { formatMUR } from "@/lib/money";
@@ -11,10 +11,13 @@ const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice
 const REPORTS = [
   { key: "collected", label: "Collected by method" },
   { key: "vat", label: "VAT report" },
+  { key: "pnl", label: "Simple P&L" },
+  { key: "bestsellers", label: "Best-sellers" },
+  { key: "technician", label: "Revenue by technician" },
   { key: "receivables", label: "Aged receivables" },
   { key: "cash", label: "End-of-day cash-up" },
 ];
-const SOON = ["Simple P&L", "Best-sellers", "Revenue by technician"];
+const EXTRA = ["pnl", "bestsellers", "technician"];
 
 function qs(params: Record<string, string | undefined>) {
   const p = new URLSearchParams();
@@ -32,6 +35,7 @@ export default async function ReportsPage({
   const report = REPORTS.some((x) => x.key === sp.r) ? sp.r! : "collected";
   const data = await getReportsData(sp.from, sp.to);
   const cash = report === "cash" ? await getCashSessions() : null;
+  const extra = EXTRA.includes(report) ? await getExtraReports(sp.from, sp.to) : null;
   const rangeLabel = sp.from || sp.to ? `${sp.from ?? "…"} → ${sp.to ?? "…"}` : "All time";
 
   const now = new Date();
@@ -63,12 +67,6 @@ export default async function ReportsPage({
           <div className="text-[11px] leading-relaxed text-muted">
             Reports separate <b className="text-body">cash received</b> (the till) from <b className="text-body">revenue invoiced</b> (VAT &amp; P&amp;L).
           </div>
-        </div>
-        <div className="mt-4 px-2.5 text-[10px] font-bold uppercase tracking-wider text-faint">Arriving Phase 3</div>
-        <div className="mt-1.5 flex flex-col gap-1.5 px-2.5">
-          {SOON.map((s) => (
-            <span key={s} className="text-[12px] text-faint">{s}</span>
-          ))}
         </div>
       </div>
 
@@ -205,6 +203,88 @@ export default async function ReportsPage({
           )}
 
           {report === "cash" && cash && <CashSessions open={cash.open} recent={cash.recent} />}
+
+          {report === "pnl" && extra && (
+            <div className="max-w-xl">
+              <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+                {[
+                  { label: "Revenue invoiced", note: "VAT-exclusive", cents: extra.pnl.revenueCents, tone: "text-ink-strong" },
+                  { label: "Cost of goods sold", note: "Stock consumed on sales & jobs", cents: -extra.pnl.cogsCents, tone: "text-body" },
+                ].map((r) => (
+                  <div key={r.label} className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                    <div>
+                      <div className="text-[13px] font-semibold text-body">{r.label}</div>
+                      <div className="text-[11px] text-faint">{r.note}</div>
+                    </div>
+                    <span className={`num text-[14px] font-bold ${r.tone}`}>{formatMUR(r.cents)}</span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between border-b border-line bg-sub px-5 py-3">
+                  <span className="text-[13px] font-bold text-ink">Gross profit</span>
+                  <span className="num text-[14px] font-extrabold text-mint">{formatMUR(extra.pnl.grossCents)}</span>
+                </div>
+                <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                  <div>
+                    <div className="text-[13px] font-semibold text-body">Operating expenses</div>
+                    <div className="text-[11px] text-faint">VAT-exclusive</div>
+                  </div>
+                  <span className="num text-[14px] font-bold text-body">{formatMUR(-extra.pnl.expensesCents)}</span>
+                </div>
+                <div className="flex items-center justify-between px-5 py-4" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
+                  <span className="text-[14px] font-extrabold text-[#0f2f5e]">Net profit</span>
+                  <span className="num text-[18px] font-extrabold" style={{ color: extra.pnl.netCents >= 0 ? "#0f2f5e" : "#d63b50" }}>{formatMUR(extra.pnl.netCents)}</span>
+                </div>
+              </div>
+              <p className="mt-3 text-[12px] text-muted">Revenue is invoiced value (excl. VAT). COGS is the cost of stock that left on sales and job consumption. Net profit = revenue − COGS − operating expenses.</p>
+            </div>
+          )}
+
+          {report === "bestsellers" && extra && (
+            <div className="max-w-2xl overflow-hidden rounded-[15px] border border-line bg-card">
+              <div className="grid grid-cols-[36px_1fr_90px_130px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+                <span>#</span><span>Item</span><span className="text-right">Qty</span><span className="text-right">Revenue</span>
+              </div>
+              {extra.bestSellers.length === 0 ? (
+                <div className="px-5 py-14 text-center text-[13px] text-faint">No sales in this range yet.</div>
+              ) : (
+                extra.bestSellers.map((b, i) => {
+                  const max = extra.bestSellers[0].revenueCents || 1;
+                  return (
+                    <div key={b.name} className="grid grid-cols-[36px_1fr_90px_130px] items-center gap-3 border-b border-line px-5 py-3 text-[12.5px]">
+                      <span className="num font-bold text-faint">{i + 1}</span>
+                      <div className="min-w-0">
+                        <div className="truncate font-semibold text-body">{b.name}</div>
+                        <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-[rgba(15,23,32,0.06)]">
+                          <div className="grad-brand h-full rounded-full" style={{ width: `${Math.round((b.revenueCents / max) * 100)}%` }} />
+                        </div>
+                      </div>
+                      <span className="num text-right text-muted">{Number.isInteger(b.qty) ? b.qty : b.qty.toFixed(2)}</span>
+                      <span className="num text-right font-bold text-ink">{formatMUR(b.revenueCents)}</span>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+
+          {report === "technician" && extra && (
+            <div className="max-w-2xl overflow-hidden rounded-[15px] border border-line bg-card">
+              <div className="grid grid-cols-[1fr_80px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+                <span>Technician</span><span className="text-right">Jobs</span><span className="text-right">Revenue</span>
+              </div>
+              {extra.byTechnician.length === 0 ? (
+                <div className="px-5 py-14 text-center text-[13px] text-faint">No invoiced revenue in this range yet.</div>
+              ) : (
+                extra.byTechnician.map((t) => (
+                  <div key={t.name} className="grid grid-cols-[1fr_80px_140px] items-center gap-3 border-b border-line px-5 py-3.5 text-[13px]">
+                    <span className="font-semibold text-body">{t.name}</span>
+                    <span className="num text-right text-muted">{t.jobs || "—"}</span>
+                    <span className="num text-right font-bold text-ink">{formatMUR(t.revenueCents)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </div>
     </div>
