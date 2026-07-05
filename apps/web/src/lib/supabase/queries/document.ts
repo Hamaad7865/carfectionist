@@ -26,6 +26,8 @@ export interface DocumentDetail {
   outstandingCents: number;
   voidReason: string | null;
   voidedAt: string | null;
+  sourceId: string | null;
+  sourceNumber: string | null;
   lines: { title: string; description: string | null; qty: number; rateCents: number; amountCents: number }[];
   payments: PaymentView[];
 }
@@ -42,6 +44,12 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
+  let sourceNumber: string | null = null;
+  if (d.source_document_id) {
+    const { data: src } = await sb.from("documents").select("number").eq("id", d.source_document_id).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    sourceNumber = (src as any)?.number ?? null;
+  }
   const totalCents = rupeesToCents(Number(d.total_incl));
   const paidCents = rupeesToCents(Number(d.amount_paid));
 
@@ -60,6 +68,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     outstandingCents: totalCents - paidCents,
     voidReason: d.void_reason ?? null,
     voidedAt: d.voided_at ?? null,
+    sourceId: d.source_document_id ?? null,
+    sourceNumber,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,

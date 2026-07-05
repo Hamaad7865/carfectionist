@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { Printer } from "lucide-react";
+import { Printer, FileMinus } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
@@ -8,6 +8,7 @@ import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
 import { VoidButton } from "@/features/documents/VoidButton";
+import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
 import { formatMUR } from "@/lib/money";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
@@ -21,6 +22,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const isInvoice = doc.docType === "invoice";
   const canPay = isInvoice && (doc.status === "issued" || doc.status === "partly_paid");
   const canVoid = isInvoice && doc.status === "issued" && doc.paidCents === 0;
+  const canCredit = isInvoice && doc.paidCents > 0 && doc.status !== "void";
   const title = doc.docType === "quote" ? "Quotation" : doc.docType === "credit_note" ? "Credit note" : "Invoice";
 
   return (
@@ -45,6 +47,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             {doc.docType === "quote" && <ReviseButton quoteId={doc.id} />}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
             {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
+            {canCredit && <CreditNoteButton invoiceId={doc.id} number={doc.number} />}
             {doc.docType === "quote" && <ConvertButton quoteId={doc.id} />}
           </div>
         </div>
@@ -56,6 +59,14 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               This {doc.docType} was voided{doc.voidedAt ? ` on ${doc.voidedAt.slice(0, 10)}` : ""}
               {doc.voidReason ? <> — <span className="font-semibold">{doc.voidReason}</span></> : ""}. Stock movements were reversed; the number is retained.
             </div>
+          </div>
+        )}
+
+        {doc.docType === "credit_note" && doc.sourceId && (
+          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
+            <FileMinus size={15} className="text-pink" />
+            Credit note against invoice{" "}
+            <Link href={`/sales/${doc.sourceId}`} className="font-bold text-link hover:underline">{doc.sourceNumber ?? "—"}</Link>.
           </div>
         )}
 

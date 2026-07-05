@@ -109,6 +109,9 @@ export const recordPayment = (sb: Client, a: RecordPaymentArgs) =>
 export const voidDocument = (sb: Client, id: string, reason: string) =>
   callRpc<DocumentRow>(sb, "void_document", { p_id: id, p_reason: reason });
 
+export const createCreditNote = (sb: Client, invoiceId: string, restock: boolean, location: string | null = null) =>
+  callRpc<DocumentRow>(sb, "create_and_issue_credit_note", { p_invoice_id: invoiceId, p_stock_location_id: location, p_restock: restock });
+
 // ── Operations (migration 0004) ──────────────────────────────────────────────
 export const completeJob = (sb: Client, jobId: string, consumptions: { product_id: string; qty: number }[], location: string | null = null) =>
   callRpc<unknown>(sb, "complete_job", { p_job_id: jobId, p_location: location, p_consumptions: consumptions });

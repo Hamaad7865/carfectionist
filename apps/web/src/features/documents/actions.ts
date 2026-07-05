@@ -116,6 +116,19 @@ export async function reviseQuoteAction(quoteId: string): Promise<ActionResult<r
   }
 }
 
+export async function createCreditNoteAction(invoiceId: string, restock: boolean): Promise<ActionResult<rpc.DocumentRow>> {
+  await requireRole("owner", "manager");
+  const sb = await createClient();
+  try {
+    const cn = await rpc.createCreditNote(sb, invoiceId, restock);
+    revalidatePath("/sales");
+    revalidatePath(`/sales/${invoiceId}`);
+    return { ok: true, data: cn };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function voidDocumentAction(id: string, reason: string): Promise<ActionResult<rpc.DocumentRow>> {
   await requireRole("owner", "manager");
   const clean = reason.trim();
