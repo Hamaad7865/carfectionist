@@ -83,11 +83,9 @@ export default async function ReportsPage({
           </Link>
           <span className="num text-[11.5px] text-muted">{rangeLabel}</span>
           <div className="flex-1" />
-          {report === "collected" && (
-            <a href={`/api/reports/payments/csv${qs({ from: sp.from, to: sp.to, m: method })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body">
-              <Download size={14} /> CSV
-            </a>
-          )}
+          <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
+            <Download size={14} /> CSV
+          </a>
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
