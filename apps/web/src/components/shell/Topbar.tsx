@@ -6,6 +6,7 @@ import { NAV } from "@/lib/auth/roles";
 
 const SUBS: Record<string, string> = {
   "/dashboard": "Overview of today's activity",
+  "/jobs": "Reception, jobs board & job cards",
   "/contacts": "Customers, vehicles & suppliers",
   "/sales": "Quotes & invoices",
   "/products": "Catalogue & inventory",

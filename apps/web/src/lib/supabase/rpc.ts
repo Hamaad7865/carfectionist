@@ -102,3 +102,22 @@ export const recordPayment = (sb: Client, a: RecordPaymentArgs) =>
 
 export const voidDocument = (sb: Client, id: string, reason: string) =>
   callRpc<DocumentRow>(sb, "void_document", { p_id: id, p_reason: reason });
+
+// ── Operations (migration 0004) ──────────────────────────────────────────────
+export const completeJob = (sb: Client, jobId: string, consumptions: { product_id: string; qty: number }[], location: string | null = null) =>
+  callRpc<unknown>(sb, "complete_job", { p_job_id: jobId, p_location: location, p_consumptions: consumptions });
+
+export const openCashSession = (sb: Client, deviceId: string, openingFloat: number) =>
+  callRpc<{ id: string }>(sb, "open_cash_session", { p_device_id: deviceId, p_opening_float: openingFloat });
+
+export const closeCashSession = (sb: Client, id: string, closingCount: number) =>
+  callRpc<{ id: string; variance: string }>(sb, "close_cash_session", { p_id: id, p_closing_count: closingCount });
+
+export const dispatchTransfer = (sb: Client, id: string) =>
+  callRpc<{ id: string }>(sb, "dispatch_transfer", { p_id: id });
+
+export const receiveTransfer = (sb: Client, id: string, lines: { line_id: string; qty_received: number }[]) =>
+  callRpc<{ id: string }>(sb, "receive_transfer", { p_id: id, p_lines: lines });
+
+export const receivePurchaseOrder = (sb: Client, id: string, location: string | null, lines: { line_id: string; qty: number }[]) =>
+  callRpc<{ id: string }>(sb, "receive_purchase_order", { p_id: id, p_location: location, p_lines: lines });

@@ -1,5 +1,6 @@
 import {
   LayoutDashboard,
+  ClipboardList,
   Users,
   ReceiptText,
   Package,
@@ -34,6 +35,7 @@ const ALL: Role[] = ["owner", "manager", "cashier", "technician", "accountant"];
 // route layout and by RLS.
 export const NAV: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ALL },
+  { label: "Jobs", href: "/jobs", icon: ClipboardList, roles: ["owner", "manager", "cashier", "technician"] },
   { label: "Contacts", href: "/contacts", icon: Users, roles: ["owner", "manager", "cashier", "accountant"] },
   { label: "Sales & Invoices", href: "/sales", icon: ReceiptText, roles: ["owner", "manager", "cashier", "accountant"] },
   { label: "Products & Inventory", href: "/products", icon: Package, roles: ["owner", "manager", "cashier"] },

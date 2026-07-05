@@ -43,3 +43,7 @@ _(one line per phase)_
 - K. Accounting & Reports — report rail + date presets; collected-by-method (headline + by-method bars + payments table), VAT report (output−input=net), aged receivables; CSV export. Verified live (Cash received Rs 88,780, CSV works).
 
 All 8 back-office screens now match the comp with real data. Deferred (need deeper backend): PO receiving + stock transfers + service recipes (Phase 2/3), P&L / best-sellers / revenue-by-technician / end-of-day cash-up reports (need cash sessions), the printed-document redesign (master-prompt spec conflict), and the PDF binary (Cloudflare creds).
+
+## POS features + deferred backend (build-out)
+- [x] L. Migration 0004 (ops RPCs): open/close_cash_session, dispatch/receive_transfer, receive_purchase_order, complete_job. Pushed.
+- [x] M. Jobs — board (4 status columns) + intake form + job card (timer, technician, checklist, complete → consumption). Verified live: created job, completed with consumption, Microfibre Towel on-hand 250→245.
