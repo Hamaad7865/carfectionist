@@ -38,3 +38,8 @@ _(one line per phase)_
 - [x] G. Contacts — customers master-detail (list, vehicles, lifetime spend, outstanding, service history) + suppliers tab. Verified live.
 - [x] H. Products & Inventory — catalogue table (cost/sell/margin/store/floor/on-hand + LOW badges); transfers/recipes tabs stubbed for Phase 2/3. Verified live.
 - Template SAVE verified end-to-end (clicked Save → persisted).
+- I. Purchases & Expenses — expenses list + working add form (role-gated); PO tab. Verified (added Rs 2,400 expense live).
+- J. Forms & Enquiries — inbox + convert-to-customer + public /enquiry form (service-role insert). Verified end-to-end (submit → inbox → convert → customer).
+- K. Accounting & Reports — report rail + date presets; collected-by-method (headline + by-method bars + payments table), VAT report (output−input=net), aged receivables; CSV export. Verified live (Cash received Rs 88,780, CSV works).
+
+All 8 back-office screens now match the comp with real data. Deferred (need deeper backend): PO receiving + stock transfers + service recipes (Phase 2/3), P&L / best-sellers / revenue-by-technician / end-of-day cash-up reports (need cash sessions), the printed-document redesign (master-prompt spec conflict), and the PDF binary (Cloudflare creds).
