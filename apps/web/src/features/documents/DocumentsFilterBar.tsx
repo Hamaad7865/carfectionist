@@ -1,6 +1,7 @@
 "use client";
 
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 
 const TYPES = [
   { value: "", label: "All" },
@@ -64,6 +65,10 @@ export function DocumentsFilterBar() {
           );
         })}
       </div>
+
+      <div className="mx-1 h-6 w-px bg-line-2" />
+
+      <DateRangeFilter />
 
       <div className="flex-1" />
 

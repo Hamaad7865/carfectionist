@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Download } from "lucide-react";
 import { getReportsData, getExtraReports } from "@/lib/supabase/queries/reports";
 import { getCashSessions } from "@/lib/supabase/queries/cash";
+import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { CashSessions } from "@/features/cash/CashSessions";
 import { formatMUR } from "@/lib/money";
 
@@ -40,7 +41,9 @@ export default async function ReportsPage({
   const rangeLabel = sp.from || sp.to ? `${sp.from ?? "…"} → ${sp.to ?? "…"}` : "All time";
 
   const now = new Date();
-  const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const monthStart = `${now.getFullYear()}-${mm}-01`;
+  const monthEnd = `${now.getFullYear()}-${mm}-${String(new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()).padStart(2, "0")}`;
   const methodMax = data.byMethod[0]?.cents ?? 1;
 
   return (
@@ -75,13 +78,14 @@ export default async function ReportsPage({
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex flex-none flex-wrap items-center gap-2.5 border-b border-line bg-sub px-5 py-3">
           <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">Date</span>
-          <Link href={`/reports${qs({ r: report })}`} className={`h-[30px] rounded-lg border px-3 text-[12px] font-semibold leading-[30px] ${!sp.from ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
+          <Link href={`/reports${qs({ r: report, m: method })}`} className={`h-[30px] rounded-lg border px-3 text-[12px] font-semibold leading-[30px] ${!sp.from && !sp.to ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
             All time
           </Link>
-          <Link href={`/reports${qs({ r: report, from: monthStart })}`} className={`h-[30px] rounded-lg border px-3 text-[12px] font-semibold leading-[30px] ${sp.from === monthStart ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
+          <Link href={`/reports${qs({ r: report, from: monthStart, to: monthEnd, m: method })}`} className={`h-[30px] rounded-lg border px-3 text-[12px] font-semibold leading-[30px] ${sp.from === monthStart ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
             This month
           </Link>
-          <span className="num text-[11.5px] text-muted">{rangeLabel}</span>
+          <div className="mx-1 h-6 w-px bg-line-2" />
+          <DateRangeFilter label={false} />
           <div className="flex-1" />
           <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
             <Download size={14} /> CSV
