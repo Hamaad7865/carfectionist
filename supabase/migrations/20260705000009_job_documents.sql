@@ -39,6 +39,13 @@ begin
     raise exception 'unknown template'; end if;
   if v_job      is not null and not exists (select 1 from public.jobs               where id = v_job      and tenant_id = v_tenant) then
     raise exception 'unknown job'; end if;
+  -- Line products must be ours too — a foreign product_id would otherwise fire a
+  -- sale stock movement against another tenant's product on issue.
+  if exists (
+    select 1 from jsonb_array_elements(coalesce(p_lines,'[]'::jsonb)) l
+    where nullif(l->>'product_id','') is not null
+      and not exists (select 1 from public.products pr where pr.id = (l->>'product_id')::uuid and pr.tenant_id = v_tenant)
+  ) then raise exception 'unknown product on a line'; end if;
 
   v_id := coalesce(nullif(p_doc->>'id','')::uuid, gen_random_uuid());
   select * into v_doc from public.documents where id = v_id and tenant_id = v_tenant for update;
@@ -117,6 +124,11 @@ begin
 
   select * into v_job from public.jobs where id = p_job_id and tenant_id = v_tenant;
   if not found then raise exception 'job not found'; end if;
+  -- One live document of each type per job — no unbounded drafts / double-billing.
+  if exists (
+    select 1 from public.documents
+     where tenant_id = v_tenant and job_id = v_job.id and doc_type = p_doc_type and status <> 'void'
+  ) then raise exception 'this job already has a % — open it instead of creating another', p_doc_type; end if;
 
   select * into v_bs from public.business_settings where id = v_tenant;
 

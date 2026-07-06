@@ -80,7 +80,7 @@ begin
     insert into public.stock_movements (tenant_id, product_id, location_id, qty, unit_cost, ref_type, ref_id, ref_line_id, created_by, note)
     select v_tenant, l.product_id, v_t.to_location_id, r.qty, p.cost_price, 'transfer', v_t.id, l.id, app.current_app_user_id(), 'transfer in'
     from public.stock_transfer_lines l join public.products p on p.id = l.product_id
-    where l.id = r.line_id and r.qty > 0;
+    where l.id = r.line_id and l.transfer_id = v_t.id and l.tenant_id = v_tenant and r.qty > 0;
   end loop;
 
   update public.stock_transfers set status = 'received', received_at = now(), received_by = app.current_app_user_id()
@@ -98,18 +98,31 @@ begin
   select * into v_po from public.purchase_orders where id = p_id and tenant_id = v_tenant for update;
   if not found then raise exception 'purchase order not found'; end if;
   if v_po.status = 'received' then return v_po; end if;
+  -- FK checks bypass RLS inside a definer fn: validate the client-supplied location.
+  if p_location is not null and not exists (
+    select 1 from public.stock_locations where id = p_location and tenant_id = v_tenant
+  ) then raise exception 'unknown stock location'; end if;
 
   for r in select (e->>'line_id')::uuid as line_id, (e->>'qty')::numeric as qty
            from jsonb_array_elements(coalesce(p_lines,'[]'::jsonb)) e loop
     if r.qty > 0 then
+      -- The line MUST belong to this PO+tenant (a foreign/wrong line_id must not
+      -- move stock or overwrite cost); and never receive more than remains on order.
+      select qty_ordered - qty_received into v_remaining
+        from public.purchase_order_lines where id = r.line_id and purchase_order_id = v_po.id and tenant_id = v_tenant;
+      if v_remaining is null then raise exception 'line is not on this purchase order'; end if;
+      if r.qty > v_remaining then raise exception 'receiving % exceeds the % still on order', r.qty, v_remaining; end if;
+
       insert into public.stock_movements (tenant_id, product_id, location_id, qty, unit_cost, ref_type, ref_id, ref_line_id, created_by, note)
       select v_tenant, pl.product_id, coalesce(p_location, (select id from public.stock_locations where tenant_id = v_tenant and is_default limit 1)),
              r.qty, pl.unit_cost, 'purchase_order', v_po.id, null, app.current_app_user_id(), 'PO receipt'
-      from public.purchase_order_lines pl where pl.id = r.line_id;
+      from public.purchase_order_lines pl where pl.id = r.line_id and pl.purchase_order_id = v_po.id and pl.tenant_id = v_tenant;
 
-      update public.purchase_order_lines set qty_received = qty_received + r.qty where id = r.line_id;
+      update public.purchase_order_lines set qty_received = qty_received + r.qty
+        where id = r.line_id and purchase_order_id = v_po.id and tenant_id = v_tenant;
       update public.products p set cost_price = pl.unit_cost
-      from public.purchase_order_lines pl where pl.id = r.line_id and p.id = pl.product_id;
+      from public.purchase_order_lines pl
+      where pl.id = r.line_id and pl.purchase_order_id = v_po.id and pl.tenant_id = v_tenant and p.id = pl.product_id;
     end if;
   end loop;
 
@@ -129,6 +142,15 @@ begin
   select * into v_job from public.jobs where id = p_job_id and tenant_id = v_tenant for update;
   if not found then raise exception 'job not found'; end if;
   if v_job.status not in ('scheduled','in_progress') then raise exception 'job already completed (status %)', v_job.status; end if;
+  -- FK checks bypass RLS inside a definer fn: validate the client-supplied location.
+  if p_location is not null and not exists (
+    select 1 from public.stock_locations where id = p_location and tenant_id = v_tenant
+  ) then raise exception 'unknown stock location'; end if;
+  -- Idempotency at the ledger level (status is a mutable column and not enough):
+  -- never consume stock twice for the same job.
+  if exists (select 1 from public.stock_movements where tenant_id = v_tenant and ref_type = 'job_card' and ref_id = v_job.id) then
+    raise exception 'job already has consumption recorded';
+  end if;
 
   v_loc := coalesce(p_location, (select id from public.stock_locations where tenant_id = v_tenant and is_default limit 1));
   for r in select (e->>'product_id')::uuid as pid, (e->>'qty')::numeric as qty
@@ -136,7 +158,7 @@ begin
     if r.qty > 0 then
       insert into public.stock_movements (tenant_id, product_id, location_id, qty, unit_cost, ref_type, ref_id, created_by, note)
       select v_tenant, r.pid, v_loc, -r.qty, p.cost_price, 'job_card', v_job.id, app.current_app_user_id(), 'job consumption'
-      from public.products p where p.id = r.pid;
+      from public.products p where p.id = r.pid and p.tenant_id = v_tenant;
     end if;
   end loop;
 

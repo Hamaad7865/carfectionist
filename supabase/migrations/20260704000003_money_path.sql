@@ -163,16 +163,24 @@ begin
 
   -- Event-sourced stock: invoices fire sale movements for stocked catalogue lines.
   if v_doc.doc_type = 'invoice' then
+    -- FK checks bypass RLS inside a definer fn: validate the client-supplied location.
+    if p_stock_location_id is not null and not exists (
+      select 1 from public.stock_locations where id = p_stock_location_id and tenant_id = v_tenant
+    ) then raise exception 'unknown stock location'; end if;
     v_location := coalesce(
       p_stock_location_id,
       (select id from public.stock_locations where tenant_id = v_tenant and is_default limit 1)
     );
+    if v_location is null and exists (
+      select 1 from public.document_lines dl join public.products p on p.id = dl.product_id
+      where dl.document_id = v_doc.id and p.is_stocked
+    ) then raise exception 'no stock location — set a default location or pass one'; end if;
     insert into public.stock_movements
       (tenant_id, product_id, location_id, qty, unit_cost, ref_type, ref_id, ref_line_id, created_by, note)
     select v_tenant, dl.product_id, v_location, -dl.qty, p.cost_price,
            'invoice', v_doc.id, dl.id, v_actor, 'sale on issue'
     from public.document_lines dl
-    join public.products p on p.id = dl.product_id
+    join public.products p on p.id = dl.product_id and p.tenant_id = v_tenant
     where dl.document_id = v_doc.id and p.is_stocked;
   end if;
 
@@ -227,6 +235,10 @@ begin
   if p_amount > (v_doc.total_incl - v_doc.amount_paid) + 0.001 then
     raise exception 'payment % exceeds outstanding balance %', p_amount, v_doc.total_incl - v_doc.amount_paid;
   end if;
+  -- FK checks bypass RLS inside a definer fn: the cash session must be ours and open.
+  if p_cash_session_id is not null and not exists (
+    select 1 from public.cash_sessions where id = p_cash_session_id and tenant_id = v_tenant and status = 'open'
+  ) then raise exception 'unknown or closed cash session'; end if;
 
   if p_method = 'cash' then
     p_tendered := coalesce(p_tendered, p_amount);
