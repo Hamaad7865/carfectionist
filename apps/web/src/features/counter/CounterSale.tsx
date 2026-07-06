@@ -14,6 +14,7 @@ const METHODS = [
   { key: "card", label: "Card" },
   { key: "juice", label: "Juice" },
   { key: "bank_transfer", label: "Bank" },
+  { key: "credit", label: "Credit" },
 ] as const;
 type Method = (typeof METHODS)[number]["key"];
 
@@ -59,6 +60,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
   async function complete() {
     setError(null);
     if (cart.length === 0) return setError("Add at least one product.");
+    if (method === "credit" && !customer.trim()) return setError("Enter the customer's name — a credit sale needs someone to owe it.");
     if (method === "cash" && tenderCents != null && tenderCents < totals.totalCents) return setError("Tendered is less than the total.");
     setBusy(true);
     const r = await counterSaleAction({
@@ -84,15 +86,20 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
         <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-[rgba(13,167,124,0.14)]">
           <Check size={28} className="text-mint" strokeWidth={2.6} />
         </div>
-        <div className="mt-4 font-display text-[20px] font-extrabold text-ink-strong">Sale complete</div>
+        <div className="mt-4 font-display text-[20px] font-extrabold text-ink-strong">{done.onAccount ? "Recorded on account" : "Sale complete"}</div>
         <div className="num mt-1 text-[13px] text-muted">{done.number ?? "Invoice"}</div>
         <div className="num mt-5 text-[34px] font-extrabold text-ink-strong">{formatMUR(done.totalCents)}</div>
-        {done.changeCents > 0 && (
+        {done.onAccount ? (
+          <div className="mt-3 inline-flex items-center gap-2 rounded-[11px] bg-[rgba(245,166,35,0.12)] px-4 py-2">
+            <span className="text-[12px] font-bold uppercase tracking-wide text-amber-ink">On account</span>
+            <span className="num text-[16px] font-extrabold text-amber-ink">{formatMUR(done.totalCents)} owed</span>
+          </div>
+        ) : done.changeCents > 0 ? (
           <div className="mt-3 inline-flex items-center gap-2 rounded-[11px] bg-[rgba(245,166,35,0.12)] px-4 py-2">
             <span className="text-[12px] font-bold uppercase tracking-wide text-amber-ink">Change due</span>
             <span className="num text-[16px] font-extrabold text-amber-ink">{formatMUR(done.changeCents)}</span>
           </div>
-        )}
+        ) : null}
         <div className="mt-7 flex gap-2">
           <button onClick={reset} className="grad-brand shadow-brand h-11 flex-1 rounded-[12px] font-bold text-white">New sale</button>
           <Link href={`/sales/${done.invoiceId}`} className="flex h-11 flex-1 items-center justify-center rounded-[12px] border border-line-2 bg-sub font-bold text-body">
@@ -139,8 +146,8 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
       <div className="flex flex-col rounded-[15px] border border-line bg-card">
         <div className="border-b border-line px-4 py-3">
           <input
-            className="h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand"
-            placeholder="Customer name (optional)"
+            className={`h-10 w-full rounded-[10px] border bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand ${method === "credit" && !customer.trim() ? "border-amber-ink" : "border-line-2"}`}
+            placeholder={method === "credit" ? "Customer name (required for credit)" : "Customer name (optional)"}
             value={customer}
             onChange={(e) => setCustomer(e.target.value)}
           />
@@ -173,7 +180,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
           <div className="flex justify-between text-[12.5px] text-muted"><span>VAT</span><span className="num">{formatMUR(totals.vatCents)}</span></div>
           <div className="mt-1 flex justify-between text-[16px] font-extrabold text-ink-strong"><span>Total</span><span className="num">{formatMUR(totals.totalCents)}</span></div>
 
-          <div className="mt-3 grid grid-cols-4 gap-1.5">
+          <div className="mt-3 grid grid-cols-5 gap-1.5">
             {METHODS.map((m) => (
               <button
                 key={m.key}
@@ -198,6 +205,10 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
                 <div className="mt-1.5 flex justify-between text-[13px] font-bold"><span className="text-muted">Change</span><span className="num text-mint">{formatMUR(changeCents)}</span></div>
               )}
             </div>
+          ) : method === "credit" ? (
+            <div className="mt-2 rounded-[10px] border border-[rgba(245,166,35,0.35)] bg-[rgba(245,166,35,0.08)] px-3 py-2.5 text-[12px] leading-snug text-amber-ink">
+              On account — nothing collected now. <b className="num">{formatMUR(totals.totalCents)}</b> is recorded as money this customer owes (shows in Aged Receivables &amp; their Statement).
+            </div>
           ) : (
             <input
               className="mt-2 h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand"
@@ -214,7 +225,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
             disabled={busy || cart.length === 0}
             className="grad-brand shadow-brand mt-3 flex h-12 w-full items-center justify-center rounded-[12px] text-[15px] font-extrabold text-white disabled:opacity-50"
           >
-            {busy ? "Charging…" : `Charge ${formatMUR(totals.totalCents)}`}
+            {busy ? "Working…" : method === "credit" ? `Put ${formatMUR(totals.totalCents)} on account` : `Charge ${formatMUR(totals.totalCents)}`}
           </button>
         </div>
       </div>

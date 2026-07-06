@@ -10,13 +10,16 @@ import { computeTotals } from "@/lib/money";
 const ROLES = ["owner", "manager", "cashier"] as const;
 
 export type CounterResult =
-  | { ok: true; invoiceId: string; number: string | null; totalCents: number; changeCents: number }
+  | { ok: true; invoiceId: string; number: string | null; totalCents: number; changeCents: number; onAccount: boolean }
   | { ok: false; error: string };
 
 const schema = z.object({
   customerName: z.string().optional(),
   lines: z.array(z.object({ productId: z.string().min(1), qty: z.number().positive() })).min(1),
-  method: z.enum(["cash", "card", "juice", "bank_transfer"]),
+  // "credit" = on account: issue the invoice but collect nothing now; the total
+  // stays as money owed (receivable). Not a real payment_method, so it never
+  // reaches record_payment.
+  method: z.enum(["cash", "card", "juice", "bank_transfer", "credit"]),
   tenderedCents: z.number().int().nonnegative().nullable().optional(),
   externalRef: z.string().optional(),
 });
@@ -34,6 +37,9 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
   const ctx = await requireRole(...ROLES);
   const p = schema.safeParse(input);
   if (!p.success) return { ok: false, error: "Add at least one product to the sale." };
+  if (p.data.method === "credit" && !(p.data.customerName ?? "").trim()) {
+    return { ok: false, error: "A credit (on-account) sale needs a customer name — so you know who owes you." };
+  }
   const sb = await createClient();
 
   // Authoritative product snapshot (never trust client prices).
@@ -90,32 +96,35 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     const issued = await rpc.issueDocument(sb, draft.id, null);
     const totalRupees = Number(issued.total_incl);
 
-    // Link cash to the open till so the end-of-day cash-up reconciles.
-    let cashSessionId: string | null = null;
-    if (p.data.method === "cash") {
-      const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      cashSessionId = (sess as any)?.id ?? null;
+    let changeCents = 0;
+    if (p.data.method !== "credit") {
+      // Link cash to the open till so the end-of-day cash-up reconciles.
+      let cashSessionId: string | null = null;
+      if (p.data.method === "cash") {
+        const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        cashSessionId = (sess as any)?.id ?? null;
+      }
+
+      const tenderedRupees =
+        p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;
+
+      await rpc.recordPayment(sb, {
+        invoiceId: issued.id,
+        method: p.data.method,
+        amount: totalRupees,
+        tendered: tenderedRupees,
+        externalRef: p.data.method === "cash" ? null : (p.data.externalRef?.trim() || "COUNTER"),
+        cashSessionId,
+      });
+
+      changeCents = tenderedRupees != null ? Math.max(0, Math.round(tenderedRupees * 100) - totals.totalCents) : 0;
     }
-
-    const tenderedRupees =
-      p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;
-
-    await rpc.recordPayment(sb, {
-      invoiceId: issued.id,
-      method: p.data.method,
-      amount: totalRupees,
-      tendered: tenderedRupees,
-      externalRef: p.data.method === "cash" ? null : (p.data.externalRef?.trim() || "COUNTER"),
-      cashSessionId,
-    });
-
-    const changeCents =
-      tenderedRupees != null ? Math.max(0, Math.round(tenderedRupees * 100) - totals.totalCents) : 0;
+    // credit → no payment recorded; the invoice stays fully outstanding (a receivable).
 
     revalidatePath("/sales");
     revalidatePath("/reports");
-    return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: totals.totalCents, changeCents };
+    return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: totals.totalCents, changeCents, onAccount: p.data.method === "credit" };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
