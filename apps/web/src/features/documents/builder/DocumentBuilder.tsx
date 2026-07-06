@@ -28,6 +28,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [adPrice, setAdPrice] = useState("");
   const [zoom, setZoom] = useState(1);
   const [fitMode, setFitMode] = useState(true);
+  const [issueKey] = useState(() => crypto.randomUUID()); // idempotent Issue (per document mount)
   const paneRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -88,7 +89,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     setBusy(true);
     const id = await doSave();
     if (!id) return setBusy(false);
-    const res = await issueDocumentAction({ documentId: id });
+    const res = await issueDocumentAction({ documentId: id, idempotencyKey: issueKey });
     if (res.ok) {
       dispatch({ type: "issued", number: res.data.number ?? "", status: res.data.status });
       router.refresh();

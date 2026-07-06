@@ -85,12 +85,18 @@ export async function convertAppointmentToJobAction(id: string): Promise<Result<
   });
   if (!job.ok || !job.data) return { ok: false, error: job.ok ? "Could not create the job." : job.error };
 
-  const { error } = await sb.from("appointments").update({ job_id: job.data.id, status: "arrived" }).eq("id", id);
-  if (error) {
-    // Link failed — roll back the just-created job so we don't leave an orphan
-    // (or allow a duplicate job when the user retries).
-    await sb.from("jobs").delete().eq("id", job.data.id);
-    return { ok: false, error: error.message };
+  // Atomic claim: only the FIRST conversion wins (job_id still null → our job).
+  // A concurrent conversion that lost the race gets 0 rows back and rolls its job.
+  const { data: claimed, error } = await sb
+    .from("appointments")
+    .update({ job_id: job.data.id, status: "arrived" })
+    .eq("id", id)
+    .is("job_id", null)
+    .select("id")
+    .maybeSingle();
+  if (error || !claimed) {
+    await sb.from("jobs").delete().eq("id", job.data.id); // roll back the orphan job
+    return { ok: false, error: error?.message ?? "This appointment is already a job." };
   }
   revalidatePath("/appointments");
   revalidatePath("/jobs");

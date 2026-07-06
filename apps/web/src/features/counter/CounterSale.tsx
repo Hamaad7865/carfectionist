@@ -31,6 +31,11 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Extract<CounterResult, { ok: true }> | null>(null);
+  const [saleKey, setSaleKey] = useState(() => crypto.randomUUID()); // stable per sale, rotates on reset
+
+  function newKey() {
+    setSaleKey(crypto.randomUUID());
+  }
 
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -69,6 +74,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
       method,
       tenderedCents: method === "cash" ? tenderCents : null,
       externalRef: method === "cash" ? undefined : ref,
+      idempotencyKey: saleKey,
     });
     setBusy(false);
     if (r.ok) setDone(r);
@@ -76,7 +82,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
   }
 
   function reset() {
-    setCart([]); setCustomer(""); setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ("");
+    setCart([]); setCustomer(""); setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ(""); newKey();
     router.refresh();
   }
 

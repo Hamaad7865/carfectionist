@@ -23,29 +23,45 @@ export interface DocListRow {
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank" };
 
-/** Documents list (quotes + invoices + credit notes), RLS-scoped, filtered. */
-export async function listDocuments(f: DocFilters): Promise<DocListRow[]> {
+export interface DocList {
+  rows: DocListRow[]; // display slice (capped)
+  count: number; // total matching, uncapped
+  totalCents: number; // grand total over ALL matching, uncapped
+}
+
+/** Documents list (quotes + invoices + credit notes), RLS-scoped, filtered. The
+ *  displayed rows are capped, but count + totalCents are computed uncapped so the
+ *  footer figures are correct beyond the display cap. */
+export async function listDocuments(f: DocFilters): Promise<DocList> {
   const sb = await createClient();
   const hasCustomer = !!f.customer?.trim();
   const rel = hasCustomer ? "customers!inner(name)" : "customers(name)";
 
-  let q = sb
-    .from("documents")
-    .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, payments(method), ${rel}`)
-    .order("created_at", { ascending: false })
-    .limit(200);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyFilters = (q: any) => {
+    if (f.type) q = q.eq("doc_type", f.type);
+    if (f.status) q = q.eq("status", f.status);
+    if (f.from) q = q.gte("created_at", f.from);
+    if (f.to) q = q.lte("created_at", `${f.to}T23:59:59.999+04:00`);
+    if (hasCustomer) q = q.ilike("customers.name", `%${f.customer!.trim()}%`);
+    return q;
+  };
 
-  if (f.type) q = q.eq("doc_type", f.type);
-  if (f.status) q = q.eq("status", f.status);
-  if (f.from) q = q.gte("created_at", f.from);
-  if (f.to) q = q.lte("created_at", `${f.to}T23:59:59`);
-  if (hasCustomer) q = q.ilike("customers.name", `%${f.customer!.trim()}%`);
+  const listQ = applyFilters(
+    sb
+      .from("documents")
+      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, payments(method), ${rel}`)
+      .order("created_at", { ascending: false })
+      .limit(200),
+  );
+  // Uncapped footer aggregation — one numeric column (+ inner join only when filtering by customer).
+  const totQ = applyFilters(sb.from("documents").select(hasCustomer ? "total_incl, customers!inner(name)" : "total_incl"));
 
-  const { data, error } = await q;
-  if (error) throw new Error(error.message);
+  const [listRes, totRes] = await Promise.all([listQ, totQ]);
+  if (listRes.error) throw new Error(listRes.error.message);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return (data ?? []).map((d: any) => {
+  const rows = ((listRes.data ?? []) as any[]).map((d) => {
     const methods: string[] = Array.from(
       new Set(((d.payments ?? []) as { method: string; amount?: number }[]).map((p) => p.method)),
     );
@@ -63,4 +79,8 @@ export async function listDocuments(f: DocFilters): Promise<DocListRow[]> {
       methodLabel,
     };
   });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const totArr = (totRes.data ?? []) as any[];
+  const totalCents = totArr.reduce((s, d) => s + Math.round(Number(d.total_incl) * 100), 0);
+  return { rows, count: totArr.length, totalCents };
 }

@@ -24,6 +24,7 @@ export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: 
   const [ref, setRef] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [payKey, setPayKey] = useState(() => crypto.randomUUID()); // per-payment; rotates after each success
 
   const amountCents = parseMoneyInput(amount) ?? 0;
   const tenderedCents = parseMoneyInput(tendered);
@@ -33,6 +34,7 @@ export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: 
   async function submit() {
     setError(null);
     if (amountCents <= 0) return setError("Enter an amount greater than zero.");
+    if (isCash && tenderedCents != null && tenderedCents < amountCents) return setError("Tendered is less than the amount.");
     if (!isCash && !ref.trim()) return setError("A card / Juice / bank payment needs a reference.");
     setBusy(true);
     const res = await recordPaymentAction({
@@ -41,11 +43,13 @@ export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: 
       amountCents,
       tenderedCents: isCash ? (tenderedCents ?? amountCents) : null,
       externalRef: isCash ? null : ref.trim(),
+      idempotencyKey: payKey,
     });
     setBusy(false);
     if (res.ok) {
       setTendered("");
       setRef("");
+      setPayKey(crypto.randomUUID()); // fresh key for the next (split) payment
       router.refresh();
     } else setError(res.error);
   }

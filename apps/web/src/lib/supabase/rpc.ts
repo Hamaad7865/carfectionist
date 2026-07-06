@@ -97,6 +97,7 @@ export interface RecordPaymentArgs {
   tendered?: number | null;
   externalRef?: string | null;
   cashSessionId?: string | null;
+  idempotencyKey?: string | null;
 }
 
 export const recordPayment = (sb: Client, a: RecordPaymentArgs) =>
@@ -107,6 +108,7 @@ export const recordPayment = (sb: Client, a: RecordPaymentArgs) =>
     p_tendered: a.tendered ?? null,
     p_external_ref: a.externalRef ?? null,
     p_cash_session_id: a.cashSessionId ?? null,
+    p_idempotency_key: a.idempotencyKey ?? null,
   });
 
 export const voidDocument = (sb: Client, id: string, reason: string) =>

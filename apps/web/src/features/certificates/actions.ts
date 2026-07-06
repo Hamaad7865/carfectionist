@@ -39,14 +39,18 @@ export async function createCertificateAction(input: z.infer<typeof schema>): Pr
   const expiresAt = addMonths(p.data.appliedAt, p.data.warrantyMonths);
 
   // App-assigned CERT number; retry on the (tenant, number) unique collision.
+  // Order by NUMBER (not applied_at) so a backdated cert can't hide the true max,
+  // and take only the top row (no row cap) — CERT-000N pads to 4 so it sorts numerically.
   for (let attempt = 0; attempt < 6; attempt++) {
-    const { data: rows } = await sb.from("certificates").select("number").order("applied_at", { ascending: false }).limit(200);
-    let maxN = 0;
+    const { data: top } = await sb
+      .from("certificates")
+      .select("number")
+      .not("number", "is", null)
+      .order("number", { ascending: false })
+      .limit(1);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of (rows ?? []) as any[]) {
-      const m = /(\d+)\s*$/.exec(r.number ?? "");
-      if (m) maxN = Math.max(maxN, parseInt(m[1], 10));
-    }
+    const m = /(\d+)\s*$/.exec(((top?.[0] as any)?.number as string) ?? "");
+    const maxN = m ? parseInt(m[1], 10) : 0;
     const number = `CERT-${String(maxN + 1 + attempt).padStart(4, "0")}`;
     const { error } = await sb.from("certificates").insert({
       tenant_id: ctx.tenantId,

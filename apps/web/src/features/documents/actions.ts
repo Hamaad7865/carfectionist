@@ -35,6 +35,7 @@ export async function saveDraftAction(input: SaveDraftInput): Promise<ActionResu
 const issueSchema = z.object({
   documentId: z.string(),
   stockLocationId: z.string().nullable().optional(),
+  idempotencyKey: z.string().nullable().optional(),
 });
 
 export async function issueDocumentAction(input: z.infer<typeof issueSchema>): Promise<ActionResult<rpc.DocumentRow>> {
@@ -43,7 +44,7 @@ export async function issueDocumentAction(input: z.infer<typeof issueSchema>): P
   if (!parsed.success) return { ok: false, error: "Invalid input" };
   const sb = await createClient();
   try {
-    const doc = await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null);
+    const doc = await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null);
     revalidatePath("/sales");
     revalidatePath(`/sales/${parsed.data.documentId}`);
     return { ok: true, data: doc };
@@ -58,6 +59,7 @@ const recordPaymentSchema = z.object({
   amountCents: z.number().int().positive(),
   tenderedCents: z.number().int().nullable().optional(),
   externalRef: z.string().nullable().optional(),
+  idempotencyKey: z.string().nullable().optional(),
 });
 
 export async function recordPaymentAction(
@@ -84,6 +86,7 @@ export async function recordPaymentAction(
       tendered: parsed.data.tenderedCents != null ? parsed.data.tenderedCents / 100 : null,
       externalRef: parsed.data.externalRef ?? null,
       cashSessionId,
+      idempotencyKey: parsed.data.idempotencyKey ?? null,
     });
     revalidatePath(`/sales/${parsed.data.invoiceId}`);
     return { ok: true, data: pay };

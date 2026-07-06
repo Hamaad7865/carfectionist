@@ -22,6 +22,9 @@ const schema = z.object({
   method: z.enum(["cash", "card", "juice", "bank_transfer", "credit"]),
   tenderedCents: z.number().int().nonnegative().nullable().optional(),
   externalRef: z.string().optional(),
+  // One key per sale attempt (stable across retries) → a replayed submit returns
+  // the same invoice + payment instead of creating duplicates.
+  idempotencyKey: z.string().optional(),
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -93,7 +96,8 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       null,
     );
 
-    const issued = await rpc.issueDocument(sb, draft.id, null);
+    const key = p.data.idempotencyKey?.trim() || null;
+    const issued = await rpc.issueDocument(sb, draft.id, null, key ? `${key}:issue` : null);
     const totalRupees = Number(issued.total_incl);
 
     let changeCents = 0;
@@ -116,6 +120,7 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
         tendered: tenderedRupees,
         externalRef: p.data.method === "cash" ? null : (p.data.externalRef?.trim() || "COUNTER"),
         cashSessionId,
+        idempotencyKey: key ? `${key}:pay` : null,
       });
 
       changeCents = tenderedRupees != null ? Math.max(0, Math.round(tenderedRupees * 100) - totals.totalCents) : 0;

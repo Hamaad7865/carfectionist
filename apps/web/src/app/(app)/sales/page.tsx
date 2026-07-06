@@ -16,14 +16,13 @@ export default async function SalesPage({
 }) {
   const sp = await searchParams;
   const pick = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
-  const rows = await listDocuments({
+  const { rows, count, totalCents } = await listDocuments({
     type: pick("type"),
     status: pick("status"),
     from: pick("from"),
     to: pick("to"),
     customer: pick("customer"),
   });
-  const totalCents = rows.reduce((s, r) => s + Math.round(Number(r.total_incl) * 100), 0);
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -80,7 +79,10 @@ export default async function SalesPage({
         )}
 
         <div className="flex items-center justify-between bg-band px-5 py-3">
-          <span className="text-[12px] font-semibold text-muted">{rows.length} documents</span>
+          <span className="text-[12px] font-semibold text-muted">
+            {count} document{count === 1 ? "" : "s"}
+            {rows.length < count ? ` (showing ${rows.length})` : ""}
+          </span>
           <span className="text-[13px] font-bold text-body">
             Total <span className="num text-ink-strong">{formatMUR(totalCents)}</span>
           </span>
