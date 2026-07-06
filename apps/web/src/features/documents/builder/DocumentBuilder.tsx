@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen } from "lucide-react";
+import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink } from "lucide-react";
 import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -25,6 +25,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [catQuery, setCatQuery] = useState("");
   const [adName, setAdName] = useState("");
   const [adPrice, setAdPrice] = useState("");
+  const [zoom, setZoom] = useState(1);
+  const [fitMode, setFitMode] = useState(true);
+  const paneRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -89,7 +92,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
 
   const totals = computeTotals(state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, vatRatePct: l.vatRatePct })));
 
-  const previewHtml = useMemo(() => {
+  // Render the A4 markup only when the document changes; zoom is a cheap wrapper
+  // applied on top, so dragging the zoom control never re-runs renderToStaticMarkup.
+  const innerMarkup = useMemo(() => {
     const props = toDocumentProps(state, ctx.business, {
       createdBy: ctx.createdBy,
       customerName: customer?.name ?? "",
@@ -99,9 +104,35 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       number: state.number,
       issueDate: readOnly ? new Date().toISOString().slice(0, 10) : null,
     });
-    return `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#e2e7ee;padding:18px">${renderToStaticMarkup(<DocumentA4 {...props} />)}</body></html>`;
+    return renderToStaticMarkup(<DocumentA4 {...props} />);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state, ctx, customer, readOnly]);
+
+  const previewHtml = useMemo(
+    () =>
+      `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;background:#e2e7ee;padding:12px 0"><div style="zoom:${zoom}">${innerMarkup}</div></body></html>`,
+    [innerMarkup, zoom],
+  );
+
+  // A4 body width is 210mm ≈ 794px; fit = scale it to the preview pane width.
+  const computeFit = useCallback(() => {
+    const w = paneRef.current?.clientWidth ?? 0;
+    return w ? Math.min(1.5, Math.max(0.3, (w - 8) / 794)) : 1;
+  }, []);
+
+  useEffect(() => {
+    if (!showPreview) return;
+    const el = paneRef.current;
+    if (!el) return;
+    if (fitMode) setZoom(computeFit());
+    const ro = new ResizeObserver(() => { if (fitMode) setZoom(computeFit()); });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [showPreview, fitMode, computeFit]);
+
+  const zoomBy = (d: number) => { setFitMode(false); setZoom((z) => Math.min(2, Math.max(0.3, +(z + d).toFixed(2)))); };
+  const fitWidth = () => { setFitMode(true); setZoom(computeFit()); };
+  const resetZoom = () => { setFitMode(false); setZoom(1); };
 
   const filtered = ctx.products.filter((p) => p.name.toLowerCase().includes(catQuery.toLowerCase())).slice(0, 5);
 
@@ -332,8 +363,40 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
 
         {/* PREVIEW */}
         {showPreview && (
-          <div className="min-h-0 overflow-hidden border-l border-line bg-[#e2e7ee]">
-            <iframe title="Preview" srcDoc={previewHtml} className="h-full w-full border-0" />
+          <div className="flex min-h-0 flex-col border-l border-line bg-[#e2e7ee]">
+            <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-sub px-3">
+              <span className="mr-auto text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Preview</span>
+              <button onClick={() => zoomBy(-0.1)} title="Zoom out" className="grid size-7 place-items-center rounded-[8px] border border-line-2 bg-card text-body hover:border-brand">
+                <ZoomOut size={15} />
+              </button>
+              <button onClick={resetZoom} title="Reset to 100%" className="num h-7 min-w-[48px] rounded-[8px] border border-line-2 bg-card px-1 text-[12px] font-bold text-body hover:border-brand">
+                {Math.round(zoom * 100)}%
+              </button>
+              <button onClick={() => zoomBy(0.1)} title="Zoom in" className="grid size-7 place-items-center rounded-[8px] border border-line-2 bg-card text-body hover:border-brand">
+                <ZoomIn size={15} />
+              </button>
+              <button
+                onClick={fitWidth}
+                title="Fit to width"
+                className={`ml-0.5 grid size-7 place-items-center rounded-[8px] border bg-card hover:border-brand ${fitMode ? "border-brand text-brand" : "border-line-2 text-body"}`}
+              >
+                <Maximize2 size={14} />
+              </button>
+              {state.docId && (
+                <a
+                  href={`/print/doc/${state.docId}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  title="Open full page in a new tab"
+                  className="ml-0.5 grid size-7 place-items-center rounded-[8px] border border-line-2 bg-card text-body hover:border-brand"
+                >
+                  <ExternalLink size={14} />
+                </a>
+              )}
+            </div>
+            <div ref={paneRef} className="min-h-0 flex-1 overflow-hidden">
+              <iframe title="Preview" srcDoc={previewHtml} className="h-full w-full border-0" />
+            </div>
           </div>
         )}
       </div>
