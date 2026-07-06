@@ -4,6 +4,7 @@ export interface TemplateData {
   id: string;
   name: string;
   terms: string[];
+  customFields: { label: string; value: string }[];
   showBankDetails: boolean;
   showTerms: boolean;
   showSignature: boolean;
@@ -30,6 +31,10 @@ export async function getDefaultTemplate(): Promise<TemplateData | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     name: (data as any).name,
     terms: Array.isArray(c.terms) ? c.terms : [],
+    customFields: Array.isArray(c.custom_fields)
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (c.custom_fields as any[]).map((f) => ({ label: String(f?.label ?? ""), value: String(f?.value ?? "") }))
+      : [],
     showBankDetails: c.show_bank_details ?? true,
     showTerms: c.show_terms ?? true,
     showSignature: c.show_signature ?? false,

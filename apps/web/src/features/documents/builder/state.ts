@@ -43,7 +43,7 @@ export type BuilderAction =
   | { type: "patchLine"; key: string; patch: Partial<BuilderLine> }
   | { type: "removeLine"; key: string }
   | { type: "setSection"; key: keyof SectionFlags; value: boolean }
-  | { type: "addCustomField" }
+  | { type: "addCustomField"; field?: { label: string; value: string } }
   | { type: "patchCustomField"; index: number; patch: Partial<{ label: string; value: string }> }
   | { type: "removeCustomField"; index: number }
   | { type: "saveStart" }
@@ -71,7 +71,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
     case "setSection":
       return touched({ ...state, sectionConfig: { ...state.sectionConfig, [action.key]: action.value } });
     case "addCustomField":
-      return touched({ ...state, customFields: [...state.customFields, { label: "", value: "" }] });
+      return touched({ ...state, customFields: [...state.customFields, action.field ?? { label: "", value: "" }] });
     case "patchCustomField":
       return touched({ ...state, customFields: state.customFields.map((f, i) => (i === action.index ? { ...f, ...action.patch } : f)) });
     case "removeCustomField":

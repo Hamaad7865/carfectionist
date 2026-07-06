@@ -9,6 +9,7 @@ const schema = z.object({
   id: z.string(),
   name: z.string().min(1),
   terms: z.array(z.string()),
+  customFields: z.array(z.object({ label: z.string(), value: z.string() })),
   showBankDetails: z.boolean(),
   showTerms: z.boolean(),
   showSignature: z.boolean(),
@@ -33,7 +34,9 @@ export async function updateTemplateAction(input: z.infer<typeof schema>): Promi
     show_terms: d.showTerms,
     show_signature: d.showSignature,
     terms: d.terms.map((t) => t.trim()).filter((t) => t.length > 0),
-    custom_fields: [],
+    custom_fields: d.customFields
+      .map((f) => ({ label: f.label.trim(), value: f.value.trim() }))
+      .filter((f) => f.label.length > 0),
   };
 
   const sb = await createClient();

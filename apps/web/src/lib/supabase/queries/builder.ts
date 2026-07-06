@@ -23,6 +23,7 @@ export interface BuilderContext {
   business: BuilderBusiness;
   templateTerms: string[];
   templateConfig: Partial<SectionFlags>;
+  customFieldDefs: { label: string; value: string }[];
   assets: DocAssets;
   products: CatalogueProduct[];
   customers: BuilderCustomer[];
@@ -69,6 +70,10 @@ export async function getBuilderContext(): Promise<BuilderContext> {
     },
     templateTerms: Array.isArray(config.terms) ? config.terms : [],
     templateConfig: toSectionConfig(config),
+    customFieldDefs: Array.isArray(config.custom_fields)
+      ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (config.custom_fields as any[]).map((f) => ({ label: String(f?.label ?? ""), value: String(f?.value ?? "") })).filter((f) => f.label.length > 0)
+      : [],
     assets: resolveDocAssets(config),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     products: (prodRes.data ?? []).map((p: any) => ({

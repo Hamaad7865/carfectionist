@@ -14,6 +14,7 @@ export function TemplateEditor({ template }: { template: TemplateData }) {
   const router = useRouter();
   const [name, setName] = useState(template.name);
   const [terms, setTerms] = useState<string[]>(template.terms.length ? template.terms : [""]);
+  const [customFields, setCustomFields] = useState<{ label: string; value: string }[]>(template.customFields);
   const [showBankDetails, setShowBankDetails] = useState(template.showBankDetails);
   const [showTerms, setShowTerms] = useState(template.showTerms);
   const [showSignature, setShowSignature] = useState(template.showSignature);
@@ -30,6 +31,7 @@ export function TemplateEditor({ template }: { template: TemplateData }) {
       id: template.id,
       name,
       terms,
+      customFields: customFields.filter((f) => f.label.trim().length > 0),
       showBankDetails,
       showTerms,
       showSignature,
@@ -87,6 +89,35 @@ export function TemplateEditor({ template }: { template: TemplateData }) {
         </div>
         <button onClick={() => setTerms([...terms, ""])} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-2.5 text-[12px] font-semibold text-body">
           <Plus size={14} /> Add term
+        </button>
+      </div>
+
+      <div>
+        <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-faint">Reusable custom fields</p>
+        <p className="mb-2 text-[11px] text-muted">Define a field once here; it becomes a one-click button in the document builder. Give a default value for constants (e.g. Warranty), or leave blank to fill in per document (e.g. PO Number).</p>
+        <div className="space-y-2">
+          {customFields.map((f, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                className={`${field} sm:w-[38%]`}
+                value={f.label}
+                onChange={(e) => setCustomFields(customFields.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                placeholder="Label — e.g. PO Number"
+              />
+              <input
+                className={field}
+                value={f.value}
+                onChange={(e) => setCustomFields(customFields.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))}
+                placeholder="Default value (optional)"
+              />
+              <button onClick={() => setCustomFields(customFields.filter((_, j) => j !== i))} className="grid size-8 shrink-0 place-items-center rounded-lg text-faint hover:bg-sub hover:text-rose">
+                <Trash2 size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+        <button onClick={() => setCustomFields([...customFields, { label: "", value: "" }])} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-2.5 text-[12px] font-semibold text-body">
+          <Plus size={14} /> Add custom field
         </button>
       </div>
 
