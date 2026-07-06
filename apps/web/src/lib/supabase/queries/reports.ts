@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export interface PaymentReportRow {
   id: string;
@@ -45,25 +46,33 @@ export async function getReportsData(from?: string, to?: string, method?: string
   if (to) payQ = payQ.lte("received_at", dayEnd(to));
   if (method && PAYMENT_METHODS.includes(method)) payQ = payQ.eq("method", method);
 
-  // Money totals must NOT be derived from the capped display list — aggregate
-  // an uncapped (amount, method) query so >500 payments are never undercounted.
-  let totQ = sb.from("payments").select("method, amount");
-  if (from) totQ = totQ.gte("received_at", dayStart(from));
-  if (to) totQ = totQ.lte("received_at", dayEnd(to));
-  if (method && PAYMENT_METHODS.includes(method)) totQ = totQ.eq("method", method);
-
+  // Money totals must NOT be derived from the capped display list — aggregate a
+  // separate (amount, method) query, PAGED past the PostgREST 1000-row cap so
+  // collected/by-method never silently undercount.
+  const makeTotQ = () => {
+    let q = sb.from("payments").select("method, amount");
+    if (from) q = q.gte("received_at", dayStart(from));
+    if (to) q = q.lte("received_at", dayEnd(to));
+    if (method && PAYMENT_METHODS.includes(method)) q = q.eq("method", method);
+    return q;
+  };
   // Input VAT is period revenue/tax, so scope expenses to the range.
-  let expQ = sb.from("expenses").select("vat_amount, expense_date");
-  if (from) expQ = expQ.gte("expense_date", from);
-  if (to) expQ = expQ.lte("expense_date", to);
+  const makeExpQ = () => {
+    let q = sb.from("expenses").select("vat_amount, expense_date");
+    if (from) q = q.gte("expense_date", from);
+    if (to) q = q.lte("expense_date", to);
+    return q;
+  };
+  // Invoices (aged receivables = true current position) + credit notes, which
+  // net down revenue/output VAT. Range-scoped in JS below. All-time → must page.
+  const makeInvQ = () =>
+    sb.from("documents").select("id, doc_type, total_incl, vat_total, amount_paid, status, issue_date, source_document_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]);
 
-  const [payRes, totRes, invRes, expRes] = await Promise.all([
+  const [payRes, totRows, invRows, expRows] = await Promise.all([
     payQ,
-    totQ,
-    // Invoices (aged receivables = true current position) + credit notes, which
-    // net down revenue/output VAT. Range-scoped in JS below.
-    sb.from("documents").select("id, doc_type, total_incl, vat_total, amount_paid, status, issue_date, source_document_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
-    expQ,
+    fetchAllRows(makeTotQ),
+    fetchAllRows(makeInvQ),
+    fetchAllRows(makeExpQ),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,12 +90,12 @@ export async function getReportsData(from?: string, to?: string, method?: string
   // Uncapped aggregation for the money figures (payments[] above is a display slice).
   const methodMap = new Map<string, number>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const p of (totRes.data ?? []) as any[]) methodMap.set(p.method, (methodMap.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
+  for (const p of totRows as any[]) methodMap.set(p.method, (methodMap.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
   const byMethod = [...methodMap.entries()].map(([method, cents]) => ({ method, cents })).sort((a, b) => b.cents - a.cents);
   const collectedCents = [...methodMap.values()].reduce((s, v) => s + v, 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allDocs = (invRes.data ?? []) as any[];
+  const allDocs = invRows as any[];
   const invoices = allDocs.filter((d) => d.doc_type === "invoice");
   const creditNotes = allDocs.filter((d) => d.doc_type === "credit_note");
   // An invoice fully reversed by a live credit note owes nothing.
@@ -101,7 +110,7 @@ export async function getReportsData(from?: string, to?: string, method?: string
   const invoicedCents = sumCents(ranged(invoices), "total_incl") - sumCents(ranged(creditNotes), "total_incl");
   const outputVat = sumCents(ranged(invoices), "vat_total") - sumCents(ranged(creditNotes), "vat_total");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inputVat = ((expRes.data ?? []) as any[]).reduce((s, e) => s + rupeesToCents(Number(e.vat_amount)), 0);
+  const inputVat = (expRows as any[]).reduce((s, e) => s + rupeesToCents(Number(e.vat_amount)), 0);
 
   const now = Date.now();
   const buckets = [
@@ -143,54 +152,59 @@ export interface ExtraReports {
 export async function getExtraReports(from?: string, to?: string): Promise<ExtraReports> {
   const sb = await createClient();
 
-  let invQ = sb
-    .from("documents")
-    .select("subtotal_excl, issue_date, jobs(technician_id, app_users!jobs_technician_id_fkey(display_name))")
-    .eq("doc_type", "invoice")
-    .in("status", ["issued", "partly_paid", "paid"]);
-  if (from) invQ = invQ.gte("issue_date", from);
-  if (to) invQ = invQ.lte("issue_date", to);
-
+  // Every query below is PAGED past the PostgREST 1000-row cap (factories return
+  // a fresh filtered query per page).
+  const makeInvQ = () => {
+    let q = sb.from("documents").select("subtotal_excl, issue_date, jobs(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "invoice").in("status", ["issued", "partly_paid", "paid"]);
+    if (from) q = q.gte("issue_date", from);
+    if (to) q = q.lte("issue_date", to);
+    return q;
+  };
   // Credit notes net down revenue (and technician revenue).
-  let cnQ = sb.from("documents").select("subtotal_excl, issue_date, jobs(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "credit_note").eq("status", "issued");
-  if (from) cnQ = cnQ.gte("issue_date", from);
-  if (to) cnQ = cnQ.lte("issue_date", to);
-
-  let expQ = sb.from("expenses").select("amount, expense_date");
-  if (from) expQ = expQ.gte("expense_date", from);
-  if (to) expQ = expQ.lte("expense_date", to);
-
+  const makeCnQ = () => {
+    let q = sb.from("documents").select("subtotal_excl, issue_date, jobs(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "credit_note").eq("status", "issued");
+    if (from) q = q.gte("issue_date", from);
+    if (to) q = q.lte("issue_date", to);
+    return q;
+  };
+  const makeExpQ = () => {
+    let q = sb.from("expenses").select("amount, expense_date");
+    if (from) q = q.gte("expense_date", from);
+    if (to) q = q.lte("expense_date", to);
+    return q;
+  };
   // COGS = cost of stock out on sales (invoice) + job consumption, minus credit-note
-  // restock (credit_note movements are +qty, which nets COGS down). Void docs'
-  // movements are excluded below (a void's reversal may fall outside the range).
-  let mvQ = sb.from("stock_movements").select("qty, unit_cost, ref_type, ref_id, moved_at").in("ref_type", ["invoice", "job_card", "credit_note"]);
-  if (from) mvQ = mvQ.gte("moved_at", dayStart(from));
-  if (to) mvQ = mvQ.lte("moved_at", dayEnd(to));
-
+  // restock (+qty). Void docs' movements are excluded below.
+  const makeMvQ = () => {
+    let q = sb.from("stock_movements").select("qty, unit_cost, ref_type, ref_id, moved_at").in("ref_type", ["invoice", "job_card", "credit_note"]);
+    if (from) q = q.gte("moved_at", dayStart(from));
+    if (to) q = q.lte("moved_at", dayEnd(to));
+    return q;
+  };
   // Documents that are void — their sale/restock movements must not count in COGS.
-  const voidQ = sb.from("documents").select("id").eq("status", "void").in("doc_type", ["invoice", "credit_note"]);
+  const makeVoidQ = () => sb.from("documents").select("id").eq("status", "void").in("doc_type", ["invoice", "credit_note"]);
+  const makeLineQ = () => {
+    let q = sb.from("document_lines").select("title, qty, line_total_excl, documents!inner(doc_type, status, issue_date)").eq("documents.doc_type", "invoice").in("documents.status", ["issued", "partly_paid", "paid"]);
+    if (from) q = q.gte("documents.issue_date", from);
+    if (to) q = q.lte("documents.issue_date", to);
+    return q;
+  };
 
-  let lineQ = sb
-    .from("document_lines")
-    .select("title, qty, line_total_excl, documents!inner(doc_type, status, issue_date)")
-    .eq("documents.doc_type", "invoice")
-    .in("documents.status", ["issued", "partly_paid", "paid"]);
-  if (from) lineQ = lineQ.gte("documents.issue_date", from);
-  if (to) lineQ = lineQ.lte("documents.issue_date", to);
-
-  const [invRes, cnRes, expRes, mvRes, lineRes, voidRes] = await Promise.all([invQ, cnQ, expQ, mvQ, lineQ, voidQ]);
+  const [invoicesRaw, creditNotesRaw, expRows, mvRows, lineRows, voidRows] = await Promise.all([
+    fetchAllRows(makeInvQ), fetchAllRows(makeCnQ), fetchAllRows(makeExpQ), fetchAllRows(makeMvQ), fetchAllRows(makeLineQ), fetchAllRows(makeVoidQ),
+  ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const invoices = (invRes.data ?? []) as any[];
-  const creditNotes = (cnRes.data ?? []) as any[];
+  const invoices = invoicesRaw as any[];
+  const creditNotes = creditNotesRaw as any[];
   const revenueCents =
     invoices.reduce((s, d) => s + rupeesToCents(Number(d.subtotal_excl)), 0) -
     creditNotes.reduce((s, d) => s + rupeesToCents(Number(d.subtotal_excl)), 0);
-  const expensesCents = ((expRes.data ?? []) as any[]).reduce((s, e) => s + rupeesToCents(Number(e.amount)), 0);
+  const expensesCents = (expRows as any[]).reduce((s, e) => s + rupeesToCents(Number(e.amount)), 0);
   // Net COGS: -qty*cost over sale/job (out, +COGS) and credit-note (in, −COGS),
   // excluding movements that belong to a voided invoice/credit note.
-  const voidDocIds = new Set(((voidRes.data ?? []) as any[]).map((d) => d.id));
-  const cogsCents = ((mvRes.data ?? []) as any[])
+  const voidDocIds = new Set((voidRows as any[]).map((d) => d.id));
+  const cogsCents = (mvRows as any[])
     .filter((m) => !((m.ref_type === "invoice" || m.ref_type === "credit_note") && voidDocIds.has(m.ref_id)))
     .reduce((s, m) => s + rupeesToCents(-Number(m.qty) * Number(m.unit_cost)), 0);
   const grossCents = revenueCents - cogsCents;
@@ -198,7 +212,7 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
 
   // best-sellers by line title
   const bs = new Map<string, { qty: number; revenueCents: number }>();
-  for (const l of (lineRes.data ?? []) as any[]) {
+  for (const l of lineRows as any[]) {
     const key = (l.title as string) || "—";
     const cur = bs.get(key) ?? { qty: 0, revenueCents: 0 };
     cur.qty += Number(l.qty);

@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export interface DocFilters {
   type?: string;
@@ -54,10 +55,11 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
       .order("created_at", { ascending: false })
       .limit(200),
   );
-  // Uncapped footer aggregation — one numeric column (+ inner join only when filtering by customer).
-  const totQ = applyFilters(sb.from("documents").select(hasCustomer ? "total_incl, customers!inner(name)" : "total_incl"));
+  // Uncapped footer aggregation — one numeric column, paged past the PostgREST
+  // 1000-row cap (+ inner join only when filtering by customer).
+  const makeTotQ = () => applyFilters(sb.from("documents").select(hasCustomer ? "total_incl, customers!inner(name)" : "total_incl"));
 
-  const [listRes, totRes] = await Promise.all([listQ, totQ]);
+  const [listRes, totArr] = await Promise.all([listQ, fetchAllRows(makeTotQ)]);
   if (listRes.error) throw new Error(listRes.error.message);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -80,7 +82,6 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
     };
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const totArr = (totRes.data ?? []) as any[];
-  const totalCents = totArr.reduce((s, d) => s + Math.round(Number(d.total_incl) * 100), 0);
+  const totalCents = (totArr as any[]).reduce((s, d) => s + Math.round(Number(d.total_incl) * 100), 0);
   return { rows, count: totArr.length, totalCents };
 }
