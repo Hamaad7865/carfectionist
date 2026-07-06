@@ -203,3 +203,79 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
     byTechnician,
   };
 }
+
+// ── Customer statement ────────────────────────────────────────────────────────
+const STMT_METHOD: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
+
+export interface StatementLine {
+  date: string; // yyyy-mm-dd
+  kind: "invoice" | "payment" | "credit_note";
+  ref: string | null;
+  detail: string;
+  debitCents: number;
+  creditCents: number;
+  balanceCents: number;
+}
+export interface CustomerStatement {
+  customerId: string;
+  customerName: string;
+  openingCents: number;
+  lines: StatementLine[];
+  invoicedCents: number; // debits in range
+  settledCents: number; // credits in range (payments + credit notes)
+  closingCents: number; // balance due at the statement end (opening + in-range net)
+}
+
+export async function getStatementCustomers(): Promise<{ id: string; name: string }[]> {
+  const sb = await createClient();
+  const { data } = await sb.from("customers").select("id, name").order("name");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ((data ?? []) as any[]).map((c) => ({ id: c.id, name: c.name }));
+}
+
+export async function getCustomerStatement(customerId: string, from?: string, to?: string): Promise<CustomerStatement | null> {
+  const sb = await createClient();
+  const { data: cust } = await sb.from("customers").select("id, name").eq("id", customerId).maybeSingle();
+  if (!cust) return null;
+
+  const [docRes, payRes] = await Promise.all([
+    // Issued invoices (debits) + credit notes (credits); void/draft excluded.
+    sb.from("documents").select("doc_type, number, total_incl, issue_date").eq("customer_id", customerId).in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
+    // Payments against this customer's documents (credits). Reversal mirrors keep the sign.
+    sb.from("payments").select("amount, received_at, method, documents!inner(number, customer_id)").eq("documents.customer_id", customerId),
+  ]);
+
+  type Ev = { date: string; kind: StatementLine["kind"]; ref: string | null; detail: string; debit: number; credit: number; seq: number };
+  const evs: Ev[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of (docRes.data ?? []) as any[]) {
+    if (!d.issue_date) continue;
+    const cents = rupeesToCents(Number(d.total_incl));
+    if (d.doc_type === "invoice") evs.push({ date: d.issue_date, kind: "invoice", ref: d.number, detail: "Invoice", debit: cents, credit: 0, seq: 0 });
+    else evs.push({ date: d.issue_date, kind: "credit_note", ref: d.number, detail: "Credit note", debit: 0, credit: cents, seq: 1 });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (payRes.data ?? []) as any[]) {
+    evs.push({ date: (p.received_at as string).slice(0, 10), kind: "payment", ref: p.documents?.number ?? null, detail: `Payment · ${STMT_METHOD[p.method] ?? p.method}`, debit: 0, credit: rupeesToCents(Number(p.amount)), seq: 2 });
+  }
+  // by date, then debits (invoices) before credits on the same day
+  evs.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.seq - b.seq));
+
+  let opening = 0;
+  for (const e of evs) if (from && e.date < from) opening += e.debit - e.credit;
+
+  let bal = opening;
+  let invoiced = 0;
+  let settled = 0;
+  const lines: StatementLine[] = [];
+  for (const e of evs) {
+    if (from && e.date < from) continue;
+    if (to && e.date > to) continue;
+    bal += e.debit - e.credit;
+    invoiced += e.debit;
+    settled += e.credit;
+    lines.push({ date: e.date, kind: e.kind, ref: e.ref, detail: e.detail, debitCents: e.debit, creditCents: e.credit, balanceCents: bal });
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { customerId, customerName: (cust as any).name, openingCents: opening, lines, invoicedCents: invoiced, settledCents: settled, closingCents: bal };
+}

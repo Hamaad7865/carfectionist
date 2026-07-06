@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
-import { getReportsData, getExtraReports } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers } from "@/lib/supabase/queries/reports";
 import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { CashSessions } from "@/features/cash/CashSessions";
+import { StatementPicker } from "@/features/reports/StatementPicker";
 import { formatMUR } from "@/lib/money";
 
 const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c", juice: "#6a5cff", bank_transfer: "#f5a623" };
@@ -16,6 +17,7 @@ const REPORTS = [
   { key: "bestsellers", label: "Best-sellers" },
   { key: "technician", label: "Revenue by technician" },
   { key: "receivables", label: "Aged receivables" },
+  { key: "statement", label: "Customer statement" },
   { key: "cash", label: "End-of-day cash-up" },
 ];
 const EXTRA = ["pnl", "bestsellers", "technician"];
@@ -30,7 +32,7 @@ function qs(params: Record<string, string | undefined>) {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ r?: string; from?: string; to?: string; m?: string }>;
+  searchParams: Promise<{ r?: string; from?: string; to?: string; m?: string; c?: string }>;
 }) {
   const sp = await searchParams;
   const report = REPORTS.some((x) => x.key === sp.r) ? sp.r! : "collected";
@@ -38,6 +40,10 @@ export default async function ReportsPage({
   const data = await getReportsData(sp.from, sp.to, method);
   const cash = report === "cash" ? await getCashSessions() : null;
   const extra = EXTRA.includes(report) ? await getExtraReports(sp.from, sp.to) : null;
+  const statement =
+    report === "statement"
+      ? { customers: await getStatementCustomers(), data: sp.c ? await getCustomerStatement(sp.c, sp.from, sp.to) : null }
+      : null;
   const rangeLabel = sp.from || sp.to ? `${sp.from ?? "…"} → ${sp.to ?? "…"}` : "All time";
 
   const now = new Date();
@@ -87,9 +93,11 @@ export default async function ReportsPage({
           <div className="mx-1 h-6 w-px bg-line-2" />
           <DateRangeFilter label={false} />
           <div className="flex-1" />
-          <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
-            <Download size={14} /> CSV
-          </a>
+          {report !== "statement" && (
+            <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
+              <Download size={14} /> CSV
+            </a>
+          )}
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
@@ -300,6 +308,67 @@ export default async function ReportsPage({
                     <span className="num text-right font-bold text-ink">{formatMUR(t.revenueCents)}</span>
                   </div>
                 ))
+              )}
+            </div>
+          )}
+
+          {report === "statement" && statement && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Customer</span>
+                <StatementPicker customers={statement.customers} current={sp.c} from={sp.from} to={sp.to} />
+              </div>
+
+              {!statement.data ? (
+                <div className="rounded-[14px] border border-dashed border-line-2 p-10 text-center text-[13px] text-faint">Pick a customer to see their statement of account.</div>
+              ) : (
+                <>
+                  <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+                    <div className="rounded-[15px] border border-line bg-card p-5">
+                      <div className="text-[12px] font-semibold text-muted">Invoiced · {rangeLabel}</div>
+                      <div className="num mt-2 text-[24px] font-extrabold text-ink-strong">{formatMUR(statement.data.invoicedCents)}</div>
+                    </div>
+                    <div className="rounded-[15px] border border-line bg-card p-5">
+                      <div className="text-[12px] font-semibold text-muted">Paid + credited</div>
+                      <div className="num mt-2 text-[24px] font-extrabold text-mint">{formatMUR(statement.data.settledCents)}</div>
+                    </div>
+                    <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
+                      <div className="text-[12px] font-semibold text-[#3d5978]">Balance due</div>
+                      <div className="num mt-2 text-[24px] font-extrabold" style={{ color: statement.data.closingCents > 0 ? "#0f2f5e" : "#0da77c" }}>{formatMUR(statement.data.closingCents)}</div>
+                    </div>
+                  </div>
+
+                  <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+                    <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                      <span className="font-display text-[14px] font-bold text-ink-strong">{statement.data.customerName}</span>
+                      <span className="text-[12px] text-muted">{rangeLabel}</span>
+                    </div>
+                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+                      <span>Date</span><span>Detail</span><span className="text-right">Debit</span><span className="text-right">Credit</span><span className="text-right">Balance</span>
+                    </div>
+                    {sp.from && (
+                      <div className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[12.5px] text-muted">
+                        <span /><span className="italic">Opening balance</span><span /><span /><span className="num text-right font-bold text-ink">{formatMUR(statement.data.openingCents)}</span>
+                      </div>
+                    )}
+                    {statement.data.lines.length === 0 ? (
+                      <div className="px-5 py-12 text-center text-[13px] text-faint">No transactions in this range.</div>
+                    ) : (
+                      statement.data.lines.map((l, i) => (
+                        <div key={i} className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[12.5px]">
+                          <span className="num text-muted">{l.date}</span>
+                          <span className="text-body">{l.detail}{l.ref ? <span className="num ml-2 text-faint">{l.ref}</span> : null}</span>
+                          <span className="num text-right text-body">{l.debitCents ? formatMUR(l.debitCents) : "—"}</span>
+                          <span className="num text-right text-mint">{l.creditCents ? formatMUR(l.creditCents) : "—"}</span>
+                          <span className="num text-right font-bold text-ink">{formatMUR(l.balanceCents)}</span>
+                        </div>
+                      ))
+                    )}
+                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 bg-sub px-5 py-3 text-[13px]">
+                      <span /><span className="font-bold text-ink">Balance due</span><span /><span /><span className="num text-right font-extrabold text-brand">{formatMUR(statement.data.closingCents)}</span>
+                    </div>
+                  </div>
+                </>
               )}
             </div>
           )}
