@@ -90,6 +90,32 @@ export const duplicateDocument = (sb: Client, id: string) =>
 export const createDocumentFromJob = (sb: Client, jobId: string, docType: "quote" | "invoice") =>
   callRpc<DocumentRow>(sb, "create_document_from_job", { p_job_id: jobId, p_doc_type: docType });
 
+export interface CreateJobArgs {
+  customerId?: string | null;
+  newCustomerName?: string | null;
+  newCustomerPhone?: string | null;
+  vehicleId?: string | null;
+  newVehiclePlate?: string | null;
+  newVehicleMake?: string | null;
+  service?: string | null;
+  technicianId?: string | null;
+  department?: string | null;
+  checklist: unknown;
+}
+export const createJob = (sb: Client, a: CreateJobArgs) =>
+  callRpc<{ id: string }>(sb, "create_job", {
+    p_customer_id: a.customerId ?? null,
+    p_new_customer_name: a.newCustomerName ?? null,
+    p_new_customer_phone: a.newCustomerPhone ?? null,
+    p_vehicle_id: a.vehicleId ?? null,
+    p_new_vehicle_plate: a.newVehiclePlate ?? null,
+    p_new_vehicle_make: a.newVehicleMake ?? null,
+    p_service: a.service ?? null,
+    p_technician_id: a.technicianId ?? null,
+    p_department: a.department ?? null,
+    p_checklist: a.checklist,
+  });
+
 export interface RecordPaymentArgs {
   invoiceId: string;
   method: "cash" | "card" | "juice" | "bank_transfer";

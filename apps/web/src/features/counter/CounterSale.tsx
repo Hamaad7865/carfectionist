@@ -20,11 +20,12 @@ type Method = (typeof METHODS)[number]["key"];
 
 interface CartLine { product: CounterProduct; qty: number }
 
-export function CounterSale({ products }: { products: CounterProduct[] }) {
+export function CounterSale({ products, customers }: { products: CounterProduct[]; customers: { id: string; name: string }[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customer, setCustomer] = useState("");
+  const [customerId, setCustomerId] = useState<string | null>(null);
   const [method, setMethod] = useState<Method>("cash");
   const [tender, setTender] = useState("");
   const [ref, setRef] = useState("");
@@ -48,6 +49,11 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
     [cart],
   );
 
+  const custMatches = useMemo(() => {
+    const s = customer.trim().toLowerCase();
+    return s && !customerId ? customers.filter((c) => c.name.toLowerCase().includes(s)).slice(0, 6) : [];
+  }, [customer, customerId, customers]);
+
   function add(p: CounterProduct) {
     setCart((c) => {
       const i = c.findIndex((l) => l.product.id === p.id);
@@ -65,10 +71,11 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
   async function complete() {
     setError(null);
     if (cart.length === 0) return setError("Add at least one product.");
-    if (method === "credit" && !customer.trim()) return setError("Enter the customer's name — a credit sale needs someone to owe it.");
+    if (method === "credit" && !customerId) return setError("Pick an existing customer for a credit sale — the amount owed is tracked against them.");
     if (method === "cash" && tenderCents != null && tenderCents < totals.totalCents) return setError("Tendered is less than the total.");
     setBusy(true);
     const r = await counterSaleAction({
+      customerId: customerId ?? undefined,
       customerName: customer.trim() || undefined,
       lines: cart.map((l) => ({ productId: l.product.id, qty: l.qty })),
       method,
@@ -82,7 +89,7 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
   }
 
   function reset() {
-    setCart([]); setCustomer(""); setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ(""); newKey();
+    setCart([]); setCustomer(""); setCustomerId(null); setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ(""); newKey();
     router.refresh();
   }
 
@@ -152,11 +159,28 @@ export function CounterSale({ products }: { products: CounterProduct[] }) {
       <div className="flex flex-col rounded-[15px] border border-line bg-card">
         <div className="border-b border-line px-4 py-3">
           <input
-            className={`h-10 w-full rounded-[10px] border bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand ${method === "credit" && !customer.trim() ? "border-amber-ink" : "border-line-2"}`}
-            placeholder={method === "credit" ? "Customer name (required for credit)" : "Customer name (optional)"}
+            className={`h-10 w-full rounded-[10px] border bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand ${method === "credit" && !customerId ? "border-amber-ink" : "border-line-2"}`}
+            placeholder={method === "credit" ? "Search & pick the customer (required for credit)" : "Customer name (optional)"}
             value={customer}
-            onChange={(e) => setCustomer(e.target.value)}
+            onChange={(e) => { setCustomer(e.target.value); setCustomerId(null); }}
           />
+          {custMatches.length > 0 && (
+            <div className="mt-1.5 flex flex-col gap-0.5 rounded-[10px] border border-line bg-card p-1">
+              {custMatches.map((cst) => (
+                <button
+                  key={cst.id}
+                  onClick={() => { setCustomer(cst.name); setCustomerId(cst.id); }}
+                  className="rounded-[8px] px-2.5 py-2 text-left text-[13px] font-semibold text-body hover:bg-sub"
+                >
+                  {cst.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {method === "credit" && !customerId && (
+            <p className="mt-1.5 text-[11px] text-amber-ink">Pick an existing customer so the amount owed is tracked against them.</p>
+          )}
+          {customerId && <p className="mt-1 text-[11px] font-semibold text-mint">✓ {customer}</p>}
         </div>
 
         <div className="min-h-[120px] flex-1 overflow-y-auto px-4 py-2">

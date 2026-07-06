@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { existsInTenant } from "@/lib/supabase/guards";
 import * as rpc from "@/lib/supabase/rpc";
 import { computeTotals } from "@/lib/money";
 
@@ -14,6 +15,7 @@ export type CounterResult =
   | { ok: false; error: string };
 
 const schema = z.object({
+  customerId: z.string().optional(),
   customerName: z.string().optional(),
   lines: z.array(z.object({ productId: z.string().min(1), qty: z.number().positive() })).min(1),
   // "credit" = on account: issue the invoice but collect nothing now; the total
@@ -40,8 +42,8 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
   const ctx = await requireRole(...ROLES);
   const p = schema.safeParse(input);
   if (!p.success) return { ok: false, error: "Add at least one product to the sale." };
-  if (p.data.method === "credit" && !(p.data.customerName ?? "").trim()) {
-    return { ok: false, error: "A credit (on-account) sale needs a customer name — so you know who owes you." };
+  if (p.data.method === "credit" && !p.data.customerId) {
+    return { ok: false, error: "A credit (on-account) sale needs a selected customer — so you know who owes you." };
   }
   const sb = await createClient();
 
@@ -78,7 +80,15 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
   );
 
   try {
-    const customerId = await walkInCustomerId(sb, ctx.tenantId, p.data.customerName);
+    // A selected customer id is used directly (validated); otherwise fall back to
+    // the walk-in name lookup/create (never used for credit — see guard above).
+    let customerId: string;
+    if (p.data.customerId) {
+      if (!(await existsInTenant(sb, "customers", p.data.customerId))) return { ok: false, error: "Unknown customer." };
+      customerId = p.data.customerId;
+    } else {
+      customerId = await walkInCustomerId(sb, ctx.tenantId, p.data.customerName);
+    }
 
     const draft = await rpc.saveDraft(
       sb,

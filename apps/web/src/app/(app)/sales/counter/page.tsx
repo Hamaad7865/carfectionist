@@ -4,7 +4,7 @@ import { getCounterRef } from "@/lib/supabase/queries/counter";
 import { CounterSale } from "@/features/counter/CounterSale";
 
 export default async function CounterSalePage() {
-  const { products } = await getCounterRef();
+  const { products, customers } = await getCounterRef();
 
   return (
     <div className="flex flex-col gap-4 p-6">
@@ -17,7 +17,7 @@ export default async function CounterSalePage() {
           <p className="text-[12.5px] text-muted">Walk-in sale — issues a standalone invoice and takes payment in one step.</p>
         </div>
       </div>
-      <CounterSale products={products} />
+      <CounterSale products={products} customers={customers} />
     </div>
   );
 }

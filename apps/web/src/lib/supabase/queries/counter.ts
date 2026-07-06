@@ -10,11 +10,12 @@ export interface CounterProduct {
   barcode: string | null;
 }
 
-export async function getCounterRef(): Promise<{ products: CounterProduct[]; vatDefault: number }> {
+export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number }> {
   const sb = await createClient();
-  const [prodRes, bsRes] = await Promise.all([
+  const [prodRes, bsRes, custRes] = await Promise.all([
     sb.from("products").select("id, name, kind, selling_price, vat_rate, barcode").eq("is_active", true).order("kind").order("name"),
     sb.from("business_settings").select("vat_rate").limit(1).maybeSingle(),
+    sb.from("customers").select("id, name").order("name"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -28,5 +29,7 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; vat
       vatRate: p.vat_rate == null ? vatDefault : Number(p.vat_rate),
       barcode: p.barcode ?? null,
     }));
-  return { products, vatDefault };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const customers = ((custRes.data ?? []) as any[]).map((c) => ({ id: c.id, name: c.name }));
+  return { products, customers, vatDefault };
 }

@@ -37,84 +37,32 @@ const createSchema = z.object({
 });
 
 export async function createJobAction(input: z.input<typeof createSchema>): Promise<Result<{ id: string }>> {
-  const ctx = await requireRole(...ROLES);
+  await requireRole(...ROLES);
   const p = createSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Invalid job details." };
   const sb = await createClient();
 
-  // Resolve customer — pick an existing one or create a new one inline.
-  // Track inline-created rows so we can roll them back if a later insert fails
-  // (three separate inserts, no shared transaction).
-  let newCustomerId: string | null = null;
-  let newVehicleId: string | null = null;
-  const rollback = async () => {
-    if (newVehicleId) await sb.from("vehicles").delete().eq("id", newVehicleId);
-    if (newCustomerId) await sb.from("customers").delete().eq("id", newCustomerId);
-  };
-
-  let customerId = p.data.customerId || null;
-  if (customerId) {
-    if (!(await existsInTenant(sb, "customers", customerId))) return { ok: false, error: "Unknown customer." };
-  } else {
-    const name = p.data.newCustomerName ?? "";
-    if (!name) return { ok: false, error: "Pick a customer or add a new one." };
-    const { data: c, error: ce } = await sb.from("customers").insert({ tenant_id: ctx.tenantId, name, phone: p.data.newCustomerPhone || null }).select("id").single();
-    if (ce) return { ok: false, error: ce.message };
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    customerId = (c as any).id;
-    newCustomerId = customerId;
-  }
-
-  // Resolve vehicle — existing (must belong to this customer) or new.
-  let vehicleId = p.data.vehicleId || null;
-  if (vehicleId) {
-    const { data: v } = await sb.from("vehicles").select("id").eq("id", vehicleId).eq("customer_id", customerId).maybeSingle();
-    if (!v) {
-      await rollback();
-      return { ok: false, error: "That vehicle does not belong to the selected customer." };
-    }
-  } else {
-    const plate = p.data.newVehiclePlate ?? "";
-    if (!plate) {
-      await rollback();
-      return { ok: false, error: "Pick a vehicle or add one." };
-    }
-    const { data: v, error: ve } = await sb.from("vehicles").insert({ tenant_id: ctx.tenantId, customer_id: customerId, plate, make: p.data.newVehicleMake || null }).select("id").single();
-    if (ve) {
-      await rollback();
-      return { ok: false, error: /duplicate|unique/i.test(ve.message) ? "A vehicle with that plate already exists." : ve.message };
-    }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    vehicleId = (v as any).id;
-    newVehicleId = vehicleId;
-  }
-
-  if (p.data.technicianId && !(await existsInTenant(sb, "app_users", p.data.technicianId))) {
-    await rollback();
-    return { ok: false, error: "Unknown technician." };
-  }
-
-  const { data, error } = await sb
-    .from("jobs")
-    .insert({
-      tenant_id: ctx.tenantId,
-      customer_id: customerId,
-      vehicle_id: vehicleId,
-      technician_id: p.data.technicianId || null,
+  // One atomic RPC resolves-or-creates the customer + vehicle and inserts the job
+  // in a single transaction — no orphan customer/vehicle if anything fails.
+  try {
+    const job = await rpc.createJob(sb, {
+      customerId: p.data.customerId || null,
+      newCustomerName: p.data.newCustomerName ?? null,
+      newCustomerPhone: p.data.newCustomerPhone ?? null,
+      vehicleId: p.data.vehicleId || null,
+      newVehiclePlate: p.data.newVehiclePlate ?? null,
+      newVehicleMake: p.data.newVehicleMake ?? null,
+      service: p.data.service ?? null,
+      technicianId: p.data.technicianId || null,
       department: p.data.department || null,
-      notes: p.data.service || null,
-      status: "scheduled",
       checklist: DEFAULT_CHECKLIST,
-    })
-    .select("id")
-    .single();
-  if (error) {
-    await rollback();
-    return { ok: false, error: error.message };
+    });
+    revalidatePath("/jobs");
+    return { ok: true, data: { id: job.id } };
+  } catch (e) {
+    const msg = (e as Error).message;
+    return { ok: false, error: /duplicate|unique/i.test(msg) ? "A vehicle with that plate already exists." : msg };
   }
-  revalidatePath("/jobs");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return { ok: true, data: { id: (data as any).id } };
 }
 
 const DOC_ROLES = ["owner", "manager", "cashier"] as const;
