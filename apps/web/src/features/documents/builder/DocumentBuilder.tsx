@@ -23,6 +23,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [busy, setBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [catQuery, setCatQuery] = useState("");
+  const [custQuery, setCustQuery] = useState("");
   const [adName, setAdName] = useState("");
   const [adPrice, setAdPrice] = useState("");
   const [zoom, setZoom] = useState(1);
@@ -135,6 +136,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const resetZoom = () => { setFitMode(false); setZoom(1); };
 
   const filtered = ctx.products.filter((p) => p.name.toLowerCase().includes(catQuery.toLowerCase())).slice(0, 5);
+  const custFiltered = ctx.customers.filter((c) => c.name.toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8);
 
   function addAdhoc() {
     const cents = parseMoneyInput(adPrice) ?? 0;
@@ -217,20 +219,48 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             </div>
             <div>
               <div className={`${label} mb-2.5`}>Bill to</div>
-              <div className="flex flex-wrap gap-1.5">
-                {ctx.customers.slice(0, 6).map((c) => {
-                  const on = state.customerId === c.id;
-                  return (
+              {customer ? (
+                <div className="flex h-11 items-center gap-2 rounded-[11px] border border-link bg-[rgba(43,140,255,0.08)] px-3.5">
+                  <span className="flex-1 truncate text-[13.5px] font-semibold text-link">{customer.name}</span>
+                  {!readOnly && (
                     <button
-                      key={c.id}
-                      onClick={() => !readOnly && dispatch({ type: "setCustomer", customerId: on ? null : c.id })}
-                      className={`inline-flex h-[34px] items-center justify-center rounded-[9px] px-3 text-[12px] font-semibold ${on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-body"}`}
+                      onClick={() => { dispatch({ type: "setCustomer", customerId: null }); setCustQuery(""); }}
+                      title="Change customer"
+                      className="grid size-6 place-items-center rounded-[7px] text-link hover:bg-[rgba(43,140,255,0.16)]"
                     >
-                      {c.name}
+                      <X size={14} strokeWidth={2.6} />
                     </button>
-                  );
-                })}
-              </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3.5 top-3.5 text-faint" />
+                    <input
+                      value={custQuery}
+                      onChange={(e) => setCustQuery(e.target.value)}
+                      disabled={readOnly}
+                      placeholder="Search customer by name…"
+                      className={`${inputCls} pl-[38px]`}
+                    />
+                  </div>
+                  {custQuery && (
+                    <div className="mt-2 flex flex-col gap-1.5">
+                      {custFiltered.map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => { dispatch({ type: "setCustomer", customerId: c.id }); setCustQuery(""); }}
+                          className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left hover:border-brand"
+                        >
+                          <span className="flex-1 text-[13px] font-semibold text-body">{c.name}</span>
+                          <span className="grid size-6 place-items-center rounded-[7px] bg-[rgba(43,140,255,0.14)] text-link"><Plus size={14} strokeWidth={2.6} /></span>
+                        </button>
+                      ))}
+                      {custFiltered.length === 0 && <div className="px-3 py-2 text-[12px] text-faint">No customer matches.</div>}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           </div>
 
