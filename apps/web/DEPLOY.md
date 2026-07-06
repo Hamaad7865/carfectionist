@@ -8,6 +8,24 @@ step and the environment values.
 > so session **token-refresh** was moved to a client keep-alive (`components/shell/AuthKeepalive.tsx`)
 > and route protection stays server-side (the `(app)` layout's `requireSession` + Postgres RLS).
 
+## Recommended: auto-deploy from GitHub (CI/CD)
+
+`.github/workflows/deploy.yml` builds with OpenNext and deploys on every push to
+**main** (the build runs on Linux, avoiding the Windows `.open-next` file-lock issue).
+
+**One-time setup:**
+
+1. **GitHub → repo → Settings → Secrets and variables → Actions → New repository secret** — add:
+   - `CLOUDFLARE_API_TOKEN` — create at Cloudflare → My Profile → API Tokens → "Edit Cloudflare Workers" template.
+   - `CLOUDFLARE_ACCOUNT_ID` — your account id.
+   - `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` — from Supabase (build-time; public).
+2. **Runtime Worker secrets** (set once — they persist across deploys). After the first
+   deploy exists, in Cloudflare → the `carfectionist` worker → **Settings → Variables and Secrets**:
+   - `SUPABASE_SERVICE_ROLE_KEY` (secret), `CF_BROWSER_RENDERING_TOKEN` (secret), `CF_ACCOUNT_ID` (text).
+3. Attach the custom domain and update Supabase Auth URLs (see bottom of this file).
+
+Then every merge to `main` deploys automatically. The manual path below still works for local one-offs.
+
 ## 1. Authenticate wrangler to your Cloudflare account (one of)
 
 ```bash

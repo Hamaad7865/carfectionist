@@ -1,0 +1,46 @@
+name: Deploy
+
+# Auto-deploy to Cloudflare Workers on every merge/push to main.
+# The build runs on Linux (OpenNext is not reliable on Windows), which also
+# fixes the local .open-next file-lock problem.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Build (OpenNext) + deploy to Cloudflare Workers
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build & deploy
+        working-directory: apps/web
+        env:
+          # Build-time: NEXT_PUBLIC_* are inlined into the bundle by `next build`.
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          # Deploy auth for wrangler (used by `opennextjs-cloudflare deploy`).
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: npm run deploy
+
+# Runtime Worker secrets (SUPABASE_SERVICE_ROLE_KEY, CF_ACCOUNT_ID,
+# CF_BROWSER_RENDERING_TOKEN) are NOT set here — set them once on the Worker
+# (dashboard → the worker → Settings → Variables and Secrets). They persist
+# across deploys, so they don't need to be re-applied every run.
