@@ -195,8 +195,8 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
           </button>
         )}
         {readOnly && state.docId && (
-          <a href={`/api/documents/${state.docId}/pdf`} className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
-            <FileDown size={15} /> PDF
+          <a href={`/print/doc/${state.docId}`} target="_blank" rel="noreferrer" className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
+            <FileDown size={15} /> Print / PDF
           </a>
         )}
         {readOnly && state.docType === "quote" && (
