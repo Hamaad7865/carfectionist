@@ -68,6 +68,8 @@ const s = {
     fontFamily: "'Helvetica Neue', Arial, sans-serif",
     fontSize: "10.5px",
     lineHeight: 1.5,
+    display: "flex",
+    flexDirection: "column",
   } as CSSProperties,
   band: { background: BAND, color: "#fff" } as CSSProperties,
   headerBanner: {
@@ -80,8 +82,9 @@ const s = {
     padding: "0 18mm",
     backgroundSize: "cover",
     backgroundPosition: "center",
+    flexShrink: 0,
   } as CSSProperties,
-  body: { padding: "10mm 18mm 0" } as CSSProperties,
+  body: { padding: "10mm 18mm 0", flexGrow: 1 } as CSSProperties,
   title: { fontSize: "26px", fontWeight: 800, letterSpacing: "0.02em", margin: 0 } as CSSProperties,
   trading: { color: MUTED, fontSize: "11px", marginTop: "2px" } as CSSProperties,
   metaRow: { display: "flex", gap: "26px", marginTop: "10px", fontSize: "10px" } as CSSProperties,
@@ -143,8 +146,8 @@ const s = {
     fontSize: "8.5px",
     marginBottom: "5px",
   } as CSSProperties,
-  footerBanner: { marginTop: "20px", background: BAND, color: "#fff", height: "56px", backgroundSize: "cover" } as CSSProperties,
-  footerBannerImg: { marginTop: "20px", background: BAND, padding: "12px 0", textAlign: "center" } as CSSProperties,
+  footerBanner: { marginTop: "20px", background: BAND, color: "#fff", height: "56px", backgroundSize: "cover", flexShrink: 0 } as CSSProperties,
+  footerBannerImg: { marginTop: "20px", background: BAND, padding: "12px 0", textAlign: "center", flexShrink: 0 } as CSSProperties,
 };
 
 const PRINT_CSS = `
@@ -179,7 +182,7 @@ export function DocumentA4(props: DocumentA4Props) {
         <img
           src={props.assets.headerBannerUrl}
           alt={from.tradingName}
-          style={{ display: "block", width: "100%", background: BAND }}
+          style={{ display: "block", width: "100%", background: BAND, flexShrink: 0 }}
         />
       ) : (
         <div style={s.headerBanner}>
