@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChevronLeft, ArrowRight, Search, Plus, X, Check, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink } from "lucide-react";
+import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink } from "lucide-react";
 import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -366,22 +366,24 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <div className="border-t border-line pt-4">
               <div className={`${label} mb-2.5`}>Custom fields</div>
               {ctx.customFieldDefs.length > 0 && (
-                <div className="mb-2.5 flex flex-wrap gap-1.5">
+                <select
+                  value=""
+                  onChange={(e) => {
+                    const def = ctx.customFieldDefs.find((d) => d.label === e.target.value);
+                    if (def) dispatch({ type: "addCustomField", field: { label: def.label, value: def.value } });
+                  }}
+                  className="mb-2.5 h-9 w-full rounded-[10px] border border-line-2 bg-sub px-2.5 text-[13px] font-medium text-body outline-none focus:border-brand"
+                >
+                  <option value="">+ Add a saved field…</option>
                   {ctx.customFieldDefs.map((d) => {
                     const used = state.customFields.some((f) => f.label.trim().toLowerCase() === d.label.trim().toLowerCase());
                     return (
-                      <button
-                        key={d.label}
-                        disabled={used}
-                        onClick={() => dispatch({ type: "addCustomField", field: { label: d.label, value: d.value } })}
-                        title={used ? "Already added" : `Add "${d.label}"`}
-                        className={`inline-flex h-8 items-center gap-1.5 rounded-[9px] border px-2.5 text-[12px] font-semibold ${used ? "cursor-default border-line-2 bg-sub text-faint" : "border-line-2 bg-card text-body hover:border-brand"}`}
-                      >
-                        {used ? <Check size={13} /> : <Plus size={13} />} {d.label}
-                      </button>
+                      <option key={d.label} value={d.label} disabled={used}>
+                        {d.label}{used ? " · added" : ""}
+                      </option>
                     );
                   })}
-                </div>
+                </select>
               )}
               {state.customFields.length > 0 && (
                 <div className="mb-2 flex flex-col gap-2">
