@@ -27,6 +27,12 @@ function daysBetween(iso: string, now: number): number {
 
 const PAYMENT_METHODS = ["cash", "card", "juice", "bank_transfer"];
 
+// Mauritius is UTC+4 (no DST). Build day bounds so timestamptz filters don't
+// misassign transactions recorded near local midnight.
+const MU = "+04:00";
+const dayStart = (d: string) => `${d}T00:00:00${MU}`;
+const dayEnd = (d: string) => `${d}T23:59:59.999${MU}`;
+
 export async function getReportsData(from?: string, to?: string, method?: string): Promise<ReportsData> {
   const sb = await createClient();
 
@@ -35,20 +41,28 @@ export async function getReportsData(from?: string, to?: string, method?: string
     .select("id, method, amount, received_at, documents(number, customers(name))")
     .order("received_at", { ascending: false })
     .limit(500);
-  if (from) payQ = payQ.gte("received_at", from);
-  if (to) payQ = payQ.lte("received_at", `${to}T23:59:59`);
+  if (from) payQ = payQ.gte("received_at", dayStart(from));
+  if (to) payQ = payQ.lte("received_at", dayEnd(to));
   if (method && PAYMENT_METHODS.includes(method)) payQ = payQ.eq("method", method);
+
+  // Money totals must NOT be derived from the capped display list — aggregate
+  // an uncapped (amount, method) query so >500 payments are never undercounted.
+  let totQ = sb.from("payments").select("method, amount");
+  if (from) totQ = totQ.gte("received_at", dayStart(from));
+  if (to) totQ = totQ.lte("received_at", dayEnd(to));
+  if (method && PAYMENT_METHODS.includes(method)) totQ = totQ.eq("method", method);
 
   // Input VAT is period revenue/tax, so scope expenses to the range.
   let expQ = sb.from("expenses").select("vat_amount, expense_date");
   if (from) expQ = expQ.gte("expense_date", from);
   if (to) expQ = expQ.lte("expense_date", to);
 
-  const [payRes, invRes, expRes] = await Promise.all([
+  const [payRes, totRes, invRes, expRes] = await Promise.all([
     payQ,
+    totQ,
     // Invoices (aged receivables = true current position) + credit notes, which
     // net down revenue/output VAT. Range-scoped in JS below.
-    sb.from("documents").select("doc_type, total_incl, vat_total, amount_paid, status, issue_date").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
+    sb.from("documents").select("id, doc_type, total_incl, vat_total, amount_paid, status, issue_date, source_document_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
     expQ,
   ]);
 
@@ -64,15 +78,19 @@ export async function getReportsData(from?: string, to?: string, method?: string
       amountCents: rupeesToCents(Number(p.amount)),
     }));
 
+  // Uncapped aggregation for the money figures (payments[] above is a display slice).
   const methodMap = new Map<string, number>();
-  for (const p of payments) methodMap.set(p.method, (methodMap.get(p.method) ?? 0) + p.amountCents);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const p of (totRes.data ?? []) as any[]) methodMap.set(p.method, (methodMap.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
   const byMethod = [...methodMap.entries()].map(([method, cents]) => ({ method, cents })).sort((a, b) => b.cents - a.cents);
-  const collectedCents = payments.reduce((s, p) => s + p.amountCents, 0);
+  const collectedCents = [...methodMap.values()].reduce((s, v) => s + v, 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const allDocs = (invRes.data ?? []) as any[];
   const invoices = allDocs.filter((d) => d.doc_type === "invoice");
   const creditNotes = allDocs.filter((d) => d.doc_type === "credit_note");
+  // An invoice fully reversed by a live credit note owes nothing.
+  const creditedIds = new Set(creditNotes.map((cn) => cn.source_document_id).filter(Boolean));
   // Revenue invoiced + output VAT are period figures → scope to the date range
   // (issue_date), and net down by credit notes. Outstanding/aged stay all-open.
   const inRange = (d: string | null) => (!from || (d != null && d >= from)) && (!to || (d != null && d <= to));
@@ -95,6 +113,7 @@ export async function getReportsData(from?: string, to?: string, method?: string
   let outstandingCents = 0;
   for (const d of invoices) {
     if (!["issued", "partly_paid"].includes(d.status)) continue;
+    if (creditedIds.has(d.id)) continue; // fully reversed by a credit note
     const owed = rupeesToCents(Number(d.total_incl) - Number(d.amount_paid));
     if (owed <= 0) continue;
     outstandingCents += owed;
@@ -132,8 +151,8 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
   if (from) invQ = invQ.gte("issue_date", from);
   if (to) invQ = invQ.lte("issue_date", to);
 
-  // Credit notes net down revenue.
-  let cnQ = sb.from("documents").select("subtotal_excl, issue_date").eq("doc_type", "credit_note").eq("status", "issued");
+  // Credit notes net down revenue (and technician revenue).
+  let cnQ = sb.from("documents").select("subtotal_excl, issue_date, jobs(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "credit_note").eq("status", "issued");
   if (from) cnQ = cnQ.gte("issue_date", from);
   if (to) cnQ = cnQ.lte("issue_date", to);
 
@@ -142,10 +161,14 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
   if (to) expQ = expQ.lte("expense_date", to);
 
   // COGS = cost of stock out on sales (invoice) + job consumption, minus credit-note
-  // restock (credit_note movements are +qty, which nets COGS down).
-  let mvQ = sb.from("stock_movements").select("qty, unit_cost, ref_type, moved_at").in("ref_type", ["invoice", "job_card", "credit_note"]);
-  if (from) mvQ = mvQ.gte("moved_at", from);
-  if (to) mvQ = mvQ.lte("moved_at", `${to}T23:59:59`);
+  // restock (credit_note movements are +qty, which nets COGS down). Void docs'
+  // movements are excluded below (a void's reversal may fall outside the range).
+  let mvQ = sb.from("stock_movements").select("qty, unit_cost, ref_type, ref_id, moved_at").in("ref_type", ["invoice", "job_card", "credit_note"]);
+  if (from) mvQ = mvQ.gte("moved_at", dayStart(from));
+  if (to) mvQ = mvQ.lte("moved_at", dayEnd(to));
+
+  // Documents that are void — their sale/restock movements must not count in COGS.
+  const voidQ = sb.from("documents").select("id").eq("status", "void").in("doc_type", ["invoice", "credit_note"]);
 
   let lineQ = sb
     .from("document_lines")
@@ -155,7 +178,7 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
   if (from) lineQ = lineQ.gte("documents.issue_date", from);
   if (to) lineQ = lineQ.lte("documents.issue_date", to);
 
-  const [invRes, cnRes, expRes, mvRes, lineRes] = await Promise.all([invQ, cnQ, expQ, mvQ, lineQ]);
+  const [invRes, cnRes, expRes, mvRes, lineRes, voidRes] = await Promise.all([invQ, cnQ, expQ, mvQ, lineQ, voidQ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const invoices = (invRes.data ?? []) as any[];
@@ -164,8 +187,12 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
     invoices.reduce((s, d) => s + rupeesToCents(Number(d.subtotal_excl)), 0) -
     creditNotes.reduce((s, d) => s + rupeesToCents(Number(d.subtotal_excl)), 0);
   const expensesCents = ((expRes.data ?? []) as any[]).reduce((s, e) => s + rupeesToCents(Number(e.amount)), 0);
-  // Net COGS: -qty*cost over sale/job (out, +COGS) and credit-note (in, −COGS).
-  const cogsCents = ((mvRes.data ?? []) as any[]).reduce((s, m) => s + rupeesToCents(-Number(m.qty) * Number(m.unit_cost)), 0);
+  // Net COGS: -qty*cost over sale/job (out, +COGS) and credit-note (in, −COGS),
+  // excluding movements that belong to a voided invoice/credit note.
+  const voidDocIds = new Set(((voidRes.data ?? []) as any[]).map((d) => d.id));
+  const cogsCents = ((mvRes.data ?? []) as any[])
+    .filter((m) => !((m.ref_type === "invoice" || m.ref_type === "credit_note") && voidDocIds.has(m.ref_id)))
+    .reduce((s, m) => s + rupeesToCents(-Number(m.qty) * Number(m.unit_cost)), 0);
   const grossCents = revenueCents - cogsCents;
   const netCents = grossCents - expensesCents;
 
@@ -190,6 +217,13 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
     const cur = techs.get(name) ?? { revenueCents: 0, jobs: 0 };
     cur.revenueCents += rupeesToCents(Number(d.subtotal_excl));
     cur.jobs += d.jobs ? 1 : 0;
+    techs.set(name, cur);
+  }
+  // Credit notes reduce the technician's revenue (returns/refunds).
+  for (const d of creditNotes) {
+    const name = d.jobs?.app_users?.display_name ?? "Counter / unassigned";
+    const cur = techs.get(name) ?? { revenueCents: 0, jobs: 0 };
+    cur.revenueCents -= rupeesToCents(Number(d.subtotal_excl));
     techs.set(name, cur);
   }
   const byTechnician = [...techs.entries()]
