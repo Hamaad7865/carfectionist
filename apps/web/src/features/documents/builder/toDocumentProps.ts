@@ -1,5 +1,6 @@
 import { computeTotals } from "@/lib/money";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
+import type { DocAssets } from "@/lib/pdf/assets";
 import type { BuilderState } from "./state";
 
 export interface BuilderBusiness {
@@ -22,6 +23,7 @@ export interface PreviewOpts {
   terms: string[];
   issueDate?: string | null;
   number?: string | null;
+  assets?: DocAssets;
 }
 
 /** Pure map from builder state → DocumentA4 props (drives the live preview and,
@@ -67,6 +69,7 @@ export function toDocumentProps(
       bankName: business.bankName,
     },
     terms: opts.terms,
+    assets: opts.assets,
     sectionConfig: state.sectionConfig,
     customFields: (state.customFields ?? []).filter((f) => f.label.trim() !== ""),
   };

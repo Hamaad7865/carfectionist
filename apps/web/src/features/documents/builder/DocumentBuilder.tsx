@@ -95,6 +95,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       customerName: customer?.name ?? "",
       customerCountry: customer?.country ?? "Mauritius",
       terms: ctx.templateTerms,
+      assets: ctx.assets,
       number: state.number,
       issueDate: readOnly ? new Date().toISOString().slice(0, 10) : null,
     });

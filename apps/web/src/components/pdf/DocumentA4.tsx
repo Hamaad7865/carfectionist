@@ -144,6 +144,7 @@ const s = {
     marginBottom: "5px",
   } as CSSProperties,
   footerBanner: { marginTop: "20px", background: BAND, color: "#fff", height: "56px", backgroundSize: "cover" } as CSSProperties,
+  footerBannerImg: { marginTop: "20px", background: BAND, padding: "12px 0", textAlign: "center" } as CSSProperties,
 };
 
 const PRINT_CSS = `
@@ -172,20 +173,24 @@ export function DocumentA4(props: DocumentA4Props) {
     <div style={s.page}>
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
 
-      {/* Header banner + logo */}
-      <div
-        style={{
-          ...s.headerBanner,
-          ...(props.assets?.headerBannerUrl ? { backgroundImage: `url(${props.assets.headerBannerUrl})` } : {}),
-        }}
-      >
-        <div style={{ fontSize: "15px", fontWeight: 700, letterSpacing: "0.22em" }}>{from.tradingName.toUpperCase()}</div>
-        {props.assets?.logoUrl ? (
-          <img src={props.assets.logoUrl} alt="" style={{ height: "44px", objectFit: "contain" }} />
-        ) : (
-          <div style={{ fontSize: "9px", color: "#9aa4ad", letterSpacing: "0.14em" }}>DIAMONDBRITE</div>
-        )}
-      </div>
+      {/* Header banner — a full-bleed brand image if set (it carries the logo),
+          otherwise the wordmark band. */}
+      {props.assets?.headerBannerUrl ? (
+        <img
+          src={props.assets.headerBannerUrl}
+          alt={from.tradingName}
+          style={{ display: "block", width: "100%", background: BAND }}
+        />
+      ) : (
+        <div style={s.headerBanner}>
+          <div style={{ fontSize: "15px", fontWeight: 700, letterSpacing: "0.22em" }}>{from.tradingName.toUpperCase()}</div>
+          {props.assets?.logoUrl ? (
+            <img src={props.assets.logoUrl} alt="" style={{ height: "44px", objectFit: "contain" }} />
+          ) : (
+            <div style={{ fontSize: "9px", color: "#9aa4ad", letterSpacing: "0.14em" }}>DIAMONDBRITE</div>
+          )}
+        </div>
+      )}
 
       <div style={s.body}>
         <h1 style={s.title}>{title}</h1>
@@ -316,23 +321,31 @@ export function DocumentA4(props: DocumentA4Props) {
         )}
       </div>
 
-      {/* Footer banner */}
-      {sections.footerBanner && (
-        <div
-          style={{
-            ...s.footerBanner,
-            ...(props.assets?.footerBannerUrl ? { backgroundImage: `url(${props.assets.footerBannerUrl})` } : {}),
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            letterSpacing: "0.2em",
-            fontSize: "10px",
-            color: "#9aa4ad",
-          }}
-        >
-          {props.assets?.footerBannerUrl ? "" : "DIAMONDBRITE FOREVER"}
-        </div>
-      )}
+      {/* Footer banner — a centred brand image if set, otherwise the wordmark. */}
+      {sections.footerBanner &&
+        (props.assets?.footerBannerUrl ? (
+          <div style={s.footerBannerImg}>
+            <img
+              src={props.assets.footerBannerUrl}
+              alt=""
+              style={{ display: "block", maxWidth: "100%", maxHeight: "120px", margin: "0 auto", objectFit: "contain" }}
+            />
+          </div>
+        ) : (
+          <div
+            style={{
+              ...s.footerBanner,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              letterSpacing: "0.2em",
+              fontSize: "10px",
+              color: "#9aa4ad",
+            }}
+          >
+            DIAMONDBRITE FOREVER
+          </div>
+        ))}
     </div>
   );
 }

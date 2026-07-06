@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
+import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 
 /** Assemble DocumentA4 props for a saved document (print route + PDF endpoint). */
@@ -67,6 +68,7 @@ export async function getDocumentProps(id: string): Promise<DocumentA4Props | nu
       bankName: b.bank_name ?? "",
     },
     terms: Array.isArray(config.terms) ? config.terms : [],
+    assets: resolveDocAssets(config),
     sectionConfig: d.template_overrides ?? {},
     customFields: Array.isArray(d.template_overrides?.customFields) ? d.template_overrides.customFields : [],
   };

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { getSessionContext } from "@/lib/auth/session";
+import { resolveDocAssets, type DocAssets } from "@/lib/pdf/assets";
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
 import type { BuilderBusiness } from "@/features/documents/builder/toDocumentProps";
 
@@ -22,6 +23,7 @@ export interface BuilderContext {
   business: BuilderBusiness;
   templateTerms: string[];
   templateConfig: Partial<SectionFlags>;
+  assets: DocAssets;
   products: CatalogueProduct[];
   customers: BuilderCustomer[];
 }
@@ -67,6 +69,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
     },
     templateTerms: Array.isArray(config.terms) ? config.terms : [],
     templateConfig: toSectionConfig(config),
+    assets: resolveDocAssets(config),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     products: (prodRes.data ?? []).map((p: any) => ({
       id: p.id,
