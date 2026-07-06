@@ -1,18 +1,19 @@
-import { Car } from "lucide-react";
-
-/** Logo tile + wordmark, per the handoff (blue→purple gradient tile). */
+/** Carfectionist logo (dark banner — carries the car mark + wordmark + tagline).
+ *  Shared by the sidebar, login and enquiry pages so the brand is identical everywhere. */
 export function Brand({ showWordmark = true, subtitle = "BACK OFFICE" }: { showWordmark?: boolean; subtitle?: string }) {
   return (
-    <div className="flex items-center gap-2.5">
-      <span className="grad-logo shadow-brand grid size-9 place-items-center rounded-[10px]">
-        <Car size={20} strokeWidth={2} className="text-white" />
-      </span>
-      {showWordmark && (
-        <div className="leading-none">
-          <div className="font-display text-[15px] font-extrabold tracking-[0.04em] text-ink-strong">CARFECTIONIST</div>
-          <div className="mt-[3px] text-[8px] font-semibold tracking-[0.2em] text-fainter">{subtitle}</div>
-        </div>
-      )}
+    <div className="inline-flex flex-col gap-1.5">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src="/brand/logo.png"
+        alt="Carfectionist"
+        width={500}
+        height={62}
+        className="block h-auto w-[184px] rounded-[8px]"
+      />
+      {showWordmark && subtitle ? (
+        <span className="pl-1 text-[8px] font-semibold uppercase tracking-[0.2em] text-fainter">{subtitle}</span>
+      ) : null}
     </div>
   );
 }
