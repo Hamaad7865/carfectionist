@@ -8,7 +8,7 @@ const input =
 const lbl = "mb-1.5 block text-xs font-bold tracking-wide text-muted";
 
 export function PublicEnquiryForm() {
-  const [f, setF] = useState({ name: "", phone: "", email: "", vehicleInfo: "", message: "" });
+  const [f, setF] = useState({ name: "", phone: "", email: "", vehicleInfo: "", message: "", company: "" });
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +35,17 @@ export function PublicEnquiryForm() {
 
   return (
     <div className="mt-7 space-y-4">
+      {/* Honeypot — hidden from humans, catches form-filling bots. */}
+      <input
+        type="text"
+        name="company"
+        tabIndex={-1}
+        autoComplete="off"
+        aria-hidden="true"
+        value={f.company}
+        onChange={set("company")}
+        style={{ position: "absolute", left: "-9999px", width: 1, height: 1, opacity: 0 }}
+      />
       <label className="block">
         <span className={lbl}>Full name *</span>
         <input className={input} value={f.name} onChange={set("name")} placeholder="Your name" />

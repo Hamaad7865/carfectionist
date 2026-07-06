@@ -7,20 +7,25 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/session";
 
 const enquirySchema = z.object({
-  name: z.string().min(1),
-  phone: z.string().optional(),
-  email: z.string().optional(),
-  vehicleInfo: z.string().optional(),
-  message: z.string().optional(),
+  name: z.string().trim().min(1).max(120),
+  phone: z.string().trim().max(40).optional(),
+  email: z.string().trim().max(160).optional(),
+  vehicleInfo: z.string().trim().max(200).optional(),
+  message: z.string().trim().max(2000).optional(),
+  // Honeypot: a hidden field real users never see. Bots that auto-fill forms
+  // set it, so a non-empty value is a spam signal.
+  company: z.string().optional(),
 });
 
 export type SubmitResult = { ok: true } | { ok: false; error: string };
 
 /** Public: unauthenticated visitors submit via the service-role client. */
-export async function submitEnquiryAction(input: z.infer<typeof enquirySchema>): Promise<SubmitResult> {
+export async function submitEnquiryAction(input: z.input<typeof enquirySchema>): Promise<SubmitResult> {
   const parsed = enquirySchema.safeParse(input);
-  if (!parsed.success) return { ok: false, error: "Please enter your name." };
+  if (!parsed.success) return { ok: false, error: "Please check your details and try again." };
   const d = parsed.data;
+  // Honeypot tripped → pretend success, store nothing (don't tip off the bot).
+  if (d.company && d.company.trim() !== "") return { ok: true };
 
   const admin = createAdminClient();
   const { data: bs } = await admin.from("business_settings").select("id").limit(1).single();
