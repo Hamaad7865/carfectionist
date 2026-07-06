@@ -31,33 +31,48 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const paneRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
+  // Serialize saves and track the server's authoritative (docId, revision) in a
+  // ref, so chained autosaves can't race the optimistic-lock counter (the cause
+  // of the spurious "document was modified elsewhere" error). Seeded from the
+  // mount's initial — the per-document `key` on <DocumentBuilder> guarantees a
+  // fresh mount (and fresh ref) whenever the document identity changes.
+  const saveChain = useRef<Promise<string | null>>(Promise.resolve(null));
+  const serverRef = useRef<{ docId: string | null; revision: number }>({ docId: initial.docId, revision: initial.revision });
 
   const readOnly = state.status !== "draft";
   const customer = ctx.customers.find((c) => c.id === state.customerId);
 
-  const doSave = useCallback(async (): Promise<string | null> => {
-    const s = stateRef.current;
-    dispatch({ type: "saveStart" });
-    const payload: SaveDraftInput = {
-      doc: { id: s.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown> },
-      lines: s.lines.map((l) => ({
-        productId: l.productId,
-        title: l.title,
-        description: l.description || null,
-        qty: l.qty,
-        unitCents: l.unitCents,
-        discountPct: l.discountPct,
-        vatRatePct: l.vatRatePct,
-      })),
-      expectedRev: s.docId ? s.revision : null,
+  const doSave = useCallback((): Promise<string | null> => {
+    const run = async (): Promise<string | null> => {
+      const s = stateRef.current;
+      if (s.status !== "draft") return serverRef.current.docId; // never save an issued document
+      dispatch({ type: "saveStart" });
+      const payload: SaveDraftInput = {
+        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown> },
+        lines: s.lines.map((l) => ({
+          productId: l.productId,
+          title: l.title,
+          description: l.description || null,
+          qty: l.qty,
+          unitCents: l.unitCents,
+          discountPct: l.discountPct,
+          vatRatePct: l.vatRatePct,
+        })),
+        expectedRev: serverRef.current.docId ? serverRef.current.revision : null,
+      };
+      const res = await saveDraftAction(payload);
+      if (res.ok) {
+        serverRef.current = { docId: res.data.id, revision: res.data.revision };
+        dispatch({ type: "saveOk", docId: res.data.id, revision: res.data.revision });
+        return res.data.id;
+      }
+      dispatch({ type: "saveError", error: res.error });
+      return null;
     };
-    const res = await saveDraftAction(payload);
-    if (res.ok) {
-      dispatch({ type: "saveOk", docId: res.data.id, revision: res.data.revision });
-      return res.data.id;
-    }
-    dispatch({ type: "saveError", error: res.error });
-    return null;
+    // Chain after any in-flight save so each run reads the fresh revision.
+    const next = saveChain.current.then(run, run);
+    saveChain.current = next.catch(() => null);
+    return next;
   }, []);
 
   useEffect(() => {

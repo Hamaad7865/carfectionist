@@ -23,5 +23,5 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
     saveError: null,
   };
 
-  return <DocumentBuilder ctx={ctx} initial={initial} />;
+  return <DocumentBuilder key={id} ctx={ctx} initial={initial} />;
 }

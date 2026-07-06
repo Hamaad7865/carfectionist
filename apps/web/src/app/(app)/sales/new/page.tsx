@@ -26,5 +26,5 @@ export default async function NewDocumentPage({
     saveError: null,
   };
 
-  return <DocumentBuilder ctx={ctx} initial={initial} />;
+  return <DocumentBuilder key="new" ctx={ctx} initial={initial} />;
 }
