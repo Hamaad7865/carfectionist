@@ -117,6 +117,25 @@ export async function createJobAction(input: z.input<typeof createSchema>): Prom
   return { ok: true, data: { id: (data as any).id } };
 }
 
+const DOC_ROLES = ["owner", "manager", "cashier"] as const;
+
+export async function createDocumentFromJobAction(
+  jobId: string,
+  docType: "quote" | "invoice",
+): Promise<Result<{ id: string }>> {
+  await requireRole(...DOC_ROLES);
+  if (docType !== "quote" && docType !== "invoice") return { ok: false, error: "Invalid document type." };
+  const sb = await createClient();
+  try {
+    const doc = await rpc.createDocumentFromJob(sb, jobId, docType);
+    revalidatePath(`/jobs/${jobId}`);
+    revalidatePath("/sales");
+    return { ok: true, data: { id: doc.id } };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function setJobDepartmentAction(jobId: string, department: string | null): Promise<Result> {
   await requireRole(...ROLES);
   const sb = await createClient();

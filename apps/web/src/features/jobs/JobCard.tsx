@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Play, Square, Plus, Check, Trash2 } from "lucide-react";
+import { Play, Square, Plus, Check, Trash2, FileText, FilePlus2 } from "lucide-react";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { formatMUR } from "@/lib/money";
 import type { JobDetail, JobRefData } from "@/lib/supabase/queries/jobs";
 import { DEPARTMENTS } from "@/lib/departments";
 import {
@@ -14,7 +15,10 @@ import {
   updateChecklistAction,
   setJobStatusAction,
   completeJobAction,
+  createDocumentFromJobAction,
 } from "./actions";
+
+const DOC_LABEL: Record<string, string> = { quote: "Quotation", invoice: "Invoice", credit_note: "Credit note" };
 
 function fmt(sec: number): string {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -33,7 +37,26 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const [cQty, setCQty] = useState("1");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [docBusy, setDocBusy] = useState<null | "quote" | "invoice">(null);
+  const creatingRef = useRef(false);
   const readOnly = job.status === "ready" || job.status === "delivered";
+
+  async function createDoc(docType: "quote" | "invoice") {
+    // Synchronous re-entry lock: setDocBusy only disables after a re-render, so a
+    // fast second click would otherwise create a duplicate draft.
+    if (creatingRef.current) return;
+    creatingRef.current = true;
+    setDocBusy(docType);
+    setError(null);
+    const r = await createDocumentFromJobAction(job.id, docType);
+    if (r.ok && r.data) {
+      router.push(`/sales/${r.data.id}/edit`); // leaving the page; keep the lock held
+    } else {
+      creatingRef.current = false;
+      setDocBusy(null);
+      setError(!r.ok ? r.error : "Could not create the document.");
+    }
+  }
 
   useEffect(() => {
     if (!job.running) return;
@@ -120,6 +143,57 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
           <option value="">— department —</option>
           {DEPARTMENTS.map((d) => <option key={d.slug} value={d.slug}>{d.label}</option>)}
         </select>
+      </div>
+
+      {/* billing — quotes & invoices raised from this job */}
+      <div className="mt-4 rounded-[15px] border border-line bg-card p-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <span className="flex items-center gap-2 text-[11px] font-bold uppercase tracking-[0.14em] text-faint">
+            <FileText size={14} /> Billing
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => createDoc("quote")}
+              disabled={docBusy !== null}
+              className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12.5px] font-bold text-body disabled:opacity-60"
+            >
+              <Plus size={14} strokeWidth={2.6} /> {docBusy === "quote" ? "Creating…" : "Quote"}
+            </button>
+            <button
+              onClick={() => createDoc("invoice")}
+              disabled={docBusy !== null}
+              className="grad-brand shadow-brand inline-flex h-8 items-center gap-1.5 rounded-[9px] px-2.5 text-[12.5px] font-bold text-white disabled:opacity-60"
+            >
+              <FilePlus2 size={14} strokeWidth={2.4} /> {docBusy === "invoice" ? "Creating…" : "Invoice"}
+            </button>
+          </div>
+        </div>
+        {job.documents.length === 0 ? (
+          <p className="text-[13px] text-faint">No quote or invoice yet — create one from this job.</p>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {job.documents.map((d) => (
+              <li key={d.id}>
+                <Link
+                  href={d.status === "draft" ? `/sales/${d.id}/edit` : `/sales/${d.id}`}
+                  className="flex items-center justify-between gap-3 rounded-[11px] border border-line bg-sub px-3.5 py-2.5 hover:border-line-2"
+                >
+                  <span className="flex items-center gap-2.5">
+                    <span className="text-[13px] font-semibold text-ink">{DOC_LABEL[d.docType] ?? d.docType}</span>
+                    {d.number && <span className="num text-[12px] text-muted">{d.number}</span>}
+                    <StatusPill status={d.status} />
+                  </span>
+                  <span className="flex items-center gap-3 text-[13px]">
+                    {d.docType === "invoice" && d.outstandingCents > 0 && (
+                      <span className="num text-[12px] font-semibold text-amber-ink">{formatMUR(d.outstandingCents)} due</span>
+                    )}
+                    <span className="num font-semibold text-ink">{formatMUR(d.totalCents)}</span>
+                  </span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       {/* checklist */}

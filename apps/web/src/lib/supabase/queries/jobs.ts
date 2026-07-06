@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { rupeesToCents } from "@/lib/money";
 import { departmentLabel } from "@/lib/departments";
 
 export const JOB_COLUMNS = [
@@ -74,6 +75,15 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
   return board;
 }
 
+export interface JobDocument {
+  id: string;
+  docType: "quote" | "invoice" | "credit_note";
+  status: string;
+  number: string | null;
+  totalCents: number;
+  outstandingCents: number;
+}
+
 export interface JobDetail {
   id: string;
   status: string;
@@ -87,6 +97,7 @@ export interface JobDetail {
   checklist: { label: string; done: boolean }[];
   elapsedSeconds: number;
   running: boolean;
+  documents: JobDocument[];
 }
 
 export interface JobRefData {
@@ -99,10 +110,11 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
   const { data: job } = await sb.from("jobs").select("*, customers(name), vehicles(make, model, plate)").eq("id", id).maybeSingle();
   if (!job) return null;
 
-  const [timerRes, usersRes, prodRes] = await Promise.all([
+  const [timerRes, usersRes, prodRes, docRes] = await Promise.all([
     sb.from("job_timers").select("started_at, stopped_at").eq("job_id", id),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
     sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name"),
+    sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid").eq("job_id", id).order("created_at"),
   ]);
 
   const now = Date.now();
@@ -115,6 +127,24 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
     if (!t.stopped_at) running = true;
     if (!Number.isNaN(start)) elapsed += Math.max(0, Math.floor((end - start) / 1000));
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const documents: JobDocument[] = ((docRes.data ?? []) as any[]).map((d) => {
+    const totalCents = rupeesToCents(Number(d.total_incl));
+    const paidCents = rupeesToCents(Number(d.amount_paid));
+    return {
+      id: d.id,
+      docType: d.doc_type,
+      status: d.status,
+      number: d.number,
+      totalCents,
+      // Only a live invoice is collectible — a void/paid one owes nothing.
+      outstandingCents:
+        d.doc_type === "invoice" && (d.status === "issued" || d.status === "partly_paid")
+          ? Math.max(0, totalCents - paidCents)
+          : 0,
+    };
+  });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const j: any = job;
@@ -132,6 +162,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       checklist: Array.isArray(j.checklist) ? j.checklist : [],
       elapsedSeconds: elapsed,
       running,
+      documents,
     },
     ref: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
