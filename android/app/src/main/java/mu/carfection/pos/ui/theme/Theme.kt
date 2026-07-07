@@ -1,45 +1,95 @@
 package mu.carfection.pos.ui.theme
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.Typography
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import mu.carfection.pos.R
 
-// Carfectionist identity — gold monogram on near-black (matches the brand +
-// printed documents), with the studio's status colours.
-val Gold = Color(0xFFD4AF37)
-val GoldDeep = Color(0xFFB8942A)
-val Ink = Color(0xFF0E1013)
-val Surface1 = Color(0xFF171B20)
-val Surface2 = Color(0xFF1F242B)
-val Line = Color(0xFF2A313A)
-val TextHi = Color(0xFFF2F4F7)
-val TextMid = Color(0xFFA7B1BC)
-val TextLow = Color(0xFF6C7783)
-val Mint = Color(0xFF34C98E) // success / change
-val Amber = Color(0xFFF5A623) // warning / balance due / on-account
-val Rose = Color(0xFFFF5468) // danger
+// ─── "Detailing POS" handoff design tokens — LIGHT theme, teal accent ─────────
+// Recreated 1:1 from Detailing POS.dc.html. Do not re-theme (see project memory).
+val Accent = Color(0xFF0FBFA6)          // --ac (teal)
+val AccentInk = Color(0xFFFFFFFF)       // text on accent
+val AccentSoft = Color(0x240FBFA6)      // accent @14%
+val AccentLine = Color(0x730FBFA6)      // accent @45%
+val AccentBlue = Color(0xFF3E8BFF)      // gradient partner (logo/cert)
 
-private val PosColors = darkColorScheme(
-    primary = Gold,
-    onPrimary = Color(0xFF151208),
-    secondary = Mint,
-    onSecondary = Ink,
-    background = Ink,
-    onBackground = TextHi,
-    surface = Surface1,
-    onSurface = TextHi,
-    surfaceVariant = Surface2,
-    onSurfaceVariant = TextMid,
-    outline = Line,
-    error = Rose,
+val ScreenBg = Color(0xFFF2F4F7)        // main area
+val CardBg = Color(0xFFFFFFFF)          // surfaces / cards
+val Inset = Color(0xFFEEF1F5)           // inputs / display cards
+val InsetAlt = Color(0xFFE8ECF1)        // keys / method chips (unselected)
+val Tile = Color(0xFFF6F8FA)            // product tiles
+val NavBg = Color(0xFFFFFFFF)
+
+val TextPrimary = Color(0xFF17202A)
+val TextSecondary = Color(0xFF5B6B7A)
+val TextMuted = Color(0xFF8494A3)
+val Hairline = Color(0x140F1A24)        // rgba(15,26,36,.08)
+val HairlineStrong = Color(0x1F0F1A24)
+
+val Success = Color(0xFF1FA361)         // paid / change
+val Warning = Color(0xFFC17A00)         // balance due / on-account
+val Danger = Color(0xFFD63A3A)          // remove / cancel
+val Plate = Color(0xFFF0C542)
+
+// ─── Fonts ────────────────────────────────────────────────────────────────────
+val Barlow = FontFamily(
+    Font(R.font.barlow_regular, FontWeight.Normal),
+    Font(R.font.barlow_medium, FontWeight.Medium),
+    Font(R.font.barlow_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_bold, FontWeight.Bold),
+    Font(R.font.barlow_extrabold, FontWeight.ExtraBold),
+)
+val Condensed = FontFamily(
+    Font(R.font.barlow_condensed_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_condensed_bold, FontWeight.Bold),
+)
+val Mono = FontFamily(
+    Font(R.font.ibm_plex_mono_regular, FontWeight.Normal),
+    Font(R.font.ibm_plex_mono_medium, FontWeight.Medium),
+)
+
+private val PosColors = lightColorScheme(
+    primary = Accent,
+    onPrimary = AccentInk,
+    secondary = Success,
+    background = ScreenBg,
+    onBackground = TextPrimary,
+    surface = CardBg,
+    onSurface = TextPrimary,
+    surfaceVariant = Inset,
+    onSurfaceVariant = TextSecondary,
+    outline = Hairline,
+    error = Danger,
     onError = Color.White,
 )
 
+private val PosType = Typography().run {
+    val b = Barlow
+    copy(
+        bodyLarge = bodyLarge.copy(fontFamily = b),
+        bodyMedium = bodyMedium.copy(fontFamily = b),
+        bodySmall = bodySmall.copy(fontFamily = b),
+        labelLarge = labelLarge.copy(fontFamily = b),
+        labelMedium = labelMedium.copy(fontFamily = b),
+        labelSmall = labelSmall.copy(fontFamily = b),
+        titleLarge = titleLarge.copy(fontFamily = b),
+        titleMedium = titleMedium.copy(fontFamily = b),
+        titleSmall = titleSmall.copy(fontFamily = b),
+    )
+}
+
 @Composable
 fun CarfectionistPosTheme(content: @Composable () -> Unit) {
-    // The shop floor runs dark, always — no light theme on the till.
-    isSystemInDarkTheme() // (intentionally ignored)
-    MaterialTheme(colorScheme = PosColors, content = content)
+    MaterialTheme(colorScheme = PosColors, typography = PosType) {
+        androidx.compose.material3.ProvideTextStyle(
+            TextStyle(fontFamily = Barlow, color = TextPrimary),
+            content,
+        )
+    }
 }

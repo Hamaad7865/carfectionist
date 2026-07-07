@@ -1,9 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Compose draws everything; this just sets the window basics. -->
-    <style name="Theme.CarfectionistPos" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">#0E1013</item>
-        <item name="android:statusBarColor">#0E1013</item>
-        <item name="android:navigationBarColor">#0E1013</item>
+    <!-- Compose draws everything; this sets the window basics to the handoff's
+         light palette so there's no dark flash and the system bars read light. -->
+    <style name="Theme.CarfectionistPos" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">#F2F4F7</item>
+        <item name="android:statusBarColor">#F2F4F7</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
     </style>
 </resources>
