@@ -85,8 +85,6 @@ fun CounterScreen(
                 color = if (till != null) Success else Warning,
                 onClick = onOpenTill,
             )
-            Spacer(Modifier.weight(1f))
-            Chip(text = "Sign out", color = TextSecondary, onClick = { viewModel.signOut() })
         }
         Spacer(Modifier.height(12.dp))
 

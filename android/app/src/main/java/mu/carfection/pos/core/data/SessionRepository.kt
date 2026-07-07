@@ -8,6 +8,8 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -33,6 +35,17 @@ class SessionRepository @Inject constructor(
 
     val userEmail: String?
         get() = client.auth.currentUserOrNull()?.email
+
+    private fun meta(key: String): String? =
+        (client.auth.currentUserOrNull()?.userMetadata?.get(key) as? JsonPrimitive)?.contentOrNull
+
+    /** Display name (seeded as "Rakesh (Owner)" → "Rakesh") for the header staff chip. */
+    val userName: String
+        get() = (meta("display_name") ?: userEmail?.substringBefore("@") ?: "Staff")
+            .replace(Regex("\\s*\\(.*\\)\\s*$"), "").trim()
+
+    val userRole: String
+        get() = meta("role")?.replaceFirstChar { it.uppercase() } ?: "POS"
 
     suspend fun signIn(email: String, password: String) {
         client.auth.signInWith(Email) {
