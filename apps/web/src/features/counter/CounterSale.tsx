@@ -23,6 +23,7 @@ interface CartLine { product: CounterProduct; qty: number }
 export function CounterSale({ products, customers }: { products: CounterProduct[]; customers: { id: string; name: string }[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  const [cat, setCat] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customer, setCustomer] = useState("");
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -38,11 +39,16 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
     setSaleKey(crypto.randomUUID());
   }
 
+  const categories = useMemo(
+    () => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    [products],
+  );
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
-    if (!s) return products;
-    return products.filter((p) => p.name.toLowerCase().includes(s) || (p.barcode ?? "").includes(s));
-  }, [q, products]);
+    return products.filter(
+      (p) => (!cat || p.category === cat) && (!s || p.name.toLowerCase().includes(s) || (p.barcode ?? "").includes(s)),
+    );
+  }, [q, cat, products]);
 
   const totals = useMemo(
     () => computeTotals(cart.map((l) => ({ qty: l.qty, unitCents: l.product.priceCents, vatRatePct: l.product.vatRate }))),
@@ -138,6 +144,25 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
               autoFocus
             />
           </div>
+          {categories.length > 0 && (
+            <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
+              <button
+                onClick={() => setCat("")}
+                className={`h-8 shrink-0 whitespace-nowrap rounded-full px-3.5 text-[12px] font-bold ${cat === "" ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
+              >
+                All
+              </button>
+              {categories.map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCat(c)}
+                  className={`h-8 shrink-0 whitespace-nowrap rounded-full px-3.5 text-[12px] font-bold ${cat === c ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <div className="grid max-h-[62vh] grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3">
           {filtered.map((p) => (
