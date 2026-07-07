@@ -206,5 +206,24 @@ Each milestone is independently demoable and ends with a STOP + test.
 
 ---
 
+## 15. M1 — confirmed scope & kickoff
+
+**Decision:** build **M1 first** (counter MVP), then layer M2+ later.
+
+**M1 delivers (hardware-independent core, buildable now):**
+- App shell + Carfectionist theme, Supabase auth (email/password) + quick staff switch.
+- Room read cache of `products` (indexed by barcode + **name**), `customers`, `stock_locations`, `business_settings`; delta pull.
+- **Counter sale screen** with a **product search bar** (type to filter by name or barcode — required) + category browse + tap-to-add cart + qty steppers.
+- **Fast payment pad** (§7): pre-filled Cash, quick-tender chips + on-screen numpad, live change, Card/Juice/Bank reference, Credit (on-account with customer pick). 2–3 taps.
+- **Till** open float / close + count / variance.
+- Calls `issue_document` + `record_payment` (with idempotency keys) — online path first.
+
+**Hardware is separate & TBD** (tablet + printer + drawer + scanner all standalone). So in M1 the hardware touchpoints sit behind interfaces and are stubbed until models are confirmed:
+- `ReceiptPrinter` interface (impl = DantSu, later) — M1 logs/preview the receipt bytes.
+- `CashDrawer` interface (impl = `ESC p` via printer, later).
+- `BarcodeSource` interface (impl = wedge `dispatchKeyEvent` or ML Kit camera, later) — M1 uses the search bar for entry.
+
+This lets M1 be built and demoed on any tablet now; the drawer/printer/scanner drop in when the hardware arrives with zero rework to the sale logic.
+
 ### Appendix — dependencies for approval (Phase 4)
 Compose BOM + M3 · supabase-kt BOM (auth/postgrest/storage) · ktor-okhttp · kotlinx-serialization · Hilt (+ work) · Room · navigation-compose · WorkManager · DataStore · CameraX · Coil · DantSu ESCPOS 3.4.0 · JUnit / Turbine / MockK / Robolectric.

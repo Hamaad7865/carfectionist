@@ -1,0 +1,22 @@
+package mu.carfection.pos
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import dagger.hilt.android.AndroidEntryPoint
+import mu.carfection.pos.ui.PosApp
+import mu.carfection.pos.ui.theme.CarfectionistPosTheme
+
+@AndroidEntryPoint
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            CarfectionistPosTheme {
+                PosApp()
+            }
+        }
+    }
+}

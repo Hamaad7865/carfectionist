@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose draws everything; this just sets the window basics. -->
+    <style name="Theme.CarfectionistPos" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#0E1013</item>
+        <item name="android:statusBarColor">#0E1013</item>
+        <item name="android:navigationBarColor">#0E1013</item>
+    </style>
+</resources>
