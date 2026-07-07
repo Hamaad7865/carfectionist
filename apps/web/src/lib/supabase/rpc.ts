@@ -102,6 +102,32 @@ export interface CreateJobArgs {
   department?: string | null;
   checklist: unknown;
 }
+export interface CreateIntakeQuoteArgs {
+  customerId?: string | null;
+  newCustomerName?: string | null;
+  newCustomerPhone?: string | null;
+  vehicleId?: string | null;
+  newVehiclePlate?: string | null;
+  newVehicleMake?: string | null;
+  service?: string | null;
+  markers: unknown;
+  photos: unknown;
+}
+export const createIntakeQuote = (sb: Client, a: CreateIntakeQuoteArgs) =>
+  callRpc<DocumentRow>(sb, "create_intake_quote", {
+    p_customer_id: a.customerId ?? null,
+    p_new_customer_name: a.newCustomerName ?? null,
+    p_new_customer_phone: a.newCustomerPhone ?? null,
+    p_vehicle_id: a.vehicleId ?? null,
+    p_new_vehicle_plate: a.newVehiclePlate ?? null,
+    p_new_vehicle_make: a.newVehicleMake ?? null,
+    p_service: a.service ?? null,
+    p_markers: a.markers,
+    p_photos: a.photos,
+  });
+export const createJobFromDocument = (sb: Client, documentId: string) =>
+  callRpc<{ id: string }>(sb, "create_job_from_document", { p_document_id: documentId });
+
 export interface ImportReport {
   inserted: number;
   updated: number;

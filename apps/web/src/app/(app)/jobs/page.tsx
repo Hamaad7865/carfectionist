@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ClipboardCheck } from "lucide-react";
 import { getJobsBoard, getIntakeRef, JOB_COLUMNS } from "@/lib/supabase/queries/jobs";
 import { NewJobForm } from "@/features/jobs/NewJobForm";
 
@@ -9,7 +10,15 @@ export default async function JobsPage() {
     <div className="flex flex-col gap-4 p-6">
       <div className="flex items-start justify-between gap-4">
         <h2 className="font-display text-[20px] font-extrabold text-ink-strong">Jobs board</h2>
-        <NewJobForm intake={intake} />
+        <div className="flex items-center gap-2">
+          <Link
+            href="/jobs/intake"
+            className="inline-flex h-10 items-center gap-2 rounded-[11px] border border-line-2 bg-card px-4 text-[13.5px] font-bold text-body hover:border-brand"
+          >
+            <ClipboardCheck size={16} strokeWidth={2.2} /> New intake
+          </Link>
+          <NewJobForm intake={intake} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-4">
