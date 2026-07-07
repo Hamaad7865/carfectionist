@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Plus } from "lucide-react";
 import { getContacts } from "@/lib/supabase/queries/contacts";
 import { CustomerDialog } from "@/features/contacts/CustomerDialog";
+import { CustomerList } from "@/features/contacts/CustomerList";
 import { VehiclesEditor } from "@/features/contacts/VehiclesEditor";
 import { SuppliersPanel } from "@/features/contacts/SuppliersPanel";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -36,31 +37,8 @@ export default async function ContactsPage({
 
       {tab === "customers" ? (
         <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[320px_1fr]">
-          {/* list */}
-          <div className="rounded-[14px] border border-line bg-card p-2">
-            {data.customers.length === 0 && <div className="p-6 text-center text-[12.5px] text-faint">No customers.</div>}
-            {data.customers.map((c) => {
-              const on = sel?.id === c.id;
-              return (
-                <Link
-                  key={c.id}
-                  href={`/contacts?c=${c.id}`}
-                  className={`mb-1 flex w-full items-center gap-3 rounded-[11px] border px-3 py-2.5 ${on ? "border-link bg-[rgba(43,140,255,0.08)]" : "border-transparent hover:bg-sub"}`}
-                >
-                  <span className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-[#3f5065]" style={{ background: "linear-gradient(140deg,#e5eaf1,#d2dae4)" }}>
-                    {initials(c.name)}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[13px] font-bold text-ink">{c.name}</div>
-                    <div className="text-[11.5px] text-muted">{c.vehicleCount} vehicle{c.vehicleCount === 1 ? "" : "s"}</div>
-                  </div>
-                  <span className={`num text-[11px] font-semibold ${c.outstandingCents > 0 ? "text-amber-ink" : "text-faint"}`}>
-                    {c.outstandingCents > 0 ? formatMUR(c.outstandingCents) : "—"}
-                  </span>
-                </Link>
-              );
-            })}
-          </div>
+          {/* list — searchable (client-side filter) */}
+          <CustomerList customers={data.customers} selectedId={sel?.id} />
 
           {/* detail */}
           {sel ? (
