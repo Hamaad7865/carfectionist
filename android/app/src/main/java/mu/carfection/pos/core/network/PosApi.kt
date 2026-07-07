@@ -80,6 +80,31 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    // ── Stock ─────────────────────────────────────────────────────────────────────
+    suspend fun fetchStockProducts(): List<StockProductDto> =
+        client.postgrest.from("products")
+            .select(Columns.raw("id, name, category, selling_price, low_stock_threshold")) {
+                filter { eq("is_active", true); eq("is_stocked", true) }
+                order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList()
+
+    suspend fun fetchStockOnHand(): List<StockOnHandDto> =
+        client.postgrest.from("stock_on_hand")
+            .select(Columns.raw("product_id, qty_on_hand"))
+            .decodeList()
+
+    suspend fun fetchDefaultLocationId(): String? =
+        client.postgrest.from("stock_locations")
+            .select(Columns.raw("id")) { filter { eq("is_default", true) }; limit(1) }
+            .decodeList<StockLocationDto>()
+            .firstOrNull()?.id
+
+    /** Insert a signed adjustment movement (sm_insert RLS: adjustment + owner/manager). */
+    suspend fun adjustStock(row: NewStockMovementDto) {
+        client.postgrest.from("stock_movements").insert(row)
+    }
+
     // ── Jobs board ──────────────────────────────────────────────────────────────
     suspend fun fetchJobs(): List<JobBoardDto> =
         client.postgrest.from("jobs")

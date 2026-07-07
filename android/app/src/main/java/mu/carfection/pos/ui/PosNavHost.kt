@@ -22,6 +22,7 @@ import mu.carfection.pos.feature.intake.IntakeScreen
 import mu.carfection.pos.feature.jobs.JobsScreen
 import mu.carfection.pos.feature.login.LoginScreen
 import mu.carfection.pos.feature.quote.QuoteScreen
+import mu.carfection.pos.feature.stock.StockScreen
 import mu.carfection.pos.feature.till.TillScreen
 import javax.inject.Inject
 
@@ -58,6 +59,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                     PosTab.INTAKE -> IntakeScreen()
                     PosTab.QUOTE -> QuoteScreen(onGoIntake = { tab = PosTab.INTAKE })
                     PosTab.JOBS -> JobsScreen(onGoIntake = { tab = PosTab.INTAKE }, onGoCheckout = { tab = PosTab.SALE })
+                    PosTab.STOCK -> StockScreen()
                     else -> PlaceholderScreen(tab)
                 }
             }

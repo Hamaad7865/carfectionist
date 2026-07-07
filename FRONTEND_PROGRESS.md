@@ -42,7 +42,13 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   embeds). Verified on tablet end-to-end: board renders all 4 statuses, detail opens, checklist toggle
   (2/5→3/5, persists), technician chips, live timer (55m→1h+), and **Mark ready** (complete_job RPC:
   in_progress→ready, card moved columns). *(deviations below)*
-- [ ] **Stock** — on-hand grid, ±1 quick adjust, "Adjust…" modal.
+- [x] **Stock** — header + "⚠ N low-stock items" pill, horizontally-scrolling category tabs, and a 3-col
+  on-hand grid (product card: name, category · price, big colour-coded on-hand [red 0 / amber low / dark
+  ok], LOW label, amber ring when low, − / + / "Adjust…"). "Adjust…" opens the handoff's modal (big ± delta
+  stepper with coloured value + "→ new on-hand", reason chips, Cancel / Apply). Real data via
+  stock_on_hand view + products; adjustments are direct stock_movements inserts (ref_type='adjustment',
+  owner/manager per RLS). Verified on tablet: grid renders 451 products / 35 categories, ±1 quick adjust
+  (1→2) and modal apply (+2, "Received stock") both persist to the DB (on-hand 1→4). *(deviations below)*
 - [ ] **Certificates & warranty** — ceramic certificate viewer + maintenance schedule.
 - [ ] **Today / Dashboard** — KPIs, 7-day turnover bars, best sellers, technicians, payment mix.
 
@@ -97,6 +103,19 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   consumption). No dedicated per-transition RPCs exist. Optimistic UI with reload-on-failure.
 - **Data (verification):** seeded 3 jobs (in_progress / ready / delivered) with vehicles, technicians,
   checklists + damage markers, and enriched the pre-existing scheduled job, to populate all four columns.
+- **Stock: on-hand is summed across locations** (Storeroom + Shop Floor) client-side — the `stock_on_hand`
+  view is per-location; adjustments post to the default location (Storeroom).
+- **Stock: category tabs are the 35 real product categories** (horizontally scrollable), not the handoff's
+  shorter demo `PCATS`. Data-driven.
+- **Stock: low threshold uses `products.low_stock_threshold`** (default 4 when null, matching the handoff).
+  With imported thresholds (~5) against low on-hand, 333 items flag LOW — real data, not a bug.
+- **Stock: adjustments are owner/manager-only** (`sm_insert` RLS). Non-managers get a graceful
+  "need owner or manager access" toast; the current session is the owner so adjustments succeed. No
+  dedicated adjust RPC — direct `stock_movements` insert; optimistic UI with reload-on-failure; reason
+  chips map to the movement `note`. Only `is_stocked` products are shown.
+- **Bug fixed (serialization):** kotlinx.serialization omits default-valued fields, which dropped
+  `ref_type` from the adjustment insert → the row failed the RLS `ref_type='adjustment'` check. Fixed by
+  making `NewStockMovementDto.refType` a required (non-default) field so it is always serialized.
 
 ## Build order
 App shell first (navigation foundation) → Intake → Quote → Jobs → Stock → Certificates → Dashboard.

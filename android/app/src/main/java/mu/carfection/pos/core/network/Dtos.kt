@@ -112,6 +112,40 @@ data class JobBoardDto(
     val technician: JobTechDto? = null,
 )
 
+// ── Stock ─────────────────────────────────────────────────────────────────────
+@Serializable
+data class StockProductDto(
+    val id: String,
+    val name: String,
+    val category: String? = null,
+    @SerialName("selling_price") val sellingPrice: FlexDouble = 0.0,
+    @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
+)
+
+@Serializable
+data class StockOnHandDto(
+    @SerialName("product_id") val productId: String,
+    @SerialName("qty_on_hand") val qtyOnHand: FlexDouble = 0.0,
+)
+
+@Serializable data class StockLocationDto(val id: String)
+
+/**
+ * An adjustment movement (owner/manager only, per the sm_insert RLS policy).
+ * NOTE: `refType` has NO default on purpose — kotlinx.serialization omits
+ * default-valued fields, which would drop `ref_type` from the insert payload and
+ * fail the RLS `with check (ref_type = 'adjustment')`.
+ */
+@Serializable
+data class NewStockMovementDto(
+    @SerialName("tenant_id") val tenantId: String,
+    @SerialName("product_id") val productId: String,
+    @SerialName("location_id") val locationId: String,
+    val qty: Double,
+    @SerialName("ref_type") val refType: String,
+    val note: String? = null,
+)
+
 @Serializable
 data class BusinessSettingsDto(
     val id: String, // tenant id
