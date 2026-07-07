@@ -50,6 +50,31 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .insert(row) { select(Columns.raw("id, name, phone")) }
             .decodeSingle()
 
+    suspend fun fetchVehicles(customerId: String): List<VehicleDto> =
+        client.postgrest.from("vehicles")
+            .select(Columns.raw("id, plate, make, model, color")) {
+                filter { eq("customer_id", customerId) }
+                order("plate", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList()
+
+    suspend fun insertVehicle(row: NewVehicleDto): VehicleDto =
+        client.postgrest.from("vehicles")
+            .insert(row) { select(Columns.raw("id, plate, make, model, color")) }
+            .decodeSingle()
+
+    /** Intake → "Start quotation": atomic job for the customer+vehicle (create_job RPC). */
+    suspend fun createJob(customerId: String, vehicleId: String, service: String?): String =
+        client.postgrest.rpc("create_job", buildJsonObject {
+            put("p_customer_id", customerId)
+            put("p_new_customer_name", JsonNull); put("p_new_customer_phone", JsonNull)
+            put("p_vehicle_id", vehicleId)
+            put("p_new_vehicle_plate", JsonNull); put("p_new_vehicle_make", JsonNull)
+            if (service != null) put("p_service", service) else put("p_service", JsonNull)
+            put("p_technician_id", JsonNull); put("p_department", JsonNull)
+            put("p_checklist", JsonArray(emptyList()))
+        }).decodeAs<JobRow>().id
+
     // ── Writes — the shared RPCs (all invariants live server-side) ───────────
 
     /** Atomic draft upsert (doc + lines). Lines carry rupee prices, DB re-rounds. */

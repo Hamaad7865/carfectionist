@@ -28,6 +28,28 @@ data class CustomerDto(
 )
 
 @Serializable
+data class VehicleDto(
+    val id: String,
+    val plate: String,
+    val make: String? = null,
+    val model: String? = null,
+    @SerialName("color") val colour: String? = null,
+)
+
+@Serializable
+data class NewVehicleDto(
+    @SerialName("tenant_id") val tenantId: String,
+    @SerialName("customer_id") val customerId: String,
+    val plate: String,
+    val make: String? = null,
+    val model: String? = null,
+    @SerialName("color") val colour: String? = null,
+)
+
+@Serializable
+data class JobRow(val id: String)
+
+@Serializable
 data class BusinessSettingsDto(
     val id: String, // tenant id
     @SerialName("vat_rate") val vatRate: FlexDouble,
@@ -63,9 +85,10 @@ data class CashSessionDto(
     val variance: FlexDouble? = null,
 )
 
-/** Insert payload for a walk-in customer (RLS scopes the tenant). */
+/** Insert payload for a new customer (RLS scopes the tenant). */
 @Serializable
 data class NewCustomerDto(
     @SerialName("tenant_id") val tenantId: String,
     val name: String,
+    val phone: String? = null,
 )
