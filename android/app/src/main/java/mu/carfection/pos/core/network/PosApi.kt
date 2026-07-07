@@ -80,6 +80,37 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    // ── Jobs board ──────────────────────────────────────────────────────────────
+    suspend fun fetchJobs(): List<JobBoardDto> =
+        client.postgrest.from("jobs")
+            .select(Columns.raw("id, status, scheduled_at, started_at, ready_at, delivered_at, technician_id, notes, checklist, damage_markers, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name)")) {
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            }
+            .decodeList()
+
+    /** Scheduled → in progress. Stamps started_at once (RLS scopes the tenant). */
+    suspend fun startJob(jobId: String, startedAtIso: String) {
+        client.postgrest.from("jobs").update({
+            set("status", "in_progress")
+            set("started_at", startedAtIso)
+        }) { filter { eq("id", jobId) } }
+    }
+
+    suspend fun assignTechnician(jobId: String, technicianId: String) {
+        client.postgrest.from("jobs").update({ set("technician_id", technicianId) }) { filter { eq("id", jobId) } }
+    }
+
+    suspend fun setChecklist(jobId: String, checklist: JsonArray) {
+        client.postgrest.from("jobs").update({ set("checklist", checklist) }) { filter { eq("id", jobId) } }
+    }
+
+    /** In progress → ready (complete_job also records any stock consumption). */
+    suspend fun markJobReady(jobId: String) {
+        client.postgrest.rpc("complete_job", buildJsonObject {
+            put("p_job_id", jobId); put("p_location", JsonNull); put("p_consumptions", JsonArray(emptyList()))
+        })
+    }
+
     suspend fun fetchTechnicians(): List<TechnicianDto> =
         client.postgrest.from("app_users")
             .select(Columns.raw("id, display_name")) {

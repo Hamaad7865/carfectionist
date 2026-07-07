@@ -84,6 +84,34 @@ data class QuoteRowDto(
     val vehicles: VehicleNameDto? = null,
 )
 
+// ── Jobs board ────────────────────────────────────────────────────────────────
+@Serializable data class ChecklistItemDto(val label: String, val done: Boolean = false)
+@Serializable data class JobCustomerDto(val name: String? = null, val phone: String? = null)
+@Serializable data class JobVehicleDto(
+    val plate: String? = null,
+    val make: String? = null,
+    val model: String? = null,
+    @SerialName("color") val colour: String? = null,
+)
+@Serializable data class JobTechDto(@SerialName("display_name") val displayName: String? = null)
+
+@Serializable
+data class JobBoardDto(
+    val id: String,
+    val status: String,
+    @SerialName("scheduled_at") val scheduledAt: String? = null,
+    @SerialName("started_at") val startedAt: String? = null,
+    @SerialName("ready_at") val readyAt: String? = null,
+    @SerialName("delivered_at") val deliveredAt: String? = null,
+    @SerialName("technician_id") val technicianId: String? = null,
+    val notes: String? = null,
+    val checklist: List<ChecklistItemDto> = emptyList(),
+    @SerialName("damage_markers") val damageMarkers: List<kotlinx.serialization.json.JsonElement> = emptyList(),
+    val customers: JobCustomerDto? = null,
+    val vehicles: JobVehicleDto? = null,
+    val technician: JobTechDto? = null,
+)
+
 @Serializable
 data class BusinessSettingsDto(
     val id: String, // tenant id

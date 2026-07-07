@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.feature.counter.CounterScreen
 import mu.carfection.pos.feature.intake.IntakeScreen
+import mu.carfection.pos.feature.jobs.JobsScreen
 import mu.carfection.pos.feature.login.LoginScreen
 import mu.carfection.pos.feature.quote.QuoteScreen
 import mu.carfection.pos.feature.till.TillScreen
@@ -56,6 +57,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                         else CounterScreen(onOpenTill = { showTill = true })
                     PosTab.INTAKE -> IntakeScreen()
                     PosTab.QUOTE -> QuoteScreen(onGoIntake = { tab = PosTab.INTAKE })
+                    PosTab.JOBS -> JobsScreen(onGoIntake = { tab = PosTab.INTAKE }, onGoCheckout = { tab = PosTab.SALE })
                     else -> PlaceholderScreen(tab)
                 }
             }

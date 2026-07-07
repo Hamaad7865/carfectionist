@@ -34,7 +34,14 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   the repos + save_draft/create_job RPCs. Verified on tablet end-to-end: list, hydrate, add product (badge),
   expand, 10% discount (−Rs 120 green row, VAT/total recompute), ad-hoc line (4th line Rs 1,500, total
   Rs 13,202), accept panel (Deven/Yash/Kevin chips + times), vehicle-less guard. *(deviations below)*
-- [ ] **Jobs board** — 4-column kanban (Scheduled/In progress/Ready/Done) + right detail sheet.
+- [x] **Jobs board** — 4-column kanban (Scheduled/In progress/Ready/Delivered) with dot colours + count
+  badges + job cards (plate badge, status-coloured right text, vehicle, service note, technician avatar),
+  and a 560dp right **detail sheet** (scrim; ref + status chip + close; customer/phone/plate/vehicle; ⚠
+  damage-marker note; TECHNICIAN chips; live TIME ON JOB timer; CHECKLIST with progress bar + tap-toggle;
+  BEFORE/AFTER photo grids; contextual footer action). Real jobs via `fetchJobs` (customer/vehicle/tech
+  embeds). Verified on tablet end-to-end: board renders all 4 statuses, detail opens, checklist toggle
+  (2/5→3/5, persists), technician chips, live timer (55m→1h+), and **Mark ready** (complete_job RPC:
+  in_progress→ready, card moved columns). *(deviations below)*
 - [ ] **Stock** — on-hand grid, ±1 quick adjust, "Adjust…" modal.
 - [ ] **Certificates & warranty** — ceramic certificate viewer + maintenance schedule.
 - [ ] **Today / Dashboard** — KPIs, 7-day turnover bars, best sellers, technicians, payment mix.
@@ -73,6 +80,23 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
 - **Quote: START time is captured but not persisted** — `create_job` has no `scheduled_at` param.
 - **Data fix (not a code deviation):** the 3 seed technicians (Deven/Yash/Kevin) were `is_active=false`, so
   the ASSIGN TECHNICIAN row was empty; activated them so job assignment works. Empty-state hint added too.
+- **Jobs: card "service" line = `jobs.notes`** (jobs carry no line items; service detail lives on a linked
+  document, and there is no `job.document_id` column). The handoff shows the first service name + "N more".
+- **Jobs: Ready-column card right shows the ready time (HH:mm), not the invoice total** — jobs carry no
+  monetary total and there is no queryable job→invoice link. Delivered shows "Done" (jobs don't track a
+  paid flag; the handoff's "✓ Paid" also relied on a mono ✓ glyph that renders poorly on Android).
+- **Jobs: BEFORE/AFTER photos are stubs** (None / ＋ADD → toast). Same milestone as intake photos (CameraX
+  + `job_photos` storage).
+- **Jobs: TIME ON JOB is display-only** — elapsed from `started_at` (frozen at `ready_at` for ready jobs);
+  no pause/resume, the `job_timers` table isn't wired (later milestone). "Start" (scheduled→in_progress,
+  stamps `started_at`) is real.
+- **Jobs: "Go to checkout" / "View invoice" both switch to the Checkout tab** — jobs have no invoice link
+  to open a specific bill.
+- **Jobs: status writes use the generic `jobs` UPDATE RLS policy** — Start job / technician reassign /
+  checklist toggle are direct column updates; Mark ready = `complete_job` RPC (also records stock
+  consumption). No dedicated per-transition RPCs exist. Optimistic UI with reload-on-failure.
+- **Data (verification):** seeded 3 jobs (in_progress / ready / delivered) with vehicles, technicians,
+  checklists + damage markers, and enriched the pre-existing scheduled job, to populate all four columns.
 
 ## Build order
 App shell first (navigation foundation) → Intake → Quote → Jobs → Stock → Certificates → Dashboard.
