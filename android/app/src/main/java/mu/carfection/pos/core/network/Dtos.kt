@@ -49,6 +49,41 @@ data class NewVehicleDto(
 @Serializable
 data class JobRow(val id: String)
 
+@Serializable data class SavedDoc(val id: String, val number: String? = null)
+
+@Serializable
+data class QuoteLineDto(
+    @SerialName("product_id") val productId: String? = null,
+    val title: String,
+    val description: String? = null,
+    val qty: FlexDouble = 1.0,
+    @SerialName("unit_price") val unitPrice: FlexDouble = 0.0,
+    @SerialName("discount_pct") val discountPct: FlexDouble = 0.0,
+    @SerialName("vat_rate") val vatRate: FlexDouble = 15.0,
+)
+
+@Serializable
+data class TechnicianDto(
+    val id: String,
+    @SerialName("display_name") val displayName: String,
+)
+
+@Serializable data class CustomerNameDto(val name: String? = null)
+@Serializable data class VehicleNameDto(val plate: String? = null, val make: String? = null, val model: String? = null)
+
+@Serializable
+data class QuoteRowDto(
+    val id: String,
+    val number: String? = null,
+    val status: String,
+    @SerialName("customer_id") val customerId: String? = null,
+    @SerialName("vehicle_id") val vehicleId: String? = null,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    val customers: CustomerNameDto? = null,
+    val vehicles: VehicleNameDto? = null,
+)
+
 @Serializable
 data class BusinessSettingsDto(
     val id: String, // tenant id

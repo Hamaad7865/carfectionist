@@ -63,15 +63,54 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .insert(row) { select(Columns.raw("id, plate, make, model, color")) }
             .decodeSingle()
 
+    suspend fun fetchQuotes(): List<QuoteRowDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, customers(name), vehicles(plate, make, model)")) {
+                filter { eq("doc_type", "quote") }
+                order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(30)
+            }
+            .decodeList()
+
+    suspend fun fetchQuoteLines(quoteId: String): List<QuoteLineDto> =
+        client.postgrest.from("document_lines")
+            .select(Columns.raw("product_id, title, description, qty, unit_price, discount_pct, vat_rate")) {
+                filter { eq("document_id", quoteId) }
+                order("sort_order", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList()
+
+    suspend fun fetchTechnicians(): List<TechnicianDto> =
+        client.postgrest.from("app_users")
+            .select(Columns.raw("id, display_name")) {
+                filter { eq("role", "technician"); eq("is_active", true) }
+            }
+            .decodeList()
+
+    /** Save the quote as a draft document (save_draft RPC). p_lines carry rupee prices. */
+    suspend fun saveQuoteDraft(existingId: String?, customerId: String, vehicleId: String?, lines: JsonArray): SavedDoc {
+        val doc = buildJsonObject {
+            if (existingId != null) put("id", existingId)
+            put("doc_type", "quote")
+            put("customer_id", customerId)
+            if (vehicleId != null) put("vehicle_id", vehicleId) else put("vehicle_id", JsonNull)
+            put("origin", "standalone")
+        }
+        return client.postgrest.rpc("save_draft", buildJsonObject {
+            put("p_doc", doc); put("p_lines", lines); put("p_expected_rev", JsonNull)
+        }).decodeAs()
+    }
+
     /** Intake → "Start quotation": atomic job for the customer+vehicle (create_job RPC). */
-    suspend fun createJob(customerId: String, vehicleId: String, service: String?): String =
+    suspend fun createJob(customerId: String, vehicleId: String, service: String?, technicianId: String? = null): String =
         client.postgrest.rpc("create_job", buildJsonObject {
             put("p_customer_id", customerId)
             put("p_new_customer_name", JsonNull); put("p_new_customer_phone", JsonNull)
             put("p_vehicle_id", vehicleId)
             put("p_new_vehicle_plate", JsonNull); put("p_new_vehicle_make", JsonNull)
             if (service != null) put("p_service", service) else put("p_service", JsonNull)
-            put("p_technician_id", JsonNull); put("p_department", JsonNull)
+            if (technicianId != null) put("p_technician_id", technicianId) else put("p_technician_id", JsonNull)
+            put("p_department", JsonNull)
             put("p_checklist", JsonArray(emptyList()))
         }).decodeAs<JobRow>().id
 

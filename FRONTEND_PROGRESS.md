@@ -26,7 +26,14 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   card with the handoff's exact top-view car diagram (vector) + tap-to-place damage markers + type
   chips + photos, and the "Start quotation" footer. Real customers/vehicles via the repos + create_job.
   Verified on tablet (customer picked, 2 markers placed). *(deviations logged below)*
-- [ ] **Quote builder** — service/product lines, discounts, accept → job (technician + start).
+- [x] **Quote builder** — list mode (quote cards: ref/status chip/customer/vehicle/total/date) + builder
+  mode (back header, category tabs, 2-col product tiles with teal count badges, dashed ad-hoc tile → typed
+  line dialog, QUOTE LINES with expandable rows [qty stepper + 0/5/10/15/20% discount chips + red remove],
+  gross Subtotal + green Line discounts + line-level VAT 15% + teal TOTAL, Save draft / Accept → create job
+  → ASSIGN TECHNICIAN chips + START time chips → Create job). Real quotes/lines/products/technicians via
+  the repos + save_draft/create_job RPCs. Verified on tablet end-to-end: list, hydrate, add product (badge),
+  expand, 10% discount (−Rs 120 green row, VAT/total recompute), ad-hoc line (4th line Rs 1,500, total
+  Rs 13,202), accept panel (Deven/Yash/Kevin chips + times), vehicle-less guard. *(deviations below)*
 - [ ] **Jobs board** — 4-column kanban (Scheduled/In progress/Ready/Done) + right detail sheet.
 - [ ] **Stock** — on-hand grid, ±1 quick adjust, "Adjust…" modal.
 - [ ] **Certificates & warranty** — ceramic certificate viewer + maintenance schedule.
@@ -48,6 +55,24 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
 - **Intake: "Start quotation" creates a job** (create_job RPC → "Job started" dialog) rather than opening
   the Quote builder. Justified: the Quote screen isn't built yet (next iteration); the job is the real
   backing record a quote attaches to.
+- **Quote: category tabs are product KINDS** ("All" + kinds present), not the handoff's service categories.
+  Justified: the seeded catalogue is all `kind=product` (no service rows yet); service tabs appear once
+  service products exist. Data-driven, not hardcoded.
+- **Quote: product tile omits the handoff's "Stock N" meta line.** Justified: on-hand quantity isn't in the
+  POS catalogue cache (`ProductEntity`); a per-tile stock read is a later inventory-sync milestone.
+- **Quote: ad-hoc entry uses a name+price dialog**, not the handoff's dedicated on-screen numpad modal.
+  Justified: functionally equivalent (same result — a `product_id=null` line); the dashed tile + fields
+  match the handoff. Price parses via the shared `parseMoneyToCents`.
+- **Quote: technician avatars use the accent colour** (handoff assigns a per-staff colour). Same root cause
+  as the app-shell staff-avatar deviation — no per-staff colour data.
+- **Quote: "Accept → create job" creates the job (create_job) but does NOT mark the quote `accepted` or link
+  the job to the quote document.** Justified: the backend has no `convert_quote_to_job` RPC (only
+  `convert_quote_to_invoice`); linking + status flip needs a new migration (spawned as a follow-up task).
+  Guarded against double-submit (busy-disabled buttons). Vehicle-less standalone quotes surface
+  "This quote has no vehicle" rather than converting (create_job requires a vehicle).
+- **Quote: START time is captured but not persisted** — `create_job` has no `scheduled_at` param.
+- **Data fix (not a code deviation):** the 3 seed technicians (Deven/Yash/Kevin) were `is_active=false`, so
+  the ASSIGN TECHNICIAN row was empty; activated them so job assignment works. Empty-state hint added too.
 
 ## Build order
 App shell first (navigation foundation) → Intake → Quote → Jobs → Stock → Certificates → Dashboard.
