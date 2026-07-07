@@ -81,3 +81,31 @@ function friendly(msg: string): string {
   if (/products_check|is_stocked/i.test(msg)) return "Services cannot be stocked.";
   return msg;
 }
+
+// Categories are a text column, so renaming = bulk-updating every product that
+// carries the exact `from` string. Rename to an existing name → merge; rename
+// to "" → clear (uncategorise). RLS scopes the update to the tenant; the role
+// gate above restricts it to owner/manager.
+const categorySchema = z.object({
+  from: z.string().min(1, "Pick a category to change"),
+  to: z.string().trim().max(80, "Category name is too long"),
+});
+
+export async function renameCategoryAction(input: z.input<typeof categorySchema>): Promise<Result<{ updated: number }>> {
+  await requireRole(...ROLES);
+  const p = categorySchema.safeParse(input);
+  if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid category" };
+  const from = p.data.from;
+  const to = p.data.to.trim();
+  if (to === from) return { ok: true, data: { updated: 0 } }; // no-op
+
+  const sb = await createClient();
+  const { data, error } = await sb
+    .from("products")
+    .update({ category: to === "" ? null : to })
+    .eq("category", from)
+    .select("id");
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/products");
+  return { ok: true, data: { updated: (data ?? []).length } };
+}

@@ -7,6 +7,8 @@ import { getRecipes } from "@/lib/supabase/queries/recipes";
 import { RecipesPanel } from "@/features/recipes/RecipesPanel";
 import { getInventoryOps } from "@/lib/supabase/queries/movements";
 import { InventoryPanel } from "@/features/inventory/InventoryPanel";
+import { getCategoryStats } from "@/lib/supabase/queries/categories";
+import { CategoriesPanel } from "@/features/products/CategoriesPanel";
 import { getBusinessProfile } from "@/lib/supabase/queries/settings";
 import { ImportExport } from "@/features/dataio/ImportExport";
 
@@ -16,19 +18,21 @@ const tabCls = (on: boolean) =>
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ tab?: string; archived?: string }> }) {
   const sp = await searchParams;
   const tab =
-    sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : sp.tab === "inventory" ? "inventory" : "catalogue";
+    sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : sp.tab === "inventory" ? "inventory" : sp.tab === "categories" ? "categories" : "catalogue";
   const showArchived = sp.archived === "1";
   const rows = tab === "catalogue" ? await getInventory(showArchived) : [];
   const vatDefault = tab === "catalogue" ? (await getBusinessProfile())?.vatRate ?? 15 : 15;
   const transferData = tab === "transfers" ? await getTransfers() : null;
   const recipeData = tab === "recipes" ? await getRecipes() : null;
   const invOps = tab === "inventory" ? await getInventoryOps() : null;
+  const categoryData = tab === "categories" ? await getCategoryStats() : null;
 
   return (
     <div className="flex flex-col gap-4 p-6">
       <div className="flex items-center gap-1.5">
         <Link href="/products" className={tabCls(tab === "catalogue")}>Catalogue</Link>
         <Link href="/products?tab=inventory" className={tabCls(tab === "inventory")}>Inventory</Link>
+        <Link href="/products?tab=categories" className={tabCls(tab === "categories")}>Categories</Link>
         <Link href="/products?tab=transfers" className={tabCls(tab === "transfers")}>Transfers</Link>
         <Link href="/products?tab=recipes" className={tabCls(tab === "recipes")}>Recipes</Link>
         <div className="flex-1" />
@@ -37,6 +41,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
       {tab === "catalogue" && <CataloguePanel products={rows} showArchived={showArchived} vatDefault={vatDefault} />}
       {tab === "inventory" && invOps && <InventoryPanel data={invOps} />}
+      {tab === "categories" && categoryData && <CategoriesPanel data={categoryData} />}
       {tab === "transfers" && transferData && <TransfersPanel transfers={transferData.transfers} refData={transferData.ref} />}
       {tab === "recipes" && recipeData && <RecipesPanel data={recipeData} />}
     </div>
