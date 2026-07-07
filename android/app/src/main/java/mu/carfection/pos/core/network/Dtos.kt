@@ -112,6 +112,28 @@ data class JobBoardDto(
     val technician: JobTechDto? = null,
 )
 
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+@Serializable data class PaymentRowDto(
+    val method: String,
+    val amount: FlexDouble = 0.0,
+    @SerialName("received_at") val receivedAt: String,
+)
+@Serializable data class OpenInvoiceDto(
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+)
+@Serializable data class DashLineDto(
+    val title: String,
+    val qty: FlexDouble = 1.0,
+    @SerialName("unit_price") val unitPrice: FlexDouble = 0.0,
+    @SerialName("discount_pct") val discountPct: FlexDouble = 0.0,
+)
+@Serializable data class PaidInvoiceDto(
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("job_id") val jobId: String? = null,
+    @SerialName("document_lines") val lines: List<DashLineDto> = emptyList(),
+)
+
 // ── Certificates & warranty ───────────────────────────────────────────────────
 @Serializable data class CertProductDto(val name: String? = null)
 

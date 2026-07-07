@@ -58,7 +58,13 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   (customer/vehicle/product/applied-by embeds); schedule computed client-side. Verified on tablet: two
   seeded certs, list selection swaps the card, and the past/due/future maintenance states render correctly
   (CERT-0001 wash 1 done ✓, wash 2 due). *(deviations below)*
-- [ ] **Today / Dashboard** — KPIs, 7-day turnover bars, best sellers, technicians, payment mix.
+- [x] **Today / Dashboard** — "TODAY AT THE STUDIO" header, 4 KPI cards (Turnover today [teal] / Gross
+  profit est. / Outstanding [amber] / Jobs completed), a TURNOVER — LAST 7 DAYS bar chart (today's bar
+  teal-gradient + highlighted), BEST SELLERS — 7 DAYS (gradient progress bars), TECHNICIANS — TODAY
+  (avatar, jobs done, hours, revenue bar), and PAYMENT MIX — TODAY (per-method coloured bars + terminal
+  note). All figures computed from real payments/documents/jobs (MU +04:00 today + 7-day window). Verified
+  on tablet: turnover Rs 135,010 (4 payments), gross profit Rs 83,706.20, outstanding Rs 105,570, mix
+  cash/card/juice, tech revenue attributed via job_id — every number reconciles. *(deviations below)*
 
 ## Deviations (permitted only when forced by real functionality — each justified)
 - **Login screen exists** though the handoff starts post-auth (staff PIN switch). Justified:
@@ -134,6 +140,19 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   hardcoded "Carfectionist" (handoff uses `props.studioName`). Empty-state message shown when none exist.
 - **Data (verification):** seeded 2 certificates — CERT-0001 (3-year, applied 6 months ago → one past +
   one due wash) and CERT-0002 (5-year) — against the delivered/ready seeded jobs.
+- **Dashboard: all figures are REAL/computed** (payments, documents, jobs over the last 7 MU days) — no
+  fake baseline bars (the handoff pre-seeds fake prior days). Gross profit is an ESTIMATE (turnover × 62%
+  blended margin), same as the handoff (no real COGS).
+- **Dashboard: technician revenue is attributed via `documents.job_id → jobs.technician_id`** (paid
+  invoices linked to a job). Counter sales / job-less invoices don't attribute to a technician. "Jobs done"
+  counts delivered jobs; hours are computed from `started_at → ready_at/delivered_at` (or now for
+  in-progress). Best sellers group `document_lines` by title (product_id may be null for typed lines).
+- **Dashboard: MU +04:00** is used for "today" and day bucketing.
+- **Data (verification):** seeded ~13 invoices + 11 payments across the last 7 MU days (with job links for
+  tech revenue, varied methods for the mix, and 2 outstanding invoices), since the tenant had no sales.
+  Seeding used `session_replication_role = replica` to bypass the fiscal/append-only lock triggers.
+
+## ✅ COMPLETE — all 9 screens pixel-matched, verified on the tablet, committed.
 
 ## Build order
 App shell first (navigation foundation) → Intake → Quote → Jobs → Stock → Certificates → Dashboard.

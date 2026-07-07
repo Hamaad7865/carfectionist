@@ -80,6 +80,26 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    // ── Dashboard ─────────────────────────────────────────────────────────────────
+    suspend fun fetchPaymentsSince(sinceIso: String): List<PaymentRowDto> =
+        client.postgrest.from("payments")
+            .select(Columns.raw("method, amount, received_at")) { filter { gte("received_at", sinceIso) } }
+            .decodeList()
+
+    suspend fun fetchOpenInvoices(): List<OpenInvoiceDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("total_incl, amount_paid")) {
+                filter { eq("doc_type", "invoice"); isIn("status", listOf("issued", "partly_paid")) }
+            }
+            .decodeList()
+
+    suspend fun fetchPaidInvoicesWithLines(sinceIso: String): List<PaidInvoiceDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("total_incl, job_id, document_lines(title, qty, unit_price, discount_pct)")) {
+                filter { eq("doc_type", "invoice"); eq("status", "paid"); gte("issued_at", sinceIso) }
+            }
+            .decodeList()
+
     // ── Certificates ──────────────────────────────────────────────────────────────
     suspend fun fetchCertificates(): List<CertificateDto> =
         client.postgrest.from("certificates")
