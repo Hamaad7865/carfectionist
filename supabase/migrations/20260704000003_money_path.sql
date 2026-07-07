@@ -285,9 +285,18 @@ begin
   if v_tenant is null then raise exception 'no tenant context'; end if;
   perform app.require_role('owner','manager');
 
-  select * into v_orig from public.payments where id = p_payment_id and tenant_id = v_tenant;
+  -- Lock the original so two concurrent reversals serialize (the second then
+  -- sees the first's mirror below and is rejected — no double-refund).
+  select * into v_orig from public.payments where id = p_payment_id and tenant_id = v_tenant for update;
   if not found then raise exception 'payment not found'; end if;
   if v_orig.amount < 0 then raise exception 'cannot reverse a reversal'; end if;
+  -- Idempotency / double-click guard: never reverse the same payment twice.
+  if exists (
+    select 1 from public.payments
+    where reverses_payment_id = p_payment_id and tenant_id = v_tenant
+  ) then
+    raise exception 'payment already reversed';
+  end if;
 
   insert into public.payments
     (tenant_id, document_id, method, amount, external_ref, reverses_payment_id, cash_session_id, received_by)
