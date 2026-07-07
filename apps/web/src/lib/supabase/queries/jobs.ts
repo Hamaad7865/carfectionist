@@ -1,6 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { departmentLabel } from "@/lib/departments";
+import { signVehiclePhotos } from "@/lib/supabase/storage";
+import type { Marker } from "@/features/intake/damage";
 
 export const JOB_COLUMNS = [
   { status: "scheduled", label: "Scheduled", dot: "#8c96a1" },
@@ -84,8 +86,14 @@ export interface JobDocument {
   outstandingCents: number;
 }
 
+export interface JobPhoto {
+  url: string;
+  phase: string;
+  caption: string | null;
+}
 export interface JobDetail {
   id: string;
+  tenantId: string;
   status: string;
   service: string | null;
   customer: string | null;
@@ -95,6 +103,8 @@ export interface JobDetail {
   department: string | null;
   revision: number;
   checklist: { label: string; done: boolean }[];
+  damageMarkers: Marker[];
+  photos: JobPhoto[];
   elapsedSeconds: number;
   running: boolean;
   documents: JobDocument[];
@@ -110,12 +120,20 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
   const { data: job } = await sb.from("jobs").select("*, customers(name), vehicles(make, model, plate)").eq("id", id).maybeSingle();
   if (!job) return null;
 
-  const [timerRes, usersRes, prodRes, docRes] = await Promise.all([
+  const [timerRes, usersRes, prodRes, docRes, photoRes] = await Promise.all([
     sb.from("job_timers").select("started_at, stopped_at").eq("job_id", id),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
     sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name"),
     sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid").eq("job_id", id).order("created_at"),
+    sb.from("job_photos").select("storage_path, phase, caption").eq("job_id", id).order("created_at"),
   ]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawPhotos = (photoRes.data ?? []) as any[];
+  const signed = await signVehiclePhotos(sb, rawPhotos.map((p) => p.storage_path));
+  const photos: JobPhoto[] = rawPhotos
+    .filter((p) => signed[p.storage_path])
+    .map((p) => ({ url: signed[p.storage_path], phase: p.phase, caption: p.caption ?? null }));
 
   const now = Date.now();
   let elapsed = 0;
@@ -151,6 +169,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
   return {
     job: {
       id: j.id,
+      tenantId: j.tenant_id,
       status: j.status,
       service: j.notes,
       customer: j.customers?.name ?? null,
@@ -160,6 +179,8 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       department: j.department ?? null,
       revision: 0,
       checklist: Array.isArray(j.checklist) ? j.checklist : [],
+      damageMarkers: Array.isArray(j.damage_markers) ? j.damage_markers : [],
+      photos,
       elapsedSeconds: elapsed,
       running,
       documents,

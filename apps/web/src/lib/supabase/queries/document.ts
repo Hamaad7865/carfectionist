@@ -1,5 +1,12 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
+import { signVehiclePhotos } from "@/lib/supabase/storage";
+import type { Marker } from "@/features/intake/damage";
+
+export interface DocIntake {
+  markers: Marker[];
+  photos: { path: string; url: string; caption: string | null }[];
+}
 
 export interface PaymentView {
   id: string;
@@ -29,6 +36,8 @@ export interface DocumentDetail {
   sourceId: string | null;
   sourceNumber: string | null;
   creditedByNumber: string | null;
+  jobId: string | null;
+  intake: DocIntake | null;
   lines: { title: string; description: string | null; qty: number; rateCents: number; amountCents: number }[];
   payments: PaymentView[];
 }
@@ -57,6 +66,21 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     creditedByNumber = (cn as any)?.number ?? null;
   }
+  // Intake condition (markers + before-photos stashed on the quote). Sign the
+  // private photo paths for display.
+  let intake: DocIntake | null = null;
+  if (d.intake && (Array.isArray(d.intake.markers) || Array.isArray(d.intake.photos))) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rawPhotos = (Array.isArray(d.intake.photos) ? d.intake.photos : []) as any[];
+    const signed = await signVehiclePhotos(sb, rawPhotos.map((p) => p.path).filter(Boolean));
+    intake = {
+      markers: Array.isArray(d.intake.markers) ? d.intake.markers : [],
+      photos: rawPhotos
+        .filter((p) => p.path && signed[p.path])
+        .map((p) => ({ path: p.path, url: signed[p.path], caption: p.caption ?? null })),
+    };
+  }
+
   const totalCents = rupeesToCents(Number(d.total_incl));
   const paidCents = rupeesToCents(Number(d.amount_paid));
 
@@ -78,6 +102,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     sourceId: d.source_document_id ?? null,
     sourceNumber,
     creditedByNumber,
+    jobId: d.job_id ?? null,
+    intake,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,

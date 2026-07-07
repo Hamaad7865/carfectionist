@@ -8,6 +8,10 @@ import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 import type { JobDetail, JobRefData } from "@/lib/supabase/queries/jobs";
 import { DEPARTMENTS } from "@/lib/departments";
+import { CarDiagram } from "@/features/intake/CarDiagram";
+import { PhotoUploader, type IntakePhoto } from "@/features/intake/PhotoUploader";
+import { markerMeta } from "@/features/intake/damage";
+import { addJobPhotoAction } from "@/features/intake/actions";
 import {
   toggleTimerAction,
   assignTechnicianAction,
@@ -40,6 +44,16 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const [docBusy, setDocBusy] = useState<null | "quote" | "invoice">(null);
   const creatingRef = useRef(false);
   const readOnly = job.status === "ready" || job.status === "delivered";
+
+  const beforePhotos = job.photos.filter((p) => p.phase === "before");
+  const [afterPhotos, setAfterPhotos] = useState<IntakePhoto[]>(() =>
+    job.photos.filter((p) => p.phase === "after").map((p) => ({ path: p.url, url: p.url })),
+  );
+  async function addAfter(p: IntakePhoto) {
+    setAfterPhotos((prev) => [...prev, p]); // optimistic
+    const r = await addJobPhotoAction({ jobId: job.id, path: p.path, phase: "after" });
+    if (!r.ok) { setAfterPhotos((prev) => prev.filter((x) => x !== p)); setError(r.error); }
+  }
 
   async function createDoc(docType: "quote" | "invoice") {
     // Synchronous re-entry lock: setDocBusy only disables after a re-render, so a
@@ -143,6 +157,47 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
           <option value="">— department —</option>
           {DEPARTMENTS.map((d) => <option key={d.slug} value={d.slug}>{d.label}</option>)}
         </select>
+      </div>
+
+      {/* condition & damage (captured at intake) */}
+      <div className="mt-4 rounded-[15px] border border-line bg-card p-4">
+        <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.14em] text-faint">Condition &amp; Damage</div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+          <div className="sm:w-[200px] sm:shrink-0">
+            <CarDiagram markers={job.damageMarkers} maxWidth={200} />
+            {job.damageMarkers.length > 0 ? (
+              <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1">
+                {[...new Set(job.damageMarkers.map((m) => m.type))].map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted">
+                    <span className="size-2.5 rounded-full" style={{ background: markerMeta(t).color }} />
+                    {markerMeta(t).label}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-2 text-center text-[11.5px] text-faint">No damage marked at intake.</p>
+            )}
+          </div>
+          <div className="flex-1 space-y-3">
+            {beforePhotos.length > 0 && (
+              <div>
+                <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Before</div>
+                <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                  {beforePhotos.map((p) => (
+                    <a key={p.url} href={p.url} target="_blank" rel="noreferrer" className="aspect-[4/3] overflow-hidden rounded-[10px] border border-line bg-sub">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.url} alt="" className="h-full w-full object-cover" />
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div>
+              <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">After</div>
+              <PhotoUploader tenantId={job.tenantId} folder={job.id} photos={afterPhotos} onAdd={addAfter} label="" />
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* billing — quotes & invoices raised from this job */}

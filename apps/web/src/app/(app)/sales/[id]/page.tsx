@@ -9,6 +9,9 @@ import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
 import { VoidButton } from "@/features/documents/VoidButton";
 import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
+import { CarDiagram } from "@/features/intake/CarDiagram";
+import { StartJobButton } from "@/features/intake/StartJobButton";
+import { markerMeta } from "@/features/intake/damage";
 import { formatMUR } from "@/lib/money";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
@@ -74,6 +77,47 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             <FileMinus size={15} className="text-pink" />
             Credit note against invoice{" "}
             <Link href={`/sales/${doc.sourceId}`} className="font-bold text-link hover:underline">{doc.sourceNumber ?? "—"}</Link>.
+          </div>
+        )}
+
+        {doc.intake && (doc.intake.markers.length > 0 || doc.intake.photos.length > 0) && (
+          <div className="mt-6 rounded-[15px] border border-line bg-card p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Condition &amp; Damage (at intake)</span>
+              {doc.jobId ? (
+                <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job →</Link>
+              ) : (
+                <StartJobButton documentId={doc.id} />
+              )}
+            </div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+              <div className="sm:w-[220px] sm:shrink-0">
+                <CarDiagram markers={doc.intake.markers} maxWidth={220} />
+                {doc.intake.markers.length > 0 && (
+                  <div className="mt-2 flex flex-wrap justify-center gap-x-3 gap-y-1">
+                    {[...new Set(doc.intake.markers.map((m) => m.type))].map((t) => (
+                      <span key={t} className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted">
+                        <span className="size-2.5 rounded-full" style={{ background: markerMeta(t).color }} />
+                        {markerMeta(t).label}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {doc.intake.photos.length > 0 && (
+                <div className="flex-1">
+                  <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Before photos</div>
+                  <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    {doc.intake.photos.map((p) => (
+                      <a key={p.path} href={p.url} target="_blank" rel="noreferrer" className="aspect-[4/3] overflow-hidden rounded-[10px] border border-line bg-sub">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={p.url} alt="" className="h-full w-full object-cover" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
 
