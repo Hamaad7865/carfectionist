@@ -3,6 +3,7 @@ import { Plus } from "lucide-react";
 import { getContacts } from "@/lib/supabase/queries/contacts";
 import { CustomerDialog } from "@/features/contacts/CustomerDialog";
 import { CustomerList } from "@/features/contacts/CustomerList";
+import { ImportExport } from "@/features/dataio/ImportExport";
 import { VehiclesEditor } from "@/features/contacts/VehiclesEditor";
 import { SuppliersPanel } from "@/features/contacts/SuppliersPanel";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -32,6 +33,7 @@ export default async function ContactsPage({
         <Link href="/contacts" className={tabCls(tab === "customers")}>Customers</Link>
         <Link href="/contacts?tab=suppliers" className={tabCls(tab === "suppliers")}>Suppliers</Link>
         <div className="flex-1" />
+        {tab === "customers" && <ImportExport kind="customers" />}
         {tab === "customers" && <CustomerDialog />}
       </div>
 

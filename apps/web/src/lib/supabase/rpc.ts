@@ -102,6 +102,18 @@ export interface CreateJobArgs {
   department?: string | null;
   checklist: unknown;
 }
+export interface ImportReport {
+  inserted: number;
+  updated: number;
+  skipped: number;
+  stock_adjusted?: number;
+  errors: { name?: string; sku?: string; error: string }[];
+}
+export const importCustomers = (sb: Client, rows: unknown[], dryRun: boolean) =>
+  callRpc<ImportReport>(sb, "import_customers", { p_rows: rows, p_dry_run: dryRun });
+export const importProducts = (sb: Client, rows: unknown[], dryRun: boolean) =>
+  callRpc<ImportReport>(sb, "import_products", { p_rows: rows, p_dry_run: dryRun });
+
 export const createJob = (sb: Client, a: CreateJobArgs) =>
   callRpc<{ id: string }>(sb, "create_job", {
     p_customer_id: a.customerId ?? null,

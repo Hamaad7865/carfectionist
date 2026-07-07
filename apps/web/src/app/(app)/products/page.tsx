@@ -8,6 +8,7 @@ import { RecipesPanel } from "@/features/recipes/RecipesPanel";
 import { getInventoryOps } from "@/lib/supabase/queries/movements";
 import { InventoryPanel } from "@/features/inventory/InventoryPanel";
 import { getBusinessProfile } from "@/lib/supabase/queries/settings";
+import { ImportExport } from "@/features/dataio/ImportExport";
 
 const tabCls = (on: boolean) =>
   `inline-flex h-[38px] items-center justify-center rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
@@ -25,11 +26,13 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="flex flex-col gap-4 p-6">
-      <div className="flex gap-1.5">
+      <div className="flex items-center gap-1.5">
         <Link href="/products" className={tabCls(tab === "catalogue")}>Catalogue</Link>
         <Link href="/products?tab=inventory" className={tabCls(tab === "inventory")}>Inventory</Link>
         <Link href="/products?tab=transfers" className={tabCls(tab === "transfers")}>Transfers</Link>
         <Link href="/products?tab=recipes" className={tabCls(tab === "recipes")}>Recipes</Link>
+        <div className="flex-1" />
+        {(tab === "catalogue" || tab === "inventory") && <ImportExport kind="products" />}
       </div>
 
       {tab === "catalogue" && <CataloguePanel products={rows} showArchived={showArchived} vatDefault={vatDefault} />}
