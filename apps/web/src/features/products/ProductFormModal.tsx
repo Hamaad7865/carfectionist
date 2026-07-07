@@ -12,7 +12,7 @@ const UNITS = ["piece", "ml", "l", "g", "kg", "m2", "service"] as const;
 
 type PForm = {
   name: string; sku: string; description: string;
-  kind: (typeof KINDS)[number]; unit: (typeof UNITS)[number];
+  kind: (typeof KINDS)[number]; category: string; unit: (typeof UNITS)[number];
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
   isStocked: boolean; threshold: string; isActive: boolean;
 };
@@ -21,6 +21,7 @@ const seed = (p?: InventoryRow): PForm => ({
   sku: p?.sku ?? "",
   description: p?.description ?? "",
   kind: (p?.kind as PForm["kind"]) ?? "consumable",
+  category: p?.category ?? "",
   unit: (p?.unit as PForm["unit"]) ?? "piece",
   sellingPrice: p ? String(p.sellingPrice) : "",
   costPrice: p ? String(p.costPrice) : "",
@@ -31,7 +32,7 @@ const seed = (p?: InventoryRow): PForm => ({
   isActive: p?.isActive ?? true,
 });
 
-export function ProductFormModal({ open, onClose, product, vatDefault }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number }) {
+export function ProductFormModal({ open, onClose, product, vatDefault, categories = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; categories?: string[] }) {
   const router = useRouter();
   const editing = !!product;
   const [busy, setBusy] = useState(false);
@@ -77,6 +78,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault }: { open:
       sku: f.sku,
       description: f.description,
       kind: f.kind,
+      category: f.category,
       unit: f.unit,
       // selling_price is stored VAT-exclusive; convert if the user entered a gross price.
       sellingPrice: netFromGross != null ? netFromGross.toFixed(2) : f.sellingPrice,
@@ -119,8 +121,14 @@ export function ProductFormModal({ open, onClose, product, vatDefault }: { open:
       <div className="flex flex-col gap-3">
         <FormError error={error} />
         <Field label="Name"><input className={inputCls} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Ceramic Coating 9H" autoFocus /></Field>
+        <Field label="Category" hint="Groups it in the catalogue">
+          <input className={inputCls} value={f.category} onChange={(e) => set("category", e.target.value)} placeholder="e.g. Car Accessories" list="product-categories" />
+          <datalist id="product-categories">
+            {categories.map((c) => <option key={c} value={c} />)}
+          </datalist>
+        </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Category">
+          <Field label="Type">
             <select className={inputCls} value={f.kind} onChange={(e) => set("kind", e.target.value as PForm["kind"])}>
               {KINDS.map((k) => <option key={k} value={k}>{k[0].toUpperCase() + k.slice(1)}</option>)}
             </select>
