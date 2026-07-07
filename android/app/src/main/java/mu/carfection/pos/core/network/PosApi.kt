@@ -237,6 +237,27 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_idempotency_key", idempotencyKey)
         }).decodeAs()
 
+    // ── Checkout · collect on invoice ────────────────────────────────────────
+    /** Invoices awaiting payment (issued or partly paid) — the "TO COLLECT" list. */
+    suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, customers(name), vehicles(plate, make, model)")) {
+                filter { eq("doc_type", "invoice"); isIn("status", listOf("issued", "partly_paid")) }
+                order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(40)
+            }
+            .decodeList()
+
+    /** Payments received since [sinceIso] with their doc + customer — the "PAID TODAY" list. */
+    suspend fun fetchTodayPayments(sinceIso: String): List<TodayPaymentDto> =
+        client.postgrest.from("payments")
+            .select(Columns.raw("method, amount, documents(number, customers(name))")) {
+                filter { gte("received_at", sinceIso); gt("amount", 0) }
+                order("received_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(30)
+            }
+            .decodeList()
+
     // ── Till ──────────────────────────────────────────────────────────────────
     suspend fun openCashSession(deviceId: String, openingFloatRupees: Double): CashSessionDto =
         client.postgrest.rpc("open_cash_session", buildJsonObject {

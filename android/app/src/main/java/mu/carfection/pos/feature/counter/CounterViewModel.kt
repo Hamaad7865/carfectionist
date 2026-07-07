@@ -26,7 +26,14 @@ import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.parseMoneyToCents
+import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.CashSessionDto
+import mu.carfection.pos.core.network.OutstandingInvoiceDto
+import mu.carfection.pos.core.network.PosApi
+import mu.carfection.pos.core.network.TodayPaymentDto
+import java.time.LocalDate
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 import java.util.UUID
 import javax.inject.Inject
 
@@ -50,27 +57,37 @@ data class CounterUiState(
     val busy: Boolean = false,
     val error: String? = null,
     val done: SaleResult? = null,
+    // checkout mode: the TO COLLECT / PAID TODAY list, or a walk-in cart
+    val mode: CheckoutMode = CheckoutMode.LIST,
+    val bills: List<OutstandingInvoiceDto> = emptyList(),
+    val paidToday: List<TodayPaymentDto> = emptyList(),
+    val listBusy: Boolean = false,
+    val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
 ) {
+    /** The amount the pad is settling: an existing invoice's balance, or the cart total. */
+    val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
     val tenderCents: Long? get() = if (tenderText.isBlank()) null else parseMoneyToCents(tenderText)
-    val effectiveTenderCents: Long get() = tenderCents ?: totals.totalCents // pad opens "exact"
-    val changeCents: Long get() = (effectiveTenderCents - totals.totalCents).coerceAtLeast(0)
+    val effectiveTenderCents: Long get() = tenderCents ?: dueCents // pad opens "exact"
+    val changeCents: Long get() = (effectiveTenderCents - dueCents).coerceAtLeast(0)
 
     val canRecord: Boolean
-        get() = cart.isNotEmpty() && !busy && when (method) {
-            PayMethod.CASH -> effectiveTenderCents >= totals.totalCents
-            PayMethod.CREDIT -> customerId != null
+        get() = !busy && (collect != null || cart.isNotEmpty()) && when (method) {
+            PayMethod.CASH -> effectiveTenderCents >= dueCents
+            PayMethod.CREDIT -> collect == null && customerId != null // credit is walk-in only
             else -> true
         }
 
     /** Quick-tender chips: Exact + the round-ups a customer actually hands over. */
     val quickTenders: List<Long>
         get() {
-            val t = totals.totalCents
+            val t = dueCents
             fun up(step: Long) = ((t + step - 1) / step) * step
             return listOf(up(100_00), up(500_00), up(1000_00), up(5000_00))
                 .filter { it > t }.distinct().take(3)
         }
 }
+
+enum class CheckoutMode { LIST, WALKIN }
 
 @HiltViewModel
 class CounterViewModel @Inject constructor(
@@ -80,6 +97,7 @@ class CounterViewModel @Inject constructor(
     private val session: SessionRepository,
     private val printer: ReceiptPrinter,
     private val drawer: CashDrawer,
+    private val api: PosApi,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(CounterUiState())
@@ -97,7 +115,61 @@ class CounterViewModel @Inject constructor(
 
     init {
         refreshTill()
+        loadLists()
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
+    }
+
+    // ── checkout list: TO COLLECT + PAID TODAY ─────────────────────────────────
+    fun loadLists() {
+        local.value = local.value.copy(listBusy = true)
+        viewModelScope.launch {
+            val start = LocalDate.now(ZoneOffset.ofHours(4)).atStartOfDay(ZoneOffset.ofHours(4))
+                .toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
+            val paid = runCatching { api.fetchTodayPayments(start) }.getOrDefault(emptyList())
+            local.value = local.value.copy(bills = bills, paidToday = paid, listBusy = false)
+        }
+    }
+
+    fun startWalkIn() { local.value = local.value.copy(mode = CheckoutMode.WALKIN, collect = null) }
+    fun backToList() { newSale(); local.value = local.value.copy(mode = CheckoutMode.LIST); loadLists() }
+
+    /** Tap an outstanding invoice → open the pad to collect its balance. */
+    fun collectOn(bill: OutstandingInvoiceDto) {
+        saleKey = UUID.randomUUID().toString()
+        local.value = local.value.copy(
+            collect = bill, padOpen = true, method = PayMethod.CASH,
+            tenderText = "", refText = "", error = null,
+        )
+    }
+
+    /** The pad's confirm button: collect on an invoice, or settle the walk-in cart. */
+    fun confirm() = if (local.value.collect != null) recordCollect() else record()
+
+    private fun recordCollect() {
+        val s = state.value
+        val bill = s.collect ?: return
+        if (!s.canRecord || s.busy) return
+        local.value = local.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            try {
+                val result = sales.collectOnInvoice(
+                    invoiceId = bill.id,
+                    number = bill.number,
+                    amountCents = s.dueCents,
+                    method = s.method,
+                    tenderCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
+                    externalRef = s.refText,
+                    cashSessionId = s.till?.id,
+                    payKey = saleKey,
+                )
+                launch { runCatching { if (s.method == PayMethod.CASH) drawer.kick() } }
+                local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result)
+                loadLists()
+            } catch (e: Exception) {
+                local.value = local.value.copy(busy = false, error = e.message ?: "Payment failed — try again.")
+            }
+        }
     }
 
     fun refreshTill() = viewModelScope.launch {
@@ -133,7 +205,7 @@ class CounterViewModel @Inject constructor(
         if (local.value.cart.isEmpty()) { local.value = local.value.copy(error = "Add at least one product."); return }
         local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", error = null)
     }
-    fun closePad() { local.value = local.value.copy(padOpen = false) }
+    fun closePad() { local.value = local.value.copy(padOpen = false, collect = null) }
     fun setMethod(m: PayMethod) { local.value = local.value.copy(method = m, error = null) }
     fun setRef(t: String) { local.value = local.value.copy(refText = t) }
     fun setTenderCents(cents: Long) { local.value = local.value.copy(tenderText = (cents / 100).toString() + if (cents % 100 != 0L) "." + (cents % 100).toString().padStart(2, '0') else "") }
@@ -192,7 +264,8 @@ class CounterViewModel @Inject constructor(
 
     fun newSale() {
         saleKey = UUID.randomUUID().toString()
-        local.value = CounterUiState(till = local.value.till)
+        val cur = local.value
+        local.value = CounterUiState(till = cur.till, mode = cur.mode, bills = cur.bills, paidToday = cur.paidToday)
         refreshTill()
     }
 

@@ -112,6 +112,26 @@ data class JobBoardDto(
     val technician: JobTechDto? = null,
 )
 
+// ── Checkout · collect on invoice ─────────────────────────────────────────────
+@Serializable
+data class OutstandingInvoiceDto(
+    val id: String,
+    val number: String? = null,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+    val status: String = "issued",
+    @SerialName("job_id") val jobId: String? = null,
+    val customers: JobCustomerDto? = null,
+    val vehicles: JobVehicleDto? = null,
+)
+@Serializable data class PaidDocRefDto(val number: String? = null, val customers: JobCustomerDto? = null)
+@Serializable
+data class TodayPaymentDto(
+    val method: String,
+    val amount: FlexDouble = 0.0,
+    val documents: PaidDocRefDto? = null,
+)
+
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 @Serializable data class PaymentRowDto(
     val method: String,

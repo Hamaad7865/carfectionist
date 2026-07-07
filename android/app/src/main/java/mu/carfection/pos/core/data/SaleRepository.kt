@@ -105,4 +105,34 @@ class SaleRepository @Inject constructor(
         val change = if (method == PayMethod.CASH && tendered != null) (tendered - totalCents).coerceAtLeast(0) else 0
         return SaleResult(issued.id, issued.number, totalCents, change, onAccount = false)
     }
+
+    /**
+     * Collect a payment on an EXISTING issued invoice (the "TO COLLECT" list) — no
+     * new draft/issue, just record_payment against the open balance. Idempotent on
+     * [payKey] so a flaky tap can't double-charge.
+     */
+    suspend fun collectOnInvoice(
+        invoiceId: String,
+        number: String?,
+        amountCents: Long, // remaining balance
+        method: PayMethod,
+        tenderCents: Long?, // cash only
+        externalRef: String?,
+        cashSessionId: String?,
+        payKey: String,
+    ): SaleResult {
+        require(method != PayMethod.CREDIT) { "Choose a payment method." }
+        val tendered = if (method == PayMethod.CASH) (tenderCents ?: amountCents) else null
+        api.recordPayment(
+            invoiceId = invoiceId,
+            method = requireNotNull(method.rpcValue),
+            amountRupees = centsToRupees(amountCents),
+            tenderedRupees = tendered?.let { centsToRupees(it) },
+            externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+            cashSessionId = if (method == PayMethod.CASH) cashSessionId else null,
+            idempotencyKey = "$payKey:collect",
+        )
+        val change = if (method == PayMethod.CASH && tendered != null) (tendered - amountCents).coerceAtLeast(0) else 0
+        return SaleResult(invoiceId, number, amountCents, change, onAccount = false)
+    }
 }

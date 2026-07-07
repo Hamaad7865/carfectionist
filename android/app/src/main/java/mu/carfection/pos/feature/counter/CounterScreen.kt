@@ -77,7 +77,14 @@ fun CounterScreen(
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
         // ── top bar ──────────────────────────────────────────────────────────
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Checkout", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            if (s.mode == CheckoutMode.WALKIN) {
+                Box(
+                    Modifier.size(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { viewModel.backToList() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("←", color = TextSecondary, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
+                Spacer(Modifier.width(12.dp))
+            }
+            Text(if (s.mode == CheckoutMode.WALKIN) "New counter sale" else "Checkout", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
             Spacer(Modifier.width(16.dp))
             val till = s.till
             Chip(
@@ -88,7 +95,8 @@ fun CounterScreen(
         }
         Spacer(Modifier.height(12.dp))
 
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (s.mode == CheckoutMode.LIST) CollectList(s, viewModel)
+        else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // ── left: search + product grid ──────────────────────────────────
             Column(
                 Modifier.weight(1.15f).fillMaxHeight()
@@ -210,7 +218,77 @@ fun CounterScreen(
     }
 
     if (s.padOpen) PaymentPad(s, viewModel)
-    s.done?.let { SaleDone(it, onNewSale = viewModel::newSale) }
+    s.done?.let { SaleDone(it, onDone = viewModel::backToList) }
+}
+
+// ─── Collect list: TO COLLECT (outstanding invoices) + PAID TODAY ─────────────
+@Composable
+private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        // left: new walk-in + TO COLLECT
+        Column(
+            Modifier.weight(1.15f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(12.dp),
+        ) {
+            Box(
+                Modifier.fillMaxWidth().height(58.dp)
+                    .background(AccentSoft, RoundedCornerShape(14.dp))
+                    .border(1.5.dp, AccentLine, RoundedCornerShape(14.dp))
+                    .clickable { vm.startWalkIn() },
+                contentAlignment = Alignment.Center,
+            ) { Text("＋  New counter sale — walk-in", color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.height(12.dp))
+            Text("TO COLLECT", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+            Spacer(Modifier.height(8.dp))
+            if (s.bills.isEmpty()) {
+                Text(if (s.listBusy) "Loading…" else "Nothing awaiting payment.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
+            } else LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                items(s.bills, key = { it.id }) { b ->
+                    val remaining = ((b.totalIncl - b.amountPaid) * 100).toLong()
+                    val partly = b.status == "partly_paid"
+                    Row(
+                        Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(12.dp))
+                            .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+                            .clickable { vm.collectOn(b) }.padding(horizontal = 13.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(b.number ?: "Invoice", color = TextMuted, fontFamily = Mono, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(b.customers?.name ?: "—", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(formatMUR(remaining), color = TextPrimary, fontFamily = Mono, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                            Box(Modifier.background(if (partly) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).padding(horizontal = 8.dp, vertical = 2.dp)) {
+                                Text(if (partly) "PART-PAID" else "UNPAID", color = if (partly) Accent else TextSecondary, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // right: PAID TODAY
+        Column(
+            Modifier.weight(0.85f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(12.dp),
+        ) {
+            Text("PAID TODAY", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+            Spacer(Modifier.height(8.dp))
+            if (s.paidToday.isEmpty()) {
+                Text("No payments yet today.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
+            } else LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                items(s.paidToday) { p ->
+                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Check, null, tint = Success, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(p.documents?.number ?: "—", color = TextMuted, fontFamily = Mono, fontSize = 11.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(p.documents?.customers?.name ?: "—", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(formatMUR((p.amount * 100).toLong()), color = TextPrimary, fontFamily = Mono, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -268,13 +346,17 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Record payment", color = TextPrimary, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                s.collect?.let {
+                    Spacer(Modifier.width(10.dp))
+                    Text("${it.number ?: "Invoice"} · ${it.customers?.name ?: ""}", color = TextMuted, fontFamily = Mono, fontSize = 13.sp)
+                }
                 Spacer(Modifier.weight(1f))
-                Text("Due ${formatMUR(s.totals.totalCents)}", color = Warning, fontFamily = Mono, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("Due ${formatMUR(s.dueCents)}", color = Warning, fontFamily = Mono, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
 
-            // method chips
+            // method chips (credit is walk-in only — you can't put an existing invoice on account)
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                PayMethod.entries.forEach { m ->
+                (if (s.collect != null) PayMethod.entries.filter { it != PayMethod.CREDIT } else PayMethod.entries).forEach { m ->
                     val sel = s.method == m
                     Box(
                         Modifier
@@ -291,7 +373,7 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 // left: amount / tender / change or ref
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DisplayCard("AMOUNT", formatMUR(s.totals.totalCents))
+                    DisplayCard("AMOUNT", formatMUR(s.dueCents))
                     when (s.method) {
                         PayMethod.CASH -> {
                             DisplayCard("CASH TENDERED", formatMUR(s.effectiveTenderCents), highlight = true)
@@ -309,7 +391,7 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         }
                         PayMethod.CREDIT -> {
                             Text(
-                                if (s.customerId != null) "On account for ${s.customerText} — ${formatMUR(s.totals.totalCents)} recorded as owed."
+                                if (s.customerId != null) "On account for ${s.customerText} — ${formatMUR(s.dueCents)} recorded as owed."
                                 else "Pick an existing customer on the sale screen first — the amount owed is tracked against them.",
                                 color = Warning, fontSize = 13.sp, lineHeight = 18.sp,
                             )
@@ -363,11 +445,11 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         .weight(2f)
                         .height(54.dp)
                         .background(if (s.canRecord) Accent else InsetAlt, RoundedCornerShape(13.dp))
-                        .clickable(enabled = s.canRecord) { vm.record() },
+                        .clickable(enabled = s.canRecord) { vm.confirm() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (s.busy) "Recording…" else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.totals.totalCents)} on account" else "Record ${formatMUR(s.totals.totalCents)}",
+                        if (s.busy) "Recording…" else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.dueCents)} on account" else "Record ${formatMUR(s.dueCents)}",
                         color = if (s.canRecord) AccentInk else TextMuted, fontSize = 15.5.sp, fontWeight = FontWeight.Bold,
                     )
                 }
@@ -406,7 +488,7 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
 // ─── Success ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SaleDone(result: mu.carfection.pos.core.data.SaleResult, onNewSale: () -> Unit) {
+private fun SaleDone(result: mu.carfection.pos.core.data.SaleResult, onDone: () -> Unit) {
     Dialog(onDismissRequest = {}) {
         Column(
             Modifier.width(400.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(28.dp),
@@ -426,9 +508,9 @@ private fun SaleDone(result: mu.carfection.pos.core.data.SaleResult, onNewSale: 
             }
             Spacer(Modifier.height(6.dp))
             Box(
-                Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onNewSale),
+                Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone),
                 contentAlignment = Alignment.Center,
-            ) { Text("New sale", color = AccentInk, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+            ) { Text("Done", color = AccentInk, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
         }
     }
 }
