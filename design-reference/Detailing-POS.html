@@ -1,0 +1,1897 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet data-dc-atomics>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700;800&family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;padding:0;background:#E6E9ED;overflow:hidden}
+*{box-sizing:border-box}
+::-webkit-scrollbar{width:0;height:0}
+input{outline:none}
+button{outline:none;border:none;cursor:pointer;font-family:inherit;padding:0;margin:0;background:none}
+@keyframes acPulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(15,191,166,.45)}50%{opacity:.7;box-shadow:0 0 0 6px rgba(15,191,166,0)}}
+@keyframes toastPop{0%{transform:translate(-50%,16px);opacity:0}100%{transform:translate(-50%,0);opacity:1}}
+@keyframes sheetIn{0%{transform:translateX(48px);opacity:0}100%{transform:translateX(0);opacity:1}}
+@keyframes fadeUp{0%{transform:translateY(12px);opacity:0}100%{transform:translateY(0);opacity:1}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</helmet>
+<div id="pos-root" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(1100px 720px at 50% 42%,#F7F9FA 0%,#E3E7EB 62%);font-family:'Barlow',system-ui,sans-serif;color:#17202A;user-select:none;-webkit-user-select:none">
+<div style="transform:scale({{ scale }})">
+<div style="background:linear-gradient(180deg,#181C21,#0E1013);padding:20px;border-radius:36px;border:1px solid #262D35;box-shadow:0 50px 140px rgba(15,26,36,.35),0 8px 30px rgba(0,0,0,.55),inset 0 1px 0 rgba(15,26,36,.08);position:relative">
+<div style="position:absolute;top:9px;left:50%;transform:translateX(-50%);width:7px;height:7px;border-radius:50%;background:#05070A;box-shadow:inset 0 0 3px #2A3642"></div>
+<div style="width:1280px;height:800px;background:#F2F4F7;border-radius:14px;overflow:hidden;position:relative;display:flex;flex-direction:column;border:1px solid #040507">
+
+<div style="height:58px;flex:none;display:flex;align-items:center;gap:12px;padding:0 16px;background:#FFFFFF;border-bottom:1px solid rgba(15,26,36,.08)">
+  <div style="width:34px;height:34px;border-radius:10px;background:linear-gradient(135deg,var(--ac,#0FBFA6),#3E8BFF);display:flex;align-items:center;justify-content:center;font:800 17px 'Barlow Condensed',sans-serif;color:#FFFFFF">A</div>
+  <div style="display:flex;flex-direction:column;gap:1px">
+    <div style="font:700 16px/1 'Barlow Condensed',sans-serif;letter-spacing:2px;text-transform:uppercase">{{ studioName }}</div>
+    <div style="font:500 10.5px/1 'Barlow',sans-serif;color:#8494A3;letter-spacing:.4px">Grand Baie · Mauritius</div>
+  </div>
+  <div style="flex:1"></div>
+  <div style="display:flex;flex-direction:column;align-items:flex-end;gap:1px;margin-right:4px">
+    <div style="font:600 19px/1 'Barlow Condensed',sans-serif;letter-spacing:1px">{{ timeStr }}</div>
+    <div style="font:500 10.5px/1 'Barlow',sans-serif;color:#8494A3">{{ dateStr }}</div>
+  </div>
+  <button onClick="{{ sync.toggle }}" title="Demo: tap to simulate an internet outage" style="display:flex;align-items:center;gap:9px;height:42px;padding:0 15px;border-radius:21px;background:#F6F8FA;border:1px solid {{ sync.border }}" style-active="transform:scale(.96)">
+    <sc-if value="{{ sync.spin }}"><span style="width:12px;height:12px;border-radius:50%;border:2px solid rgba(15,26,36,.20);border-top-color:var(--ac,#0FBFA6);animation:spin .8s linear infinite"></span></sc-if>
+    <sc-if value="{{ sync.dotOn }}" hint-placeholder-val="{{ true }}"><span style="width:9px;height:9px;border-radius:50%;background:{{ sync.dot }};animation:{{ sync.anim }}"></span></sc-if>
+    <span style="font:600 13.5px 'Barlow',sans-serif">{{ sync.label }}</span>
+    <sc-if value="{{ sync.showSub }}"><span style="font:700 12.5px 'Barlow',sans-serif;color:#C17A00">{{ sync.sub }}</span></sc-if>
+  </button>
+  <button onClick="{{ staff.open }}" style="display:flex;align-items:center;gap:10px;height:42px;padding:0 13px 0 6px;border-radius:21px;background:#F6F8FA;border:1px solid rgba(15,26,36,.10)" style-active="transform:scale(.96)">
+    <span style="width:32px;height:32px;border-radius:50%;background:{{ staff.color }};display:flex;align-items:center;justify-content:center;font:700 12px 'Barlow',sans-serif;color:#0B0D0F">{{ staff.init }}</span>
+    <span style="display:flex;flex-direction:column;align-items:flex-start;gap:1px">
+      <span style="font:600 13px/1 'Barlow',sans-serif">{{ staff.name }}</span>
+      <span style="font:500 10px/1 'Barlow',sans-serif;color:#8494A3">{{ staff.role }}</span>
+    </span>
+  </button>
+</div>
+
+<div style="flex:1;min-height:0;display:flex">
+<div style="width:86px;flex:none;display:flex;flex-direction:column;gap:3px;padding:10px 7px;background:#FFFFFF;border-right:1px solid rgba(15,26,36,.08)">
+  <button onClick="{{ nav.intake.go }}" style="height:68px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:{{ nav.intake.bg }};color:{{ nav.intake.c }}" style-active="transform:scale(.93)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="8" r="3.4"></circle><path d="M4.2 19.6c.7-3.4 3.1-5.3 5.8-5.3 2.7 0 5.1 1.9 5.8 5.3"></path><path d="M18.5 6.5v5M16 9h5"></path></svg>
+    <span style="font:600 9.5px 'Barlow',sans-serif;letter-spacing:.8px;text-transform:uppercase">Intake</span>
+  </button>
+  <button onClick="{{ nav.quote.go }}" style="height:68px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:{{ nav.quote.bg }};color:{{ nav.quote.c }}" style-active="transform:scale(.93)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3.5h6.8L18.5 8v12.5H7z"></path><path d="M13.5 3.5V8h5"></path><path d="M9.8 12.5h4.4M9.8 16h4.4"></path></svg>
+    <span style="font:600 9.5px 'Barlow',sans-serif;letter-spacing:.8px;text-transform:uppercase">Quotes</span>
+  </button>
+  <button onClick="{{ nav.jobs.go }}" style="height:68px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:{{ nav.jobs.bg }};color:{{ nav.jobs.c }}" style-active="transform:scale(.93)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3.2" y="4" width="4.9" height="12" rx="1.4"></rect><rect x="9.6" y="4" width="4.9" height="16" rx="1.4"></rect><rect x="16" y="4" width="4.9" height="8.5" rx="1.4"></rect></svg>
+    <span style="font:600 9.5px 'Barlow',sans-serif;letter-spacing:.8px;text-transform:uppercase">Jobs</span>
+  </button>
+  <button onClick="{{ nav.sale.go }}" style="height:68px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:{{ nav.sale.bg }};color:{{ nav.sale.c }}" style-active="transform:scale(.93)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2.8" y="6.5" width="18.4" height="11.5" rx="2"></rect><circle cx="12" cy="12.2" r="2.7"></circle><path d="M6 9.6h.01M18 14.9h.01"></path></svg>
+    <span style="font:600 9.5px 'Barlow',sans-serif;letter-spacing:.8px;text-transform:uppercase">Checkout</span>
+  </button>
+  <button onClick="{{ nav.stock.go }}" style="height:68px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:{{ nav.stock.bg }};color:{{ nav.stock.c }}" style-active="transform:scale(.93)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 4.4v9.2L12 21l-8-4.4V7.4z"></path><path d="M4.2 7.6L12 12l7.8-4.4M12 12v8.6"></path></svg>
+    <span style="font:600 9.5px 'Barlow',sans-serif;letter-spacing:.8px;text-transform:uppercase">Stock</span>
+  </button>
+  <button onClick="{{ nav.cert.go }}" style="height:68px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:{{ nav.cert.bg }};color:{{ nav.cert.c }}" style-active="transform:scale(.93)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="9.5" r="5.3"></circle><path d="M9.5 13.9L8 21l4-2.3L16 21l-1.5-7.1"></path><path d="M10 9.7l1.5 1.5 2.7-3"></path></svg>
+    <span style="font:600 9.5px 'Barlow',sans-serif;letter-spacing:.8px;text-transform:uppercase">Warranty</span>
+  </button>
+  <button onClick="{{ nav.dash.go }}" style="height:68px;border-radius:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;background:{{ nav.dash.bg }};color:{{ nav.dash.c }}" style-active="transform:scale(.93)">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16.5a8.3 8.3 0 1 1 16 0"></path><path d="M12 16.5l3.8-4.6"></path><circle cx="12" cy="16.5" r="1.3" fill="currentColor"></circle></svg>
+    <span style="font:600 9.5px 'Barlow',sans-serif;letter-spacing:.8px;text-transform:uppercase">Today</span>
+  </button>
+</div>
+
+<div style="flex:1;min-width:0;position:relative;background:#F2F4F7">
+
+<sc-if value="{{ scr.intake }}" hint-placeholder-val="{{ true }}">
+<div data-screen-label="Intake" style="position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 12px;gap:12px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex:none">
+    <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">Reception · Intake</div>
+    <div style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">Customer → vehicle → condition → quotation</div>
+  </div>
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:46fr 54fr;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:12px;min-height:0;overflow:auto;padding-right:2px">
+      <div style="background:#FFFFFF;border:1px solid rgba(15,26,36,.08);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:11px;flex:none">
+        <div style="display:flex;align-items:center;justify-content:space-between;height:34px">
+          <span style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3">CUSTOMER</span>
+          <sc-if value="{{ ik.hasCust }}"><button onClick="{{ ik.clearCust }}" style="height:34px;padding:0 13px;border-radius:9px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 12.5px 'Barlow',sans-serif" style-active="background:#E8ECF1">Change</button></sc-if>
+        </div>
+        <sc-if value="{{ ik.noCust }}" hint-placeholder-val="{{ true }}">
+          <div style="position:relative">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8494A3" stroke-width="2" stroke-linecap="round" style="position:absolute;left:15px;top:17px"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-4-4"></path></svg>
+            <input value="{{ ik.q }}" onChange="{{ ik.setQ }}" placeholder="Search name, phone or plate…" style="height:52px;width:100%;background:#EEF1F5;border:1px solid rgba(15,26,36,.12);border-radius:12px;padding:0 16px 0 44px;color:#17202A;font:500 16px 'Barlow',sans-serif">
+          </div>
+          <sc-for list="{{ ik.results }}" as="r" hint-placeholder-count="0">
+            <button onClick="{{ r.pick }}" style="display:flex;align-items:center;gap:12px;padding:9px 12px;border-radius:12px;background:#F1F4F7;border:1px solid rgba(15,26,36,.07);text-align:left;width:100%" style-active="background:#E7EBF0">
+              <span style="width:38px;height:38px;flex:none;border-radius:50%;background:#DDE4EB;display:flex;align-items:center;justify-content:center;font:700 13px 'Barlow',sans-serif;color:#5B6B7A">{{ r.init }}</span>
+              <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                <span style="font:600 15.5px/1.1 'Barlow',sans-serif;color:#17202A">{{ r.name }}</span>
+                <span style="font:500 11.5px/1.1 'Barlow',sans-serif;color:#8494A3;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.sub }}</span>
+              </span>
+              <span style="font:500 12px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ r.phone }}</span>
+            </button>
+          </sc-for>
+          <sc-if value="{{ ik.newClosed }}" hint-placeholder-val="{{ true }}">
+            <button onClick="{{ ik.toggleNew }}" style="height:46px;border-radius:12px;border:1.5px dashed rgba(15,26,36,.25);color:#5B6B7A;font:600 14px 'Barlow',sans-serif;display:flex;align-items:center;justify-content:center;gap:8px" style-active="background:#F1F4F7">+ New customer</button>
+          </sc-if>
+          <sc-if value="{{ ik.newOpen }}">
+            <div style="display:flex;flex-direction:column;gap:9px;background:#EEF1F5;border:1px solid rgba(15,26,36,.09);border-radius:13px;padding:12px">
+              <input value="{{ ik.nName }}" onChange="{{ ik.setNName }}" placeholder="Full name" style="height:48px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:11px;padding:0 14px;color:#17202A;font:500 15px 'Barlow',sans-serif">
+              <input value="{{ ik.nPhone }}" onChange="{{ ik.setNPhone }}" placeholder="Mobile — 5xxx xxxx" style="height:48px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:11px;padding:0 14px;color:#17202A;font:500 15px 'Barlow',sans-serif">
+              <div style="display:flex;gap:8px">
+                <button onClick="{{ ik.toggleNew }}" style="flex:1;height:46px;border-radius:11px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14px 'Barlow',sans-serif">Cancel</button>
+                <button onClick="{{ ik.saveNew }}" style="flex:2;height:46px;border-radius:11px;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);font:700 14.5px 'Barlow',sans-serif" style-active="transform:scale(.97)">Save customer</button>
+              </div>
+            </div>
+          </sc-if>
+        </sc-if>
+        <sc-if value="{{ ik.hasCust }}">
+          <div style="display:flex;align-items:center;gap:13px">
+            <span style="width:46px;height:46px;flex:none;border-radius:50%;background:var(--ac-soft,rgba(15,191,166,.14));border:1px solid var(--ac-line,rgba(15,191,166,.4));display:flex;align-items:center;justify-content:center;font:700 15px 'Barlow',sans-serif;color:var(--ac,#0FBFA6)">{{ ik.cust.init }}</span>
+            <span style="flex:1;display:flex;flex-direction:column;gap:3px">
+              <span style="font:700 18px/1 'Barlow',sans-serif">{{ ik.cust.name }}</span>
+              <span style="font:500 12.5px/1 'IBM Plex Mono',monospace;color:#5B6B7A">{{ ik.cust.phone }}</span>
+            </span>
+            <span style="height:26px;padding:0 10px;border-radius:13px;background:#E8ECF1;display:flex;align-items:center;font:600 11.5px 'Barlow',sans-serif;color:#5B6B7A">{{ ik.cust.visits }}</span>
+          </div>
+        </sc-if>
+      </div>
+
+      <div style="background:#FFFFFF;border:1px solid rgba(15,26,36,.08);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:11px;flex:none;opacity:{{ ik.vehOp }};pointer-events:{{ ik.vehPe }}">
+        <div style="display:flex;align-items:center;justify-content:space-between;height:34px">
+          <span style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3">VEHICLE</span>
+          <sc-if value="{{ ik.addClosed }}" hint-placeholder-val="{{ true }}"><button onClick="{{ ik.toggleAdd }}" style="height:34px;padding:0 13px;border-radius:9px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 12.5px 'Barlow',sans-serif" style-active="background:#E8ECF1">+ Add vehicle</button></sc-if>
+        </div>
+        <sc-for list="{{ ik.vehChips }}" as="v" hint-placeholder-count="0">
+          <button onClick="{{ v.pick }}" style="display:flex;align-items:center;gap:12px;padding:11px 12px;border-radius:12px;background:{{ v.bg }};border:{{ v.ring }};text-align:left;width:100%" style-active="transform:scale(.985)">
+            <span style="flex:none;padding:4px 9px;border-radius:5px;background:#F0C542;color:#151208;font:600 13px 'IBM Plex Mono',monospace;letter-spacing:.5px">{{ v.plate }}</span>
+            <span style="flex:1;min-width:0;font:600 15px 'Barlow',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ v.label }}</span>
+            <span style="font:500 12px 'Barlow',sans-serif;color:#8494A3">{{ v.colour }}</span>
+          </button>
+        </sc-for>
+        <sc-if value="{{ ik.addOpen }}">
+          <div style="display:flex;flex-direction:column;gap:9px;background:#EEF1F5;border:1px solid rgba(15,26,36,.09);border-radius:13px;padding:12px">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:9px">
+              <input value="{{ ik.nvPlate }}" onChange="{{ ik.setNvPlate }}" placeholder="Plate — 2087 JL 25" style="height:48px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:11px;padding:0 14px;color:#17202A;font:500 14.5px 'IBM Plex Mono',monospace">
+              <input value="{{ ik.nvMake }}" onChange="{{ ik.setNvMake }}" placeholder="Make" style="height:48px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:11px;padding:0 14px;color:#17202A;font:500 15px 'Barlow',sans-serif">
+              <input value="{{ ik.nvModel }}" onChange="{{ ik.setNvModel }}" placeholder="Model" style="height:48px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:11px;padding:0 14px;color:#17202A;font:500 15px 'Barlow',sans-serif">
+              <input value="{{ ik.nvColour }}" onChange="{{ ik.setNvColour }}" placeholder="Colour" style="height:48px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:11px;padding:0 14px;color:#17202A;font:500 15px 'Barlow',sans-serif">
+            </div>
+            <div style="display:flex;gap:8px">
+              <button onClick="{{ ik.toggleAdd }}" style="flex:1;height:46px;border-radius:11px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14px 'Barlow',sans-serif">Cancel</button>
+              <button onClick="{{ ik.saveVeh }}" style="flex:2;height:46px;border-radius:11px;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);font:700 14.5px 'Barlow',sans-serif" style-active="transform:scale(.97)">Save vehicle</button>
+            </div>
+          </div>
+        </sc-if>
+      </div>
+    </div>
+
+    <div style="background:#FFFFFF;border:1px solid rgba(15,26,36,.08);border-radius:16px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;min-height:0">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex:none">
+        <span style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3">CONDITION &amp; DAMAGE</span>
+        <span style="height:26px;padding:0 11px;border-radius:13px;background:#E8ECF1;display:flex;align-items:center;font:600 11.5px 'Barlow',sans-serif;color:#5B6B7A">{{ ik.mCount }}</span>
+      </div>
+      <div style="display:flex;gap:7px;flex:none">
+        <sc-for list="{{ ik.mTypes }}" as="t" hint-placeholder-count="4">
+          <button onClick="{{ t.pick }}" style="height:38px;padding:0 13px;border-radius:19px;display:flex;align-items:center;gap:7px;background:{{ t.bg }};border:{{ t.ring }};font:600 13px 'Barlow',sans-serif;color:#17202A" style-active="transform:scale(.95)">
+            <span style="width:9px;height:9px;border-radius:50%;background:{{ t.c }}"></span>{{ t.label }}
+          </button>
+        </sc-for>
+      </div>
+      <div style="flex:1;min-height:0;display:flex;align-items:stretch;justify-content:center;gap:14px">
+        <div onClick="{{ ik.tap }}" style="position:relative;height:100%;aspect-ratio:260/520;cursor:crosshair">
+          <svg viewBox="0 0 260 520" style="width:100%;height:100%;display:block">
+            <rect x="30" y="84" width="20" height="72" rx="10" fill="#AEBAC6"></rect>
+            <rect x="210" y="84" width="20" height="72" rx="10" fill="#AEBAC6"></rect>
+            <rect x="30" y="368" width="20" height="72" rx="10" fill="#AEBAC6"></rect>
+            <rect x="210" y="368" width="20" height="72" rx="10" fill="#AEBAC6"></rect>
+            <path d="M130 14 C176 14 199 30 203 62 L209 116 C213 152 215 198 215 252 L215 356 C215 404 211 446 204 472 C197 499 168 508 130 508 C92 508 63 499 56 472 C49 446 45 404 45 356 L45 252 C45 198 47 152 51 116 L57 62 C61 30 84 14 130 14 Z" fill="#E7EBF0" stroke="rgba(15,26,36,.40)" stroke-width="2"></path>
+            <path d="M72 108 C102 96 158 96 188 108" fill="none" stroke="rgba(15,26,36,.18)" stroke-width="1.6"></path>
+            <path d="M76 134 C104 122 156 122 184 134 L174 178 C146 169 114 169 86 178 Z" fill="rgba(70,120,160,.18)" stroke="rgba(15,26,36,.25)" stroke-width="1.6"></path>
+            <path d="M84 188 L81 328 M176 188 L179 328" fill="none" stroke="rgba(15,26,36,.12)" stroke-width="1.6"></path>
+            <path d="M86 340 C114 350 146 350 174 340 L182 378 C152 390 108 390 78 378 Z" fill="rgba(70,120,160,.18)" stroke="rgba(15,26,36,.25)" stroke-width="1.6"></path>
+            <path d="M76 452 C108 462 152 462 184 452" fill="none" stroke="rgba(15,26,36,.18)" stroke-width="1.6"></path>
+            <path d="M45 146 L28 154 L28 170 L45 175 Z" fill="#E7EBF0" stroke="rgba(15,26,36,.35)" stroke-width="1.6"></path>
+            <path d="M215 146 L232 154 L232 170 L215 175 Z" fill="#E7EBF0" stroke="rgba(15,26,36,.35)" stroke-width="1.6"></path>
+          </svg>
+          <sc-for list="{{ ik.markers }}" as="m" hint-placeholder-count="0">
+            <button onClick="{{ m.remove }}" style="position:absolute;left:{{ m.l }};top:{{ m.t }};transform:translate(-50%,-50%);width:26px;height:26px;border-radius:50%;background:{{ m.bg }};color:#0B0D0F;font:700 12px 'Barlow',sans-serif;border:2px solid rgba(255,255,255,.85);box-shadow:0 2px 10px rgba(0,0,0,.55)">{{ m.letter }}</button>
+          </sc-for>
+        </div>
+        <div style="display:flex;flex-direction:column;justify-content:flex-end;gap:10px;width:172px;flex:none">
+          <div style="font:500 12px/1.5 'Barlow',sans-serif;color:#8494A3">Tap the diagram to mark pre-existing damage.<br>Tap a marker to remove it.</div>
+          <div style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3;margin-top:6px">PHOTOS</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+            <sc-for list="{{ ik.photos }}" as="p" hint-placeholder-count="0">
+              <div style="height:58px;border-radius:10px;background:{{ p.grad }};border:1px solid rgba(15,26,36,.10);display:flex;flex-direction:column;justify-content:flex-end;padding:6px 8px">
+                <span style="font:600 8.5px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.75)">{{ p.name }}</span>
+                <span style="font:500 8px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.45)">{{ p.time }}</span>
+              </div>
+            </sc-for>
+            <button onClick="{{ ik.addPhoto }}" style="height:58px;border-radius:10px;border:1.5px dashed rgba(15,26,36,.25);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:#5B6B7A" style-active="background:#F1F4F7">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.4"></circle></svg>
+              <span style="font:600 9px 'Barlow',sans-serif;letter-spacing:.5px">ADD</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div style="flex:none;display:flex;align-items:center;gap:14px;background:#FFFFFF;border:1px solid rgba(15,26,36,.08);border-radius:16px;padding:11px 12px 11px 18px">
+    <div style="flex:1;font:500 13.5px 'Barlow',sans-serif;color:#5B6B7A;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ ik.sum }}</div>
+    <button onClick="{{ ik.start }}" style="height:54px;padding:0 30px;border-radius:13px;background:{{ ik.startBg }};color:{{ ik.startC }};font:700 16.5px 'Barlow',sans-serif;letter-spacing:.3px;box-shadow:{{ ik.startSh }}" style-active="transform:scale(.97)">Start quotation →</button>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ scr.quote }}">
+<div data-screen-label="Quotes" style="position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 12px;gap:12px">
+  <sc-if value="{{ qt.listMode }}">
+    <div style="display:flex;align-items:baseline;gap:12px;flex:none">
+      <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">Quotations</div>
+      <div style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">Tap a quote to edit — start new quotes from Intake</div>
+      <div style="flex:1"></div>
+      <button onClick="{{ qt.goIntake }}" style="height:44px;padding:0 18px;border-radius:12px;border:1px solid rgba(15,26,36,.18);color:#17202A;font:600 14px 'Barlow',sans-serif" style-active="background:#E8ECF1">+ New intake</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:11px;align-content:start;overflow:auto;flex:1">
+      <sc-for list="{{ qt.list }}" as="g" hint-placeholder-count="3">
+        <button onClick="{{ g.open }}" style="display:flex;flex-direction:column;gap:9px;padding:14px 15px;border-radius:15px;background:#FFFFFF;border:1px solid rgba(15,26,36,.08);text-align:left" style-active="background:#EFF2F6;transform:scale(.985)">
+          <span style="display:flex;align-items:center;justify-content:space-between;width:100%">
+            <span style="font:600 13.5px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ g.ref }}</span>
+            <span style="height:24px;padding:0 10px;border-radius:12px;background:{{ g.chipBg }};color:{{ g.chipC }};display:flex;align-items:center;font:700 11px 'Barlow',sans-serif;letter-spacing:.5px">{{ g.chip }}</span>
+          </span>
+          <span style="font:700 17px/1.15 'Barlow',sans-serif">{{ g.who }}</span>
+          <span style="font:500 13px 'Barlow',sans-serif;color:#8494A3">{{ g.veh }}</span>
+          <span style="display:flex;align-items:baseline;justify-content:space-between;width:100%;margin-top:2px">
+            <span style="font:600 18px 'Barlow Condensed',sans-serif;letter-spacing:.5px">{{ g.total }}</span>
+            <span style="font:500 11px 'Barlow',sans-serif;color:#8494A3">{{ g.updated }}</span>
+          </span>
+        </button>
+      </sc-for>
+    </div>
+  </sc-if>
+  <sc-if value="{{ qt.builder }}">
+    <div style="display:flex;align-items:center;gap:12px;flex:none">
+      <button onClick="{{ qt.back }}" style="width:44px;height:44px;border-radius:12px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;display:flex;align-items:center;justify-content:center;font:600 18px 'Barlow',sans-serif" style-active="background:#E8ECF1">←</button>
+      <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">{{ qt.ref }}</div>
+      <span style="height:26px;padding:0 11px;border-radius:13px;background:#E8ECF1;display:flex;align-items:center;font:700 11px 'Barlow',sans-serif;letter-spacing:.5px;color:#5B6B7A">{{ qt.chip }}</span>
+      <div style="flex:1"></div>
+      <span style="font:600 14.5px 'Barlow',sans-serif;color:#5B6B7A">{{ qt.who }}</span>
+      <span style="padding:4px 9px;border-radius:5px;background:#F0C542;color:#151208;font:600 12.5px 'IBM Plex Mono',monospace;letter-spacing:.5px">{{ qt.vehPlate }}</span>
+      <span style="font:500 13px 'Barlow',sans-serif;color:#8494A3">{{ qt.veh }}</span>
+    </div>
+    <div style="flex:1;min-height:0;display:grid;grid-template-columns:53fr 47fr;gap:12px">
+      <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+        <div style="display:flex;gap:7px;flex-wrap:wrap;flex:none">
+          <sc-for list="{{ qt.tabs }}" as="t" hint-placeholder-count="7">
+            <button onClick="{{ t.pick }}" style="height:38px;padding:0 15px;border-radius:19px;background:{{ t.bg }};border:{{ t.ring }};font:600 13px 'Barlow',sans-serif;color:{{ t.c }}" style-active="transform:scale(.95)">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:9px;align-content:start;padding-right:2px">
+          <sc-for list="{{ qt.items }}" as="it" hint-placeholder-count="6">
+            <button onClick="{{ it.add }}" style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:12px 13px;background:#F6F8FA;border:1px solid rgba(15,26,36,.08);border-radius:13px;text-align:left;min-height:84px" style-active="background:#E9EDF2;transform:scale(.97)">
+              <span style="font:600 14.5px/1.25 'Barlow',sans-serif;padding-right:20px">{{ it.name }}</span>
+              <span style="font:500 11.5px 'Barlow',sans-serif;color:#8494A3">{{ it.meta }}</span>
+              <span style="margin-top:auto;font:600 13.5px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ it.price }}</span>
+              <sc-if value="{{ it.showCount }}"><span style="position:absolute;top:9px;right:9px;min-width:23px;height:23px;border-radius:12px;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);display:flex;align-items:center;justify-content:center;font:700 12.5px 'Barlow',sans-serif;padding:0 6px">{{ it.count }}</span></sc-if>
+            </button>
+          </sc-for>
+          <button onClick="{{ qt.adhoc }}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;min-height:84px;border-radius:13px;border:1.5px dashed rgba(15,26,36,.25);color:#5B6B7A" style-active="background:#F1F4F7">
+            <span style="font:600 20px/1 'Barlow',sans-serif">+</span>
+            <span style="font:600 12.5px 'Barlow',sans-serif;letter-spacing:.4px">Ad-hoc line — typed</span>
+          </button>
+        </div>
+      </div>
+      <div style="background:#FFFFFF;border:1px solid rgba(15,26,36,.08);border-radius:16px;display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:13px 16px;border-bottom:1px solid rgba(15,26,36,.08);flex:none">
+          <span style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3">QUOTE LINES</span>
+          <span style="font:600 12px 'Barlow',sans-serif;color:#5B6B7A">{{ qt.lineCount }}</span>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:7px;padding:10px 12px">
+          <sc-if value="{{ qt.noLines }}">
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8494A3">
+              <span style="font:600 15px 'Barlow',sans-serif">No lines yet</span>
+              <span style="font:500 12.5px 'Barlow',sans-serif">Tap services and products on the left</span>
+            </div>
+          </sc-if>
+          <sc-for list="{{ qt.lines }}" as="l" hint-placeholder-count="0">
+            <div style="border-radius:12px;background:{{ l.bg }};border:1px solid rgba(15,26,36,.07)">
+              <button onClick="{{ l.toggle }}" style="display:flex;align-items:center;gap:10px;width:100%;padding:11px 13px;text-align:left">
+                <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                  <span style="font:600 14.5px/1.15 'Barlow',sans-serif;color:#17202A">{{ l.name }}</span>
+                  <span style="font:500 11.5px/1.15 'Barlow',sans-serif;color:#8494A3">{{ l.sub }}</span>
+                </span>
+                <span style="font:600 14px 'IBM Plex Mono',monospace;color:#17202A">{{ l.total }}</span>
+              </button>
+              <sc-if value="{{ l.exp }}">
+                <div style="display:flex;align-items:center;gap:8px;padding:2px 13px 11px">
+                  <button onClick="{{ l.dec }}" style="width:40px;height:40px;border-radius:10px;background:#E8ECF1;color:#17202A;font:700 18px 'Barlow',sans-serif" style-active="background:#DDE3EA">−</button>
+                  <span style="width:30px;text-align:center;font:700 15px 'Barlow',sans-serif">{{ l.qty }}</span>
+                  <button onClick="{{ l.inc }}" style="width:40px;height:40px;border-radius:10px;background:#E8ECF1;color:#17202A;font:700 18px 'Barlow',sans-serif" style-active="background:#DDE3EA">+</button>
+                  <span style="width:1px;height:24px;background:rgba(15,26,36,.12);margin:0 3px"></span>
+                  <sc-for list="{{ l.chips }}" as="c" hint-placeholder-count="5">
+                    <button onClick="{{ c.set }}" style="height:34px;padding:0 10px;border-radius:9px;background:{{ c.bg }};color:{{ c.c }};font:700 12px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.09)" style-active="transform:scale(.94)">{{ c.label }}</button>
+                  </sc-for>
+                  <span style="flex:1"></span>
+                  <button onClick="{{ l.remove }}" style="width:40px;height:40px;border-radius:10px;background:rgba(214,58,58,.12);color:#D63A3A;font:600 16px 'Barlow',sans-serif" style-active="background:rgba(214,58,58,.25)">✕</button>
+                </div>
+              </sc-if>
+            </div>
+          </sc-for>
+        </div>
+        <div style="flex:none;border-top:1px solid rgba(15,26,36,.08);padding:12px 16px;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;justify-content:space-between;font:500 13px 'Barlow',sans-serif;color:#5B6B7A"><span>Subtotal</span><span style="font-family:'IBM Plex Mono',monospace">{{ qt.sub }}</span></div>
+          <sc-if value="{{ qt.showDisc }}"><div style="display:flex;justify-content:space-between;font:500 13px 'Barlow',sans-serif;color:#1FA361"><span>Line discounts</span><span style="font-family:'IBM Plex Mono',monospace">{{ qt.disc }}</span></div></sc-if>
+          <div style="display:flex;justify-content:space-between;font:500 13px 'Barlow',sans-serif;color:#5B6B7A"><span>VAT 15%</span><span style="font-family:'IBM Plex Mono',monospace">{{ qt.vat }}</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding-top:4px"><span style="font:700 13px 'Barlow',sans-serif;letter-spacing:1px;color:#17202A">TOTAL</span><span style="font:700 26px 'Barlow Condensed',sans-serif;letter-spacing:.5px;color:var(--ac,#0FBFA6)">{{ qt.total }}</span></div>
+          <sc-if value="{{ qt.acceptClosed }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;gap:9px;padding-top:7px">
+              <button onClick="{{ qt.save }}" style="flex:1;height:52px;border-radius:13px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14.5px 'Barlow',sans-serif" style-active="background:#E8ECF1">Save draft</button>
+              <button onClick="{{ qt.openAccept }}" style="flex:1.6;height:52px;border-radius:13px;background:{{ qt.acceptBg }};color:{{ qt.acceptC }};font:700 15px 'Barlow',sans-serif" style-active="transform:scale(.97)">Accept → create job</button>
+            </div>
+          </sc-if>
+          <sc-if value="{{ qt.acceptOpen }}">
+            <div style="display:flex;flex-direction:column;gap:8px;padding-top:7px">
+              <div style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">ASSIGN TECHNICIAN</div>
+              <div style="display:flex;gap:7px;flex-wrap:wrap">
+                <sc-for list="{{ qt.techs }}" as="u" hint-placeholder-count="4">
+                  <button onClick="{{ u.pick }}" style="height:42px;padding:0 12px 0 6px;border-radius:21px;display:flex;align-items:center;gap:8px;background:{{ u.bg }};border:{{ u.ring }}" style-active="transform:scale(.95)">
+                    <span style="width:30px;height:30px;border-radius:50%;background:{{ u.color }};display:flex;align-items:center;justify-content:center;font:700 11px 'Barlow',sans-serif;color:#0B0D0F">{{ u.init }}</span>
+                    <span style="font:600 13px 'Barlow',sans-serif;color:#17202A">{{ u.name }}</span>
+                  </button>
+                </sc-for>
+              </div>
+              <div style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3;margin-top:2px">START</div>
+              <div style="display:flex;gap:7px;flex-wrap:wrap">
+                <sc-for list="{{ qt.times }}" as="tm" hint-placeholder-count="5">
+                  <button onClick="{{ tm.pick }}" style="height:38px;padding:0 14px;border-radius:19px;background:{{ tm.bg }};border:{{ tm.ring }};font:600 13px 'Barlow',sans-serif;color:#17202A" style-active="transform:scale(.95)">{{ tm.label }}</button>
+                </sc-for>
+              </div>
+              <div style="display:flex;gap:9px;padding-top:5px">
+                <button onClick="{{ qt.closeAccept }}" style="flex:1;height:52px;border-radius:13px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14.5px 'Barlow',sans-serif">Back</button>
+                <button onClick="{{ qt.create }}" style="flex:1.6;height:52px;border-radius:13px;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);font:700 15px 'Barlow',sans-serif;box-shadow:0 8px 28px var(--ac-soft,rgba(15,191,166,.25))" style-active="transform:scale(.97)">Create job</button>
+              </div>
+            </div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+  </sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ scr.jobs }}">
+<div data-screen-label="Jobs" style="position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 12px;gap:12px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex:none">
+    <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">Jobs board</div>
+    <div style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">{{ jb.sub }}</div>
+    <div style="flex:1"></div>
+    <button onClick="{{ jb.newIntake }}" style="height:44px;padding:0 18px;border-radius:12px;border:1px solid rgba(15,26,36,.18);color:#17202A;font:600 14px 'Barlow',sans-serif" style-active="background:#E8ECF1">+ New intake</button>
+  </div>
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
+    <sc-for list="{{ jb.cols }}" as="col" hint-placeholder-count="4">
+      <div style="background:#FFFFFF;border:1px solid rgba(15,26,36,.07);border-radius:15px;display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;align-items:center;gap:8px;padding:12px 13px;flex:none">
+          <span style="width:8px;height:8px;border-radius:50%;background:{{ col.dot }}"></span>
+          <span style="font:700 12px 'Barlow',sans-serif;letter-spacing:1.2px;color:#17202A;text-transform:uppercase">{{ col.label }}</span>
+          <span style="margin-left:auto;min-width:22px;height:22px;padding:0 7px;border-radius:11px;background:#E8ECF1;display:flex;align-items:center;justify-content:center;font:700 11.5px 'Barlow',sans-serif;color:#5B6B7A">{{ col.count }}</span>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:7px;padding:0 8px 8px">
+          <sc-for list="{{ col.cards }}" as="cd" hint-placeholder-count="1">
+            <button onClick="{{ cd.open }}" style="display:flex;flex-direction:column;gap:6px;padding:11px 11px 11px 13px;border-radius:12px;background:#F1F4F7;border:1px solid rgba(15,26,36,.07);border-left:3px solid {{ cd.edge }};text-align:left;width:100%" style-active="background:#E7EBF0;transform:scale(.98)">
+              <span style="display:flex;align-items:center;justify-content:space-between;width:100%;gap:6px">
+                <span style="padding:3px 7px;border-radius:4px;background:#F0C542;color:#151208;font:600 11px 'IBM Plex Mono',monospace;letter-spacing:.4px">{{ cd.plate }}</span>
+                <span style="font:600 11.5px 'IBM Plex Mono',monospace;color:{{ cd.rightC }}">{{ cd.right }}</span>
+              </span>
+              <span style="font:600 14.5px/1.15 'Barlow',sans-serif">{{ cd.veh }}</span>
+              <span style="font:500 11.5px/1.3 'Barlow',sans-serif;color:#8494A3">{{ cd.service }}</span>
+              <span style="display:flex;align-items:center;gap:7px;margin-top:1px">
+                <span style="width:22px;height:22px;border-radius:50%;background:{{ cd.tColor }};display:flex;align-items:center;justify-content:center;font:700 9px 'Barlow',sans-serif;color:#0B0D0F">{{ cd.tInit }}</span>
+                <span style="font:500 11.5px 'Barlow',sans-serif;color:#5B6B7A">{{ cd.tName }}</span>
+              </span>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+  <sc-if value="{{ jb.d.open }}">
+    <div onClick="{{ jb.d.close }}" style="position:absolute;inset:0;z-index:39;background:rgba(15,26,36,.40)"></div>
+    <div style="position:absolute;top:0;right:0;bottom:0;width:560px;z-index:40;background:#FFFFFF;border-left:1px solid rgba(15,26,36,.12);box-shadow:-30px 0 80px rgba(15,26,36,.20);animation:sheetIn .22s ease;display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:11px;padding:15px 18px;border-bottom:1px solid rgba(15,26,36,.08);flex:none">
+        <span style="font:700 20px 'Barlow Condensed',sans-serif;letter-spacing:1.2px">{{ jb.d.ref }}</span>
+        <span style="height:25px;padding:0 11px;border-radius:13px;background:{{ jb.d.chipBg }};color:{{ jb.d.chipC }};display:flex;align-items:center;font:700 11px 'Barlow',sans-serif;letter-spacing:.6px">{{ jb.d.chip }}</span>
+        <span style="flex:1"></span>
+        <button onClick="{{ jb.d.close }}" style="width:42px;height:42px;border-radius:12px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 16px 'Barlow',sans-serif" style-active="background:#E8ECF1">✕</button>
+      </div>
+      <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:11px;padding:14px 18px">
+        <div style="display:flex;align-items:center;gap:11px">
+          <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+            <span style="font:700 17px/1.1 'Barlow',sans-serif">{{ jb.d.cust }}</span>
+            <span style="font:500 12px/1.1 'IBM Plex Mono',monospace;color:#8494A3">{{ jb.d.phone }}</span>
+          </span>
+          <span style="padding:4px 9px;border-radius:5px;background:#F0C542;color:#151208;font:600 12.5px 'IBM Plex Mono',monospace">{{ jb.d.plate }}</span>
+          <span style="font:500 13px 'Barlow',sans-serif;color:#5B6B7A">{{ jb.d.veh }}</span>
+        </div>
+        <sc-if value="{{ jb.d.showMarkers }}"><div style="font:500 12px 'Barlow',sans-serif;color:#C17A00">⚠ {{ jb.d.markerNote }}</div></sc-if>
+        <div style="display:flex;flex-direction:column;gap:7px">
+          <div style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">TECHNICIAN</div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <sc-for list="{{ jb.d.techs }}" as="u" hint-placeholder-count="4">
+              <button onClick="{{ u.pick }}" style="height:40px;padding:0 12px 0 5px;border-radius:20px;display:flex;align-items:center;gap:7px;background:{{ u.bg }};border:{{ u.ring }}" style-active="transform:scale(.95)">
+                <span style="width:29px;height:29px;border-radius:50%;background:{{ u.color }};display:flex;align-items:center;justify-content:center;font:700 10.5px 'Barlow',sans-serif;color:#0B0D0F">{{ u.init }}</span>
+                <span style="font:600 12.5px 'Barlow',sans-serif;color:#17202A">{{ u.name }}</span>
+              </button>
+            </sc-for>
+          </div>
+        </div>
+        <sc-if value="{{ jb.d.showTimer }}">
+          <div style="display:flex;align-items:center;gap:14px;background:#EEF1F5;border:1px solid rgba(15,26,36,.09);border-radius:15px;padding:13px 16px">
+            <span style="display:flex;flex-direction:column;gap:2px;flex:1">
+              <span style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">TIME ON JOB</span>
+              <span style="font:700 38px/1 'Barlow Condensed',sans-serif;letter-spacing:1px;font-variant-numeric:tabular-nums;color:{{ jb.d.timerC }}">{{ jb.d.timer }}</span>
+            </span>
+            <button onClick="{{ jb.d.toggleTimer }}" style="height:54px;padding:0 24px;border-radius:13px;background:{{ jb.d.tBtnBg }};color:{{ jb.d.tBtnC }};font:700 15px 'Barlow',sans-serif;border:{{ jb.d.tBtnRing }}" style-active="transform:scale(.96)">{{ jb.d.tBtn }}</button>
+          </div>
+        </sc-if>
+        <div style="background:#EEF1F5;border:1px solid rgba(15,26,36,.09);border-radius:15px;padding:13px 16px;display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:10px">
+            <span style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">CHECKLIST</span>
+            <span style="flex:1;height:5px;border-radius:3px;background:#E8ECF1;overflow:hidden"><span style="display:block;height:100%;width:{{ jb.d.pct }}%;background:var(--ac,#0FBFA6);border-radius:3px"></span></span>
+            <span style="font:600 12px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ jb.d.pctLabel }}</span>
+          </div>
+          <sc-for list="{{ jb.d.list }}" as="c" hint-placeholder-count="5">
+            <button onClick="{{ c.toggle }}" style="display:flex;align-items:center;gap:11px;padding:8px 4px;text-align:left;width:100%;border-radius:9px" style-active="background:#F6F8FA">
+              <span style="width:26px;height:26px;flex:none;border-radius:8px;border:1.5px solid {{ c.boxRing }};background:{{ c.boxBg }};display:flex;align-items:center;justify-content:center;font:800 13px 'Barlow',sans-serif;color:var(--ac-ink,#FFFFFF)">{{ c.mark }}</span>
+              <span style="font:500 14px 'Barlow',sans-serif;color:{{ c.c }};text-decoration:{{ c.deco }}">{{ c.label }}</span>
+            </button>
+          </sc-for>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">BEFORE</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+              <sc-for list="{{ jb.d.before }}" as="p" hint-placeholder-count="0">
+                <div style="height:56px;border-radius:10px;background:{{ p.grad }};border:1px solid rgba(15,26,36,.10);display:flex;align-items:flex-end;padding:5px 7px"><span style="font:600 8.5px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.7)">{{ p.name }}</span></div>
+              </sc-for>
+              <sc-if value="{{ jb.d.noBefore }}"><div style="height:56px;border-radius:10px;border:1.5px dashed rgba(15,26,36,.18);display:flex;align-items:center;justify-content:center;font:500 10.5px 'Barlow',sans-serif;color:#8494A3">None</div></sc-if>
+            </div>
+          </div>
+          <div style="display:flex;flex-direction:column;gap:7px">
+            <div style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">AFTER</div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px">
+              <sc-for list="{{ jb.d.after }}" as="p" hint-placeholder-count="0">
+                <div style="height:56px;border-radius:10px;background:{{ p.grad }};border:1px solid rgba(15,26,36,.10);display:flex;align-items:flex-end;padding:5px 7px"><span style="font:600 8.5px 'IBM Plex Mono',monospace;color:rgba(255,255,255,.7)">{{ p.name }}</span></div>
+              </sc-for>
+              <button onClick="{{ jb.d.addAfter }}" style="height:56px;border-radius:10px;border:1.5px dashed rgba(15,26,36,.25);display:flex;align-items:center;justify-content:center;gap:5px;color:#5B6B7A;font:600 11px 'Barlow',sans-serif" style-active="background:#F1F4F7">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3v11H4z"></path><circle cx="12" cy="13" r="3.4"></circle></svg>ADD
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <sc-if value="{{ jb.d.showAction }}">
+        <div style="flex:none;padding:13px 18px;border-top:1px solid rgba(15,26,36,.08)">
+          <button onClick="{{ jb.d.actGo }}" style="width:100%;height:56px;border-radius:14px;background:{{ jb.d.actBg }};color:{{ jb.d.actC }};font:700 16px 'Barlow',sans-serif;box-shadow:0 8px 28px var(--ac-soft,rgba(15,191,166,.2))" style-active="transform:scale(.98)">{{ jb.d.act }}</button>
+        </div>
+      </sc-if>
+    </div>
+  </sc-if>
+</div>
+</sc-if>
+<sc-if value="{{ scr.sale }}">
+<div data-screen-label="Checkout" style="position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 12px;gap:12px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex:none">
+    <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">Checkout</div>
+    <div style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">{{ co.sub }}</div>
+  </div>
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:42fr 58fr;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:10px;min-height:0">
+      <sc-if value="{{ co.notCounter }}" hint-placeholder-val="{{ true }}">
+        <button onClick="{{ co.startCounter }}" style="flex:none;height:62px;border:1.5px dashed var(--ac-line,rgba(15,191,166,.45));border-radius:14px;color:var(--ac,#0FBFA6);display:flex;align-items:center;justify-content:center;gap:10px;font:700 15px 'Barlow',sans-serif" style-active="background:var(--ac-soft,rgba(15,191,166,.1))">
+          <span style="font:700 20px/1 'Barlow',sans-serif">+</span> New counter sale — walk-in
+        </button>
+        <div style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3;padding:2px 2px 0">TO COLLECT</div>
+        <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:7px">
+          <sc-for list="{{ co.bills }}" as="b" hint-placeholder-count="2">
+            <button onClick="{{ b.pick }}" style="display:flex;align-items:center;gap:10px;padding:11px 13px;border-radius:12px;background:{{ b.bg }};border:{{ b.ring }};text-align:left;width:100%" style-active="transform:scale(.985)">
+              <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+                <span style="font:600 12px 'IBM Plex Mono',monospace;color:#8494A3">{{ b.ref }}</span>
+                <span style="font:600 15px/1.1 'Barlow',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ b.who }}</span>
+              </span>
+              <span style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+                <span style="font:600 14px 'IBM Plex Mono',monospace">{{ b.amt }}</span>
+                <span style="height:20px;padding:0 8px;border-radius:10px;background:{{ b.chipBg }};color:{{ b.chipC }};display:flex;align-items:center;font:700 10px 'Barlow',sans-serif;letter-spacing:.5px">{{ b.chip }}</span>
+              </span>
+            </button>
+          </sc-for>
+          <sc-if value="{{ co.noBills }}"><div style="padding:18px;text-align:center;font:500 13px 'Barlow',sans-serif;color:#8494A3">Nothing awaiting payment</div></sc-if>
+          <div style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3;padding:8px 2px 0">PAID TODAY</div>
+          <sc-for list="{{ co.paid }}" as="p" hint-placeholder-count="2">
+            <button onClick="{{ p.pick }}" style="display:flex;align-items:center;gap:9px;padding:9px 13px;border-radius:11px;background:#FFFFFF;border:1px solid rgba(15,26,36,.06);text-align:left;width:100%" style-active="background:#F1F4F7">
+              <span style="color:#1FA361;font:700 13px 'Barlow',sans-serif">✓</span>
+              <span style="font:600 12px 'IBM Plex Mono',monospace;color:#8494A3">{{ p.ref }}</span>
+              <span style="flex:1;min-width:0;font:500 13.5px 'Barlow',sans-serif;color:#5B6B7A;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ p.who }}</span>
+              <span style="font:600 12.5px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ p.amt }}</span>
+            </button>
+          </sc-for>
+        </div>
+      </sc-if>
+      <sc-if value="{{ co.counter }}">
+        <div style="display:flex;gap:7px;flex-wrap:wrap;flex:none">
+          <sc-for list="{{ co.ptabs }}" as="t" hint-placeholder-count="3">
+            <button onClick="{{ t.pick }}" style="height:38px;padding:0 15px;border-radius:19px;background:{{ t.bg }};border:{{ t.ring }};font:600 13px 'Barlow',sans-serif;color:{{ t.c }}" style-active="transform:scale(.95)">{{ t.label }}</button>
+          </sc-for>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:1fr 1fr;gap:9px;align-content:start;padding-right:2px">
+          <sc-for list="{{ co.pitems }}" as="it" hint-placeholder-count="6">
+            <button onClick="{{ it.add }}" style="position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:5px;padding:12px 13px;background:#F6F8FA;border:1px solid rgba(15,26,36,.08);border-radius:13px;text-align:left;min-height:80px" style-active="background:#E9EDF2;transform:scale(.97)">
+              <span style="font:600 14px/1.25 'Barlow',sans-serif;padding-right:20px">{{ it.name }}</span>
+              <span style="font:500 11.5px 'Barlow',sans-serif;color:{{ it.metaC }}">{{ it.meta }}</span>
+              <span style="margin-top:auto;font:600 13.5px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ it.price }}</span>
+              <sc-if value="{{ it.showCount }}"><span style="position:absolute;top:9px;right:9px;min-width:23px;height:23px;border-radius:12px;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);display:flex;align-items:center;justify-content:center;font:700 12.5px 'Barlow',sans-serif;padding:0 6px">{{ it.count }}</span></sc-if>
+            </button>
+          </sc-for>
+          <button onClick="{{ co.adhoc }}" style="display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;min-height:80px;border-radius:13px;border:1.5px dashed rgba(15,26,36,.25);color:#5B6B7A" style-active="background:#F1F4F7">
+            <span style="font:600 20px/1 'Barlow',sans-serif">+</span>
+            <span style="font:600 12.5px 'Barlow',sans-serif">Ad-hoc line — typed</span>
+          </button>
+        </div>
+        <button onClick="{{ co.cancelCounter }}" style="flex:none;height:46px;border-radius:12px;border:1px solid rgba(214,58,58,.35);color:#D63A3A;font:600 13.5px 'Barlow',sans-serif" style-active="background:rgba(214,58,58,.1)">✕ Cancel counter sale</button>
+      </sc-if>
+    </div>
+    <div style="background:#FFFFFF;border:1px solid rgba(15,26,36,.08);border-radius:16px;display:flex;flex-direction:column;min-height:0">
+      <sc-if value="{{ co.none }}">
+        <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#8494A3">
+          <span style="font:600 16px 'Barlow',sans-serif">No bill selected</span>
+          <span style="font:500 12.5px 'Barlow',sans-serif">Pick one on the left, or start a counter sale</span>
+        </div>
+      </sc-if>
+      <sc-if value="{{ co.has }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex;align-items:center;gap:11px;padding:14px 17px;border-bottom:1px solid rgba(15,26,36,.08);flex:none">
+          <span style="font:700 19px 'Barlow Condensed',sans-serif;letter-spacing:1.2px">{{ co.b.ref }}</span>
+          <span style="height:25px;padding:0 11px;border-radius:13px;background:{{ co.b.chipBg }};color:{{ co.b.chipC }};display:flex;align-items:center;font:700 11px 'Barlow',sans-serif;letter-spacing:.6px">{{ co.b.chip }}</span>
+          <span style="flex:1"></span>
+          <span style="font:600 14px 'Barlow',sans-serif;color:#5B6B7A">{{ co.b.who }}</span>
+          <sc-if value="{{ co.b.showPlate }}"><span style="padding:4px 9px;border-radius:5px;background:#F0C542;color:#151208;font:600 12px 'IBM Plex Mono',monospace">{{ co.b.plate }}</span></sc-if>
+        </div>
+        <div style="flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:6px;padding:11px 14px">
+          <sc-for list="{{ co.b.lines }}" as="l" hint-placeholder-count="2">
+            <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:11px;background:#F6F8FA;border:1px solid rgba(15,26,36,.06)">
+              <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+                <span style="font:600 14px/1.15 'Barlow',sans-serif">{{ l.name }}</span>
+                <span style="font:500 11.5px/1.15 'Barlow',sans-serif;color:#8494A3">{{ l.sub }}</span>
+              </span>
+              <span style="font:600 13.5px 'IBM Plex Mono',monospace">{{ l.total }}</span>
+              <sc-if value="{{ l.canX }}"><button onClick="{{ l.x }}" style="width:36px;height:36px;border-radius:9px;background:rgba(214,58,58,.1);color:#D63A3A;font:600 14px 'Barlow',sans-serif" style-active="background:rgba(214,58,58,.22)">✕</button></sc-if>
+            </div>
+          </sc-for>
+          <sc-if value="{{ co.b.hasPay }}">
+            <div style="font:700 10.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3;padding:8px 2px 2px">PAYMENTS RECORDED</div>
+            <sc-for list="{{ co.b.payments }}" as="p" hint-placeholder-count="1">
+              <div style="display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:11px;background:#EEF1F5;border:1px solid rgba(15,26,36,.07)">
+                <span style="height:24px;padding:0 10px;border-radius:12px;background:#E8ECF1;display:flex;align-items:center;font:700 11px 'Barlow',sans-serif;color:#5B6B7A">{{ p.method }}</span>
+                <span style="font:500 11.5px 'IBM Plex Mono',monospace;color:#8494A3">{{ p.ref }}</span>
+                <span style="flex:1"></span>
+                <span style="font:500 11px 'Barlow',sans-serif;color:#8494A3">{{ p.time }} · {{ p.by }}</span>
+                <span style="font:600 13.5px 'IBM Plex Mono',monospace;color:#1FA361">{{ p.amt }}</span>
+              </div>
+            </sc-for>
+          </sc-if>
+        </div>
+        <div style="flex:none;border-top:1px solid rgba(15,26,36,.08);padding:12px 17px;display:flex;flex-direction:column;gap:6px">
+          <div style="display:flex;justify-content:space-between;font:500 12.5px 'Barlow',sans-serif;color:#5B6B7A"><span>Subtotal</span><span style="font-family:'IBM Plex Mono',monospace">{{ co.b.sub }}</span></div>
+          <div style="display:flex;justify-content:space-between;font:500 12.5px 'Barlow',sans-serif;color:#5B6B7A"><span>VAT 15%</span><span style="font-family:'IBM Plex Mono',monospace">{{ co.b.vat }}</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 12.5px 'Barlow',sans-serif;letter-spacing:1px">TOTAL</span><span style="font:700 22px 'Barlow Condensed',sans-serif;letter-spacing:.5px">{{ co.b.total }}</span></div>
+          <sc-if value="{{ co.b.notPaid }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;justify-content:space-between;align-items:baseline"><span style="font:700 12.5px 'Barlow',sans-serif;letter-spacing:1px;color:#C17A00">BALANCE DUE</span><span style="font:700 30px 'Barlow Condensed',sans-serif;letter-spacing:.5px;color:#C17A00">{{ co.b.rem }}</span></div>
+            <button onClick="{{ co.b.pay }}" style="height:56px;border-radius:14px;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);font:700 16.5px 'Barlow',sans-serif;box-shadow:0 8px 28px var(--ac-soft,rgba(15,191,166,.2));margin-top:4px" style-active="transform:scale(.98)">Record payment</button>
+          </sc-if>
+          <sc-if value="{{ co.b.isPaid }}">
+            <div style="display:flex;align-items:center;gap:10px;margin-top:2px">
+              <span style="height:34px;padding:0 15px;border-radius:17px;background:rgba(31,163,97,.15);color:#1FA361;display:flex;align-items:center;font:800 14px 'Barlow',sans-serif;letter-spacing:1.5px">PAID</span>
+              <span style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">{{ co.b.paidNote }}</span>
+            </div>
+            <div style="display:flex;gap:9px;margin-top:6px">
+              <sc-if value="{{ co.b.showCert }}"><button onClick="{{ co.b.cert }}" style="flex:1.6;height:54px;border-radius:13px;background:linear-gradient(120deg,var(--ac,#0FBFA6),#3E8BFF);color:#FFFFFF;font:700 15px 'Barlow',sans-serif" style-active="transform:scale(.97)">Issue ceramic certificate →</button></sc-if>
+              <button onClick="{{ co.b.print }}" style="flex:1;height:54px;border-radius:13px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14px 'Barlow',sans-serif" style-active="background:#E8ECF1">Print receipt</button>
+            </div>
+          </sc-if>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ scr.stock }}">
+<div data-screen-label="Stock" style="position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 12px;gap:12px">
+  <div style="display:flex;align-items:center;gap:12px;flex:none">
+    <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">Stock</div>
+    <div style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">Shop-floor view — quick adjustments only</div>
+    <div style="flex:1"></div>
+    <sc-if value="{{ st.hasLow }}"><span style="height:32px;padding:0 13px;border-radius:16px;background:rgba(193,122,0,.14);color:#C17A00;display:flex;align-items:center;font:700 12.5px 'Barlow',sans-serif">⚠ {{ st.lowNote }}</span></sc-if>
+  </div>
+  <div style="display:flex;gap:7px;flex:none">
+    <sc-for list="{{ st.tabs }}" as="t" hint-placeholder-count="4">
+      <button onClick="{{ t.pick }}" style="height:38px;padding:0 15px;border-radius:19px;background:{{ t.bg }};border:{{ t.ring }};font:600 13px 'Barlow',sans-serif;color:{{ t.c }}" style-active="transform:scale(.95)">{{ t.label }}</button>
+    </sc-for>
+  </div>
+  <div style="flex:1;min-height:0;overflow:auto;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;align-content:start;padding-right:2px">
+    <sc-for list="{{ st.items }}" as="p" hint-placeholder-count="6">
+      <div style="display:flex;flex-direction:column;gap:8px;padding:13px 14px;border-radius:14px;background:#FFFFFF;border:1px solid {{ p.ring }}">
+        <div style="display:flex;align-items:flex-start;gap:8px">
+          <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:3px">
+            <span style="font:600 14.5px/1.2 'Barlow',sans-serif">{{ p.name }}</span>
+            <span style="font:500 11px 'Barlow',sans-serif;color:#8494A3">{{ p.cat }} · {{ p.price }}</span>
+          </span>
+          <span style="display:flex;flex-direction:column;align-items:flex-end;gap:2px">
+            <span style="font:700 30px/1 'Barlow Condensed',sans-serif;color:{{ p.ohC }}">{{ p.onHand }}</span>
+            <sc-if value="{{ p.low }}"><span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1px;color:#C17A00">LOW</span></sc-if>
+          </span>
+        </div>
+        <div style="display:flex;gap:7px;margin-top:auto">
+          <button onClick="{{ p.minus }}" style="width:46px;height:42px;border-radius:11px;background:#E8ECF1;color:#17202A;font:700 18px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.08)" style-active="background:#DDE3EA">−</button>
+          <button onClick="{{ p.plus }}" style="width:46px;height:42px;border-radius:11px;background:#E8ECF1;color:#17202A;font:700 18px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.08)" style-active="background:#DDE3EA">+</button>
+          <button onClick="{{ p.openAdj }}" style="flex:1;height:42px;border-radius:11px;border:1px solid rgba(255,255,255,.1);color:#5B6B7A;font:600 13px 'Barlow',sans-serif" style-active="background:#E8ECF1">Adjust…</button>
+        </div>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ scr.cert }}">
+<div data-screen-label="Certificates" style="position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 12px;gap:12px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex:none">
+    <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">Certificates &amp; warranty</div>
+    <div style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">Ceramic protection — issued from checkout after payment</div>
+  </div>
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:44fr 56fr;gap:12px">
+    <div style="display:flex;flex-direction:column;gap:8px;min-height:0;overflow:auto;padding-right:2px">
+      <sc-for list="{{ ce.list }}" as="c" hint-placeholder-count="2">
+        <button onClick="{{ c.pick }}" style="display:flex;align-items:center;gap:11px;padding:12px 13px;border-radius:13px;background:{{ c.bg }};border:{{ c.ring }};text-align:left;width:100%" style-active="transform:scale(.985)">
+          <span style="width:36px;height:36px;flex:none;border-radius:50%;background:linear-gradient(135deg,var(--ac,#0FBFA6),#3E8BFF);display:flex;align-items:center;justify-content:center;font:800 13px 'Barlow',sans-serif;color:#FFFFFF">✓</span>
+          <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+            <span style="font:600 14.5px/1.1 'Barlow',sans-serif">{{ c.veh }}</span>
+            <span style="font:500 11.5px/1.1 'Barlow',sans-serif;color:#8494A3">{{ c.ref }} · {{ c.owner }}</span>
+          </span>
+          <span style="display:flex;flex-direction:column;align-items:flex-end;gap:3px">
+            <span style="padding:3px 7px;border-radius:4px;background:#F0C542;color:#151208;font:600 10.5px 'IBM Plex Mono',monospace">{{ c.plate }}</span>
+            <span style="font:500 10.5px 'Barlow',sans-serif;color:#8494A3">to {{ c.until }}</span>
+          </span>
+        </button>
+      </sc-for>
+      <div style="font:700 11px 'Barlow',sans-serif;letter-spacing:1.6px;color:#8494A3;padding:8px 2px 0">UPCOMING MAINTENANCE</div>
+      <sc-for list="{{ ce.rem }}" as="r" hint-placeholder-count="2">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 13px;border-radius:12px;background:#FFFFFF;border:1px solid rgba(15,26,36,.07)">
+          <span style="height:24px;padding:0 10px;border-radius:12px;background:{{ r.chipBg }};color:{{ r.chipC }};display:flex;align-items:center;font:700 11px 'Barlow',sans-serif;white-space:nowrap">{{ r.due }}</span>
+          <span style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px">
+            <span style="font:600 13.5px/1.1 'Barlow',sans-serif">{{ r.who }}</span>
+            <span style="font:500 11px/1.1 'Barlow',sans-serif;color:#8494A3">{{ r.label }}</span>
+          </span>
+          <button onClick="{{ r.book }}" style="height:38px;padding:0 14px;border-radius:10px;border:1px solid rgba(15,26,36,.18);color:#17202A;font:600 12.5px 'Barlow',sans-serif" style-active="background:#E8ECF1">Book</button>
+        </div>
+      </sc-for>
+    </div>
+    <div style="min-height:0;overflow:auto">
+      <sc-if value="{{ ce.has }}" hint-placeholder-val="{{ true }}">
+        <div style="background:linear-gradient(135deg,var(--ac,#0FBFA6),#3E8BFF,#7C5CE8);padding:1.5px;border-radius:20px">
+          <div style="background:#FFFFFF;border-radius:18.5px;padding:22px 26px;display:flex;flex-direction:column;gap:14px">
+            <div style="display:flex;align-items:center;gap:14px">
+              <span style="width:52px;height:52px;flex:none;border-radius:50%;background:linear-gradient(135deg,var(--ac,#0FBFA6),#3E8BFF);display:flex;align-items:center;justify-content:center;font:800 22px 'Barlow',sans-serif;color:#FFFFFF;box-shadow:0 6px 24px var(--ac-soft,rgba(15,191,166,.3))">✓</span>
+              <span style="display:flex;flex-direction:column;gap:3px">
+                <span style="font:700 21px/1 'Barlow Condensed',sans-serif;letter-spacing:2.5px;text-transform:uppercase">Certificate of ceramic protection</span>
+                <span style="font:500 11.5px/1 'Barlow',sans-serif;color:#8494A3;letter-spacing:.6px">{{ ce.d.studio }} · Grand Baie · Mauritius</span>
+              </span>
+              <span style="margin-left:auto;font:600 13px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ ce.d.ref }}</span>
+            </div>
+            <div style="height:1px;background:rgba(15,26,36,.10)"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:11px 20px">
+              <div style="display:flex;flex-direction:column;gap:3px"><span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">VEHICLE</span><span style="font:600 15.5px 'Barlow',sans-serif">{{ ce.d.veh }}</span></div>
+              <div style="display:flex;flex-direction:column;gap:3px"><span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">REGISTRATION</span><span><span style="padding:3px 8px;border-radius:4px;background:#F0C542;color:#151208;font:600 13px 'IBM Plex Mono',monospace">{{ ce.d.plate }}</span></span></div>
+              <div style="display:flex;flex-direction:column;gap:3px"><span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">OWNER</span><span style="font:600 15.5px 'Barlow',sans-serif">{{ ce.d.owner }}</span></div>
+              <div style="display:flex;flex-direction:column;gap:3px"><span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">COLOUR</span><span style="font:600 15.5px 'Barlow',sans-serif">{{ ce.d.colour }}</span></div>
+              <div style="display:flex;flex-direction:column;gap:3px"><span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">PRODUCT APPLIED</span><span style="font:600 15.5px 'Barlow',sans-serif">{{ ce.d.product }}</span></div>
+              <div style="display:flex;flex-direction:column;gap:3px"><span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">APPLIED BY</span><span style="font:600 15.5px 'Barlow',sans-serif">{{ ce.d.by }} · {{ ce.d.applied }}</span></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:16px;background:var(--ac-soft,rgba(15,191,166,.1));border:1px solid var(--ac-line,rgba(15,191,166,.4));border-radius:14px;padding:13px 17px">
+              <span style="display:flex;flex-direction:column;gap:2px;flex:1">
+                <span style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">WARRANTY VALID UNTIL</span>
+                <span style="font:700 30px/1 'Barlow Condensed',sans-serif;letter-spacing:1px;color:var(--ac,#0FBFA6)">{{ ce.d.until }}</span>
+              </span>
+              <span style="display:flex;flex-direction:column;gap:2px;align-items:flex-end">
+                <span style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">TERM</span>
+                <span style="font:700 22px/1 'Barlow Condensed',sans-serif">{{ ce.d.term }}</span>
+              </span>
+            </div>
+            <div style="display:flex;flex-direction:column;gap:7px">
+              <div style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">MAINTENANCE SCHEDULE — EVERY 6 MONTHS</div>
+              <sc-for list="{{ ce.d.sched }}" as="m" hint-placeholder-count="4">
+                <div style="display:flex;align-items:center;gap:10px;padding:7px 2px">
+                  <span style="width:22px;height:22px;flex:none;border-radius:50%;background:{{ m.dotBg }};border:1.5px solid {{ m.dotRing }};display:flex;align-items:center;justify-content:center;font:800 11px 'Barlow',sans-serif;color:#FFFFFF">{{ m.mark }}</span>
+                  <span style="flex:1;font:500 13.5px 'Barlow',sans-serif;color:{{ m.c }}">{{ m.label }}</span>
+                  <span style="font:500 12.5px 'IBM Plex Mono',monospace;color:{{ m.c }}">{{ m.date }}</span>
+                </div>
+              </sc-for>
+            </div>
+            <div style="display:flex;align-items:center;gap:10px;padding-top:2px">
+              <span style="flex:1;font:500 11px/1.5 'Barlow',sans-serif;color:#8494A3">Warranty requires a Ceramic Maintenance Wash every 6 months at an approved studio. {{ ce.d.jobRef }}</span>
+              <button onClick="{{ ce.d.maint }}" style="height:44px;padding:0 16px;border-radius:11px;border:1px solid rgba(15,26,36,.18);color:#17202A;font:600 13px 'Barlow',sans-serif" style-active="background:#E8ECF1">Book maintenance</button>
+            </div>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ scr.dash }}">
+<div data-screen-label="Dashboard" style="position:absolute;inset:0;display:flex;flex-direction:column;padding:14px 16px 12px;gap:11px">
+  <div style="display:flex;align-items:baseline;gap:12px;flex:none">
+    <div style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase">Today at the studio</div>
+    <div style="font:500 12.5px 'Barlow',sans-serif;color:#8494A3">{{ da.sub }}</div>
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;flex:none">
+    <sc-for list="{{ da.kpis }}" as="k" hint-placeholder-count="4">
+      <div style="display:flex;flex-direction:column;gap:5px;padding:13px 15px;border-radius:14px;background:#FFFFFF;border:1px solid rgba(15,26,36,.08)">
+        <span style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">{{ k.label }}</span>
+        <span style="font:700 30px/1 'Barlow Condensed',sans-serif;letter-spacing:.5px;color:{{ k.c }}">{{ k.val }}</span>
+        <span style="font:500 11px 'Barlow',sans-serif;color:#8494A3">{{ k.sub }}</span>
+      </div>
+    </sc-for>
+  </div>
+  <div style="flex:1.1;min-height:0;display:grid;grid-template-columns:58fr 42fr;gap:10px">
+    <div style="display:flex;flex-direction:column;gap:8px;padding:13px 15px;border-radius:14px;background:#FFFFFF;border:1px solid rgba(15,26,36,.08);min-height:0">
+      <span style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">TURNOVER — LAST 7 DAYS</span>
+      <div style="flex:1;min-height:0;display:flex;align-items:stretch;gap:9px">
+        <sc-for list="{{ da.bars }}" as="b" hint-placeholder-count="7">
+          <div style="flex:1;display:flex;flex-direction:column;justify-content:flex-end;gap:4px">
+            <span style="font:600 9.5px 'IBM Plex Mono',monospace;color:{{ b.c }};text-align:center">{{ b.val }}</span>
+            <div style="height:{{ b.h }}%;min-height:3px;border-radius:6px 6px 2px 2px;background:{{ b.bg }}"></div>
+            <span style="font:600 10px 'Barlow',sans-serif;color:{{ b.c }};text-align:center;letter-spacing:.5px">{{ b.label }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:9px;padding:13px 15px;border-radius:14px;background:#FFFFFF;border:1px solid rgba(15,26,36,.08);min-height:0;overflow:auto">
+      <span style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">BEST SELLERS — 7 DAYS</span>
+      <sc-for list="{{ da.top }}" as="t" hint-placeholder-count="5">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;justify-content:space-between;gap:8px">
+            <span style="font:500 12.5px 'Barlow',sans-serif;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ t.name }}</span>
+            <span style="font:600 11.5px 'IBM Plex Mono',monospace;color:#5B6B7A;white-space:nowrap">{{ t.val }}</span>
+          </div>
+          <div style="height:5px;border-radius:3px;background:#E8ECF1;overflow:hidden"><div style="height:100%;width:{{ t.pct }}%;border-radius:3px;background:linear-gradient(90deg,var(--ac,#0FBFA6),#3E8BFF)"></div></div>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:58fr 42fr;gap:10px">
+    <div style="display:flex;flex-direction:column;gap:7px;padding:13px 15px;border-radius:14px;background:#FFFFFF;border:1px solid rgba(15,26,36,.08);min-height:0;overflow:auto">
+      <span style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">TECHNICIANS — TODAY</span>
+      <sc-for list="{{ da.techs }}" as="u" hint-placeholder-count="4">
+        <div style="display:flex;align-items:center;gap:10px;padding:5px 0">
+          <span style="width:30px;height:30px;flex:none;border-radius:50%;background:{{ u.color }};display:flex;align-items:center;justify-content:center;font:700 11px 'Barlow',sans-serif;color:#0B0D0F">{{ u.init }}</span>
+          <span style="width:104px;font:600 13.5px 'Barlow',sans-serif;white-space:nowrap">{{ u.name }}</span>
+          <span style="width:66px;font:500 11.5px 'Barlow',sans-serif;color:#8494A3">{{ u.jobs }}</span>
+          <span style="width:56px;font:500 11.5px 'IBM Plex Mono',monospace;color:#5B6B7A">{{ u.hours }}</span>
+          <span style="flex:1;height:6px;border-radius:3px;background:#E8ECF1;overflow:hidden"><span style="display:block;height:100%;width:{{ u.pct }}%;background:{{ u.color }};border-radius:3px"></span></span>
+          <span style="width:82px;text-align:right;font:600 12px 'IBM Plex Mono',monospace">{{ u.rev }}</span>
+        </div>
+      </sc-for>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:9px;padding:13px 15px;border-radius:14px;background:#FFFFFF;border:1px solid rgba(15,26,36,.08);min-height:0;overflow:auto">
+      <span style="font:700 10px 'Barlow',sans-serif;letter-spacing:1.4px;color:#8494A3">PAYMENT MIX — TODAY</span>
+      <sc-for list="{{ da.mix }}" as="m" hint-placeholder-count="4">
+        <div style="display:flex;flex-direction:column;gap:4px">
+          <div style="display:flex;justify-content:space-between">
+            <span style="font:500 12.5px 'Barlow',sans-serif;color:#5B6B7A">{{ m.label }}</span>
+            <span style="font:600 11.5px 'IBM Plex Mono',monospace">{{ m.val }}</span>
+          </div>
+          <div style="height:5px;border-radius:3px;background:#E8ECF1;overflow:hidden"><div style="height:100%;width:{{ m.pct }}%;border-radius:3px;background:{{ m.color }}"></div></div>
+        </div>
+      </sc-for>
+      <div style="margin-top:auto;font:500 11px/1.5 'Barlow',sans-serif;color:#8494A3">Card &amp; Juice are settled on the bank terminal — the POS records references.</div>
+    </div>
+  </div>
+</div>
+</sc-if>
+<!--SCRX-->
+</div>
+</div>
+
+<sc-if value="{{ pin.open }}">
+<div style="position:absolute;inset:0;z-index:70;display:flex;align-items:center;justify-content:center;background:rgba(15,26,36,.45)">
+  <div style="width:660px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:22px;padding:20px;display:flex;gap:18px;animation:fadeUp .22s ease">
+    <div style="flex:1;display:flex;flex-direction:column;gap:10px">
+      <div style="font:700 18px/1 'Barlow Condensed',sans-serif;letter-spacing:1.5px;text-transform:uppercase;padding:4px 0 6px">Switch user</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <sc-for list="{{ pin.staff }}" as="u" hint-placeholder-count="6">
+          <button onClick="{{ u.pick }}" style="display:flex;align-items:center;gap:10px;padding:10px 11px;border-radius:13px;background:{{ u.bg }};border:{{ u.ring }};text-align:left" style-active="transform:scale(.97)">
+            <span style="width:36px;height:36px;flex:none;border-radius:50%;background:{{ u.color }};display:flex;align-items:center;justify-content:center;font:700 12px 'Barlow',sans-serif;color:#0B0D0F">{{ u.init }}</span>
+            <span style="display:flex;flex-direction:column;gap:2px;min-width:0">
+              <span style="font:600 14px/1.1 'Barlow',sans-serif;white-space:nowrap">{{ u.name }}</span>
+              <span style="font:500 11px/1.1 'Barlow',sans-serif;color:#8494A3">{{ u.role }}</span>
+            </span>
+          </button>
+        </sc-for>
+      </div>
+      <div style="font:500 12px 'Barlow',sans-serif;color:#8494A3;margin-top:auto">{{ pin.hint }}</div>
+    </div>
+    <div style="width:238px;flex:none;display:flex;flex-direction:column;gap:12px;border-left:1px solid rgba(15,26,36,.09);padding-left:18px">
+      <div style="display:flex;justify-content:center;gap:12px;padding:10px 0 2px">
+        <sc-for list="{{ pin.dots }}" as="d" hint-placeholder-count="4">
+          <span style="width:13px;height:13px;border-radius:50%;background:{{ d.bg }};border:1.5px solid rgba(15,26,36,.30)"></span>
+        </sc-for>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px">
+        <sc-for list="{{ pin.pads }}" as="k" hint-placeholder-count="12">
+          <button onClick="{{ k.tap }}" style="height:52px;border-radius:11px;background:#E8ECF1;color:#17202A;font:600 19px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.07)" style-active="background:#DDE3EA;transform:scale(.95)">{{ k.k }}</button>
+        </sc-for>
+      </div>
+      <button onClick="{{ pin.cancel }}" style="height:44px;border-radius:11px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 13.5px 'Barlow',sans-serif">Cancel</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ pm.open }}">
+<div style="position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(15,26,36,.45)">
+  <div style="width:620px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:22px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;animation:fadeUp .22s ease">
+    <div style="display:flex;align-items:baseline;gap:10px">
+      <span style="font:700 20px 'Barlow Condensed',sans-serif;letter-spacing:1.2px;text-transform:uppercase">Record payment</span>
+      <span style="font:600 13px 'IBM Plex Mono',monospace;color:#8494A3">{{ pm.ref }}</span>
+      <span style="flex:1"></span>
+      <span style="font:600 13px 'Barlow',sans-serif;color:#C17A00">Due {{ pm.rem }}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px">
+      <sc-for list="{{ pm.methods }}" as="m" hint-placeholder-count="4">
+        <button onClick="{{ m.pick }}" style="height:46px;border-radius:12px;background:{{ m.bg }};border:{{ m.ring }};font:700 13.5px 'Barlow',sans-serif;color:{{ m.c }}" style-active="transform:scale(.96)">{{ m.label }}</button>
+      </sc-for>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <button onClick="{{ pm.focusAmt }}" style="display:flex;flex-direction:column;gap:3px;padding:10px 13px;border-radius:12px;background:#EEF1F5;border:{{ pm.amtRing }};text-align:left">
+          <span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.3px;color:#8494A3">AMOUNT</span>
+          <span style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:.5px">{{ pm.amount }}</span>
+        </button>
+        <sc-if value="{{ pm.isCash }}">
+          <button onClick="{{ pm.focusTen }}" style="display:flex;flex-direction:column;gap:3px;padding:10px 13px;border-radius:12px;background:#EEF1F5;border:{{ pm.tenRing }};text-align:left">
+            <span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.3px;color:#8494A3">CASH TENDERED</span>
+            <span style="font:700 24px/1 'Barlow Condensed',sans-serif;letter-spacing:.5px">{{ pm.tender }}</span>
+          </button>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
+            <sc-for list="{{ pm.quick }}" as="qc" hint-placeholder-count="5">
+              <button onClick="{{ qc.set }}" style="height:36px;padding:0 12px;border-radius:10px;background:#E8ECF1;border:1px solid rgba(15,26,36,.10);font:600 12.5px 'Barlow',sans-serif;color:#5B6B7A" style-active="background:#DDE3EA">{{ qc.label }}</button>
+            </sc-for>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:baseline;padding:2px 4px">
+            <span style="font:600 12.5px 'Barlow',sans-serif;color:#5B6B7A">Change</span>
+            <span style="font:700 22px 'Barlow Condensed',sans-serif;color:#1FA361">{{ pm.change }}</span>
+          </div>
+        </sc-if>
+        <sc-if value="{{ pm.showRef }}">
+          <input value="{{ pm.refVal }}" onChange="{{ pm.setRef }}" placeholder="{{ pm.refPh }}" style="height:50px;background:#EEF1F5;border:1px solid rgba(15,26,36,.12);border-radius:12px;padding:0 14px;color:#17202A;font:500 14px 'IBM Plex Mono',monospace;width:100%">
+          <div style="font:500 11.5px/1.5 'Barlow',sans-serif;color:#8494A3">{{ pm.note }}</div>
+        </sc-if>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;align-content:start">
+        <sc-for list="{{ pm.pads }}" as="k" hint-placeholder-count="12">
+          <button onClick="{{ k.tap }}" style="height:54px;border-radius:12px;background:#E8ECF1;color:#17202A;font:600 20px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.07)" style-active="background:#DDE3EA;transform:scale(.95)">{{ k.k }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;gap:9px">
+      <button onClick="{{ pm.close }}" style="flex:1;height:54px;border-radius:13px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14.5px 'Barlow',sans-serif">Cancel</button>
+      <button onClick="{{ pm.record }}" style="flex:2;height:54px;border-radius:13px;background:{{ pm.recBg }};color:{{ pm.recC }};font:700 15.5px 'Barlow',sans-serif" style-active="transform:scale(.97)">{{ pm.recLabel }}</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ ah.open }}">
+<div style="position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(15,26,36,.45)">
+  <div style="width:560px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:22px;padding:18px 20px;display:flex;flex-direction:column;gap:12px;animation:fadeUp .22s ease">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font:700 20px 'Barlow Condensed',sans-serif;letter-spacing:1.2px;text-transform:uppercase">Ad-hoc line</span>
+      <span style="font:500 12px 'Barlow',sans-serif;color:#8494A3">not saved to the catalogue</span>
+    </div>
+    <div style="display:flex;gap:7px">
+      <button onClick="{{ ah.setSvc }}" style="flex:1;height:44px;border-radius:12px;background:{{ ah.svcBg }};border:{{ ah.svcRing }};font:700 13.5px 'Barlow',sans-serif;color:{{ ah.svcC }}" style-active="transform:scale(.96)">Service</button>
+      <button onClick="{{ ah.setProd }}" style="flex:1;height:44px;border-radius:12px;background:{{ ah.prodBg }};border:{{ ah.prodRing }};font:700 13.5px 'Barlow',sans-serif;color:{{ ah.prodC }}" style-active="transform:scale(.96)">Product</button>
+    </div>
+    <input value="{{ ah.name }}" onChange="{{ ah.setName }}" placeholder="Description — e.g. Pet hair removal" style="height:52px;background:#EEF1F5;border:1px solid rgba(15,26,36,.12);border-radius:12px;padding:0 15px;color:#17202A;font:500 15.5px 'Barlow',sans-serif;width:100%">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;flex-direction:column;gap:3px;padding:10px 13px;border-radius:12px;background:#EEF1F5;border:1.5px solid var(--ac-line,rgba(15,191,166,.45))">
+          <span style="font:700 9.5px 'Barlow',sans-serif;letter-spacing:1.3px;color:#8494A3">PRICE — EXCL. VAT</span>
+          <span style="font:700 26px/1 'Barlow Condensed',sans-serif;letter-spacing:.5px">{{ ah.price }}</span>
+        </div>
+        <div style="font:500 11.5px/1.55 'Barlow',sans-serif;color:#8494A3">Typed lines behave like any other line — VAT, discounts and reports included.</div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:7px;align-content:start">
+        <sc-for list="{{ ah.pads }}" as="k" hint-placeholder-count="12">
+          <button onClick="{{ k.tap }}" style="height:52px;border-radius:12px;background:#E8ECF1;color:#17202A;font:600 19px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.07)" style-active="background:#DDE3EA;transform:scale(.95)">{{ k.k }}</button>
+        </sc-for>
+      </div>
+    </div>
+    <div style="display:flex;gap:9px">
+      <button onClick="{{ ah.close }}" style="flex:1;height:52px;border-radius:13px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14.5px 'Barlow',sans-serif">Cancel</button>
+      <button onClick="{{ ah.add }}" style="flex:2;height:52px;border-radius:13px;background:{{ ah.addBg }};color:{{ ah.addC }};font:700 15px 'Barlow',sans-serif" style-active="transform:scale(.97)">Add line</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+<sc-if value="{{ st.adjOpen }}">
+<div style="position:absolute;inset:0;z-index:60;display:flex;align-items:center;justify-content:center;background:rgba(15,26,36,.45)">
+  <div style="width:480px;background:#FFFFFF;border:1px solid rgba(15,26,36,.12);border-radius:22px;padding:18px 20px;display:flex;flex-direction:column;gap:13px;animation:fadeUp .22s ease">
+    <div style="display:flex;flex-direction:column;gap:3px">
+      <span style="font:700 20px 'Barlow Condensed',sans-serif;letter-spacing:1.2px;text-transform:uppercase">Adjust stock</span>
+      <span style="font:500 13.5px 'Barlow',sans-serif;color:#5B6B7A">{{ st.adjName }}</span>
+    </div>
+    <div style="display:flex;align-items:center;justify-content:center;gap:16px;padding:8px 0">
+      <button onClick="{{ st.adjMinus }}" style="width:64px;height:64px;border-radius:16px;background:#E8ECF1;color:#17202A;font:700 26px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.09)" style-active="background:#DDE3EA;transform:scale(.95)">−</button>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:2px;width:130px">
+        <span style="font:700 44px/1 'Barlow Condensed',sans-serif;color:{{ st.adjDeltaC }}">{{ st.adjDelta }}</span>
+        <span style="font:500 11.5px 'Barlow',sans-serif;color:#8494A3">{{ st.adjResult }}</span>
+      </div>
+      <button onClick="{{ st.adjPlus }}" style="width:64px;height:64px;border-radius:16px;background:#E8ECF1;color:#17202A;font:700 26px 'Barlow',sans-serif;border:1px solid rgba(15,26,36,.09)" style-active="background:#DDE3EA;transform:scale(.95)">+</button>
+    </div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;justify-content:center">
+      <sc-for list="{{ st.adjReasons }}" as="r" hint-placeholder-count="4">
+        <button onClick="{{ r.pick }}" style="height:38px;padding:0 13px;border-radius:19px;background:{{ r.bg }};border:{{ r.ring }};font:600 12.5px 'Barlow',sans-serif;color:{{ r.c }}" style-active="transform:scale(.95)">{{ r.label }}</button>
+      </sc-for>
+    </div>
+    <div style="display:flex;gap:9px">
+      <button onClick="{{ st.adjClose }}" style="flex:1;height:52px;border-radius:13px;border:1px solid rgba(15,26,36,.18);color:#5B6B7A;font:600 14.5px 'Barlow',sans-serif">Cancel</button>
+      <button onClick="{{ st.adjApply }}" style="flex:2;height:52px;border-radius:13px;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);font:700 15px 'Barlow',sans-serif" style-active="transform:scale(.97)">Apply adjustment</button>
+    </div>
+  </div>
+</div>
+</sc-if>
+<!--OVLX-->
+
+<sc-if value="{{ toast.on }}">
+<div style="position:absolute;left:50%;bottom:20px;z-index:90;animation:toastPop .25s ease;transform:translateX(-50%);display:flex;align-items:center;gap:10px;background:#FFFFFF;border:1px solid rgba(15,26,36,.18);border-radius:14px;padding:12px 18px;box-shadow:0 12px 40px rgba(15,26,36,.18);pointer-events:none">
+  <span style="width:20px;height:20px;flex:none;border-radius:50%;background:var(--ac,#0FBFA6);color:var(--ac-ink,#FFFFFF);display:flex;align-items:center;justify-content:center;font:800 12px 'Barlow',sans-serif">✓</span>
+  <span style="font:600 14.5px 'Barlow',sans-serif;white-space:nowrap">{{ toast.msg }}</span>
+</div>
+</sc-if>
+<div style="position:absolute;left:50%;bottom:5px;transform:translateX(-50%);width:150px;height:4px;border-radius:2px;background:rgba(15,26,36,.25);z-index:95;pointer-events:none"></div>
+</div>
+</div>
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;accent&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#0FBFA6&quot;,&quot;options&quot;:[&quot;#0FBFA6&quot;,&quot;#2A6FDB&quot;,&quot;#7C5CE8&quot;],&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Brand&quot;},&quot;studioName&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Apex Detail Studio&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Brand&quot;},&quot;lowStockThreshold&quot;:{&quot;editor&quot;:&quot;int&quot;,&quot;default&quot;:4,&quot;min&quot;:1,&quot;max&quot;:12,&quot;tsType&quot;:&quot;number&quot;,&quot;section&quot;:&quot;Behaviour&quot;}}">
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    const T = Date.now(), MI = 60000;
+    this.GRADS = ['linear-gradient(135deg,#1C3550,#0D1622)', 'linear-gradient(135deg,#233746,#101B22)', 'linear-gradient(135deg,#31404F,#141C24)', 'linear-gradient(135deg,#1E2E3E,#0C141C)'];
+    this.CATS = ['Detailing', 'Wash', 'Ceramic', 'PPF & Tint', 'Diamondbrite', 'Care', 'Accessories'];
+    this.PCATS = ['Diamondbrite', 'Care', 'Accessories'];
+    this.CHK = {
+      wash: ['Foam pre-wash', 'Contact wash & dry', 'Wheels & tyres', 'Interior vacuum', 'Glass & final wipe-down'],
+      detail: ['Foam pre-wash & rinse', 'Two-bucket contact wash', 'Wheels, arches & tyres', 'Interior vacuum & steam clean', 'Trim & glass detail', 'Dress tyres & plastics', 'Final inspection under lamps'],
+      ceramic: ['Foam pre-wash & rinse', 'Two-bucket contact wash', 'Iron & tar decontamination', 'Clay bar treatment', 'Machine polish — cut & refine', 'Panel wipe (IPA)', 'Apply Diamondbrite ceramic coat', 'Infrared cure — 40 min', 'Final inspection under lamps'],
+      ppf: ['Decontamination wash', 'Panel prep & degrease', 'Template cut & fit', 'Application & squeegee', 'Edge sealing', 'Heat set & inspection'],
+      tint: ['Glass deep clean', 'Template cut', 'Film application', 'Heat shrink & set', 'Final inspection']
+    };
+    this.SVC = [
+      { id: 's1', name: 'Express Wash & Wax', cat: 'Wash', price: 750, dur: '≈ 45 min', chk: 'wash' },
+      { id: 's2', name: 'Signature Hand Wash', cat: 'Wash', price: 1200, dur: '≈ 1 h', chk: 'wash' },
+      { id: 's3', name: 'Ceramic Maintenance Wash', cat: 'Ceramic', price: 1500, dur: '≈ 1 h', chk: 'wash' },
+      { id: 's4', name: 'Full Interior Detail', cat: 'Detailing', price: 4500, dur: '≈ 3 h', chk: 'detail' },
+      { id: 's5', name: 'Signature Full Detail', cat: 'Detailing', price: 7800, dur: '≈ 5 h', chk: 'detail' },
+      { id: 's6', name: '3-Stage Machine Polish', cat: 'Detailing', price: 12500, dur: '≈ 6 h', chk: 'detail' },
+      { id: 's7', name: 'Engine Bay Detail', cat: 'Detailing', price: 1800, dur: '≈ 1 h', chk: 'detail' },
+      { id: 's8', name: 'Headlight Restoration', cat: 'Detailing', price: 1900, dur: '≈ 1 h', chk: 'detail' },
+      { id: 's9', name: 'Odour & Ozone Treatment', cat: 'Detailing', price: 1500, dur: '≈ 1 h', chk: 'detail' },
+      { id: 's10', name: 'Diamondbrite Ceramic — 3 yr', cat: 'Ceramic', price: 19500, dur: '1 day', chk: 'ceramic', wy: 3 },
+      { id: 's11', name: 'Diamondbrite Ceramic — 5 yr', cat: 'Ceramic', price: 28500, dur: '2 days', chk: 'ceramic', wy: 5 },
+      { id: 's12', name: 'PPF — Front End Package', cat: 'PPF & Tint', price: 58000, dur: '2 days', chk: 'ppf' },
+      { id: 's13', name: 'Window Tint — Full Car', cat: 'PPF & Tint', price: 8500, dur: '≈ 3 h', chk: 'tint' },
+      { id: 's14', name: 'Window Tint — Windscreen Strip', cat: 'PPF & Tint', price: 1200, dur: '≈ 45 min', chk: 'tint' }
+    ];
+    this.PRD = [
+      { id: 'p1', name: 'Diamondbrite Ceramic Aftercare Kit', cat: 'Diamondbrite', price: 3900 },
+      { id: 'p2', name: 'Diamondbrite Paint Sealant Kit', cat: 'Diamondbrite', price: 3400 },
+      { id: 'p3', name: "Diamondbrite Wash 'n' Wax 500 ml", cat: 'Diamondbrite', price: 480 },
+      { id: 'p4', name: 'Diamondbrite Interior Shampoo', cat: 'Diamondbrite', price: 420 },
+      { id: 'p5', name: 'Diamondbrite Alloy Wheel Cleaner', cat: 'Diamondbrite', price: 450 },
+      { id: 'p6', name: 'Diamondbrite Speed Detailer', cat: 'Diamondbrite', price: 520 },
+      { id: 'p7', name: 'Microfibre Cloths — pack of 3', cat: 'Accessories', price: 260 },
+      { id: 'p8', name: 'Lambswool Wash Mitt', cat: 'Accessories', price: 580 },
+      { id: 'p9', name: 'Air Freshener — New Car', cat: 'Accessories', price: 140 },
+      { id: 'p10', name: 'Tyre Shine Gel 500 ml', cat: 'Care', price: 390 },
+      { id: 'p11', name: 'Clay Bar Kit', cat: 'Care', price: 890 },
+      { id: 'p12', name: 'Interior Protectant 250 ml', cat: 'Care', price: 460 }
+    ];
+    this.STAFF = [
+      { id: 'priya', name: 'Priya Naiko', role: 'Reception', color: '#2A6FDB', init: 'PN', tech: false },
+      { id: 'sarah', name: 'Sarah Moutou', role: 'Manager', color: '#9B59D0', init: 'SM', tech: false },
+      { id: 'ravi', name: 'Ravi Gopaul', role: 'Senior technician', color: '#C17A00', init: 'RG', tech: true },
+      { id: 'ashvin', name: 'Ashvin Ramdhun', role: 'Technician', color: '#1FA361', init: 'AR', tech: true },
+      { id: 'jm', name: 'Jean-Marc Félix', role: 'PPF & tint specialist', color: '#5A67D8', init: 'JF', tech: true },
+      { id: 'kevin', name: 'Kevin Chung', role: 'Technician', color: '#E06A3A', init: 'KC', tech: true }
+    ];
+    this.MTYPES = [
+      { k: 'scratch', label: 'Scratch', letter: 'S', color: '#C17A00' },
+      { k: 'dent', label: 'Dent', letter: 'D', color: '#D63A3A' },
+      { k: 'chip', label: 'Stone chip', letter: 'C', color: '#5A67D8' },
+      { k: 'swirl', label: 'Swirls', letter: 'W', color: '#1FA361' }
+    ];
+    const customers = [
+      { id: 'c1', name: 'Nitish Beeharry', phone: '5712 4408', visits: 6, vehicles: [{ plate: '3456 SE 23', make: 'BMW', model: 'X5 xDrive30d', colour: 'Carbon Black' }, { plate: '2087 JL 25', make: 'Mercedes-Benz', model: 'C200 AMG Line', colour: 'Polar White' }] },
+      { id: 'c2', name: 'Marie-Claire Hardy', phone: '5844 0917', visits: 3, vehicles: [{ plate: '764 JA 19', make: 'Range Rover', model: 'Evoque R-Dynamic', colour: 'Santorini Black' }] },
+      { id: 'c3', name: 'Yusuf Emrith', phone: '5921 3345', visits: 4, vehicles: [{ plate: '88 NV 22', make: 'Porsche', model: 'Macan S', colour: 'Chalk' }] },
+      { id: 'c4', name: 'Sandrine Perrine', phone: '5758 6621', visits: 2, vehicles: [{ plate: '5102 MY 18', make: 'Suzuki', model: 'Swift GLX', colour: 'Burning Red' }] },
+      { id: 'c5', name: 'Arvind Luchmun', phone: '5990 1204', visits: 5, vehicles: [{ plate: '2947 OC 20', make: 'Toyota', model: 'Hilux Revo', colour: 'Glacier White' }] },
+      { id: 'c6', name: 'Dr. Padma Soobron', phone: '5477 8830', visits: 1, vehicles: [{ plate: '1633 AP 24', make: 'Honda', model: 'CR-V', colour: 'Lunar Silver' }] },
+      { id: 'c7', name: 'Vikash Ramsamy', phone: '5233 7719', visits: 2, vehicles: [{ plate: '451 FE 17', make: 'Audi', model: 'A4 Avant', colour: 'Daytona Grey' }] }
+    ];
+    let lidN = 1;
+    const L = (kind, id, disc) => { const src = kind === 'svc' ? this.SVC : this.PRD; const it = src.find(x => x.id === id); return { lid: 'L' + (lidN++), kind, refId: id, name: it.name, price: it.price, qty: 1, disc: disc || 0 }; };
+    this.mkLine = L;
+    const chkOf = (sid, done) => this.CHK[this.SVC.find(s => s.id === sid).chk].map((t, i) => ({ label: t, done: i < done }));
+    const jobs = [
+      { id: 'j2', ref: 'JOB-1042', custName: 'Yusuf Emrith', phone: '5921 3345', plate: '88 NV 22', veh: 'Porsche Macan S', colour: 'Chalk', lines: [L('svc', 's11'), L('svc', 's6')], techId: 'ravi', status: 'prog', sched: 'Today 09:00', timer: { running: true, startedAt: T - 171 * MI, acc: 0 }, chk: chkOf('s11', 5), chkKey: 'ceramic', before: [{ name: 'IMG_5804', time: '09:04', grad: this.GRADS[0] }, { name: 'IMG_5805', time: '09:05', grad: this.GRADS[1] }, { name: 'IMG_5806', time: '09:06', grad: this.GRADS[2] }], after: [], markers: 2, invId: null },
+      { id: 'j1', ref: 'JOB-1041', custName: 'Marie-Claire Hardy', phone: '5844 0917', plate: '764 JA 19', veh: 'Range Rover Evoque', colour: 'Santorini Black', lines: [L('svc', 's5')], techId: 'ashvin', status: 'prog', sched: 'Today 10:30', timer: { running: true, startedAt: T - 74 * MI, acc: 0 }, chk: chkOf('s5', 3), chkKey: 'detail', before: [{ name: 'IMG_5812', time: '10:32', grad: this.GRADS[3] }, { name: 'IMG_5813', time: '10:33', grad: this.GRADS[0] }], after: [], markers: 1, invId: null },
+      { id: 'j3', ref: 'JOB-1043', custName: 'Arvind Luchmun', phone: '5990 1204', plate: '2947 OC 20', veh: 'Toyota Hilux Revo', colour: 'Glacier White', lines: [L('svc', 's13')], techId: 'jm', status: 'sched', sched: 'Today 13:30', timer: { running: false, startedAt: 0, acc: 0 }, chk: chkOf('s13', 0), chkKey: 'tint', before: [], after: [], markers: 0, invId: null },
+      { id: 'j4', ref: 'JOB-1040', custName: 'Sandrine Perrine', phone: '5758 6621', plate: '5102 MY 18', veh: 'Suzuki Swift GLX', colour: 'Burning Red', lines: [L('svc', 's1')], techId: 'kevin', status: 'ready', sched: 'Today 10:15', timer: { running: false, startedAt: 0, acc: 2820 }, chk: chkOf('s1', 5), chkKey: 'wash', before: [{ name: 'IMG_5809', time: '10:16', grad: this.GRADS[1] }], after: [{ name: 'IMG_5818', time: '11:04', grad: this.GRADS[2] }], markers: 0, invId: 'i3043' },
+      { id: 'j5', ref: 'JOB-1039', custName: 'Dr. Padma Soobron', phone: '5477 8830', plate: '1633 AP 24', veh: 'Honda CR-V', colour: 'Lunar Silver', lines: [L('svc', 's4')], techId: 'ashvin', status: 'done', sched: 'Today 08:30', timer: { running: false, startedAt: 0, acc: 7050 }, chk: chkOf('s4', 7), chkKey: 'detail', before: [{ name: 'IMG_5798', time: '08:31', grad: this.GRADS[0] }], after: [{ name: 'IMG_5801', time: '09:42', grad: this.GRADS[3] }], markers: 0, invId: 'i3044' },
+      { id: 'j0', ref: 'JOB-1037', custName: 'Vikash Ramsamy', phone: '5233 7719', plate: '451 FE 17', veh: 'Audi A4 Avant', colour: 'Daytona Grey', lines: [L('svc', 's2'), L('prod', 'p10')], techId: 'ravi', status: 'done', sched: 'Today 08:00', timer: { running: false, startedAt: 0, acc: 3480 }, chk: chkOf('s2', 5), chkKey: 'wash', before: [], after: [], markers: 0, invId: 'i3046' }
+    ];
+    const invoices = [
+      { id: 'i3043', ref: 'INV-3043', jobId: 'j4', jobRef: 'JOB-1040', who: 'Sandrine Perrine', plate: '5102 MY 18', type: 'job', lines: jobs.find(j => j.id === 'j4').lines, payments: [], status: 'unpaid', createdAt: '11:05', techId: 'kevin', certIssued: false },
+      { id: 'i3044', ref: 'INV-3044', jobId: 'j5', jobRef: 'JOB-1039', who: 'Dr. Padma Soobron', plate: '1633 AP 24', type: 'job', lines: jobs.find(j => j.id === 'j5').lines, payments: [{ method: 'Card', amt: 5175, ref: 'T-88213', time: '09:48', by: 'Priya' }], status: 'paid', createdAt: '09:45', paidAt: '09:48', techId: 'ashvin', certIssued: false },
+      { id: 'i3045', ref: 'INV-3045', jobId: null, jobRef: null, who: 'Counter sale', plate: null, type: 'counter', lines: [L('prod', 'p3'), L('prod', 'p7')], payments: [{ method: 'Cash', amt: 851, ref: '', time: '10:22', by: 'Priya' }], status: 'paid', createdAt: '10:20', paidAt: '10:22', techId: null, certIssued: false },
+      { id: 'i3046', ref: 'INV-3046', jobId: 'j0', jobRef: 'JOB-1037', who: 'Vikash Ramsamy', plate: '451 FE 17', type: 'job', lines: jobs.find(j => j.id === 'j0').lines, payments: [{ method: 'Juice', amt: 1828.5, ref: 'JU-55102', time: '08:55', by: 'Priya' }], status: 'paid', createdAt: '08:52', paidAt: '08:55', techId: 'ravi', certIssued: false }
+    ];
+    const quotes = [
+      { id: 'q2213', ref: 'QTE-2213', custName: 'Dr. Padma Soobron', phone: '5477 8830', vehLabel: 'Honda CR-V', plate: '1633 AP 24', colour: 'Lunar Silver', lines: [L('svc', 's10')], markers: [], photos: [], status: 'Draft', updated: '09:12', jobRef: null }
+    ];
+    const certs = [
+      { id: 'cert86', ref: 'CERT-0086', owner: 'Nitish Beeharry', veh: 'BMW X5 xDrive30d', plate: '3456 SE 23', colour: 'Carbon Black', product: 'Diamondbrite Ceramic — 5 yr', wy: 5, by: 'Ravi Gopaul', appliedTs: new Date(2026, 5, 12).getTime(), jobRef: 'JOB-0996' },
+      { id: 'cert85', ref: 'CERT-0085', owner: 'Marie-Claire Hardy', veh: 'Range Rover Evoque', plate: '764 JA 19', colour: 'Santorini Black', product: 'Diamondbrite Ceramic — 3 yr', wy: 3, by: 'Ashvin Ramdhun', appliedTs: new Date(2026, 0, 20).getTime(), jobRef: 'JOB-0912' }
+    ];
+    this.state = {
+      now: T, scale: 0.92, screen: 'intake', online: true, queue: [], syncing: false, staffId: 'priya',
+      toastMsg: '', toastOn: false,
+      customers, q: '', selCust: null, newOpen: false, nName: '', nPhone: '', selVeh: null, addVehOpen: false, nvPlate: '', nvMake: '', nvModel: '', nvColour: '', mType: 'scratch', markers: [], photos: [],
+      quotes, activeQuoteId: null, catTab: 'Detailing', expLine: null, acceptOpen: false, selTech: null, selTime: 'Now',
+      jobs, activeJobId: null,
+      invoices, activeInvId: 'i3043', counterMode: false, prodTab: 'Diamondbrite',
+      pay: { open: false, method: 'Cash', amountStr: '', tenderStr: '', refStr: '', focus: 'amount' },
+      adhoc: { open: false, name: '', priceStr: '', kind: 'svc', target: 'quote' },
+      stock: { p1: 6, p2: 3, p3: 18, p4: 11, p5: 2, p6: 9, p7: 34, p8: 7, p9: 41, p10: 12, p11: 5, p12: 8 },
+      stockTab: 'All', adj: null,
+      certs, activeCertId: 'cert86',
+      pinOpen: false, pinSel: null, pinVal: '',
+      seq: { q: 2214, job: 1044, inv: 3047, cert: 87, img: 5821 }
+    };
+  }
+  componentDidMount() {
+    this._iv = setInterval(() => this.setState({ now: Date.now() }), 1000);
+    this._rs = () => this.fit();
+    window.addEventListener('resize', this._rs);
+    this.fit();
+    this.applyAccent();
+  }
+  componentWillUnmount() { clearInterval(this._iv); clearTimeout(this._tt); clearInterval(this._sync); window.removeEventListener('resize', this._rs); }
+  componentDidUpdate(pp) { if (pp.accent !== this.props.accent) this.applyAccent(); }
+  fit() { const s = Math.min((window.innerWidth - 16) / 1332, (window.innerHeight - 16) / 854); this.setState({ scale: Math.max(0.35, Math.min(s, 1.2)) }); }
+  A() { return this.props.accent ?? '#0FBFA6'; }
+  hexA(h, a) { const v = h.replace('#', ''); const f = v.length === 3 ? v.split('').map(c => c + c).join('') : v; const n = parseInt(f, 16); return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')'; }
+  applyAccent() { const el = document.getElementById('pos-root'); if (!el) return; const A = this.A(); el.style.setProperty('--ac', A); el.style.setProperty('--ac-ink', '#FFFFFF'); el.style.setProperty('--ac-soft', this.hexA(A, 0.14)); el.style.setProperty('--ac-line', this.hexA(A, 0.45)); }
+  fmt(n) { const r = Math.round(n * 100) / 100; const o = { maximumFractionDigits: 2 }; if (Math.round(r * 100) % 100 !== 0) o.minimumFractionDigits = 2; return 'Rs ' + r.toLocaleString('en-US', o); }
+  hm(ts) { const d = new Date(ts); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+  dstr(ts) { const d = new Date(ts); const M = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']; return d.getDate() + ' ' + M[d.getMonth()] + ' ' + d.getFullYear(); }
+  dur(sec) { sec = Math.max(0, Math.floor(sec)); const h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), x = sec % 60; return h ? h + ':' + String(m).padStart(2, '0') + ':' + String(x).padStart(2, '0') : m + ':' + String(x).padStart(2, '0'); }
+  durShort(sec) { const h = Math.floor(sec / 3600), m = Math.round(sec % 3600 / 60); return h ? h + ' h ' + m + ' m' : m + ' min'; }
+  tst(m) { clearTimeout(this._tt); this.setState({ toastMsg: m, toastOn: true }); this._tt = setTimeout(() => this.setState({ toastOn: false }), 2600); }
+  logQ(label) { if (!this.state.online) this.setState(s => ({ queue: [...s.queue, { label, t: Date.now() }] })); }
+  nav(id) { this.setState({ screen: id, activeJobId: null }); }
+  initials(n) { return n.replace('Dr. ', '').split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase(); }
+  stf(id) { return this.STAFF.find(x => x.id === id); }
+  elapsed(j) { const t = j.timer; return (t.acc || 0) + (t.running ? (this.state.now - t.startedAt) / 1000 : 0); }
+  lineTotal(l) { return l.price * l.qty * (1 - (l.disc || 0) / 100); }
+  billTotals(inv) { const sub = inv.lines.reduce((a, l) => a + this.lineTotal(l), 0); const vat = Math.round(sub * 15) / 100; const total = sub + vat; const paid = inv.payments.reduce((a, p) => a + p.amt, 0); return { sub, vat, total, paid, rem: Math.max(0, total - paid) }; }
+  toggleOnline = () => {
+    if (this.state.online) { this.setState({ online: false }); this.tst('Offline mode — changes will queue locally'); return; }
+    const n = this.state.queue.length;
+    if (!n) { this.setState({ online: true }); this.tst('Back online'); return; }
+    this.setState({ online: true, syncing: true });
+    this._sync = setInterval(() => {
+      this.setState(s => {
+        const q = s.queue.slice(1);
+        if (!q.length) { clearInterval(this._sync); setTimeout(() => { this.setState({ syncing: false }); this.tst('All changes synced'); }, 120); }
+        return { queue: q };
+      });
+    }, 380);
+  };
+  rvShell() {
+    const s = this.state, A = this.A();
+    const mkNav = id => ({ on: s.screen === id, bg: s.screen === id ? this.hexA(A, 0.13) : 'transparent', c: s.screen === id ? A : '#5B6B7A', go: () => this.nav(id) });
+    const st = this.stf(s.staffId);
+    const pend = s.queue.length;
+    const D = new Date(s.now);
+    const W = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    return {
+      scale: s.scale,
+      studioName: this.props.studioName ?? 'Apex Detail Studio',
+      timeStr: this.hm(s.now),
+      dateStr: W[D.getDay()] + ' ' + this.dstr(s.now),
+      nav: { intake: mkNav('intake'), quote: mkNav('quote'), jobs: mkNav('jobs'), sale: mkNav('sale'), stock: mkNav('stock'), cert: mkNav('cert'), dash: mkNav('dash') },
+      scr: { intake: s.screen === 'intake', quote: s.screen === 'quote', jobs: s.screen === 'jobs', sale: s.screen === 'sale', stock: s.screen === 'stock', cert: s.screen === 'cert', dash: s.screen === 'dash' },
+      sync: {
+        toggle: this.toggleOnline, spin: s.syncing, dotOn: !s.syncing,
+        dot: s.online ? A : '#C17A00',
+        anim: s.online ? 'acPulse 2.4s ease-in-out infinite' : 'none',
+        label: s.syncing ? 'Syncing ' + pend + '…' : (s.online ? 'Online' : 'Offline'),
+        showSub: !s.online && pend > 0, sub: '· ' + pend + ' pending',
+        border: s.online ? 'rgba(15,26,36,.10)' : 'rgba(193,122,0,.55)'
+      },
+      staff: { name: st.name.split(' ')[0], role: st.role, init: st.init, color: st.color, open: () => this.setState({ pinOpen: true, pinSel: null, pinVal: '' }) }
+    };
+  }
+  rvIntake() {
+    const s = this.state, A = this.A();
+    const cust = s.selCust, veh = s.selVeh;
+    const ql = s.q.trim().toLowerCase();
+    const results = (!cust && ql) ? s.customers.filter(c =>
+      c.name.toLowerCase().includes(ql) || c.phone.replace(/\s/g, '').includes(ql.replace(/\s/g, '')) || c.vehicles.some(v => v.plate.toLowerCase().includes(ql))
+    ).slice(0, 4).map(c => ({
+      name: c.name, phone: '+230 ' + c.phone, init: this.initials(c.name),
+      sub: c.vehicles.length ? c.vehicles.map(v => v.make + ' ' + v.model).join(' · ') : 'No vehicles on file',
+      pick: () => { this.setState({ selCust: c, q: '', newOpen: false, selVeh: c.vehicles.length === 1 ? c.vehicles[0] : null }); }
+    })) : [];
+    const parts = [];
+    if (cust) parts.push(cust.name);
+    if (veh) parts.push(veh.make + ' ' + veh.model + ' · ' + veh.plate);
+    if (s.markers.length) parts.push(s.markers.length + ' damage marker' + (s.markers.length > 1 ? 's' : ''));
+    if (s.photos.length) parts.push(s.photos.length + ' photo' + (s.photos.length > 1 ? 's' : ''));
+    const can = !!(cust && veh);
+    return {
+      ik: {
+        q: s.q, setQ: e => this.setState({ q: e.target.value }),
+        results, hasCust: !!cust, noCust: !cust,
+        newOpen: s.newOpen, newClosed: !s.newOpen && !cust,
+        toggleNew: () => this.setState(st => ({ newOpen: !st.newOpen })),
+        nName: s.nName, nPhone: s.nPhone,
+        setNName: e => this.setState({ nName: e.target.value }),
+        setNPhone: e => this.setState({ nPhone: e.target.value }),
+        saveNew: () => {
+          const n = s.nName.trim(), p = s.nPhone.trim();
+          if (n.length < 2 || p.length < 4) { this.tst('Enter a name and a phone number'); return; }
+          const c = { id: 'c' + Date.now(), name: n, phone: p, visits: 1, vehicles: [] };
+          this.setState(st => ({ customers: [c, ...st.customers], selCust: c, newOpen: false, nName: '', nPhone: '', addVehOpen: true, q: '' }));
+          this.logQ('New customer — ' + n); this.tst('Customer saved');
+        },
+        cust: cust ? { name: cust.name, phone: '+230 ' + cust.phone, init: this.initials(cust.name), visits: cust.visits + (cust.visits === 1 ? ' visit' : ' visits') } : { name: '', phone: '', init: '', visits: '' },
+        clearCust: () => this.setState({ selCust: null, selVeh: null, q: '', addVehOpen: false }),
+        vehOp: cust ? '1' : '0.45', vehPe: cust ? 'auto' : 'none',
+        vehChips: (cust ? cust.vehicles : []).map(v => ({
+          plate: v.plate, label: v.make + ' ' + v.model, colour: v.colour,
+          bg: veh === v ? this.hexA(A, 0.1) : '#F1F4F7',
+          ring: veh === v ? '1.5px solid ' + this.hexA(A, 0.65) : '1.5px solid rgba(15,26,36,.07)',
+          pick: () => this.setState({ selVeh: v })
+        })),
+        addOpen: s.addVehOpen, addClosed: !s.addVehOpen,
+        toggleAdd: () => this.setState(st => ({ addVehOpen: !st.addVehOpen })),
+        nvPlate: s.nvPlate, nvMake: s.nvMake, nvModel: s.nvModel, nvColour: s.nvColour,
+        setNvPlate: e => this.setState({ nvPlate: e.target.value.toUpperCase() }),
+        setNvMake: e => this.setState({ nvMake: e.target.value }),
+        setNvModel: e => this.setState({ nvModel: e.target.value }),
+        setNvColour: e => this.setState({ nvColour: e.target.value }),
+        saveVeh: () => {
+          if (!cust) return;
+          const pl = s.nvPlate.trim(), mk = s.nvMake.trim(), md = s.nvModel.trim();
+          if (pl.length < 4 || !mk) { this.tst('Enter at least a plate and make'); return; }
+          const v = { plate: pl, make: mk, model: md, colour: s.nvColour.trim() || '—' };
+          cust.vehicles.push(v);
+          this.setState({ selVeh: v, addVehOpen: false, nvPlate: '', nvMake: '', nvModel: '', nvColour: '' });
+          this.logQ('New vehicle — ' + pl); this.tst('Vehicle saved');
+        },
+        mCount: s.markers.length ? s.markers.length + ' marked' : 'No damage marked',
+        mTypes: this.MTYPES.map(t => ({
+          label: t.label, c: t.color, on: s.mType === t.k,
+          bg: s.mType === t.k ? '#E8ECF1' : 'transparent',
+          ring: s.mType === t.k ? '1.5px solid rgba(15,26,36,.40)' : '1.5px solid rgba(15,26,36,.12)',
+          pick: () => this.setState({ mType: t.k })
+        })),
+        markers: s.markers.map((m, i) => {
+          const t = this.MTYPES.find(x => x.k === m.type);
+          return { l: m.x + '%', t: m.y + '%', bg: t.color, letter: t.letter, remove: e => { e.stopPropagation(); this.setState(st => ({ markers: st.markers.filter((_, j) => j !== i) })); } };
+        }),
+        tap: e => {
+          if (!this.state.selVeh) { this.tst('Select a vehicle first'); return; }
+          const r = e.currentTarget.getBoundingClientRect();
+          const x = Math.round(((e.clientX - r.left) / r.width) * 1000) / 10;
+          const y = Math.round(((e.clientY - r.top) / r.height) * 1000) / 10;
+          if (x < 5 || x > 95 || y < 2 || y > 98) return;
+          this.setState(st => ({ markers: [...st.markers, { x, y, type: st.mType }] }));
+          this.logQ('Damage marker added');
+        },
+        photos: s.photos, 
+        addPhoto: () => {
+          if (!this.state.selVeh) { this.tst('Select a vehicle first'); return; }
+          if (s.photos.length >= 3) { this.tst('Photo limit reached in demo'); return; }
+          this.setState(st => ({ photos: [...st.photos, { name: 'IMG_' + st.seq.img, time: this.hm(st.now), grad: this.GRADS[st.photos.length % 4] }], seq: { ...st.seq, img: st.seq.img + 1 } }));
+          this.logQ('Photo captured'); this.tst('Photo captured');
+        },
+        sum: parts.length ? parts.join('  ·  ') : 'Find or create the customer to begin',
+        canStart: can,
+        startBg: can ? 'var(--ac,#0FBFA6)' : '#E8ECF1',
+        startC: can ? 'var(--ac-ink,#FFFFFF)' : '#8494A3',
+        startSh: can ? '0 8px 28px ' + this.hexA(A, 0.25) : 'none',
+        start: () => {
+          const st = this.state;
+          if (!st.selCust || !st.selVeh) { this.tst('Pick a customer and vehicle first'); return; }
+          const q = {
+            id: 'q' + st.seq.q, ref: 'QTE-' + st.seq.q, custName: st.selCust.name, phone: st.selCust.phone,
+            vehLabel: st.selVeh.make + ' ' + st.selVeh.model, plate: st.selVeh.plate, colour: st.selVeh.colour,
+            lines: [], markers: st.markers, photos: st.photos, status: 'Draft', updated: this.hm(st.now), jobRef: null
+          };
+          this.setState(x => ({
+            quotes: [q, ...x.quotes], activeQuoteId: q.id, screen: 'quote', catTab: 'Detailing', acceptOpen: false, selTech: null, selTime: 'Now',
+            selCust: null, selVeh: null, markers: [], photos: [], q: '', seq: { ...x.seq, q: x.seq.q + 1 }
+          }));
+          this.logQ('Quotation ' + q.ref + ' created'); this.tst(q.ref + ' started');
+        }
+      }
+    };
+  }
+  rvOverlays() {
+    const s = this.state, A = this.A();
+    const pads = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'].map(k => ({
+      k, tap: () => {
+        if (!k) return;
+        if (!s.pinSel) { this.tst('Pick a user first'); return; }
+        let v = s.pinVal;
+        if (k === '⌫') v = v.slice(0, -1); else if (v.length < 4) v = v + k;
+        if (v.length === 4) {
+          const u = this.stf(s.pinSel);
+          this.setState({ staffId: s.pinSel, pinOpen: false, pinVal: '', pinSel: null });
+          this.tst('Signed in — ' + u.name.split(' ')[0]);
+        } else this.setState({ pinVal: v });
+      }
+    }));
+    return {
+      pin: {
+        open: s.pinOpen,
+        staff: this.STAFF.map(u => ({
+          name: u.name, role: u.role, init: u.init, color: u.color,
+          bg: s.pinSel === u.id ? this.hexA(A, 0.1) : '#F1F4F7',
+          ring: s.pinSel === u.id ? '1.5px solid ' + this.hexA(A, 0.65) : '1.5px solid rgba(15,26,36,.07)',
+          pick: () => this.setState({ pinSel: u.id, pinVal: '' })
+        })),
+        dots: [0, 1, 2, 3].map(i => ({ bg: i < s.pinVal.length ? A : 'transparent' })),
+        pads,
+        cancel: () => this.setState({ pinOpen: false, pinVal: '', pinSel: null }),
+        hint: 'Demo — pick a user, any 4-digit PIN works.'
+      },
+      toast: { on: s.toastOn, msg: s.toastMsg }
+    };
+  }
+  renderVals() {
+    const parts = ['rvShell', 'rvIntake', 'rvQuote', 'rvJobs', 'rvCheckout', 'rvStock', 'rvCerts', 'rvDash', 'rvOverlays'];
+    const o = {};
+    for (const p of parts) { if (typeof this[p] === 'function') Object.assign(o, this[p]()); }
+    return o;
+  }
+  quoteTotals(q) { const sub0 = q.lines.reduce((a, l) => a + l.price * l.qty, 0); const sub = q.lines.reduce((a, l) => a + this.lineTotal(l), 0); const vat = Math.round(sub * 15) / 100; return { sub0, sub, disc: sub0 - sub, vat, total: sub + vat }; }
+  touchQuotes() { this.setState(s => ({ quotes: [...s.quotes] })); }
+  rvQuote() {
+    const s = this.state, A = this.A();
+    const q = s.quotes.find(x => x.id === s.activeQuoteId);
+    const list = s.quotes.map(g => {
+      const t = this.quoteTotals(g);
+      return {
+        ref: g.ref, who: g.custName, veh: g.vehLabel + ' · ' + g.plate,
+        total: this.fmt(t.total), updated: 'Updated ' + g.updated,
+        chip: g.status.toUpperCase(),
+        chipBg: g.status === 'Accepted' ? 'rgba(31,163,97,.14)' : '#E8ECF1',
+        chipC: g.status === 'Accepted' ? '#1FA361' : '#5B6B7A',
+        open: () => { if (g.status === 'Accepted') { this.tst(g.ref + ' was converted to ' + g.jobRef); return; } this.setState({ activeQuoteId: g.id, acceptOpen: false }); }
+      };
+    });
+    if (!q) return { qt: { listMode: true, builder: false, list, goIntake: () => this.nav('intake') } };
+    const t = this.quoteTotals(q);
+    const counts = {};
+    q.lines.forEach(l => { if (!l.adhoc) counts[l.refId] = (counts[l.refId] || 0) + l.qty; });
+    const items = [
+      ...this.SVC.filter(x => x.cat === s.catTab).map(x => ({ kind: 'svc', x, meta: x.dur })),
+      ...this.PRD.filter(x => x.cat === s.catTab).map(x => ({ kind: 'prod', x, meta: 'Stock ' + (s.stock[x.id] ?? 0) }))
+    ].map(({ kind, x, meta }) => ({
+      name: x.name, meta, price: this.fmt(x.price),
+      count: counts[x.id] || 0, showCount: !!counts[x.id],
+      add: () => {
+        const ex = q.lines.find(l => l.refId === x.id && !l.adhoc);
+        if (ex) ex.qty += 1; else q.lines.push(this.mkLine(kind, x.id));
+        q.updated = this.hm(this.state.now);
+        this.touchQuotes(); this.logQ(q.ref + ' — added ' + x.name);
+      }
+    }));
+    const lines = q.lines.map(l => ({
+      name: l.name,
+      sub: l.qty + ' × ' + this.fmt(l.price) + (l.disc ? '  ·  −' + l.disc + '%' : '') + (l.adhoc ? '  ·  ad-hoc' : ''),
+      total: this.fmt(this.lineTotal(l)),
+      exp: s.expLine === l.lid, bg: s.expLine === l.lid ? '#EFF2F6' : '#F6F8FA',
+      toggle: () => this.setState(st => ({ expLine: st.expLine === l.lid ? null : l.lid })),
+      qty: l.qty,
+      inc: () => { l.qty = Math.min(99, l.qty + 1); this.touchQuotes(); },
+      dec: () => { l.qty = Math.max(1, l.qty - 1); this.touchQuotes(); },
+      remove: () => { q.lines = q.lines.filter(x => x !== l); this.touchQuotes(); },
+      chips: [0, 5, 10, 15, 20].map(d => ({
+        label: d ? '−' + d + '%' : '0%',
+        bg: l.disc === d ? this.hexA(A, 0.16) : '#E8ECF1',
+        c: l.disc === d ? A : '#5B6B7A',
+        set: () => { l.disc = d; this.touchQuotes(); }
+      }))
+    }));
+    const techs = this.STAFF.filter(u => u.tech).map(u => ({
+      name: u.name.split(' ')[0], init: u.init, color: u.color,
+      bg: s.selTech === u.id ? this.hexA(A, 0.12) : '#F1F4F7',
+      ring: s.selTech === u.id ? '1.5px solid ' + this.hexA(A, 0.65) : '1.5px solid rgba(15,26,36,.08)',
+      pick: () => this.setState({ selTech: u.id })
+    }));
+    const times = ['Now', '13:30', '14:30', '15:30', 'Tomorrow'].map(x => ({
+      label: x,
+      bg: s.selTime === x ? this.hexA(A, 0.12) : '#F1F4F7',
+      ring: s.selTime === x ? '1.5px solid ' + this.hexA(A, 0.65) : '1.5px solid rgba(15,26,36,.08)',
+      pick: () => this.setState({ selTime: x })
+    }));
+    const has = q.lines.length > 0;
+    return {
+      qt: {
+        listMode: false, builder: true, list: [],
+        ref: q.ref, chip: q.status.toUpperCase(), who: q.custName, vehPlate: q.plate, veh: q.vehLabel,
+        back: () => this.setState({ activeQuoteId: null, acceptOpen: false, expLine: null }),
+        tabs: this.CATS.map(c => ({
+          label: c, on: s.catTab === c,
+          bg: s.catTab === c ? this.hexA(A, 0.13) : 'transparent',
+          c: s.catTab === c ? A : '#5B6B7A',
+          ring: s.catTab === c ? '1.5px solid ' + this.hexA(A, 0.5) : '1.5px solid rgba(15,26,36,.12)',
+          pick: () => this.setState({ catTab: c })
+        })),
+        items,
+        adhoc: () => this.setState({ adhoc: { open: true, name: '', priceStr: '', kind: 'svc', target: 'quote' } }),
+        lines, lineCount: q.lines.length + (q.lines.length === 1 ? ' line' : ' lines'),
+        noLines: !has,
+        sub: this.fmt(t.sub0), disc: '−' + this.fmt(t.disc).replace('Rs ', 'Rs '), showDisc: t.disc > 0.004,
+        vat: this.fmt(t.vat), total: this.fmt(t.total),
+        save: () => { this.setState({ activeQuoteId: null, expLine: null, acceptOpen: false }); this.logQ(q.ref + ' saved'); this.tst(q.ref + ' saved as draft'); },
+        acceptOpen: s.acceptOpen, acceptClosed: !s.acceptOpen,
+        openAccept: () => { if (!has) { this.tst('Add at least one line first'); return; } this.setState({ acceptOpen: true }); },
+        closeAccept: () => this.setState({ acceptOpen: false }),
+        acceptBg: has ? 'var(--ac,#0FBFA6)' : '#E8ECF1',
+        acceptC: has ? 'var(--ac-ink,#FFFFFF)' : '#8494A3',
+        techs, times,
+        create: () => {
+          if (!s.selTech) { this.tst('Pick a technician'); return; }
+          const st = this.state;
+          const firstSvc = q.lines.find(l => l.kind === 'svc' && !l.adhoc);
+          const chkKey = firstSvc ? this.SVC.find(x => x.id === firstSvc.refId).chk : 'wash';
+          const job = {
+            id: 'j' + st.seq.job, ref: 'JOB-' + st.seq.job,
+            custName: q.custName, phone: q.phone, plate: q.plate, veh: q.vehLabel, colour: q.colour,
+            lines: q.lines, techId: st.selTech, status: 'sched',
+            sched: st.selTime === 'Now' ? 'Today · now' : (st.selTime === 'Tomorrow' ? 'Tomorrow 09:00' : 'Today ' + st.selTime),
+            timer: { running: false, startedAt: 0, acc: 0 },
+            chk: this.CHK[chkKey].map(x => ({ label: x, done: false })), chkKey,
+            before: q.photos.slice(), after: [], markers: q.markers.length, invId: null
+          };
+          q.status = 'Accepted'; q.jobRef = job.ref;
+          this.setState(x => ({ jobs: [job, ...x.jobs], screen: 'jobs', activeQuoteId: null, acceptOpen: false, seq: { ...x.seq, job: x.seq.job + 1 } }));
+          this.logQ(job.ref + ' created from ' + q.ref);
+          this.tst(job.ref + ' created — scheduled');
+        }
+      }
+    };
+  }
+  touchJobs() { this.setState(s => ({ jobs: [...s.jobs] })); }
+  startJob(j) {
+    if (!j.timer.running) { j.timer = { running: true, startedAt: Date.now(), acc: j.timer.acc || 0 }; }
+    if (j.status === 'sched') j.status = 'prog';
+    this.touchJobs(); this.logQ(j.ref + ' started'); this.tst(j.ref + ' started — timer running');
+  }
+  markReady(j) {
+    if (j.timer.running) { j.timer.acc = (j.timer.acc || 0) + (Date.now() - j.timer.startedAt) / 1000; j.timer.running = false; }
+    j.status = 'ready';
+    let invId = j.invId;
+    if (!invId) {
+      const st = this.state;
+      const inv = { id: 'i' + st.seq.inv, ref: 'INV-' + st.seq.inv, jobId: j.id, jobRef: j.ref, who: j.custName, plate: j.plate, type: 'job', lines: j.lines, payments: [], status: 'unpaid', createdAt: this.hm(st.now), techId: j.techId, certIssued: false };
+      invId = inv.id; j.invId = invId;
+      this.setState(x => ({ invoices: [inv, ...x.invoices], activeInvId: inv.id, seq: { ...x.seq, inv: x.seq.inv + 1 } }));
+      this.tst(j.ref + ' ready — ' + inv.ref + ' raised');
+      this.logQ(inv.ref + ' raised for ' + j.ref);
+    } else this.tst(j.ref + ' marked ready');
+    this.touchJobs();
+  }
+  rvJobs() {
+    const s = this.state, A = this.A();
+    const DEF = [['sched', 'Scheduled', '#5A67D8'], ['prog', 'In progress', '#C17A00'], ['ready', 'Ready', '#1FA361'], ['done', 'Delivered', '#68788A']];
+    const cols = DEF.map(([key, label, dot]) => {
+      const js = s.jobs.filter(j => j.status === key);
+      return {
+        label, dot, count: js.length,
+        cards: js.map(j => {
+          let right = '', rightC = '#8494A3';
+          if (key === 'sched') right = j.sched;
+          if (key === 'prog') { right = this.dur(this.elapsed(j)); rightC = '#C17A00'; }
+          if (key === 'ready') { right = this.fmt(this.billTotals({ lines: j.lines, payments: [] }).total); rightC = '#1FA361'; }
+          if (key === 'done') { right = '✓ Paid'; rightC = '#68788A'; }
+          const t = this.stf(j.techId);
+          const extra = j.lines.length > 1 ? '  +' + (j.lines.length - 1) + ' more' : '';
+          return {
+            plate: j.plate, right, rightC, veh: j.veh, edge: dot,
+            service: j.lines.length ? j.lines[0].name + extra : '—',
+            tInit: t.init, tColor: t.color, tName: t.name.split(' ')[0],
+            open: () => this.setState({ activeJobId: j.id })
+          };
+        })
+      };
+    });
+    const j = s.jobs.find(x => x.id === s.activeJobId);
+    let d = { open: false, close: () => {}, techs: [], list: [], before: [], after: [] };
+    if (j) {
+      const CH = { sched: ['SCHEDULED', 'rgba(90,103,216,.15)', '#5A67D8'], prog: ['IN PROGRESS', 'rgba(193,122,0,.15)', '#C17A00'], ready: ['READY', 'rgba(31,163,97,.15)', '#1FA361'], done: ['DELIVERED', '#E8ECF1', '#68788A'] }[j.status];
+      const doneN = j.chk.filter(c => c.done).length;
+      const pct = j.chk.length ? Math.round(doneN / j.chk.length * 100) : 0;
+      const acts = {
+        sched: { label: '▶  Start job', go: () => this.startJob(j) },
+        prog: { label: pct === 100 ? 'Mark ready for collection' : 'Mark ready (' + doneN + '/' + j.chk.length + ' checklist)', go: () => this.markReady(j) },
+        ready: { label: 'Go to checkout →', go: () => this.setState({ screen: 'sale', activeInvId: j.invId, counterMode: false, activeJobId: null }) },
+        done: { label: 'View invoice', go: () => this.setState({ screen: 'sale', activeInvId: j.invId, counterMode: false, activeJobId: null }) }
+      };
+      const a = acts[j.status];
+      d = {
+        open: true, close: () => this.setState({ activeJobId: null }),
+        ref: j.ref, chip: CH[0], chipBg: CH[1], chipC: CH[2],
+        cust: j.custName, phone: '+230 ' + j.phone, plate: j.plate, veh: j.veh + ' · ' + j.colour,
+        showMarkers: j.markers > 0, markerNote: j.markers + ' pre-existing damage mark' + (j.markers > 1 ? 's' : '') + ' recorded at intake',
+        techs: this.STAFF.filter(u => u.tech).map(u => ({
+          name: u.name.split(' ')[0], init: u.init, color: u.color,
+          bg: j.techId === u.id ? this.hexA(A, 0.12) : '#F1F4F7',
+          ring: j.techId === u.id ? '1.5px solid ' + this.hexA(A, 0.65) : '1.5px solid rgba(15,26,36,.08)',
+          pick: () => { j.techId = u.id; this.touchJobs(); this.logQ(j.ref + ' assigned to ' + u.name); }
+        })),
+        showTimer: j.status !== 'done',
+        timer: this.dur(this.elapsed(j)), timerC: j.timer.running ? '#17202A' : '#5B6B7A',
+        tBtn: j.timer.running ? '❚❚  Pause' : (j.status === 'sched' ? '▶  Start' : '▶  Resume'),
+        tBtnBg: j.timer.running ? 'rgba(193,122,0,.14)' : 'var(--ac,#0FBFA6)',
+        tBtnC: j.timer.running ? '#C17A00' : 'var(--ac-ink,#FFFFFF)',
+        tBtnRing: j.timer.running ? '1px solid rgba(193,122,0,.4)' : 'none',
+        toggleTimer: () => {
+          if (j.timer.running) { j.timer.acc = (j.timer.acc || 0) + (Date.now() - j.timer.startedAt) / 1000; j.timer.running = false; this.touchJobs(); this.logQ(j.ref + ' paused'); }
+          else this.startJob(j);
+        },
+        pct, pctLabel: doneN + '/' + j.chk.length,
+        list: j.chk.map(c => ({
+          label: c.label, mark: c.done ? '✓' : '',
+          boxBg: c.done ? 'var(--ac,#0FBFA6)' : 'transparent',
+          boxRing: c.done ? 'var(--ac,#0FBFA6)' : 'rgba(15,26,36,.30)',
+          c: c.done ? '#8494A3' : '#17202A', deco: c.done ? 'line-through' : 'none',
+          toggle: () => { if (j.status === 'done') { this.tst('Job already delivered'); return; } c.done = !c.done; this.touchJobs(); this.logQ(j.ref + ' checklist updated'); }
+        })),
+        before: j.before, after: j.after, noBefore: j.before.length === 0,
+        addAfter: () => {
+          this.setState(st => { j.after = [...j.after, { name: 'IMG_' + st.seq.img, time: this.hm(st.now), grad: this.GRADS[(j.after.length + 2) % 4] }]; return { jobs: [...st.jobs], seq: { ...st.seq, img: st.seq.img + 1 } }; });
+          this.logQ(j.ref + ' — after photo'); this.tst('Photo captured');
+        },
+        showAction: true, act: a.label, actGo: a.go,
+        actBg: j.status === 'done' ? '#E8ECF1' : 'var(--ac,#0FBFA6)',
+        actC: j.status === 'done' ? '#5B6B7A' : 'var(--ac-ink,#FFFFFF)'
+      };
+    }
+    return { jb: { cols, sub: s.jobs.filter(x => x.status !== 'done').length + ' open · drag-free board, tap a card', newIntake: () => this.nav('intake'), d } };
+  }
+  touchInv() { this.setState(s => ({ invoices: [...s.invoices] })); }
+  numStr(n) { return String(Math.round(n * 100) / 100); }
+  padEdit(str, k) {
+    if (k === '⌫') return str.slice(0, -1);
+    if (k === '.') { if (str.includes('.')) return str; return str ? str + '.' : '0.'; }
+    if (str.includes('.') && str.split('.')[1].length >= 2) return str;
+    if (str.replace('.', '').length >= 7) return str;
+    return str + k;
+  }
+  openPay(inv) {
+    const t = this.billTotals(inv);
+    this.setState({ pay: { open: true, invId: inv.id, method: 'Cash', amountStr: this.numStr(t.rem), tenderStr: '', refStr: '', focus: 'amount' } });
+  }
+  issueCert(inv) {
+    const s = this.state;
+    const job = s.jobs.find(j => j.id === inv.jobId);
+    const line = inv.lines.find(l => l.kind === 'svc' && !l.adhoc && this.SVC.find(x => x.id === l.refId && x.wy));
+    if (!line || !job) { this.tst('No ceramic service on this invoice'); return; }
+    const svc = this.SVC.find(x => x.id === line.refId);
+    const tech = this.stf(job.techId);
+    const c = {
+      id: 'cert' + s.seq.cert, ref: 'CERT-00' + s.seq.cert,
+      owner: inv.who, veh: job.veh, plate: job.plate, colour: job.colour,
+      product: svc.name, wy: svc.wy, by: tech.name, appliedTs: s.now, jobRef: job.ref
+    };
+    inv.certIssued = true;
+    this.setState(x => ({ certs: [c, ...x.certs], activeCertId: c.id, screen: 'cert', seq: { ...x.seq, cert: x.seq.cert + 1 } }));
+    this.logQ(c.ref + ' issued'); this.tst(c.ref + ' issued — ' + svc.wy + '-year warranty');
+  }
+  rvCheckout() {
+    const s = this.state, A = this.A();
+    const unpaid = s.invoices.filter(i => i.status === 'unpaid');
+    const paidL = s.invoices.filter(i => i.status === 'paid');
+    const inv = s.invoices.find(i => i.id === s.activeInvId) || null;
+    const bills = unpaid.map(i => {
+      const t = this.billTotals(i);
+      const on = inv === i;
+      return {
+        ref: i.ref, who: i.who + (i.plate ? ' · ' + i.plate : ''), amt: this.fmt(t.rem),
+        chip: t.paid > 0 ? 'PARTIAL' : 'UNPAID',
+        chipBg: t.paid > 0 ? 'rgba(193,122,0,.15)' : '#E8ECF1',
+        chipC: t.paid > 0 ? '#C17A00' : '#5B6B7A',
+        bg: on ? this.hexA(A, 0.09) : '#F6F8FA',
+        ring: on ? '1.5px solid ' + this.hexA(A, 0.6) : '1.5px solid rgba(15,26,36,.07)',
+        pick: () => this.setState({ activeInvId: i.id })
+      };
+    });
+    const paid = paidL.map(i => ({
+      ref: i.ref, who: i.who, amt: this.fmt(this.billTotals(i).total),
+      pick: () => this.setState({ activeInvId: i.id })
+    }));
+    let b = null;
+    if (inv) {
+      const t = this.billTotals(inv);
+      const isPaid = inv.status === 'paid';
+      const canEdit = !isPaid && inv.type === 'counter';
+      const hasCeramic = inv.type === 'job' && !inv.certIssued && inv.lines.some(l => l.kind === 'svc' && !l.adhoc && this.SVC.find(x => x.id === l.refId && x.wy));
+      b = {
+        ref: inv.ref, who: inv.who, plate: inv.plate || '', showPlate: !!inv.plate,
+        chip: isPaid ? 'PAID' : (t.paid > 0 ? 'PARTIALLY PAID' : 'UNPAID'),
+        chipBg: isPaid ? 'rgba(31,163,97,.15)' : (t.paid > 0 ? 'rgba(193,122,0,.15)' : '#E8ECF1'),
+        chipC: isPaid ? '#1FA361' : (t.paid > 0 ? '#C17A00' : '#5B6B7A'),
+        lines: inv.lines.map(l => ({
+          name: l.name,
+          sub: l.qty + ' × ' + this.fmt(l.price) + (l.disc ? '  ·  −' + l.disc + '%' : '') + (l.adhoc ? '  ·  ad-hoc' : ''),
+          total: this.fmt(this.lineTotal(l)),
+          canX: canEdit,
+          x: () => { inv.lines = inv.lines.filter(x => x !== l); this.touchInv(); }
+        })),
+        sub: this.fmt(t.sub), vat: this.fmt(t.vat), total: this.fmt(t.total), rem: this.fmt(t.rem),
+        hasPay: inv.payments.length > 0,
+        payments: inv.payments.map(p => ({ method: p.method, ref: p.ref || '—', time: p.time, by: p.by, amt: this.fmt(p.amt) })),
+        isPaid, notPaid: !isPaid,
+        paidNote: 'Settled ' + (inv.paidAt || '') + (inv.jobRef ? ' · ' + inv.jobRef : ''),
+        pay: () => { if (!inv.lines.length) { this.tst('Add at least one line'); return; } this.openPay(inv); },
+        showCert: isPaid && hasCeramic,
+        cert: () => this.issueCert(inv),
+        print: () => { this.logQ(inv.ref + ' receipt printed'); this.tst('Receipt sent to printer'); }
+      };
+    }
+    const counts = {};
+    if (inv && s.counterMode) inv.lines.forEach(l => { if (!l.adhoc) counts[l.refId] = (counts[l.refId] || 0) + l.qty; });
+    return {
+      co: {
+        sub: s.counterMode ? 'Counter sale — add products, then record payment' : 'Collect payment — job invoices & counter sales',
+        counter: s.counterMode, notCounter: !s.counterMode,
+        startCounter: () => {
+          const st = this.state;
+          const inv2 = { id: 'i' + st.seq.inv, ref: 'INV-' + st.seq.inv, jobId: null, jobRef: null, who: 'Counter sale', plate: null, type: 'counter', lines: [], payments: [], status: 'unpaid', createdAt: this.hm(st.now), techId: null, certIssued: false };
+          this.setState(x => ({ invoices: [inv2, ...x.invoices], activeInvId: inv2.id, counterMode: true, prodTab: 'Diamondbrite', seq: { ...x.seq, inv: x.seq.inv + 1 } }));
+          this.logQ(inv2.ref + ' — counter sale opened');
+        },
+        cancelCounter: () => {
+          if (inv && inv.type === 'counter' && !inv.payments.length) {
+            this.setState(x => ({ invoices: x.invoices.filter(i => i !== inv), activeInvId: null, counterMode: false }));
+            this.tst('Counter sale cancelled');
+          } else this.setState({ counterMode: false });
+        },
+        bills, noBills: bills.length === 0, paid,
+        none: !inv, has: !!inv, b: b || { lines: [], payments: [] },
+        ptabs: this.PCATS.map(c => ({
+          label: c, bg: s.prodTab === c ? this.hexA(A, 0.13) : 'transparent',
+          c: s.prodTab === c ? A : '#5B6B7A',
+          ring: s.prodTab === c ? '1.5px solid ' + this.hexA(A, 0.5) : '1.5px solid rgba(15,26,36,.12)',
+          pick: () => this.setState({ prodTab: c })
+        })),
+        pitems: this.PRD.filter(p => p.cat === s.prodTab).map(p => {
+          const oh = s.stock[p.id] ?? 0;
+          const low = oh <= (this.props.lowStockThreshold ?? 4);
+          return {
+            name: p.name, price: this.fmt(p.price),
+            meta: oh === 0 ? 'Out of stock' : 'Stock ' + oh + (low ? ' · low' : ''),
+            metaC: oh === 0 ? '#D63A3A' : (low ? '#C17A00' : '#8494A3'),
+            count: counts[p.id] || 0, showCount: !!counts[p.id],
+            add: () => {
+              if (!inv || inv.status === 'paid') return;
+              const ex = inv.lines.find(l => l.refId === p.id && !l.adhoc);
+              if (ex) ex.qty += 1; else inv.lines.push(this.mkLine('prod', p.id));
+              this.touchInv(); this.logQ(inv.ref + ' — added ' + p.name);
+            }
+          };
+        }),
+        adhoc: () => this.setState({ adhoc: { open: true, name: '', priceStr: '', kind: 'prod', target: 'sale' } })
+      },
+      pm: this.rvPay(),
+      ah: this.rvAdhoc()
+    };
+  }
+  rvPay() {
+    const s = this.state, A = this.A(), P = s.pay;
+    if (!P.open) return { open: false };
+    const inv = s.invoices.find(i => i.id === P.invId);
+    if (!inv) return { open: false };
+    const t = this.billTotals(inv);
+    const amt = parseFloat(P.amountStr) || 0;
+    const isCash = P.method === 'Cash';
+    const tender = P.tenderStr ? (parseFloat(P.tenderStr) || 0) : amt;
+    const change = Math.max(0, tender - amt);
+    const can = amt > 0 && amt <= t.rem + 0.004 && (!isCash || tender >= amt - 0.004);
+    const setP = o => this.setState(x => ({ pay: { ...x.pay, ...o } }));
+    const PH = { Card: 'Terminal ref — e.g. T-88291', Juice: 'Juice ref — e.g. JU-55214', Bank: 'Transfer ref — e.g. MCB-2214' };
+    return {
+      open: true, ref: inv.ref, rem: this.fmt(t.rem),
+      methods: ['Cash', 'Card', 'Juice', 'Bank'].map(m => ({
+        label: m,
+        bg: P.method === m ? this.hexA(A, 0.14) : '#E8ECF1',
+        c: P.method === m ? A : '#5B6B7A',
+        ring: P.method === m ? '1.5px solid ' + this.hexA(A, 0.6) : '1.5px solid rgba(15,26,36,.08)',
+        pick: () => setP({ method: m, focus: m === 'Cash' ? P.focus : 'amount' })
+      })),
+      isCash, showRef: !isCash,
+      amount: 'Rs ' + (P.amountStr || '0'),
+      tender: 'Rs ' + (P.tenderStr || P.amountStr || '0'),
+      change: this.fmt(change),
+      amtRing: P.focus === 'amount' ? '1.5px solid ' + this.hexA(A, 0.65) : '1.5px solid rgba(15,26,36,.10)',
+      tenRing: P.focus === 'tender' ? '1.5px solid ' + this.hexA(A, 0.65) : '1.5px solid rgba(15,26,36,.10)',
+      focusAmt: () => setP({ focus: 'amount' }),
+      focusTen: () => setP({ focus: 'tender' }),
+      quick: [{ l: 'Exact', v: null }, { l: '200', v: 200 }, { l: '500', v: 500 }, { l: '1000', v: 1000 }, { l: '2000', v: 2000 }].map(q => ({
+        label: q.l,
+        set: () => setP({ tenderStr: q.v === null ? this.numStr(amt) : String(q.v), focus: 'tender' })
+      })),
+      refVal: P.refStr, setRef: e => setP({ refStr: e.target.value }),
+      refPh: PH[P.method] || 'Reference',
+      note: P.method === 'Cash' ? '' : 'Run the ' + (P.method === 'Bank' ? 'transfer' : 'payment') + ' on the bank terminal / app first — the POS records the reference only.',
+      pads: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map(k => ({
+        k, tap: () => {
+          const f = this.state.pay.focus;
+          if (f === 'tender') setP({ tenderStr: this.padEdit(this.state.pay.tenderStr, k) });
+          else setP({ amountStr: this.padEdit(this.state.pay.amountStr, k) });
+        }
+      })),
+      canRec: can,
+      recBg: can ? 'var(--ac,#0FBFA6)' : '#E8ECF1',
+      recC: can ? 'var(--ac-ink,#FFFFFF)' : '#8494A3',
+      recLabel: 'Record ' + this.fmt(amt),
+      close: () => setP({ open: false }),
+      record: () => {
+        if (!can) { this.tst(isCash && tender < amt ? 'Tendered is less than the amount' : 'Check the amount'); return; }
+        const by = this.stf(this.state.staffId).name.split(' ')[0];
+        inv.payments.push({ method: P.method, amt: Math.round(amt * 100) / 100, ref: P.refStr.trim(), time: this.hm(this.state.now), by });
+        const t2 = this.billTotals(inv);
+        let msg = P.method + ' ' + this.fmt(amt) + ' recorded';
+        if (t2.rem <= 0.004) {
+          inv.status = 'paid'; inv.paidAt = this.hm(this.state.now);
+          inv.lines.forEach(l => { if (l.kind === 'prod' && !l.adhoc) { const st = this.state.stock; st[l.refId] = Math.max(0, (st[l.refId] || 0) - l.qty); } });
+          const job = this.state.jobs.find(j => j.id === inv.jobId);
+          if (job) job.status = 'done';
+          msg = 'Paid in full' + (isCash && change > 0.004 ? ' — change ' + this.fmt(change) : '');
+          this.setState(x => ({ counterMode: false, jobs: [...x.jobs], stock: { ...x.stock } }));
+        } else {
+          msg += ' — ' + this.fmt(t2.rem) + ' remaining';
+        }
+        this.setState(x => ({ pay: { ...x.pay, open: false } }));
+        this.touchInv(); this.logQ(inv.ref + ' — ' + P.method + ' ' + this.fmt(amt)); this.tst(msg);
+      }
+    };
+  }
+  rvAdhoc() {
+    const s = this.state, A = this.A(), H = s.adhoc;
+    if (!H.open) return { open: false };
+    const setH = o => this.setState(x => ({ adhoc: { ...x.adhoc, ...o } }));
+    const price = parseFloat(H.priceStr) || 0;
+    const can = H.name.trim().length > 1 && price > 0;
+    const on = k => H.kind === k;
+    return {
+      open: true,
+      name: H.name, setName: e => setH({ name: e.target.value }),
+      setSvc: () => setH({ kind: 'svc' }), setProd: () => setH({ kind: 'prod' }),
+      svcBg: on('svc') ? this.hexA(A, 0.14) : '#E8ECF1', svcC: on('svc') ? A : '#5B6B7A', svcRing: on('svc') ? '1.5px solid ' + this.hexA(A, 0.6) : '1.5px solid rgba(15,26,36,.08)',
+      prodBg: on('prod') ? this.hexA(A, 0.14) : '#E8ECF1', prodC: on('prod') ? A : '#5B6B7A', prodRing: on('prod') ? '1.5px solid ' + this.hexA(A, 0.6) : '1.5px solid rgba(15,26,36,.08)',
+      price: 'Rs ' + (H.priceStr || '0'),
+      pads: ['1', '2', '3', '4', '5', '6', '7', '8', '9', '.', '0', '⌫'].map(k => ({ k, tap: () => setH({ priceStr: this.padEdit(this.state.adhoc.priceStr, k) }) })),
+      canAdd: can,
+      addBg: can ? 'var(--ac,#0FBFA6)' : '#E8ECF1', addC: can ? 'var(--ac-ink,#FFFFFF)' : '#8494A3',
+      close: () => setH({ open: false }),
+      add: () => {
+        if (!can) { this.tst('Enter a description and price'); return; }
+        const l = { lid: 'AH' + Date.now(), kind: H.kind, refId: null, name: H.name.trim(), price: Math.round(price * 100) / 100, qty: 1, disc: 0, adhoc: true };
+        if (H.target === 'quote') {
+          const q = s.quotes.find(x => x.id === s.activeQuoteId);
+          if (q) { q.lines.push(l); this.touchQuotes(); }
+        } else {
+          const inv = s.invoices.find(i => i.id === s.activeInvId);
+          if (inv && inv.status === 'unpaid') { inv.lines.push(l); this.touchInv(); }
+        }
+        setH({ open: false });
+        this.logQ('Ad-hoc line — ' + l.name); this.tst('Line added — ' + l.name);
+      }
+    };
+  }
+  rvStock() {
+    const s = this.state, A = this.A(), TH = this.props.lowStockThreshold ?? 4;
+    const tabs = ['All', ...this.PCATS];
+    const items = this.PRD.filter(p => s.stockTab === 'All' || p.cat === s.stockTab).map(p => {
+      const oh = s.stock[p.id] ?? 0;
+      const low = oh <= TH;
+      return {
+        name: p.name, cat: p.cat, price: this.fmt(p.price), onHand: oh, low,
+        ohC: oh === 0 ? '#D63A3A' : (low ? '#C17A00' : '#17202A'),
+        ring: low ? 'rgba(193,122,0,.35)' : 'rgba(15,26,36,.08)',
+        minus: () => { if (oh <= 0) return; this.setState(x => ({ stock: { ...x.stock, [p.id]: oh - 1 } })); this.logQ('Stock −1 · ' + p.name); },
+        plus: () => { this.setState(x => ({ stock: { ...x.stock, [p.id]: oh + 1 } })); this.logQ('Stock +1 · ' + p.name); },
+        openAdj: () => this.setState({ adj: { pid: p.id, delta: 0, reason: 'Received stock' } })
+      };
+    });
+    const lowCount = this.PRD.filter(p => (s.stock[p.id] ?? 0) <= TH).length;
+    const adj = s.adj;
+    const ap = adj ? this.PRD.find(p => p.id === adj.pid) : null;
+    const cur = ap ? (s.stock[ap.id] ?? 0) : 0;
+    const res = Math.max(0, cur + (adj ? adj.delta : 0));
+    return {
+      st: {
+        tabs: tabs.map(c => ({
+          label: c, bg: s.stockTab === c ? this.hexA(A, 0.13) : 'transparent',
+          c: s.stockTab === c ? A : '#5B6B7A',
+          ring: s.stockTab === c ? '1.5px solid ' + this.hexA(A, 0.5) : '1.5px solid rgba(15,26,36,.12)',
+          pick: () => this.setState({ stockTab: c })
+        })),
+        items, hasLow: lowCount > 0, lowNote: lowCount + ' low-stock item' + (lowCount > 1 ? 's' : ''),
+        adjOpen: !!adj,
+        adjName: ap ? ap.name + ' — on hand ' + cur : '',
+        adjDelta: adj ? (adj.delta > 0 ? '+' + adj.delta : String(adj.delta)) : '0',
+        adjDeltaC: adj && adj.delta > 0 ? '#1FA361' : (adj && adj.delta < 0 ? '#D63A3A' : '#5B6B7A'),
+        adjResult: '→ new on-hand ' + res,
+        adjMinus: () => this.setState(x => ({ adj: { ...x.adj, delta: Math.max(-cur, x.adj.delta - 1) } })),
+        adjPlus: () => this.setState(x => ({ adj: { ...x.adj, delta: x.adj.delta + 1 } })),
+        adjReasons: ['Received stock', 'Used in job', 'Damaged', 'Correction'].map(rr => ({
+          label: rr,
+          bg: adj && adj.reason === rr ? this.hexA(A, 0.13) : '#E8ECF1',
+          c: adj && adj.reason === rr ? A : '#5B6B7A',
+          ring: adj && adj.reason === rr ? '1.5px solid ' + this.hexA(A, 0.55) : '1.5px solid rgba(15,26,36,.08)',
+          pick: () => this.setState(x => ({ adj: { ...x.adj, reason: rr } }))
+        })),
+        adjClose: () => this.setState({ adj: null }),
+        adjApply: () => {
+          if (!ap) return;
+          this.setState(x => ({ stock: { ...x.stock, [ap.id]: res }, adj: null }));
+          this.logQ('Stock adjust · ' + ap.name + ' ' + (adj.delta > 0 ? '+' : '') + adj.delta + ' (' + adj.reason + ')');
+          this.tst(ap.name + ' → ' + res + ' on hand');
+        }
+      }
+    };
+  }
+  certUntil(c) { const d = new Date(c.appliedTs); d.setFullYear(d.getFullYear() + c.wy); return d.getTime(); }
+  rvCerts() {
+    const s = this.state, A = this.A(), DAY = 86400000;
+    const list = s.certs.map(c => ({
+      ref: c.ref, veh: c.veh, owner: c.owner, plate: c.plate,
+      until: this.dstr(this.certUntil(c)),
+      bg: s.activeCertId === c.id ? this.hexA(A, 0.09) : '#FFFFFF',
+      ring: s.activeCertId === c.id ? '1.5px solid ' + this.hexA(A, 0.6) : '1.5px solid rgba(15,26,36,.08)',
+      pick: () => this.setState({ activeCertId: c.id })
+    }));
+    const rem = s.certs.map(c => {
+      let t = c.appliedTs;
+      const until = this.certUntil(c);
+      while (t <= s.now && t < until) t += 182.5 * DAY;
+      const days = Math.ceil((t - s.now) / DAY);
+      return { c, t, days };
+    }).filter(x => x.t < this.certUntil(x.c)).sort((a, b) => a.days - b.days).map(({ c, t, days }) => ({
+      due: days <= 30 ? 'in ' + days + ' d' : 'in ' + Math.round(days / 30) + ' mo',
+      chipBg: days <= 30 ? 'rgba(193,122,0,.15)' : '#E8ECF1',
+      chipC: days <= 30 ? '#C17A00' : '#5B6B7A',
+      who: c.owner + ' · ' + c.veh,
+      label: 'Ceramic maintenance wash · ' + c.ref + ' · ' + this.dstr(t),
+      book: () => { this.logQ('Maintenance booked · ' + c.ref); this.tst('Maintenance wash booked — ' + c.owner.split(' ')[0]); }
+    }));
+    const c = s.certs.find(x => x.id === s.activeCertId);
+    let d = { sched: [] };
+    if (c) {
+      const until = this.certUntil(c);
+      const sched = [];
+      let t = c.appliedTs + 182.5 * DAY, n = 1, markedDue = false;
+      while (t < until && sched.length < 5) {
+        const past = t <= s.now;
+        const isDue = !past && !markedDue;
+        if (isDue) markedDue = true;
+        sched.push({
+          label: 'Maintenance wash ' + n,
+          date: this.dstr(t),
+          mark: past ? '✓' : '',
+          dotBg: past ? '#1FA361' : (isDue ? 'var(--ac,#0FBFA6)' : 'transparent'),
+          dotRing: past ? '#1FA361' : (isDue ? 'var(--ac,#0FBFA6)' : 'rgba(255,255,255,.2)'),
+          c: past ? '#8494A3' : (isDue ? '#17202A' : '#5B6B7A')
+        });
+        t += 182.5 * DAY; n += 1;
+      }
+      d = {
+        studio: this.props.studioName ?? 'Apex Detail Studio',
+        ref: c.ref, veh: c.veh, plate: c.plate, owner: c.owner, colour: c.colour,
+        product: c.product, by: c.by, applied: this.dstr(c.appliedTs),
+        until: this.dstr(until), term: c.wy + ' years',
+        jobRef: 'Issued against ' + c.jobRef + '.',
+        sched,
+        maint: () => { this.logQ('Maintenance booked · ' + c.ref); this.tst('Maintenance wash booked'); }
+      };
+    }
+    return { ce: { list, rem, has: !!c, d } };
+  }
+  rvDash() {
+    const s = this.state;
+    const paidInv = s.invoices.filter(i => i.status === 'paid');
+    const turnover = paidInv.reduce((a, i) => a + this.billTotals(i).total, 0);
+    const outstanding = s.invoices.filter(i => i.status === 'unpaid').reduce((a, i) => a + this.billTotals(i).rem, 0);
+    const jobsDone = s.jobs.filter(j => j.status === 'done').length;
+    const kf = n => n >= 1000 ? 'Rs ' + (Math.round(n / 100) / 10) + 'k' : 'Rs ' + Math.round(n);
+    const base = [{ l: 'Fri', v: 38400 }, { l: 'Sat', v: 91200 }, { l: 'Sun', v: 24600 }, { l: 'Mon', v: 52800 }, { l: 'Tue', v: 47200 }, { l: 'Wed', v: 68400 }, { l: 'Today', v: turnover }];
+    const max = Math.max(...base.map(b => b.v), 1);
+    const bars = base.map((b, i) => ({
+      label: b.l, val: kf(b.v),
+      h: Math.max(3, Math.round(b.v / max * 100)),
+      bg: i === 6 ? 'linear-gradient(180deg,var(--ac,#0FBFA6),#0E8F7C)' : '#DDE4EB',
+      c: i === 6 ? 'var(--ac,#0FBFA6)' : '#8494A3'
+    }));
+    const week = { 'Diamondbrite Ceramic — 5 yr': 57000, 'PPF — Front End Package': 58000, 'Signature Full Detail': 23400, '3-Stage Machine Polish': 25000, 'Window Tint — Full Car': 17000 };
+    paidInv.forEach(i => i.lines.forEach(l => { if (l.kind === 'svc') week[l.name] = (week[l.name] || 0) + this.lineTotal(l); }));
+    const tops = Object.entries(week).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    const tmax = tops.length ? tops[0][1] : 1;
+    const top = tops.map(([name, v]) => ({ name, val: kf(v), pct: Math.max(4, Math.round(v / tmax * 100)) }));
+    const techs = this.STAFF.filter(u => u.tech).map(u => {
+      const jz = s.jobs.filter(j => j.techId === u.id);
+      const done = jz.filter(j => j.status === 'done').length;
+      const secs = jz.reduce((a, j) => a + this.elapsed(j), 0);
+      const rev = paidInv.filter(i => i.techId === u.id).reduce((a, i) => a + this.billTotals(i).total, 0);
+      return { u, done, secs, rev };
+    });
+    const rmax = Math.max(...techs.map(t => t.rev), 1);
+    const mixMap = {};
+    paidInv.forEach(i => i.payments.forEach(p => { mixMap[p.method] = (mixMap[p.method] || 0) + p.amt; }));
+    const mtot = Object.values(mixMap).reduce((a, b) => a + b, 0) || 1;
+    const MC = { Cash: '#1FA361', Card: '#2A6FDB', Juice: '#C17A00', Bank: '#7C5CE8' };
+    const mix = ['Cash', 'Card', 'Juice', 'Bank'].map(m => ({
+      label: m === 'Juice' ? 'Juice (MCB)' : (m === 'Bank' ? 'Bank transfer' : m),
+      val: this.fmt(mixMap[m] || 0),
+      pct: Math.round((mixMap[m] || 0) / mtot * 100),
+      color: MC[m]
+    }));
+    return {
+      da: {
+        sub: 'Live — updates as sales are recorded',
+        kpis: [
+          { label: 'TURNOVER TODAY', val: this.fmt(turnover), sub: paidInv.length + ' payments settled', c: 'var(--ac,#0FBFA6)' },
+          { label: 'GROSS PROFIT (EST.)', val: this.fmt(Math.round(turnover * 0.62)), sub: 'est. 62% blended margin', c: '#17202A' },
+          { label: 'OUTSTANDING', val: this.fmt(outstanding), sub: s.invoices.filter(i => i.status === 'unpaid').length + ' unpaid invoices', c: outstanding > 0 ? '#C17A00' : '#17202A' },
+          { label: 'JOBS COMPLETED', val: String(jobsDone), sub: s.jobs.filter(j => j.status === 'prog').length + ' in progress now', c: '#17202A' }
+        ],
+        bars, top,
+        techs: techs.map(({ u, done, secs, rev }) => ({
+          init: u.init, color: u.color, name: u.name.split(' ')[0],
+          jobs: done + (done === 1 ? ' job done' : ' jobs done'),
+          hours: (Math.round(secs / 360) / 10) + ' h',
+          rev: this.fmt(rev),
+          pct: Math.max(2, Math.round(rev / rmax * 100))
+        })),
+        mix
+      }
+    };
+  }
+  // __MORE__
+}
+</script>
+</body>
+</html>
