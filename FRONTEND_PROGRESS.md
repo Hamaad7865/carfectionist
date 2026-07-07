@@ -49,7 +49,15 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   stock_on_hand view + products; adjustments are direct stock_movements inserts (ref_type='adjustment',
   owner/manager per RLS). Verified on tablet: grid renders 451 products / 35 categories, ±1 quick adjust
   (1→2) and modal apply (+2, "Received stock") both persist to the DB (on-hand 1→4). *(deviations below)*
-- [ ] **Certificates & warranty** — ceramic certificate viewer + maintenance schedule.
+- [x] **Certificates & warranty** — 44/56 split: left = issued-certificate list (gradient ✓ avatar, vehicle,
+  ref · owner, plate + "to {expiry}", tap to select) + UPCOMING MAINTENANCE reminders (due chip, who,
+  wash · ref · date, Book) ; right = the big **Certificate of Ceramic Protection** card with a 3-colour
+  gradient border — ✓ crest, studio line, ref, VEHICLE / REGISTRATION / OWNER / COLOUR / PRODUCT APPLIED /
+  APPLIED BY grid, accent WARRANTY VALID UNTIL + TERM box, and a maintenance schedule (every 6 months,
+  past ✓ green / due teal / future hollow) + Book maintenance. Real certificates via `fetchCertificates`
+  (customer/vehicle/product/applied-by embeds); schedule computed client-side. Verified on tablet: two
+  seeded certs, list selection swaps the card, and the past/due/future maintenance states render correctly
+  (CERT-0001 wash 1 done ✓, wash 2 due). *(deviations below)*
 - [ ] **Today / Dashboard** — KPIs, 7-day turnover bars, best sellers, technicians, payment mix.
 
 ## Deviations (permitted only when forced by real functionality — each justified)
@@ -116,6 +124,16 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
 - **Bug fixed (serialization):** kotlinx.serialization omits default-valued fields, which dropped
   `ref_type` from the adjustment insert → the row failed the RLS `ref_type='adjustment'` check. Fixed by
   making `NewStockMovementDto.refType` a required (non-default) field so it is always serialized.
+- **Certificates: the maintenance schedule + reminders are computed client-side** (every 6 months from
+  `applied_at`, capped at 5, past/due/future by today's date), matching the handoff's own computation —
+  the `maintenance_reminders` table is not queried.
+- **Certificates: "Book" / "Book maintenance" are stubs** (toast) — they don't yet insert a
+  `maintenance_reminders` row; the booking flow is a later milestone.
+- **Certificates: this screen is the VIEWER** — certificates are issued from checkout after a ceramic job
+  is paid (per the header), and the POS doesn't yet have an issue-certificate flow. Studio name is
+  hardcoded "Carfectionist" (handoff uses `props.studioName`). Empty-state message shown when none exist.
+- **Data (verification):** seeded 2 certificates — CERT-0001 (3-year, applied 6 months ago → one past +
+  one due wash) and CERT-0002 (5-year) — against the delivered/ready seeded jobs.
 
 ## Build order
 App shell first (navigation foundation) → Intake → Quote → Jobs → Stock → Certificates → Dashboard.

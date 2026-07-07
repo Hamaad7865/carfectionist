@@ -80,6 +80,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    // ── Certificates ──────────────────────────────────────────────────────────────
+    suspend fun fetchCertificates(): List<CertificateDto> =
+        client.postgrest.from("certificates")
+            .select(Columns.raw("id, number, applied_at, warranty_months, expires_at, notes, job_id, customers(name), vehicles(plate, make, model, color), products(name), applied_by:app_users!certificates_created_by_fkey(display_name)")) {
+                order("applied_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            }
+            .decodeList()
+
     // ── Stock ─────────────────────────────────────────────────────────────────────
     suspend fun fetchStockProducts(): List<StockProductDto> =
         client.postgrest.from("products")

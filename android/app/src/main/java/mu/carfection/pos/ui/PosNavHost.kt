@@ -18,6 +18,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.feature.counter.CounterScreen
+import mu.carfection.pos.feature.cert.CertScreen
 import mu.carfection.pos.feature.intake.IntakeScreen
 import mu.carfection.pos.feature.jobs.JobsScreen
 import mu.carfection.pos.feature.login.LoginScreen
@@ -60,6 +61,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                     PosTab.QUOTE -> QuoteScreen(onGoIntake = { tab = PosTab.INTAKE })
                     PosTab.JOBS -> JobsScreen(onGoIntake = { tab = PosTab.INTAKE }, onGoCheckout = { tab = PosTab.SALE })
                     PosTab.STOCK -> StockScreen()
+                    PosTab.CERT -> CertScreen()
                     else -> PlaceholderScreen(tab)
                 }
             }

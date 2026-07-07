@@ -112,6 +112,24 @@ data class JobBoardDto(
     val technician: JobTechDto? = null,
 )
 
+// ── Certificates & warranty ───────────────────────────────────────────────────
+@Serializable data class CertProductDto(val name: String? = null)
+
+@Serializable
+data class CertificateDto(
+    val id: String,
+    val number: String,
+    @SerialName("applied_at") val appliedAt: String,
+    @SerialName("warranty_months") val warrantyMonths: Int,
+    @SerialName("expires_at") val expiresAt: String,
+    val notes: String? = null,
+    @SerialName("job_id") val jobId: String? = null,
+    val customers: JobCustomerDto? = null,
+    val vehicles: JobVehicleDto? = null,
+    val products: CertProductDto? = null,
+    @SerialName("applied_by") val appliedBy: JobTechDto? = null,
+)
+
 // ── Stock ─────────────────────────────────────────────────────────────────────
 @Serializable
 data class StockProductDto(
