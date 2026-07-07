@@ -67,6 +67,7 @@ class LoginViewModel @Inject constructor(
                 catalog.refresh() // warm the offline cache immediately
                 _state.value = LoginUiState()
             } catch (e: Exception) {
+                android.util.Log.e("POSREFRESH", "signIn/refresh failed", e)
                 _state.value = LoginUiState(error = e.message ?: "Sign-in failed")
             }
         }

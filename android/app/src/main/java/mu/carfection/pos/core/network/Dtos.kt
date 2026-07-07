@@ -14,8 +14,8 @@ data class ProductDto(
     val id: String,
     val name: String,
     val kind: String,
-    @SerialName("selling_price") val sellingPrice: Double,
-    @SerialName("vat_rate") val vatRate: Double? = null,
+    @SerialName("selling_price") val sellingPrice: FlexDouble,
+    @SerialName("vat_rate") val vatRate: FlexDouble? = null,
     val barcode: String? = null,
     @SerialName("is_stocked") val isStocked: Boolean = false,
 )
@@ -30,7 +30,7 @@ data class CustomerDto(
 @Serializable
 data class BusinessSettingsDto(
     val id: String, // tenant id
-    @SerialName("vat_rate") val vatRate: Double,
+    @SerialName("vat_rate") val vatRate: FlexDouble,
     @SerialName("trading_name") val tradingName: String? = null,
 )
 
@@ -40,15 +40,15 @@ data class DocumentDto(
     val number: String? = null,
     val status: String,
     @SerialName("doc_type") val docType: String,
-    @SerialName("total_incl") val totalIncl: Double = 0.0,
-    @SerialName("amount_paid") val amountPaid: Double = 0.0,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
 )
 
 @Serializable
 data class PaymentDto(
     val id: String,
-    val amount: Double,
-    @SerialName("change_given") val changeGiven: Double? = null,
+    val amount: FlexDouble,
+    @SerialName("change_given") val changeGiven: FlexDouble? = null,
 )
 
 @Serializable
@@ -56,11 +56,11 @@ data class CashSessionDto(
     val id: String,
     val status: String,
     @SerialName("device_id") val deviceId: String? = null,
-    @SerialName("opening_float") val openingFloat: Double = 0.0,
+    @SerialName("opening_float") val openingFloat: FlexDouble = 0.0,
     @SerialName("opened_at") val openedAt: String? = null,
-    @SerialName("closing_count") val closingCount: Double? = null,
-    @SerialName("expected_cash") val expectedCash: Double? = null,
-    val variance: Double? = null,
+    @SerialName("closing_count") val closingCount: FlexDouble? = null,
+    @SerialName("expected_cash") val expectedCash: FlexDouble? = null,
+    val variance: FlexDouble? = null,
 )
 
 /** Insert payload for a walk-in customer (RLS scopes the tenant). */
