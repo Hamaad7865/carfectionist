@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, UserPlus } from "lucide-react";
+import { Plus, UserPlus, KeyRound } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
-import { createStaffAction, setRoleAction, setActiveAction } from "./team-actions";
+import { createStaffAction, setRoleAction, setActiveAction, setStaffPinAction, clearStaffPinAction } from "./team-actions";
 import type { TeamMember } from "@/lib/supabase/queries/settings";
 
 const ROLES = ["owner", "manager", "cashier", "technician", "accountant"] as const;
@@ -16,21 +16,29 @@ function initials(name: string) {
   return ((p.length > 1 ? p[0][0] + p[1][0] : name.slice(0, 2)) || "?").toUpperCase();
 }
 
+const GRID = "grid-cols-[1fr_140px_108px_120px_92px]";
+
 export function TeamPanel({ members, canManage }: { members: TeamMember[]; canManage: boolean }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rowError, setRowError] = useState<string | null>(null);
-  const [f, setF] = useState({ displayName: "", email: "", password: "", role: "cashier" as (typeof ROLES)[number] });
+  const [f, setF] = useState({ displayName: "", email: "", password: "", role: "cashier" as (typeof ROLES)[number], pin: "" });
   const set = (k: keyof typeof f) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setF((s) => ({ ...s, [k]: e.target.value }));
+
+  // per-row PIN editor
+  const [pinFor, setPinFor] = useState<TeamMember | null>(null);
+  const [pinDraft, setPinDraft] = useState("");
+  const [pinBusy, setPinBusy] = useState(false);
+  const [pinError, setPinError] = useState<string | null>(null);
 
   async function create() {
     setError(null);
     setBusy(true);
     const r = await createStaffAction(f);
     setBusy(false);
-    if (r.ok) { setOpen(false); setF({ displayName: "", email: "", password: "", role: "cashier" }); router.refresh(); }
+    if (r.ok) { setOpen(false); setF({ displayName: "", email: "", password: "", role: "cashier", pin: "" }); router.refresh(); }
     else setError(r.error);
   }
   async function changeRole(id: string, role: string) {
@@ -42,6 +50,22 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
     setRowError(null);
     const r = await setActiveAction(id, active);
     if (r.ok) router.refresh(); else setRowError(r.error);
+  }
+  function openPin(m: TeamMember) { setPinFor(m); setPinDraft(""); setPinError(null); }
+  async function savePin() {
+    if (!pinFor) return;
+    setPinError(null);
+    setPinBusy(true);
+    const r = await setStaffPinAction({ id: pinFor.id, pin: pinDraft });
+    setPinBusy(false);
+    if (r.ok) { setPinFor(null); router.refresh(); } else setPinError(r.error);
+  }
+  async function clearPin() {
+    if (!pinFor) return;
+    setPinBusy(true);
+    const r = await clearStaffPinAction(pinFor.id);
+    setPinBusy(false);
+    if (r.ok) { setPinFor(null); router.refresh(); } else setPinError(r.error);
   }
 
   return (
@@ -57,11 +81,11 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
       {rowError && <FormError error={rowError} />}
 
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-        <div className="grid grid-cols-[1fr_150px_130px_90px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
-          <span>Member</span><span>Role</span><span>Status</span><span className="text-right"> </span>
+        <div className={`grid ${GRID} gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint`}>
+          <span>Member</span><span>Role</span><span>Status</span><span>Tablet PIN</span><span className="text-right"> </span>
         </div>
         {members.map((m) => (
-          <div key={m.id} className={`grid grid-cols-[1fr_150px_130px_90px] items-center gap-3 border-b border-line px-5 py-3 ${m.active ? "" : "opacity-55"}`}>
+          <div key={m.id} className={`grid ${GRID} items-center gap-3 border-b border-line px-5 py-3 ${m.active ? "" : "opacity-55"}`}>
             <div className="flex items-center gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-[#3f5065]" style={{ background: "linear-gradient(140deg,#e5eaf1,#d2dae4)" }}>{initials(m.name)}</span>
               <div className="min-w-0">
@@ -80,6 +104,16 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
               <span className={`inline-block rounded-full px-2.5 py-1 text-[10.5px] font-bold ${m.active ? "bg-[rgba(13,167,124,0.14)] text-mint" : "bg-[rgba(140,150,161,0.16)] text-muted"}`}>
                 {m.active ? "Active" : "Inactive"}
               </span>
+            </span>
+            <span>
+              {canManage ? (
+                <button onClick={() => openPin(m)} className="inline-flex items-center gap-1.5 rounded-[8px] border border-line-2 bg-sub px-2.5 py-1.5 text-[11.5px] font-semibold text-body hover:border-brand">
+                  <KeyRound size={13} className={m.hasPin ? "text-mint" : "text-faint"} />
+                  {m.hasPin ? "•••• Change" : "Set PIN"}
+                </button>
+              ) : (
+                <span className="text-[11.5px] text-muted">{m.hasPin ? "Set" : "—"}</span>
+              )}
             </span>
             <span className="text-right">
               {canManage && !m.isSelf && (
@@ -118,6 +152,44 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
               </select>
             </Field>
           </div>
+          <Field label="Tablet PIN" hint="Optional · 4 digits for the POS tablet login">
+            <input className={inputCls} value={f.pin} onChange={set("pin")} inputMode="numeric" maxLength={4} placeholder="e.g. 4821" />
+          </Field>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!pinFor}
+        onClose={() => setPinFor(null)}
+        title={pinFor ? `Tablet PIN — ${pinFor.name}` : "Tablet PIN"}
+        subtitle="The 4-digit code this person taps in on the POS tablet."
+        footer={
+          <div className="flex items-center justify-between gap-2">
+            {pinFor?.hasPin ? (
+              <button onClick={clearPin} disabled={pinBusy} className="text-[12.5px] font-semibold text-rose hover:underline disabled:opacity-50">Remove PIN</button>
+            ) : <span />}
+            <div className="flex gap-2">
+              <button onClick={() => setPinFor(null)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
+              <button onClick={savePin} disabled={pinBusy || !/^[0-9]{4}$/.test(pinDraft)} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center gap-1.5 rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-50">
+                <KeyRound size={15} /> {pinBusy ? "Saving…" : "Save PIN"}
+              </button>
+            </div>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <FormError error={pinError} />
+          <Field label="4-digit PIN">
+            <input
+              className={`${inputCls} num text-center text-[22px] tracking-[0.5em]`}
+              value={pinDraft}
+              onChange={(e) => setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              inputMode="numeric"
+              maxLength={4}
+              autoFocus
+              placeholder="••••"
+            />
+          </Field>
         </div>
       </Modal>
     </div>
