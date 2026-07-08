@@ -47,8 +47,17 @@ Convention mirrors FRONTEND_PROGRESS.md: build → verify on emulator-5554 → c
 - [DEFERRED] **6 · Role-based UI gating** — the Android auth model is mid-change to staff name+PIN (backend
   landed 2026-07-08, commit `2e4d1df`); role→tab policy + verification depend on that login. Revisit when
   the PIN login lands on Android so roles are real and testable (can't verify while signed in as sole owner).
-- [ ] **7 · Offline outbox + sync** — the literal "in sync": queue writes locally, drain via WorkManager,
-  extend the Room cache to all read screens with delta cursors. Large; the idempotent RPCs already support it.
+- [~] **7 · Offline outbox + connectivity**
+  - [x] **ConnectivityObserver** — app-wide validated-internet `StateFlow<Boolean>`; the header sync pill
+    now shows **Online / Offline / "Syncing N"** for real. Verified on tablet (airplane-mode toggle).
+  - [x] **Durable outbox** — separate Room DB (never destructively wiped), FIFO drain on enqueue + on every
+    reconnect, dead-letters a poisoned op after 5 attempts. **Only idempotent UPDATEs go through it**
+    (technician assignment, checklist) so at-least-once replay is safe. Stock movements (append → would
+    double-count) and the money path (needs a server number) stay online-only by design.
+    Enqueue/drain against live jobs pending the DB reseed (jobs=0 right now).
+  - [ ] **WorkManager background drain** — current drain runs while the app is alive; a WorkManager job would
+    flush after the process is killed. Follow-up hardening.
+  - [ ] **Delta-cursor read cache** for all list screens (currently full-refresh-on-entry, which is fine).
 
 ## Ready-to-run, hardware-gated (code written, verified on device later)
 - [ ] **Receipt printer (ESC/POS) + cash-drawer kick** transport behind the existing `ReceiptPrinter`/
