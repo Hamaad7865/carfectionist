@@ -19,6 +19,8 @@ export default async function NewDocumentPage({
     customerId: null,
     revision: 0,
     lines: [],
+    docDiscountKind: null,
+    docDiscountValue: 0,
     sectionConfig: ctx.templateConfig,
     customFields: [],
     dirty: false,

@@ -49,7 +49,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       if (s.status !== "draft") return serverRef.current.docId; // never save an issued document
       dispatch({ type: "saveStart" });
       const payload: SaveDraftInput = {
-        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown> },
+        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue },
         lines: s.lines.map((l) => ({
           productId: l.productId,
           title: l.title,
@@ -57,6 +57,8 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
           qty: l.qty,
           unitCents: l.unitCents,
           discountPct: l.discountPct,
+          discountKind: l.discountKind,
+          discountAmountCents: l.discountAmountCents,
           vatRatePct: l.vatRatePct,
         })),
         expectedRev: serverRef.current.docId ? serverRef.current.revision : null,
@@ -80,7 +82,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (state.status !== "draft" || !state.dirty) return;
     const t = setTimeout(() => void doSave(), 1200);
     return () => clearTimeout(t);
-  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.status, doSave]);
+  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.status, state.docDiscountKind, state.docDiscountValue, doSave]);
 
   async function onIssue() {
     const s = stateRef.current;
@@ -107,7 +109,10 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     else dispatch({ type: "saveError", error: res.error });
   }
 
-  const totals = computeTotals(state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, vatRatePct: l.vatRatePct })));
+  const totals = computeTotals(
+    state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct })),
+    state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null,
+  );
 
   // Render the A4 markup only when the document changes; zoom is a cheap wrapper
   // applied on top, so dragging the zoom control never re-runs renderToStaticMarkup.
@@ -157,7 +162,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   function addAdhoc() {
     const cents = parseMoneyInput(adPrice) ?? 0;
     if (!adName.trim()) return;
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, vatRatePct: 15 } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 } });
     setAdName("");
     setAdPrice("");
   }
@@ -295,7 +300,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                       <button
                         key={p.id}
                         onClick={() => {
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", qty: 1, unitCents: p.unitCents, discountPct: 0, vatRatePct: p.vatRatePct } });
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -326,7 +331,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             ) : (
               <div className="flex flex-col gap-2">
                 {state.lines.map((l) => {
-                  const net = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, vatRatePct: l.vatRatePct }).exclCents;
+                  const net = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct }).exclCents;
                   return (
                     <div key={l.key} className="flex items-center gap-2.5 rounded-[11px] border border-line bg-card px-3 py-2.5">
                       <div className="min-w-0 flex-1">
@@ -339,6 +344,27 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                       >
                         VAT
                       </button>
+                      {!readOnly && (
+                        <div className="flex items-center rounded-[7px] border border-line-2 bg-sub" title="Line discount (% or Rs off)">
+                          <button
+                            onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 } })}
+                            className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint"
+                          >
+                            {l.discountKind === "amount" ? "Rs" : "%"}
+                          </button>
+                          <input
+                            value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")}
+                            onChange={(e) =>
+                              l.discountKind === "amount"
+                                ? dispatch({ type: "patchLine", key: l.key, patch: { discountAmountCents: parseMoneyInput(e.target.value) ?? 0 } })
+                                : dispatch({ type: "patchLine", key: l.key, patch: { discountPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) } })
+                            }
+                            inputMode="decimal"
+                            placeholder="disc"
+                            className="h-7 w-11 bg-transparent pr-1.5 text-right text-[11px] text-body outline-none placeholder:text-faint"
+                          />
+                        </div>
+                      )}
                       {!readOnly && (
                         <div className="flex items-center gap-1.5">
                           <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: Math.max(1, l.qty - 1) } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-[#e9edf3] text-[14px] font-bold text-body">−</button>
@@ -421,7 +447,34 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
 
           {/* totals */}
           <div className="ml-auto w-64 border-t border-line pt-4 text-[13px]">
-            <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(totals.subtotalCents)}</span></div>
+            {!readOnly && (
+              <div className="mb-2 flex items-center gap-2">
+                <span className="flex-1 text-muted">Discount (whole {state.docType})</span>
+                <div className="flex items-center rounded-[8px] border border-line-2 bg-sub" title="Order discount (% or Rs off the total)">
+                  <button
+                    onClick={() => dispatch({ type: "setDocDiscount", kind: (state.docDiscountKind ?? "percent") === "amount" ? "percent" : "amount", value: 0 })}
+                    className="grid h-8 w-7 place-items-center text-[11px] font-bold text-faint"
+                  >
+                    {state.docDiscountKind === "amount" ? "Rs" : "%"}
+                  </button>
+                  <input
+                    value={state.docDiscountKind === "amount" ? (state.docDiscountValue ? String(state.docDiscountValue / 100) : "") : (state.docDiscountValue || "")}
+                    onChange={(e) =>
+                      (state.docDiscountKind ?? "percent") === "amount"
+                        ? dispatch({ type: "setDocDiscount", kind: "amount", value: parseMoneyInput(e.target.value) ?? 0 })
+                        : dispatch({ type: "setDocDiscount", kind: "percent", value: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })
+                    }
+                    inputMode="decimal"
+                    placeholder="0"
+                    className="h-8 w-16 bg-transparent px-2 text-right text-[12.5px] text-body outline-none placeholder:text-faint"
+                  />
+                </div>
+              </div>
+            )}
+            <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(totals.grossSubtotalCents)}</span></div>
+            {totals.grossSubtotalCents !== totals.subtotalCents && (
+              <div className="flex justify-between py-1 text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(totals.grossSubtotalCents - totals.subtotalCents)}</span></div>
+            )}
             <div className="flex justify-between py-1 text-muted"><span>VAT (15%)</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
             <div className="mt-1 flex justify-between rounded-[10px] bg-sub px-3 py-2 font-bold"><span className="text-ink">Total (MUR)</span><span className="num text-brand">{formatMUR(totals.totalCents)}</span></div>
           </div>

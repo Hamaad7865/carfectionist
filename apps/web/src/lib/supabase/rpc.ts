@@ -16,6 +16,8 @@ export interface RpcDraftLine {
   qty: number;
   unit_price: number; // rupees
   discount_pct: number;
+  discount_kind: "percent" | "amount";
+  discount_amount: number; // rupees, VAT-inclusive
   vat_rate: number; // percent
   sort_order: number;
 }
@@ -30,6 +32,8 @@ export interface RpcDraftDoc {
   valid_until: string | null;
   due_date: string | null;
   origin: "standalone" | "from_job";
+  discount_kind: "percent" | "amount" | null;
+  discount_value: number; // percent 0..100, or rupees (VAT-inclusive) for 'amount'
 }
 
 export interface DocumentRow {

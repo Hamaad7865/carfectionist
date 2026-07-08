@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, Minus, Plus, X, Check } from "lucide-react";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
-import { formatMUR, computeTotals, parseMoneyInput } from "@/lib/money";
+import { formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
 import { counterSaleAction, type CounterResult } from "./actions";
 
 const KIND_LABEL: Record<string, string> = { service: "Service", consumable: "Consumable", product: "Product" };
@@ -18,13 +18,15 @@ const METHODS = [
 ] as const;
 type Method = (typeof METHODS)[number]["key"];
 
-interface CartLine { product: CounterProduct; qty: number }
+interface CartLine { product: CounterProduct; qty: number; discountKind?: "percent" | "amount"; discountPct?: number; discountAmountCents?: number }
 
 export function CounterSale({ products, customers }: { products: CounterProduct[]; customers: { id: string; name: string }[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
+  const [orderDiscKind, setOrderDiscKind] = useState<"percent" | "amount" | null>(null);
+  const [orderDiscValue, setOrderDiscValue] = useState(0);
   const [customer, setCustomer] = useState("");
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [method, setMethod] = useState<Method>("cash");
@@ -51,8 +53,11 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   }, [q, cat, products]);
 
   const totals = useMemo(
-    () => computeTotals(cart.map((l) => ({ qty: l.qty, unitCents: l.product.priceCents, vatRatePct: l.product.vatRate }))),
-    [cart],
+    () => computeTotals(
+      cart.map((l) => ({ qty: l.qty, unitCents: l.product.priceCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.product.vatRate })),
+      orderDiscKind ? { kind: orderDiscKind, value: orderDiscValue } : null,
+    ),
+    [cart, orderDiscKind, orderDiscValue],
   );
 
   const custMatches = useMemo(() => {
@@ -70,6 +75,9 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   function setQty(id: string, qty: number) {
     setCart((c) => (qty <= 0 ? c.filter((l) => l.product.id !== id) : c.map((l) => (l.product.id === id ? { ...l, qty } : l))));
   }
+  function patchLine(id: string, patch: Partial<CartLine>) {
+    setCart((c) => c.map((l) => (l.product.id === id ? { ...l, ...patch } : l)));
+  }
 
   const tenderCents = parseMoneyInput(tender);
   const changeCents = method === "cash" && tenderCents != null ? tenderCents - totals.totalCents : null;
@@ -83,7 +91,9 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
     const r = await counterSaleAction({
       customerId: customerId ?? undefined,
       customerName: customer.trim() || undefined,
-      lines: cart.map((l) => ({ productId: l.product.id, qty: l.qty })),
+      lines: cart.map((l) => ({ productId: l.product.id, qty: l.qty, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents })),
+      orderDiscountKind: orderDiscKind,
+      orderDiscountValue: orderDiscValue,
       method,
       tenderedCents: method === "cash" ? tenderCents : null,
       externalRef: method === "cash" ? undefined : ref,
@@ -212,7 +222,9 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           {cart.length === 0 ? (
             <div className="py-12 text-center text-[13px] text-faint">Tap products to build the sale.</div>
           ) : (
-            cart.map((l) => (
+            cart.map((l) => {
+              const lt = computeLineTotals({ qty: l.qty, unitCents: l.product.priceCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.product.vatRate });
+              return (
               <div key={l.product.id} className="flex items-center gap-2 border-b border-line py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12.5px] font-semibold text-body">{l.product.name}</div>
@@ -223,15 +235,36 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
                   <span className="num w-6 text-center text-[13px] font-bold text-ink">{l.qty}</span>
                   <button onClick={() => setQty(l.product.id, l.qty + 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body"><Plus size={13} /></button>
                 </div>
-                <span className="num w-[84px] text-right text-[13px] font-bold text-ink">{formatMUR(Math.round(l.product.priceCents * l.qty))}</span>
+                <div className="flex items-center rounded-[7px] border border-line-2 bg-sub" title="Line discount (% or Rs off)">
+                  <button onClick={() => patchLine(l.product.id, { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 })} className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint">{l.discountKind === "amount" ? "Rs" : "%"}</button>
+                  <input value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")} onChange={(e) => l.discountKind === "amount" ? patchLine(l.product.id, { discountAmountCents: parseMoneyInput(e.target.value) ?? 0 }) : patchLine(l.product.id, { discountPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })} inputMode="decimal" placeholder="disc" className="h-7 w-10 bg-transparent pr-1 text-right text-[11px] text-body outline-none placeholder:text-faint" />
+                </div>
+                <span className="num w-[84px] text-right text-[13px] font-bold text-ink">{formatMUR(lt.exclCents)}</span>
                 <button onClick={() => setQty(l.product.id, 0)} className="text-faint hover:text-rose"><X size={15} /></button>
               </div>
-            ))
+              );
+            })
           )}
         </div>
 
         <div className="border-t border-line px-4 py-3">
-          <div className="flex justify-between text-[12.5px] text-muted"><span>Subtotal</span><span className="num">{formatMUR(totals.subtotalCents)}</span></div>
+          <div className="mb-2 flex items-center gap-2">
+            <span className="flex-1 text-[12.5px] text-muted">Discount (whole sale)</span>
+            <div className="flex items-center rounded-[8px] border border-line-2 bg-sub" title="Order discount (% or Rs off the total)">
+              <button onClick={() => { setOrderDiscKind((orderDiscKind ?? "percent") === "amount" ? "percent" : "amount"); setOrderDiscValue(0); }} className="grid h-8 w-7 place-items-center text-[11px] font-bold text-faint">{orderDiscKind === "amount" ? "Rs" : "%"}</button>
+              <input
+                value={orderDiscKind === "amount" ? (orderDiscValue ? String(orderDiscValue / 100) : "") : (orderDiscValue || "")}
+                onChange={(e) => (orderDiscKind ?? "percent") === "amount" ? (() => { const c = parseMoneyInput(e.target.value) ?? 0; setOrderDiscKind(c > 0 ? "amount" : null); setOrderDiscValue(c); })() : (() => { const pct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)); setOrderDiscKind(pct > 0 ? "percent" : null); setOrderDiscValue(pct); })()}
+                inputMode="decimal"
+                placeholder="0"
+                className="h-8 w-16 bg-transparent px-2 text-right text-[13px] text-body outline-none placeholder:text-faint"
+              />
+            </div>
+          </div>
+          <div className="flex justify-between text-[12.5px] text-muted"><span>Subtotal</span><span className="num">{formatMUR(totals.grossSubtotalCents)}</span></div>
+          {totals.grossSubtotalCents !== totals.subtotalCents && (
+            <div className="flex justify-between text-[12.5px] text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(totals.grossSubtotalCents - totals.subtotalCents)}</span></div>
+          )}
           <div className="flex justify-between text-[12.5px] text-muted"><span>VAT</span><span className="num">{formatMUR(totals.vatCents)}</span></div>
           <div className="mt-1 flex justify-between text-[16px] font-extrabold text-ink-strong"><span>Total</span><span className="num">{formatMUR(totals.totalCents)}</span></div>
 

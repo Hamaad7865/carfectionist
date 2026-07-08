@@ -16,6 +16,7 @@ export interface DocLineView {
   qty: number;
   rateCents: number;
   amountCents: number;
+  discountNote?: string | null;
 }
 
 export interface DocumentA4Props {
@@ -34,7 +35,9 @@ export interface DocumentA4Props {
   };
   billTo: { name: string; country: string };
   lines: DocLineView[];
-  subtotalCents: number;
+  subtotalCents: number;      // pre-order-discount ex-VAT sum (the Subtotal row)
+  discountCents?: number;     // ex-VAT reduction from an order discount (> 0 shows a row)
+  discountLabel?: string | null; // what was entered, e.g. "10%" or "Rs 500 incl. VAT"
   vatCents: number;
   totalCents: number;
   bank?: { accountName: string; accountNumber: string; bankName: string } | null;
@@ -256,6 +259,7 @@ export function DocumentA4(props: DocumentA4Props) {
                 <td style={s.td}>
                   <div style={s.lineTitle}>{l.title}</div>
                   {l.detail ? <div style={s.lineDetail}>{l.detail}</div> : null}
+                  {l.discountNote ? <div style={{ ...s.lineDetail, color: MUTED }}>{l.discountNote}</div> : null}
                 </td>
                 <td style={s.tdNum}>{l.qty}</td>
                 <td style={s.tdNum}>{formatMUR(l.rateCents)}</td>
@@ -280,6 +284,12 @@ export function DocumentA4(props: DocumentA4Props) {
               <span style={{ color: MUTED }}>Subtotal</span>
               <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatMUR(props.subtotalCents)}</span>
             </div>
+            {props.discountCents ? (
+              <div style={s.totalRow}>
+                <span style={{ color: MUTED }}>Discount{props.discountLabel ? ` (${props.discountLabel})` : ""}</span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>−{formatMUR(props.discountCents)}</span>
+              </div>
+            ) : null}
             <div style={s.totalRow}>
               <span style={{ color: MUTED }}>VAT</span>
               <span style={{ fontVariantNumeric: "tabular-nums" }}>{formatMUR(props.vatCents)}</span>

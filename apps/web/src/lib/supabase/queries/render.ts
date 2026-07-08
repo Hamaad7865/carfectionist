@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { rupeesToCents } from "@/lib/money";
+import { rupeesToCents, formatMUR } from "@/lib/money";
 import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 
@@ -33,6 +33,14 @@ export async function getDocumentProps(id: string): Promise<DocumentA4Props | nu
     createdBy = ((u as any)?.display_name ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const grossSubtotalCents = ((lines ?? []) as any[]).reduce((s, l) => s + rupeesToCents(Number(l.line_total_excl)), 0);
+  const discountExclCents = grossSubtotalCents - rupeesToCents(Number(d.subtotal_excl));
+  const discountLabel =
+    d.discount_kind === "percent" ? `${Number(d.discount_value)}%`
+    : d.discount_kind === "amount" ? `${formatMUR(rupeesToCents(Number(d.discount_value)))} incl. VAT`
+    : null;
+
   return {
     docType: d.doc_type,
     number: d.number,
@@ -58,8 +66,15 @@ export async function getDocumentProps(id: string): Promise<DocumentA4Props | nu
       qty: Number(l.qty),
       rateCents: rupeesToCents(Number(l.unit_price)),
       amountCents: rupeesToCents(Number(l.line_total_excl)),
+      discountNote:
+        l.discount_kind === "amount" && Number(l.discount_amount) > 0 ? `less ${formatMUR(rupeesToCents(Number(l.discount_amount)))}`
+        : Number(l.discount_pct) > 0 ? `less ${Number(l.discount_pct)}%`
+        : null,
     })),
-    subtotalCents: rupeesToCents(Number(d.subtotal_excl)),
+    // Subtotal row = pre-order-discount ex-VAT sum; the order discount shows as its own row.
+    subtotalCents: grossSubtotalCents,
+    discountCents: discountExclCents > 0 ? discountExclCents : undefined,
+    discountLabel: discountExclCents > 0 ? discountLabel : undefined,
     vatCents: rupeesToCents(Number(d.vat_total)),
     totalCents: rupeesToCents(Number(d.total_incl)),
     bank: {

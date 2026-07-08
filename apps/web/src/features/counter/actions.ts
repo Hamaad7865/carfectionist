@@ -17,7 +17,15 @@ export type CounterResult =
 const schema = z.object({
   customerId: z.string().optional(),
   customerName: z.string().optional(),
-  lines: z.array(z.object({ productId: z.string().min(1), qty: z.number().positive() })).min(1),
+  lines: z.array(z.object({
+    productId: z.string().min(1),
+    qty: z.number().positive(),
+    discountKind: z.enum(["percent", "amount"]).optional(),
+    discountPct: z.number().min(0).max(100).optional(),
+    discountAmountCents: z.number().int().min(0).optional(),
+  })).min(1),
+  orderDiscountKind: z.enum(["percent", "amount"]).nullable().optional(),
+  orderDiscountValue: z.number().min(0).optional(), // percent: % ; amount: Cents (VAT-inclusive)
   // "credit" = on account: issue the invoice but collect nothing now; the total
   // stays as money owed (receivable). Not a real payment_method, so it never
   // reaches record_payment.
@@ -69,14 +77,25 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       description: null,
       qty: l.qty,
       unit_price: Number(prod.selling_price),
-      discount_pct: 0,
+      discount_pct: l.discountPct ?? 0,
+      discount_kind: l.discountKind ?? "percent",
+      discount_amount: (l.discountAmountCents ?? 0) / 100,
       vat_rate: prod.vat_rate == null ? vatDefault : Number(prod.vat_rate),
       sort_order: i,
     };
   });
 
+  const orderDiscount = p.data.orderDiscountKind ? { kind: p.data.orderDiscountKind, value: p.data.orderDiscountValue ?? 0 } : null;
   const totals = computeTotals(
-    rpcLines.map((l) => ({ qty: l.qty, unitCents: Math.round(l.unit_price * 100), vatRatePct: l.vat_rate })),
+    rpcLines.map((l) => ({
+      qty: l.qty,
+      unitCents: Math.round(l.unit_price * 100),
+      discountPct: l.discount_pct,
+      discountKind: l.discount_kind,
+      discountAmountCents: Math.round(l.discount_amount * 100),
+      vatRatePct: l.vat_rate,
+    })),
+    orderDiscount,
   );
 
   try {
@@ -101,6 +120,8 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
         valid_until: null,
         due_date: null,
         origin: "standalone",
+        discount_kind: p.data.orderDiscountKind ?? null,
+        discount_value: p.data.orderDiscountKind === "amount" ? (p.data.orderDiscountValue ?? 0) / 100 : (p.data.orderDiscountValue ?? 0),
       },
       rpcLines,
       null,

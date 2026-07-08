@@ -1,4 +1,5 @@
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
+import type { DiscountKind } from "@/lib/money/totals";
 
 export interface BuilderLine {
   key: string;
@@ -8,6 +9,8 @@ export interface BuilderLine {
   qty: number;
   unitCents: number;
   discountPct: number;
+  discountKind: DiscountKind;      // 'percent' uses discountPct; 'amount' uses discountAmountCents
+  discountAmountCents: number;     // VAT-inclusive Rs off, in cents
   vatRatePct: number;
 }
 
@@ -19,6 +22,8 @@ export interface BuilderState {
   customerId: string | null;
   revision: number;
   lines: BuilderLine[];
+  docDiscountKind: DiscountKind | null;  // null = no order discount
+  docDiscountValue: number;              // percent: % ; amount: Cents (VAT-inclusive)
   sectionConfig: Partial<SectionFlags>;
   customFields: { label: string; value: string }[];
   dirty: boolean;
@@ -33,7 +38,7 @@ export function newKey(): string {
 }
 
 export function blankLine(): BuilderLine {
-  return { key: newKey(), productId: null, title: "", description: "", qty: 1, unitCents: 0, discountPct: 0, vatRatePct: 15 };
+  return { key: newKey(), productId: null, title: "", description: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 };
 }
 
 export type BuilderAction =
@@ -42,6 +47,7 @@ export type BuilderAction =
   | { type: "addLine"; line: BuilderLine }
   | { type: "patchLine"; key: string; patch: Partial<BuilderLine> }
   | { type: "removeLine"; key: string }
+  | { type: "setDocDiscount"; kind: DiscountKind | null; value: number }
   | { type: "setSection"; key: keyof SectionFlags; value: boolean }
   | { type: "addCustomField"; field?: { label: string; value: string } }
   | { type: "patchCustomField"; index: number; patch: Partial<{ label: string; value: string }> }
@@ -68,6 +74,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
       });
     case "removeLine":
       return touched({ ...state, lines: state.lines.filter((l) => l.key !== action.key) });
+    case "setDocDiscount":
+      return touched({ ...state, docDiscountKind: action.kind, docDiscountValue: action.value });
     case "setSection":
       return touched({ ...state, sectionConfig: { ...state.sectionConfig, [action.key]: action.value } });
     case "addCustomField":

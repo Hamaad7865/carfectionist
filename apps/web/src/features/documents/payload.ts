@@ -13,6 +13,8 @@ export const draftLineSchema = z.object({
   qty: z.number().positive(),
   unitCents: z.number().int(),
   discountPct: z.number().min(0).max(100).optional(),
+  discountKind: z.enum(["percent", "amount"]).optional(),
+  discountAmountCents: z.number().int().min(0).optional(), // VAT-inclusive
   vatRatePct: z.number(),
 });
 
@@ -26,6 +28,8 @@ export const draftDocSchema = z.object({
   validUntil: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   origin: z.enum(["standalone", "from_job"]).optional(),
+  discountKind: z.enum(["percent", "amount"]).nullable().optional(),
+  discountValue: z.number().min(0).optional(), // percent: %, amount: Cents (VAT-inclusive)
 });
 
 export const saveDraftInputSchema = z.object({
@@ -47,6 +51,9 @@ export function toRpcDoc(doc: SaveDraftInput["doc"]): RpcDraftDoc {
     valid_until: doc.validUntil ?? null,
     due_date: doc.dueDate ?? null,
     origin: doc.origin ?? "standalone",
+    discount_kind: doc.discountKind ?? null,
+    // amount is held in cents above the seam; the DB wants rupees (VAT-inclusive)
+    discount_value: doc.discountKind === "amount" ? (doc.discountValue ?? 0) / 100 : (doc.discountValue ?? 0),
   };
 }
 
@@ -58,6 +65,8 @@ export function toRpcLines(lines: SaveDraftInput["lines"]): RpcDraftLine[] {
     qty: l.qty,
     unit_price: l.unitCents / 100, // cents → rupees for numeric(12,2)
     discount_pct: l.discountPct ?? 0,
+    discount_kind: l.discountKind ?? "percent",
+    discount_amount: (l.discountAmountCents ?? 0) / 100, // cents → rupees (VAT-inclusive)
     vat_rate: l.vatRatePct,
     sort_order: i,
   }));

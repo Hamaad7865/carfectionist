@@ -1,4 +1,4 @@
-import { computeTotals } from "@/lib/money";
+import { computeTotals, formatMUR } from "@/lib/money";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 import type { DocAssets } from "@/lib/pdf/assets";
 import type { BuilderState } from "./state";
@@ -34,7 +34,8 @@ export function toDocumentProps(
   opts: PreviewOpts,
 ): DocumentA4Props {
   const totals = computeTotals(
-    state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, vatRatePct: l.vatRatePct })),
+    state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct })),
+    state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null,
   );
   const lines = state.lines.map((l, i) => ({
     title: l.title || "—",
@@ -42,7 +43,16 @@ export function toDocumentProps(
     qty: l.qty,
     rateCents: l.unitCents,
     amountCents: totals.lines[i].exclCents,
+    discountNote:
+      l.discountKind === "amount" && l.discountAmountCents > 0 ? `less ${formatMUR(l.discountAmountCents)}`
+      : (l.discountPct ?? 0) > 0 ? `less ${l.discountPct}%`
+      : null,
   }));
+  const orderDiscountExclCents = totals.grossSubtotalCents - totals.subtotalCents;
+  const orderDiscountLabel =
+    state.docDiscountKind === "percent" ? `${state.docDiscountValue}%`
+    : state.docDiscountKind === "amount" ? `${formatMUR(state.docDiscountValue)} incl. VAT`
+    : null;
 
   return {
     docType: state.docType,
@@ -60,7 +70,9 @@ export function toDocumentProps(
     },
     billTo: { name: opts.customerName, country: opts.customerCountry },
     lines,
-    subtotalCents: totals.subtotalCents,
+    subtotalCents: totals.grossSubtotalCents,
+    discountCents: orderDiscountExclCents > 0 ? orderDiscountExclCents : undefined,
+    discountLabel: orderDiscountExclCents > 0 ? orderDiscountLabel : undefined,
     vatCents: totals.vatCents,
     totalCents: totals.totalCents,
     bank: {

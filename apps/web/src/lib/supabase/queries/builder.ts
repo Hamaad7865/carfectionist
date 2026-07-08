@@ -100,6 +100,8 @@ export interface LoadedDraft {
   number: string | null;
   customerId: string | null;
   revision: number;
+  docDiscountKind: "percent" | "amount" | null;
+  docDiscountValue: number; // percent: % ; amount: Cents (VAT-inclusive)
   sectionConfig: Partial<SectionFlags>;
   customFields: { label: string; value: string }[];
   lines: {
@@ -109,6 +111,8 @@ export interface LoadedDraft {
     qty: number;
     unitCents: number;
     discountPct: number;
+    discountKind: "percent" | "amount";
+    discountAmountCents: number;
     vatRatePct: number;
   }[];
 }
@@ -134,6 +138,8 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     number: d.number,
     customerId: d.customer_id,
     revision: d.revision,
+    docDiscountKind: d.discount_kind ?? null,
+    docDiscountValue: d.discount_kind === "amount" ? rupeesToCents(Number(d.discount_value)) : Number(d.discount_value ?? 0),
     sectionConfig: flags as Partial<SectionFlags>,
     customFields: Array.isArray(cf) ? (cf as { label: string; value: string }[]) : [],
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -144,6 +150,8 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
       qty: Number(l.qty),
       unitCents: rupeesToCents(Number(l.unit_price)),
       discountPct: Number(l.discount_pct),
+      discountKind: (l.discount_kind ?? "percent") as "percent" | "amount",
+      discountAmountCents: rupeesToCents(Number(l.discount_amount ?? 0)),
       vatRatePct: Number(l.vat_rate),
     })),
   };
