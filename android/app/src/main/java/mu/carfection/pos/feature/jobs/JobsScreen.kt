@@ -40,6 +40,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.ui.FilledInput
+import mu.carfection.pos.ui.theme.Inset
 import kotlinx.coroutines.delay
 import mu.carfection.pos.core.network.JobBoardDto
 import mu.carfection.pos.ui.theme.Accent
@@ -94,8 +96,40 @@ fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: Jobs
         viewModel.active(s)?.let { JobDetailSheet(s, it, viewModel, onGoCheckout) }
     }
     if (s.certOpen) CertIssueDialog(s, viewModel)
+    if (s.invoiceOpen) InvoiceDialog(s, viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(1800); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
+}
+
+@Composable
+private fun InvoiceDialog(s: JobsState, vm: JobsViewModel) {
+    val job = vm.active(s)
+    Dialog(onDismissRequest = vm::closeInvoice) {
+        Column(
+            Modifier.width(480.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("CREATE INVOICE", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.2.sp, color = TextPrimary)
+            Text(
+                "${job?.customers?.name ?: "—"} · ${job?.let { vehLabel(it) } ?: "Vehicle"}${job?.vehicles?.plate?.let { " · $it" } ?: ""}",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary,
+            )
+            SectionLabel("SERVICE")
+            FilledInput(value = s.invoiceService, onValueChange = vm::setInvoiceService, placeholder = "What was done", modifier = Modifier.fillMaxWidth(), bg = Inset)
+            SectionLabel("AMOUNT (Rs, excl. VAT)")
+            FilledInput(value = s.invoiceAmountText, onValueChange = vm::setInvoiceAmount, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset)
+            Text("VAT 15% is added automatically when the invoice is issued.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+            Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(Modifier.weight(1f).height(52.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(13.dp)).clickable { vm.closeInvoice() }, contentAlignment = Alignment.Center) {
+                    Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
+                }
+                val ok = s.invoiceService.isNotBlank() && s.invoiceAmountText.isNotBlank() && !s.invoiceBusy
+                Box(Modifier.weight(1.5f).height(52.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ok) { vm.issueInvoice() }, contentAlignment = Alignment.Center) {
+                    Text(if (s.invoiceBusy) "Creating…" else "Create invoice", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted)
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -254,8 +288,13 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (j.status == "ready" || j.status == "delivered") {
-                    Box(Modifier.fillMaxWidth().height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openCertIssue() }, contentAlignment = Alignment.Center) {
-                        Text("＋  Issue warranty certificate", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openInvoice() }, contentAlignment = Alignment.Center) {
+                            Text("＋  Invoice", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                        }
+                        Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openCertIssue() }, contentAlignment = Alignment.Center) {
+                            Text("＋  Certificate", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                        }
                     }
                 }
                 val doneN = j.checklist.count { it.done }

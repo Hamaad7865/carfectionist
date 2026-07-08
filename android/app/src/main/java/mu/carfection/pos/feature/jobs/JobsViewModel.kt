@@ -7,12 +7,15 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.money.centsToRupees
+import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.network.ChecklistItemDto
 import mu.carfection.pos.core.network.JobBoardDto
 import mu.carfection.pos.core.network.NewCertificateDto
@@ -46,6 +49,11 @@ data class JobsState(
     val certProductId: String? = null,
     val certTermMonths: Int = 36,
     val certBusy: Boolean = false,
+    // invoice a finished job
+    val invoiceOpen: Boolean = false,
+    val invoiceService: String = "",
+    val invoiceAmountText: String = "",
+    val invoiceBusy: Boolean = false,
 )
 
 @HiltViewModel
@@ -101,6 +109,43 @@ class JobsViewModel @Inject constructor(
     private fun nextCertNumber(existing: List<String>): String {
         val max = existing.mapNotNull { Regex("(\\d+)$").find(it)?.groupValues?.get(1)?.toIntOrNull() }.maxOrNull() ?: 0
         return "CERT-" + (max + 1).toString().padStart(4, '0')
+    }
+
+    // ── invoice a finished job (create_document_from_job → price → issue) ──────
+    fun openInvoice() { val j = active(_s.value); _s.update { it.copy(invoiceOpen = true, invoiceService = j?.notes?.ifBlank { null } ?: "Detailing service", invoiceAmountText = "") } }
+    fun closeInvoice() = _s.update { it.copy(invoiceOpen = false) }
+    fun setInvoiceService(t: String) = _s.update { it.copy(invoiceService = t) }
+    fun setInvoiceAmount(t: String) = _s.update { it.copy(invoiceAmountText = t.filter { c -> c.isDigit() || c == '.' }) }
+
+    fun issueInvoice() {
+        val s = _s.value
+        val job = active(s) ?: return
+        val cid = job.customerId ?: run { note("This job has no customer"); return }
+        val cents = parseMoneyToCents(s.invoiceAmountText)
+        if (cents == null || cents <= 0) { note("Enter an amount"); return }
+        _s.update { it.copy(invoiceBusy = true) }
+        viewModelScope.launch {
+            runCatching {
+                val draft = api.createDocumentFromJob(job.id, "invoice")
+                val doc = buildJsonObject {
+                    put("id", draft.id); put("doc_type", "invoice"); put("customer_id", cid)
+                    if (job.vehicleId != null) put("vehicle_id", job.vehicleId) else put("vehicle_id", JsonNull)
+                    put("origin", "from_job")
+                }
+                val lines = buildJsonArray {
+                    add(buildJsonObject {
+                        put("product_id", JsonNull); put("title", s.invoiceService.ifBlank { "Detailing service" })
+                        put("qty", 1); put("unit_price", centsToRupees(cents)); put("discount_pct", 0); put("vat_rate", 15); put("sort_order", 0)
+                    })
+                }
+                api.saveDraft(doc, lines)
+                api.issueDocument(draft.id, "job-inv:${job.id}")
+            }.onSuccess { d -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${d.number ?: "Invoice"} created — collect it in Checkout") } }
+                .onFailure { e ->
+                    val msg = if (e.message?.contains("already has", true) == true) "This job already has an invoice — collect it in Checkout" else (e.message ?: "Couldn't create the invoice")
+                    _s.update { it.copy(invoiceBusy = false, toast = msg) }
+                }
+        }
     }
 
     fun load() {

@@ -193,6 +193,12 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }).decodeAs()
     }
 
+    /** Create a job-linked draft document (invoice/quote) — one live doc per job per type. */
+    suspend fun createDocumentFromJob(jobId: String, docType: String): SavedDoc =
+        client.postgrest.rpc("create_document_from_job", buildJsonObject {
+            put("p_job_id", jobId); put("p_doc_type", docType)
+        }).decodeAs()
+
     /** Intake → "Start quotation": atomic job for the customer+vehicle (create_job RPC). */
     suspend fun createJob(customerId: String, vehicleId: String, service: String?, technicianId: String? = null): String =
         client.postgrest.rpc("create_job", buildJsonObject {

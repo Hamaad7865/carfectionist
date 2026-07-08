@@ -18,8 +18,10 @@ Convention mirrors FRONTEND_PROGRESS.md: build → verify on emulator-5554 → c
   counter sale — walk-in" toggling to the existing cart. Tapping a bill opens the payment pad for its
   balance (credit hidden) → `record_payment` on that document → moves to PAID TODAY. Verified on tablet:
   collected INV-0012 Rs 65,550 cash, invoice moved lists. Commit `feat(pos): collect-on-invoice checkout`.
-- [ ] **2 · Job → invoice** — wire `create_document_from_job` so a Ready job's "Go to checkout" creates
-  (or reuses) its invoice and drops it into TO COLLECT. Pairs with #1.
+- [~] **2 · Job → invoice** — a ready/delivered job's detail footer has "＋ Invoice": enter the service +
+  amount → `create_document_from_job` → `save_draft` (prices the line, job link preserved) →
+  `issue_document` (gapless INV#, VAT added) → toast "collect it in Checkout". The invoice then appears in
+  the checkout TO COLLECT list. Double-billing blocked server-side. **Compiles; runtime-verify pending.**
 - [~] **3 · Corrections** — wired `void_document`, `create_and_issue_credit_note`, `reverse_payment`.
   Collect pad on an unpaid invoice shows "Void this invoice" (owner/manager); a tapped PAID TODAY row
   opens Refund (credit note, restock) / Reverse-payment. RLS enforces owner/manager; graceful message
