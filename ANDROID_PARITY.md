@@ -44,9 +44,14 @@ Convention mirrors FRONTEND_PROGRESS.md: build → verify on emulator-5554 → c
 > but `documents`/`document_lines`/`payments`/`jobs`/`vehicles`/`certificates` = **0**. The tablet shows
 > **stale Room-cached** invoices/quotes/jobs that no longer exist server-side, so any money-path write that
 > references them fails on missing FKs. Re-run the full money-path verification once fresh data lands.
-- [DEFERRED] **6 · Role-based UI gating** — the Android auth model is mid-change to staff name+PIN (backend
-  landed 2026-07-08, commit `2e4d1df`); role→tab policy + verification depend on that login. Revisit when
-  the PIN login lands on Android so roles are real and testable (can't verify while signed in as sole owner).
+- [x] **Staff name + PIN login (Android)** — tap-name + 4-digit-PIN sign-in via the web app's server-side
+  `roster` + `pin-login` routes (device-key gated; service role stays server-side). Imports the minted
+  Supabase session so RLS/attribution/header all work. **Verified on the reseeded DB: 8-staff roster loaded
+  over the network, PIN → real session, and Intake-created job then appeared on the board.** Config in
+  `local.properties` (`pos.webUrl` / `pos.deviceKey`); needs the web routes reachable from the tablet.
+- [ ] **6 · Role-based UI gating** — now UNBLOCKED (roles are real per logged-in operator via
+  `session.userRole`). Hide owner/manager-only tabs+actions (Stock adjust, corrections, Today) for cashiers.
+  Buildable next; verify by logging in as a technician vs owner PIN.
 - [~] **7 · Offline outbox + connectivity**
   - [x] **ConnectivityObserver** — app-wide validated-internet `StateFlow<Boolean>`; the header sync pill
     now shows **Online / Offline / "Syncing N"** for real. Verified on tablet (airplane-mode toggle).
