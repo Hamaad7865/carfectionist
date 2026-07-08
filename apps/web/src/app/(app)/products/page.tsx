@@ -21,7 +21,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : sp.tab === "inventory" ? "inventory" : sp.tab === "categories" ? "categories" : "catalogue";
   const showArchived = sp.archived === "1";
   const rows = tab === "catalogue" ? await getInventory(showArchived) : [];
-  const vatDefault = tab === "catalogue" ? (await getBusinessProfile())?.vatRate ?? 15 : 15;
+  const profile = tab === "catalogue" ? await getBusinessProfile() : null;
+  const vatDefault = profile?.vatRate ?? 15;
+  const pricesInclVat = profile?.pricesVatInclusive ?? false;
   const transferData = tab === "transfers" ? await getTransfers() : null;
   const recipeData = tab === "recipes" ? await getRecipes() : null;
   const invOps = tab === "inventory" ? await getInventoryOps() : null;
@@ -39,7 +41,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         {(tab === "catalogue" || tab === "inventory") && <ImportExport kind="products" />}
       </div>
 
-      {tab === "catalogue" && <CataloguePanel products={rows} showArchived={showArchived} vatDefault={vatDefault} />}
+      {tab === "catalogue" && <CataloguePanel products={rows} showArchived={showArchived} vatDefault={vatDefault} pricesInclVat={pricesInclVat} />}
       {tab === "inventory" && invOps && <InventoryPanel data={invOps} />}
       {tab === "categories" && categoryData && <CategoriesPanel data={categoryData} />}
       {tab === "transfers" && transferData && <TransfersPanel transfers={transferData.transfers} refData={transferData.ref} />}

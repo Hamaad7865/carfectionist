@@ -15,6 +15,7 @@ export interface BusinessProfile {
   bankAccountNumber: string | null;
   bankName: string | null;
   vatRate: number;
+  pricesVatInclusive: boolean;
   quoteSeries: string;
   invoiceSeries: string;
 }
@@ -38,6 +39,7 @@ export async function getBusinessProfile(): Promise<BusinessProfile | null> {
     bankAccountNumber: d.bank_account_number,
     bankName: d.bank_name,
     vatRate: Number(d.vat_rate),
+    pricesVatInclusive: d.prices_vat_exclusive === false,
     quoteSeries: `${d.quote_prefix}… · next ${d.quote_next_number}`,
     invoiceSeries: `${d.invoice_prefix}… · next ${d.invoice_next_number}`,
   };

@@ -16,14 +16,15 @@ type PForm = {
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
   isStocked: boolean; threshold: string; isActive: boolean;
 };
-const seed = (p?: InventoryRow): PForm => ({
+const grossPrice = (p: InventoryRow, vatDefault: number) => (p.sellingPrice * (1 + (p.vatRatePct ?? vatDefault) / 100)).toFixed(2);
+const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number): PForm => ({
   name: p?.name ?? "",
   sku: p?.sku ?? "",
   description: p?.description ?? "",
   kind: (p?.kind as PForm["kind"]) ?? "consumable",
   category: p?.category ?? "",
   unit: (p?.unit as PForm["unit"]) ?? "piece",
-  sellingPrice: p ? String(p.sellingPrice) : "",
+  sellingPrice: p ? (inclVat ? grossPrice(p, vatDefault) : String(p.sellingPrice)) : "",
   costPrice: p ? String(p.costPrice) : "",
   vatRate: p?.vatRatePct != null ? String(p.vatRatePct) : "",
   barcode: p?.barcode ?? "",
@@ -32,20 +33,20 @@ const seed = (p?: InventoryRow): PForm => ({
   isActive: p?.isActive ?? true,
 });
 
-export function ProductFormModal({ open, onClose, product, vatDefault, categories = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; categories?: string[] }) {
+export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[] }) {
   const router = useRouter();
   const editing = !!product;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [priceInclVat, setPriceInclVat] = useState(false);
-  const [f, setF] = useState<PForm>(() => seed(product ?? undefined));
+  const [priceInclVat, setPriceInclVat] = useState(pricesInclVat);
+  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, pricesInclVat, vatDefault));
 
   // Re-seed whenever the modal opens for a (different) product.
   const [seededFor, setSeededFor] = useState<string | null | undefined>(undefined);
   if (open && seededFor !== (product?.id ?? null)) {
-    setF(seed(product ?? undefined));
+    setF(seed(product ?? undefined, pricesInclVat, vatDefault));
     setSeededFor(product?.id ?? null);
-    setPriceInclVat(false);
+    setPriceInclVat(pricesInclVat);
     setError(null);
   }
   if (!open && seededFor !== undefined) setSeededFor(undefined);

@@ -11,7 +11,7 @@ const COLS = "grid-cols-[1fr_160px_90px_90px_70px_100px_100px]";
 const qty = (n: number | null) => (n == null ? "—" : String(n));
 const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 
-export function CataloguePanel({ products, showArchived, vatDefault }: { products: InventoryRow[]; showArchived: boolean; vatDefault: number }) {
+export function CataloguePanel({ products, showArchived, vatDefault, pricesInclVat }: { products: InventoryRow[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryRow | null>(null);
   const [q, setQ] = useState("");
@@ -34,6 +34,10 @@ export function CataloguePanel({ products, showArchived, vatDefault }: { product
           (p.category ?? "").toLowerCase().includes(s)),
     );
   }, [products, q, cat]);
+
+  // When the business prices VAT-inclusive, show the gross sell price (what the
+  // customer pays) rather than the ex-VAT figure we store.
+  const sellOf = (r: InventoryRow) => (pricesInclVat ? Math.round(r.sellCents * (1 + (r.vatRatePct ?? vatDefault) / 100)) : r.sellCents);
 
   function newProduct() { setEditing(null); setOpen(true); }
   function edit(p: InventoryRow) { setEditing(p); setOpen(true); }
@@ -70,7 +74,7 @@ export function CataloguePanel({ products, showArchived, vatDefault }: { product
           <span>Product</span>
           <span>Category</span>
           <span className="text-right">Cost</span>
-          <span className="text-right">Sell</span>
+          <span className="text-right">{pricesInclVat ? "Sell inc VAT" : "Sell"}</span>
           <span className="text-right">Margin</span>
           <span className="text-right">Warehouse</span>
           <span className="text-right">Shop</span>
@@ -100,7 +104,7 @@ export function CataloguePanel({ products, showArchived, vatDefault }: { product
                 )}
               </span>
               <span className="num text-right text-[12px] text-muted">{formatMUR(r.costCents)}</span>
-              <span className="num text-right text-[12px] font-semibold text-body">{formatMUR(r.sellCents)}</span>
+              <span className="num text-right text-[12px] font-semibold text-body">{formatMUR(sellOf(r))}</span>
               <span className="num text-right text-[12px] font-semibold text-mint">{r.marginPct}%</span>
               <span className="num text-right text-[12px] text-muted">{qty(r.warehouse)}</span>
               <span className="num text-right text-[14px] font-extrabold" style={{ color: r.low ? "#b07c14" : r.shop == null ? "#8c96a1" : "#172130" }}>
@@ -111,7 +115,7 @@ export function CataloguePanel({ products, showArchived, vatDefault }: { product
         )}
       </div>
 
-      <ProductFormModal open={open} onClose={() => setOpen(false)} product={editing} vatDefault={vatDefault} categories={categories} />
+      <ProductFormModal open={open} onClose={() => setOpen(false)} product={editing} vatDefault={vatDefault} pricesInclVat={pricesInclVat} categories={categories} />
     </>
   );
 }
