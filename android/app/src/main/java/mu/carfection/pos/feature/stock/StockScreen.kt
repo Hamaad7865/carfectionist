@@ -57,6 +57,7 @@ private val LowRing = Color(0x59C17A00)
 @Composable
 fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
+    LaunchedEffect(Unit) { viewModel.load() } // refresh stock on entry
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("STOCK", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)

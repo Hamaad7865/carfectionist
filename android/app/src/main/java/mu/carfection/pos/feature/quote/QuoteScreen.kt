@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -79,6 +80,7 @@ private fun Modifier.dashedBorder(color: Color, radius: Dp, stroke: Dp = 1.5.dp)
 @Composable
 fun QuoteScreen(onGoIntake: () -> Unit, viewModel: QuoteViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
+    LaunchedEffect(s.mode) { if (s.mode == QuoteMode.LIST) viewModel.loadQuotes() } // refresh list on entry / when returning from builder
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel)
     }

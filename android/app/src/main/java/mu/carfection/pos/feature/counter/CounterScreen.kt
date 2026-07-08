@@ -32,6 +32,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -74,6 +75,7 @@ fun CounterScreen(
     viewModel: CounterViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsState()
+    LaunchedEffect(Unit) { viewModel.loadLists() } // refresh outstanding/paid on entry
 
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
         // ── top bar ──────────────────────────────────────────────────────────

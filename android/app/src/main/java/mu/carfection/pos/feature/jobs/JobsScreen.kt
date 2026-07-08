@@ -80,6 +80,7 @@ private fun Modifier.card(radius: Int = 16) = this.background(CardBg, RoundedCor
 @Composable
 fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: JobsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
+    LaunchedEffect(Unit) { viewModel.load() } // refresh the board on entry
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
