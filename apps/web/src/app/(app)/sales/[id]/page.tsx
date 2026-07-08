@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { Printer, FileMinus } from "lucide-react";
+import { Printer, FileMinus, Receipt } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
@@ -44,6 +44,11 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {doc.docType === "invoice" && (
+              <a href={`/print/receipt/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
+                <Receipt size={15} /> Receipt
+              </a>
+            )}
             <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
               <Printer size={15} /> Print / PDF
             </a>
