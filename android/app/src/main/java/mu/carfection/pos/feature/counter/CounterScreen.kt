@@ -36,6 +36,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -219,6 +220,8 @@ fun CounterScreen(
 
     if (s.padOpen) PaymentPad(s, viewModel)
     s.done?.let { SaleDone(it, onDone = viewModel::backToList) }
+    s.paymentAction?.let { PaymentActionDialog(it, viewModel) }
+    s.notice?.let { Notice(it, onGone = viewModel::clearNotice) }
 }
 
 // ─── Collect list: TO COLLECT (outstanding invoices) + PAID TODAY ─────────────
@@ -277,7 +280,12 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                 Text("No payments yet today.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
             } else LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(s.paidToday) { p ->
-                    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
+                            .clickable(enabled = vm.canManage) { vm.openPaymentAction(p) }
+                            .padding(vertical = 6.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Icon(Icons.Default.Check, null, tint = Success, modifier = Modifier.size(16.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(p.documents?.number ?: "—", color = TextMuted, fontFamily = Mono, fontSize = 11.sp)
@@ -454,6 +462,54 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                     )
                 }
             }
+            // owner/manager: void an unpaid invoice instead of collecting
+            s.collect?.takeIf { it.status == "issued" && vm.canManage }?.let { bill ->
+                Box(Modifier.fillMaxWidth().clickable { vm.voidInvoice(bill) }.padding(top = 2.dp), contentAlignment = Alignment.Center) {
+                    Text("Void this invoice", color = Danger, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+    }
+}
+
+// ─── Corrections: reverse a payment / issue a credit note (owner-manager) ─────
+@Composable
+private fun PaymentActionDialog(p: mu.carfection.pos.core.network.TodayPaymentDto, vm: CounterViewModel) {
+    Dialog(onDismissRequest = vm::closePaymentAction) {
+        Column(
+            Modifier.width(440.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Correct this payment", color = TextPrimary, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text("${p.documents?.number ?: "Invoice"} · ${p.documents?.customers?.name ?: "—"} · ${formatMUR((p.amount * 100).toLong())}", color = TextSecondary, fontSize = 13.sp)
+            Spacer(Modifier.height(2.dp))
+            ActionButton("Refund — issue credit note", "Reverses the whole invoice and restocks any products.", Accent, AccentInk) { vm.refundInvoice(p) }
+            ActionButton("Reverse this payment only", "Undoes just this payment; the invoice becomes unpaid again.", InsetAlt, TextPrimary) { vm.reverseThisPayment(p) }
+            Box(
+                Modifier.fillMaxWidth().height(48.dp).clickable(onClick = vm::closePaymentAction),
+                contentAlignment = Alignment.Center,
+            ) { Text("Cancel", color = TextSecondary, fontSize = 14.5.sp, fontWeight = FontWeight.SemiBold) }
+        }
+    }
+}
+
+@Composable
+private fun ActionButton(title: String, sub: String, bg: Color, fg: Color, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().background(bg, RoundedCornerShape(13.dp)).clickable(onClick = onClick).padding(horizontal = 15.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        Text(title, color = fg, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        Text(sub, color = if (bg == Accent) AccentInk.copy(alpha = 0.85f) else TextMuted, fontSize = 11.5.sp, lineHeight = 15.sp)
+    }
+}
+
+@Composable
+private fun Notice(msg: String, onGone: () -> Unit) {
+    androidx.compose.runtime.LaunchedEffect(msg) { kotlinx.coroutines.delay(2200); onGone() }
+    Box(Modifier.fillMaxSize().padding(bottom = 26.dp), contentAlignment = Alignment.BottomCenter) {
+        Box(Modifier.background(Color(0xF01B2733), RoundedCornerShape(11.dp)).padding(horizontal = 20.dp, vertical = 13.dp)) {
+            Text(msg, color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
         }
     }
 }

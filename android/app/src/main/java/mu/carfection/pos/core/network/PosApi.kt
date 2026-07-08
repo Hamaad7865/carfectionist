@@ -251,12 +251,34 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     /** Payments received since [sinceIso] with their doc + customer — the "PAID TODAY" list. */
     suspend fun fetchTodayPayments(sinceIso: String): List<TodayPaymentDto> =
         client.postgrest.from("payments")
-            .select(Columns.raw("method, amount, documents(number, customers(name))")) {
+            .select(Columns.raw("id, method, amount, document_id, reverses_payment_id, documents(number, customers(name))")) {
                 filter { gte("received_at", sinceIso); gt("amount", 0) }
                 order("received_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(30)
             }
             .decodeList()
+
+    // ── Corrections (owner/manager per the RPCs' require_role) ────────────────
+    /** Void an unpaid/issued document (voids stock movements too). */
+    suspend fun voidDocument(documentId: String, reason: String) {
+        client.postgrest.rpc("void_document", buildJsonObject {
+            put("p_id", documentId); put("p_reason", reason)
+        })
+    }
+
+    /** Reverse a single payment (inserts the negative mirror; guarded server-side). */
+    suspend fun reversePayment(paymentId: String, reason: String) {
+        client.postgrest.rpc("reverse_payment", buildJsonObject {
+            put("p_payment_id", paymentId); put("p_reason", reason)
+        })
+    }
+
+    /** Full-reversal credit note against a paid/issued invoice (optional restock). */
+    suspend fun issueCreditNote(invoiceId: String, restock: Boolean) {
+        client.postgrest.rpc("create_and_issue_credit_note", buildJsonObject {
+            put("p_invoice_id", invoiceId); put("p_stock_location_id", JsonNull); put("p_restock", restock)
+        })
+    }
 
     // ── Till ──────────────────────────────────────────────────────────────────
     suspend fun openCashSession(deviceId: String, openingFloatRupees: Double): CashSessionDto =

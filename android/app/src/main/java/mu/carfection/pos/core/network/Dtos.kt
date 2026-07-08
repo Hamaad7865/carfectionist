@@ -127,8 +127,11 @@ data class OutstandingInvoiceDto(
 @Serializable data class PaidDocRefDto(val number: String? = null, val customers: JobCustomerDto? = null)
 @Serializable
 data class TodayPaymentDto(
+    val id: String,
     val method: String,
     val amount: FlexDouble = 0.0,
+    @SerialName("document_id") val documentId: String,
+    @SerialName("reverses_payment_id") val reversesPaymentId: String? = null,
     val documents: PaidDocRefDto? = null,
 )
 

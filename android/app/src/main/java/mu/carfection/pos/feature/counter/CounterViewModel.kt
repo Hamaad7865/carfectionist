@@ -63,6 +63,8 @@ data class CounterUiState(
     val paidToday: List<TodayPaymentDto> = emptyList(),
     val listBusy: Boolean = false,
     val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
+    val paymentAction: TodayPaymentDto? = null, // a tapped PAID TODAY row → reverse / refund
+    val notice: String? = null, // transient corrections feedback
 ) {
     /** The amount the pad is settling: an existing invoice's balance, or the cart total. */
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
@@ -133,6 +135,30 @@ class CounterViewModel @Inject constructor(
 
     fun startWalkIn() { local.value = local.value.copy(mode = CheckoutMode.WALKIN, collect = null) }
     fun backToList() { newSale(); local.value = local.value.copy(mode = CheckoutMode.LIST); loadLists() }
+
+    // ── corrections (void / reverse / refund) — RLS enforces owner/manager ─────
+    val canManage: Boolean get() = session.userRole.lowercase().let { it.contains("owner") || it.contains("manager") }
+
+    fun openPaymentAction(p: TodayPaymentDto) { local.value = local.value.copy(paymentAction = p) }
+    fun closePaymentAction() { local.value = local.value.copy(paymentAction = null) }
+    fun clearNotice() { local.value = local.value.copy(notice = null) }
+
+    private fun correction(label: String, block: suspend () -> Unit) {
+        if (local.value.busy) return
+        local.value = local.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            runCatching { block() }
+                .onSuccess { local.value = local.value.copy(busy = false, padOpen = false, collect = null, paymentAction = null, notice = label); loadLists() }
+                .onFailure { e ->
+                    val msg = if (e.message?.contains("privileges", true) == true) "Only an owner or manager can do that" else (e.message ?: "Couldn't complete that — try again")
+                    local.value = local.value.copy(busy = false, notice = msg)
+                }
+        }
+    }
+
+    fun voidInvoice(bill: OutstandingInvoiceDto) = correction("${bill.number ?: "Invoice"} voided") { api.voidDocument(bill.id, "Voided at POS") }
+    fun reverseThisPayment(p: TodayPaymentDto) = correction("Payment reversed") { api.reversePayment(p.id, "Reversed at POS") }
+    fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") { api.issueCreditNote(p.documentId, restock = true) }
 
     /** Tap an outstanding invoice → open the pad to collect its balance. */
     fun collectOn(bill: OutstandingInvoiceDto) {

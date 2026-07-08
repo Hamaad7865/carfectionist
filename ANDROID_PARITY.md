@@ -20,9 +20,10 @@ Convention mirrors FRONTEND_PROGRESS.md: build → verify on emulator-5554 → c
   collected INV-0012 Rs 65,550 cash, invoice moved lists. Commit `feat(pos): collect-on-invoice checkout`.
 - [ ] **2 · Job → invoice** — wire `create_document_from_job` so a Ready job's "Go to checkout" creates
   (or reuses) its invoice and drops it into TO COLLECT. Pairs with #1.
-- [ ] **3 · Corrections** — wire `void_document` (unpaid), `create_and_issue_credit_note` (paid refund,
-  optional restock), and `reverse_payment` from Android. A tapped PAID/issued bill gets Void / Refund
-  actions (owner/manager only). Closes the #1 launch-blocker + the biggest correction gap.
+- [~] **3 · Corrections** — wired `void_document`, `create_and_issue_credit_note`, `reverse_payment`.
+  Collect pad on an unpaid invoice shows "Void this invoice" (owner/manager); a tapped PAID TODAY row
+  opens Refund (credit note, restock) / Reverse-payment. RLS enforces owner/manager; graceful message
+  otherwise. **Compiles; runtime-verify once fresh data is loaded.**
 - [ ] **4 · Certificate issuing** — Android only views certs. Add "Issue certificate" from a ready/
   delivered ceramic job (direct `certificates` insert, as the web app does; RLS `cert_insert`).
 - [ ] **5 · Quote flows parity** — integrate `convert_quote_to_job` (in flight in a separate session)
