@@ -4,7 +4,9 @@ import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
@@ -41,8 +43,19 @@ class OutboxRepository @Inject constructor(
     val pending: Flow<Int> = dao.count()
 
     init {
-        // Flush whatever is queued each time real internet comes back.
+        // Flush whatever is queued each time real internet comes back (false -> true edge),
+        // and once at startup so ops that outlived the process get sent.
         scope.launch { connectivity.online.collect { online -> if (online) drain() } }
+        // Safety net: a socket that drops without the connectivity flag flipping leaves an op
+        // stranded with no reconnect edge to retrigger it. While anything is queued, keep retrying.
+        scope.launch {
+            pending.collectLatest { count ->
+                while (count > 0) {
+                    delay(RETRY_INTERVAL_MS)
+                    drain() // clearing the queue emits 0, which cancels this loop via collectLatest
+                }
+            }
+        }
     }
 
     @Serializable private data class AssignTech(val jobId: String, val technicianId: String)
@@ -99,6 +112,7 @@ class OutboxRepository @Inject constructor(
         const val OP_ASSIGN_TECH = "assign_tech"
         const val OP_SET_CHECKLIST = "set_checklist"
         private const val MAX_ATTEMPTS = 5
+        private const val RETRY_INTERVAL_MS = 10_000L
         private const val TAG = "Outbox"
     }
 }
