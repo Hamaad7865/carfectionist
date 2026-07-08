@@ -53,13 +53,14 @@ export interface TeamMember {
   active: boolean;
   isSelf: boolean;
   hasPin: boolean;
+  modules: string[] | null;
 }
 
 export async function getTeam(): Promise<TeamMember[]> {
   const sb = await createClient();
   const session = await getSessionContext();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: users } = await (sb.from("app_users") as any).select("id, auth_user_id, role, display_name, is_active, pin_hash").order("display_name");
+  const { data: users } = await (sb.from("app_users") as any).select("id, auth_user_id, role, display_name, is_active, pin_hash, modules").order("display_name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (users ?? []) as any[];
 
@@ -81,5 +82,6 @@ export async function getTeam(): Promise<TeamMember[]> {
     active: u.is_active,
     isSelf: session?.userId === u.auth_user_id,
     hasPin: !!u.pin_hash,
+    modules: Array.isArray(u.modules) ? u.modules : null,
   }));
 }

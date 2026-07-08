@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import type { Role } from "./roles";
+import { hasModule, type Role } from "./roles";
 
 export interface SessionContext {
   userId: string;
@@ -9,6 +9,7 @@ export interface SessionContext {
   tenantId: string;
   role: Role;
   displayName: string;
+  modules: string[] | null; // per-user override; null = role default
 }
 
 /**
@@ -24,18 +25,22 @@ export const getSessionContext = cache(async (): Promise<SessionContext | null> 
 
   const { data: appUser } = await supabase
     .from("app_users")
-    .select("tenant_id, role, display_name")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .select("tenant_id, role, display_name, modules" as any)
     .eq("auth_user_id", user.id)
     .eq("is_active", true)
     .single();
   if (!appUser) return null;
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const au = appUser as any;
   return {
     userId: user.id,
     email: user.email ?? "",
-    tenantId: appUser.tenant_id,
-    role: appUser.role as Role,
-    displayName: appUser.display_name,
+    tenantId: au.tenant_id,
+    role: au.role as Role,
+    displayName: au.display_name,
+    modules: Array.isArray(au.modules) ? au.modules : null,
   };
 });
 
@@ -49,5 +54,12 @@ export async function requireSession(): Promise<SessionContext> {
 export async function requireRole(...roles: Role[]): Promise<SessionContext> {
   const ctx = await requireSession();
   if (!roles.includes(ctx.role)) redirect("/dashboard");
+  return ctx;
+}
+
+/** Redirect to the dashboard if the current user's module access excludes href. */
+export async function requireModule(href: string): Promise<SessionContext> {
+  const ctx = await requireSession();
+  if (!hasModule(ctx.role, ctx.modules, href)) redirect("/dashboard");
   return ctx;
 }

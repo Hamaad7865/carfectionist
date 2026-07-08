@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Plus, LogOut, ChevronDown } from "lucide-react";
-import { navForRole, ROLE_LABEL, type Role } from "@/lib/auth/roles";
+import { navForUser, ROLE_LABEL, type Role } from "@/lib/auth/roles";
 import { signOut } from "@/lib/auth/actions";
 import { Brand } from "./Brand";
 
@@ -14,9 +14,9 @@ function initials(name: string): string {
   return letters.toUpperCase();
 }
 
-export function Sidebar({ role, displayName }: { role: Role; displayName: string }) {
+export function Sidebar({ role, displayName, modules }: { role: Role; displayName: string; modules: string[] | null }) {
   const pathname = usePathname();
-  const items = navForRole(role);
+  const items = navForUser(role, modules);
   const name = displayName.replace(/\s*\(.*\)\s*$/, "").trim();
 
   return (

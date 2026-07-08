@@ -96,6 +96,56 @@ export async function clearStaffPinAction(id: string): Promise<Result> {
   return { ok: true };
 }
 
+// ── Per-user module access (owner-only) ──────────────────────────────────────
+const modulesSchema = z.object({ id: z.string().min(1), modules: z.array(z.string()).nullable() });
+export async function setModulesAction(input: z.input<typeof modulesSchema>): Promise<Result> {
+  await requireRole("owner");
+  const p = modulesSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Invalid module selection" };
+  const sb = await createClient();
+  // null = reset to the role's defaults; a list = explicit allow-list of nav hrefs.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (sb as any).from("app_users").update({ modules: p.data.modules }).eq("id", p.data.id);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/settings/team");
+  return { ok: true };
+}
+
+// ── Reset a staff member's web password (owner-only) ─────────────────────────
+const pwSchema = z.object({ id: z.string().min(1), password: z.string().min(8, "Password must be at least 8 characters") });
+export async function resetPasswordAction(input: z.input<typeof pwSchema>): Promise<Result> {
+  await requireRole("owner");
+  const p = pwSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid password" };
+  const admin = createAdminClient();
+  const { data: row } = await admin.from("app_users").select("auth_user_id").eq("id", p.data.id).maybeSingle();
+  const authId = (row as { auth_user_id: string } | null)?.auth_user_id;
+  if (!authId) return { ok: false, error: "User not found." };
+  const { error } = await admin.auth.admin.updateUserById(authId, { password: p.data.password });
+  if (error) return { ok: false, error: error.message };
+  return { ok: true };
+}
+
+// ── Delete a staff member (owner-only) ───────────────────────────────────────
+export async function deleteStaffAction(id: string): Promise<Result> {
+  const ctx = await requireRole("owner");
+  const sb = await createClient();
+  const selfId = await selfAppUserId(sb, ctx.userId);
+  if (id === selfId) return { ok: false, error: "You can’t delete your own account." };
+  const admin = createAdminClient();
+  const { data: row } = await admin.from("app_users").select("auth_user_id").eq("id", id).maybeSingle();
+  const authId = (row as { auth_user_id: string } | null)?.auth_user_id;
+  if (!authId) return { ok: false, error: "User not found." };
+  // Deleting the auth user cascades to app_users, but a created_by reference
+  // (sales, jobs, stock…) on the append-only ledger blocks that cascade.
+  const { error } = await admin.auth.admin.deleteUser(authId);
+  if (error) {
+    return { ok: false, error: "This user can’t be deleted — they’ve created records (sales, jobs, etc.). Deactivate them instead." };
+  }
+  revalidatePath("/settings/team");
+  return { ok: true };
+}
+
 const roleSchema = z.object({ id: z.string().min(1), role: z.enum(ROLES) });
 export async function setRoleAction(input: z.infer<typeof roleSchema>): Promise<Result> {
   const ctx = await requireRole("owner");

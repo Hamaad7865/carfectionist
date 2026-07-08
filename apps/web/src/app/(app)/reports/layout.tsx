@@ -1,8 +1,10 @@
-import { requireRole } from "@/lib/auth/session";
+import { requireRole, requireModule } from "@/lib/auth/session";
 
-// Accounting is owner/manager/accountant only — a cashier hitting /reports is
-// redirected to the dashboard. Nav hiding + this gate + RLS = defense in depth.
+// Accounting is owner/manager/accountant only (RLS floor), plus the owner can
+// remove it from a specific user via module access. Nav hiding + this gate +
+// RLS = defense in depth.
 export default async function ReportsLayout({ children }: { children: React.ReactNode }) {
   await requireRole("owner", "manager", "accountant");
+  await requireModule("/reports");
   return <>{children}</>;
 }
