@@ -167,7 +167,20 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
             </label>
             {f.isStocked && (
               <div className="mt-3 max-w-[220px]">
-                <Field label="Low-stock threshold"><input className={inputCls} value={f.threshold} onChange={(e) => set("threshold", e.target.value)} inputMode="decimal" placeholder="e.g. 10" /></Field>
+                <Field label="Low-stock threshold" hint="Blank = 10 · capped at 20">
+                  <input
+                    className={inputCls}
+                    value={f.threshold}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      const n = Number(v);
+                      // hard cap: anything typed above 20 snaps to 20
+                      set("threshold", v !== "" && Number.isFinite(n) && n > 20 ? "20" : v);
+                    }}
+                    inputMode="decimal"
+                    placeholder="e.g. 10"
+                  />
+                </Field>
               </div>
             )}
           </div>

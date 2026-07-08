@@ -59,7 +59,8 @@ export async function saveProductAction(input: z.input<typeof schema>): Promise<
     vat_rate: p.data.vatRate,
     barcode: p.data.barcode,
     is_stocked: isStocked,
-    low_stock_threshold: isStocked ? p.data.threshold : null,
+    // blank = default 10 (client display); hard-capped at 20 (also a DB check constraint)
+    low_stock_threshold: isStocked && p.data.threshold != null ? Math.min(Math.max(p.data.threshold, 0), 20) : null,
     is_active: p.data.isActive,
   };
 

@@ -17,8 +17,18 @@ data class ProductEntity(
     val vatRatePct: Double, // resolved (product override ?: tenant default)
     val barcode: String?,
     val isStocked: Boolean,
-    val category: String?, // checkout/stock category chips
-)
+    val category: String?, // checkout/stock category rail
+    val lowStockThreshold: Double?, // null = default
+) {
+    /** Business rule: blank = 10, hard cap 20 (mirrors the DB check + web form). */
+    val effectiveLowStock: Int
+        get() = (lowStockThreshold ?: DEFAULT_LOW_STOCK).coerceAtMost(MAX_LOW_STOCK).toInt()
+
+    companion object {
+        const val DEFAULT_LOW_STOCK = 10.0
+        const val MAX_LOW_STOCK = 20.0
+    }
+}
 
 @Entity(tableName = "customers", indices = [Index("name")])
 data class CustomerEntity(

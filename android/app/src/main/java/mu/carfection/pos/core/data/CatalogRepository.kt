@@ -59,6 +59,7 @@ class CatalogRepository @Inject constructor(
                 barcode = p.barcode,
                 isStocked = p.isStocked,
                 category = p.category?.ifBlank { null },
+                lowStockThreshold = p.lowStockThreshold,
             )
         }
         productDao.replaceAll(products)

@@ -118,16 +118,19 @@ fun CounterScreen(
 
         if (s.mode == CheckoutMode.LIST) CollectList(s, viewModel)
         else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // ── vertical category rail (own surface, scrolls independently) ──────
-            Column(
+            // ── vertical category rail (collapsible; scrolls independently) ──────
+            if (s.railOpen) Column(
                 Modifier.width(150.dp).fillMaxHeight()
                     .background(CardBg, RoundedCornerShape(14.dp))
                     .border(1.dp, Hairline, RoundedCornerShape(14.dp)),
             ) {
-                Text(
-                    "CATEGORIES", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp,
-                    modifier = Modifier.padding(start = 13.dp, top = 13.dp, bottom = 6.dp),
-                )
+                Row(
+                    Modifier.fillMaxWidth().height(40.dp).clickable { viewModel.toggleRail() }.padding(start = 13.dp, end = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text("CATEGORIES", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp, modifier = Modifier.weight(1f))
+                    Text("«", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                     items(s.categories, key = { it }) { c ->
                         val on = c == s.tab
@@ -152,6 +155,17 @@ fun CounterScreen(
                         }
                     }
                 }
+            }
+            else Column(
+                // collapsed: a slim strip — chevron to reopen + a dot when a filter is active
+                Modifier.width(40.dp).fillMaxHeight()
+                    .background(CardBg, RoundedCornerShape(14.dp))
+                    .border(1.dp, Hairline, RoundedCornerShape(14.dp))
+                    .clickable { viewModel.toggleRail() },
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("»", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.padding(top = 11.dp))
+                if (s.tab != "All") Box(Modifier.padding(top = 10.dp).size(8.dp).background(Accent, CircleShape))
             }
 
             // ── products: search + grid + cancel ─────────────────────────────────
@@ -363,10 +377,11 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
             )
             Spacer(Modifier.weight(1f))
             val oh = (onHand ?: 0).coerceAtLeast(0) // oversold rows read as empty, not "-1"
+            val lowAt = p.effectiveLowStock // per-product threshold: blank = 10, capped at 20
             val (meta, metaC) = when {
                 !p.isStocked -> (if (p.kind == "service") "Service" else "—") to TextMuted
                 oh == 0 -> "Out of stock" to Danger
-                oh <= 4 -> "Stock $oh · low" to Warning
+                oh < lowAt -> "Stock $oh · low" to Warning
                 else -> "Stock $oh" to TextMuted
             }
             Text(meta, color = metaC, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, maxLines = 1)
@@ -376,7 +391,7 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
         val badge: Pair<String, Color>? = when {
             inCartQty != null && inCartQty > 0 -> inCartQty.toString() to Accent
             p.isStocked && ohBadge == 0 -> "0" to Danger
-            p.isStocked && ohBadge < 10 -> ohBadge.toString() to Warning
+            p.isStocked && ohBadge < p.effectiveLowStock -> ohBadge.toString() to Warning
             else -> null
         }
         badge?.let { (txt, bg) ->

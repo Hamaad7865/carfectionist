@@ -15,7 +15,9 @@ import mu.carfection.pos.core.network.StockProductDto
 import kotlin.math.roundToInt
 import javax.inject.Inject
 
-const val DEFAULT_LOW_THRESHOLD = 4.0
+// Low-stock rule (shared with the web form + DB check): blank = 10, hard cap 20.
+const val DEFAULT_LOW_THRESHOLD = 10.0
+const val MAX_LOW_THRESHOLD = 20.0
 val STOCK_REASONS = listOf("Received stock", "Used in job", "Damaged", "Correction")
 
 data class StockItem(
@@ -26,7 +28,7 @@ data class StockItem(
     val onHand: Int,
     val threshold: Double,
 ) {
-    val low: Boolean get() = onHand <= threshold
+    val low: Boolean get() = onHand < threshold
     val zero: Boolean get() = onHand == 0
 }
 
@@ -82,11 +84,11 @@ class StockViewModel @Inject constructor(
 
     fun items(s: StockState): List<StockItem> =
         s.products.filter { s.tab == "All" || it.category == s.tab }.map {
-            StockItem(it.id, it.name, it.category ?: "—", rupeesToCents(it.sellingPrice), s.onHand[it.id] ?: 0, it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD)
+            StockItem(it.id, it.name, it.category ?: "—", rupeesToCents(it.sellingPrice), s.onHand[it.id] ?: 0, (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD))
         }
 
     fun lowCount(s: StockState): Int =
-        s.products.count { (s.onHand[it.id] ?: 0) <= (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD) }
+        s.products.count { (s.onHand[it.id] ?: 0) < (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD) }
 
     fun clearToast() = _s.update { it.copy(toast = null) }
 

@@ -46,6 +46,7 @@ data class CounterUiState(
     val tab: String = "All", // category filter
     val categories: List<String> = listOf("All"),
     val catCounts: Map<String, Int> = emptyMap(), // category → product count (rail scanning aid)
+    val railOpen: Boolean = true, // category rail expanded / collapsed to a slim strip
     val onHand: Map<String, Int> = emptyMap(), // productId → stock on hand (all locations)
     val adhocOpen: Boolean = false,
     val products: List<ProductEntity> = emptyList(),
@@ -175,6 +176,7 @@ class CounterViewModel @Inject constructor(
     }
 
     fun setTab(t: String) { local.value = local.value.copy(tab = t) }
+    fun toggleRail() { local.value = local.value.copy(railOpen = !local.value.railOpen) }
 
     // ── ad-hoc line (typed name + price; saves with product_id = null) ─────────
     fun openAdhoc() { local.value = local.value.copy(adhocOpen = true) }
@@ -187,7 +189,7 @@ class CounterViewModel @Inject constructor(
             val p = ProductEntity(
                 id = CartLine.ADHOC_PREFIX + UUID.randomUUID(),
                 name = name.trim(), kind = "adhoc", sellingPriceCents = priceCents,
-                vatRatePct = vat, barcode = null, isStocked = false, category = null,
+                vatRatePct = vat, barcode = null, isStocked = false, category = null, lowStockThreshold = null,
             )
             local.value = local.value.copy(adhocOpen = false)
             mutateCart { cart -> cart + CartLine(p, 1.0) }

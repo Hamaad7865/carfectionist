@@ -19,6 +19,7 @@ data class ProductDto(
     val barcode: String? = null,
     @SerialName("is_stocked") val isStocked: Boolean = false,
     val category: String? = null,
+    @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
 )
 
 @Serializable
