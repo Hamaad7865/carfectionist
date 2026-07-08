@@ -21,16 +21,16 @@ export function TransfersPanel({ transfers, refData }: { transfers: Transfer[]; 
   const [busy, setBusy] = useState(false);
 
   // ── new-transfer builder ──────────────────────────────────────────────────
-  const [fromId, setFromId] = useState(refData.locations[0]?.id ?? "");
-  const [toId, setToId] = useState(refData.locations[1]?.id ?? refData.locations[0]?.id ?? "");
+  const [fromId, setFromId] = useState(refData.locations.find((l) => l.isDefault)?.id ?? refData.locations[0]?.id ?? "");
+  const [toId, setToId] = useState(refData.locations.find((l) => !l.isDefault)?.id ?? refData.locations[1]?.id ?? "");
   const [lines, setLines] = useState<{ key: number; productId: string; qty: string }[]>([]);
   const [nextKey, setNextKey] = useState(1);
 
-  const fromIsStore = useMemo(() => /store/i.test(refData.locations.find((l) => l.id === fromId)?.name ?? ""), [fromId, refData.locations]);
+  const fromIsWarehouse = useMemo(() => refData.locations.find((l) => l.id === fromId)?.isDefault ?? false, [fromId, refData.locations]);
   const availAt = (pid: string) => {
     const p = refData.products.find((x) => x.id === pid);
     if (!p) return 0;
-    return fromIsStore ? p.store : p.floor;
+    return fromIsWarehouse ? p.warehouse : p.shop;
   };
 
   function addLine() {

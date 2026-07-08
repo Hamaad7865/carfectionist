@@ -7,7 +7,7 @@ import { formatMUR } from "@/lib/money";
 import { ProductFormModal } from "./ProductFormModal";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 
-const COLS = "grid-cols-[1fr_160px_90px_90px_70px_80px_80px_80px]";
+const COLS = "grid-cols-[1fr_160px_90px_90px_70px_100px_100px]";
 const qty = (n: number | null) => (n == null ? "—" : String(n));
 const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 
@@ -72,9 +72,8 @@ export function CataloguePanel({ products, showArchived, vatDefault }: { product
           <span className="text-right">Cost</span>
           <span className="text-right">Sell</span>
           <span className="text-right">Margin</span>
-          <span className="text-right">Store</span>
-          <span className="text-right">Floor</span>
-          <span className="text-right">On-hand</span>
+          <span className="text-right">Warehouse</span>
+          <span className="text-right">Shop</span>
         </div>
         {filtered.length === 0 ? (
           <div className="px-5 py-14 text-center text-[13px] text-faint">
@@ -103,10 +102,9 @@ export function CataloguePanel({ products, showArchived, vatDefault }: { product
               <span className="num text-right text-[12px] text-muted">{formatMUR(r.costCents)}</span>
               <span className="num text-right text-[12px] font-semibold text-body">{formatMUR(r.sellCents)}</span>
               <span className="num text-right text-[12px] font-semibold text-mint">{r.marginPct}%</span>
-              <span className="num text-right text-[12px] text-muted">{qty(r.store)}</span>
-              <span className="num text-right text-[12px] text-muted">{qty(r.floor)}</span>
-              <span className="num text-right text-[14px] font-extrabold" style={{ color: r.low ? "#b07c14" : r.onHand == null ? "#8c96a1" : "#172130" }}>
-                {qty(r.onHand)}
+              <span className="num text-right text-[12px] text-muted">{qty(r.warehouse)}</span>
+              <span className="num text-right text-[14px] font-extrabold" style={{ color: r.low ? "#b07c14" : r.shop == null ? "#8c96a1" : "#172130" }}>
+                {qty(r.shop)}
               </span>
             </button>
           ))

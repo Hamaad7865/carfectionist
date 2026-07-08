@@ -18,8 +18,8 @@ export interface Transfer {
   lines: TransferLine[];
 }
 export interface TransfersRef {
-  locations: { id: string; name: string }[];
-  products: { id: string; name: string; unit: string; store: number; floor: number }[];
+  locations: { id: string; name: string; isDefault: boolean }[];
+  products: { id: string; name: string; unit: string; warehouse: number; shop: number }[];
 }
 
 export async function getTransfers(): Promise<{ transfers: Transfer[]; ref: TransfersRef }> {
@@ -38,8 +38,9 @@ export async function getTransfers(): Promise<{ transfers: Transfer[]; ref: Tran
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const locs = (locRes.data ?? []) as any[];
   const locName = (id: string) => locs.find((l) => l.id === id)?.name ?? "—";
-  const storeId = locs.find((l) => /store/i.test(l.name) || l.is_default)?.id;
-  const floorId = locs.find((l) => /floor/i.test(l.name))?.id;
+  // Warehouse = the default location; Shop = the other (name-independent).
+  const warehouseId = locs.find((l) => l.is_default)?.id ?? locs[0]?.id;
+  const shopId = locs.find((l) => l.id !== warehouseId)?.id;
   const oh = (ohRes.data ?? []) as any[];
   const at = (pid: string, lid: string | undefined) =>
     lid ? oh.filter((r) => r.product_id === pid && r.location_id === lid).reduce((s, r) => s + Number(r.qty_on_hand), 0) : 0;
@@ -62,13 +63,13 @@ export async function getTransfers(): Promise<{ transfers: Transfer[]; ref: Tran
   }));
 
   const ref: TransfersRef = {
-    locations: locs.map((l) => ({ id: l.id, name: l.name })),
+    locations: locs.map((l) => ({ id: l.id, name: l.name, isDefault: !!l.is_default })),
     products: ((prodRes.data ?? []) as any[]).map((p) => ({
       id: p.id,
       name: p.name,
       unit: p.unit,
-      store: at(p.id, storeId),
-      floor: at(p.id, floorId),
+      warehouse: at(p.id, warehouseId),
+      shop: at(p.id, shopId),
     })),
   };
   /* eslint-enable @typescript-eslint/no-explicit-any */

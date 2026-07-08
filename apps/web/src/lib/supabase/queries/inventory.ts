@@ -20,9 +20,8 @@ export interface InventoryRow {
   isStocked: boolean;
   threshold: number | null;
   isActive: boolean;
-  store: number | null;
-  floor: number | null;
-  onHand: number | null;
+  warehouse: number | null;
+  shop: number | null;
   low: boolean;
 }
 
@@ -44,13 +43,14 @@ export async function getInventory(includeArchived = false): Promise<InventoryRo
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const locs = (locRes.data ?? []) as any[];
-  const storeId = locs.find((l) => /store/i.test(l.name) || l.is_default)?.id;
-  const floorId = locs.find((l) => /floor/i.test(l.name))?.id;
+  // Warehouse = the tenant's default location; Shop = the other. Name-independent
+  // so it survives location renames.
+  const warehouseId = locs.find((l) => l.is_default)?.id ?? locs[0]?.id;
+  const shopId = locs.find((l) => l.id !== warehouseId)?.id;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const oh = ohData as any[];
   const at = (pid: string, lid: string | undefined) =>
     lid ? oh.filter((r) => r.product_id === pid && r.location_id === lid).reduce((s, r) => s + Number(r.qty_on_hand), 0) : 0;
-  const total = (pid: string) => oh.filter((r) => r.product_id === pid).reduce((s, r) => s + Number(r.qty_on_hand), 0);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (prodData as any[]).map((p) => {
@@ -58,7 +58,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryRo
     const costPrice = Number(p.cost_price);
     const sell = rupeesToCents(sellingPrice);
     const cost = rupeesToCents(costPrice);
-    const onHand = p.is_stocked ? total(p.id) : null;
+    const shop = p.is_stocked ? at(p.id, shopId) : null;
     const threshold = p.low_stock_threshold != null ? Number(p.low_stock_threshold) : null;
     return {
       id: p.id,
@@ -78,10 +78,10 @@ export async function getInventory(includeArchived = false): Promise<InventoryRo
       isStocked: p.is_stocked,
       threshold,
       isActive: p.is_active,
-      store: p.is_stocked ? at(p.id, storeId) : null,
-      floor: p.is_stocked ? at(p.id, floorId) : null,
-      onHand,
-      low: p.is_stocked && threshold != null && onHand != null && onHand < threshold,
+      warehouse: p.is_stocked ? at(p.id, warehouseId) : null,
+      shop,
+      // "on hand" = the shop quantity; low-stock alerts track the shop.
+      low: p.is_stocked && threshold != null && shop != null && shop < threshold,
     };
   });
 }
