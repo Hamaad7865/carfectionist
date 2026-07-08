@@ -7,6 +7,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -117,43 +118,51 @@ fun CounterScreen(
 
         if (s.mode == CheckoutMode.LIST) CollectList(s, viewModel)
         else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // ── left (42fr, bare on bg): categories + search + grid + cancel ─────
-            Column(Modifier.weight(42f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                // collapsible vertical category picker
-                Column(Modifier.fillMaxWidth().background(CardBg, RoundedCornerShape(12.dp)).border(1.dp, Hairline, RoundedCornerShape(12.dp))) {
-                    Row(
-                        Modifier.fillMaxWidth().height(44.dp).clickable { viewModel.toggleCats() }.padding(horizontal = 14.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Text("CATEGORY", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp)
-                        Text(s.tab, color = if (s.tab == "All") TextPrimary else Accent, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text(if (s.catOpen) "▴" else "▾", color = TextSecondary, fontSize = 13.sp)
-                    }
-                    if (s.catOpen) {
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
-                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
-                            items(s.categories, key = { it }) { c ->
-                                val on = c == s.tab
-                                Row(
-                                    Modifier.fillMaxWidth().height(42.dp)
-                                        .background(if (on) AccentSoft else Color.Transparent)
-                                        .clickable { viewModel.setTab(c) }.padding(horizontal = 14.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(c, color = if (on) Accent else TextPrimary, fontFamily = Barlow, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                                    if (on) Text("✓", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                }
-                            }
+            // ── vertical category rail (own surface, scrolls independently) ──────
+            Column(
+                Modifier.width(150.dp).fillMaxHeight()
+                    .background(CardBg, RoundedCornerShape(14.dp))
+                    .border(1.dp, Hairline, RoundedCornerShape(14.dp)),
+            ) {
+                Text(
+                    "CATEGORIES", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp,
+                    modifier = Modifier.padding(start = 13.dp, top = 13.dp, bottom = 6.dp),
+                )
+                LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+                    items(s.categories, key = { it }) { c ->
+                        val on = c == s.tab
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 46.dp).height(IntrinsicSize.Min)
+                                .background(if (on) AccentSoft else Color.Transparent)
+                                .clickable { viewModel.setTab(c) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            // active indicator — selection is never colour alone
+                            Box(Modifier.width(3.dp).fillMaxHeight().background(if (on) Accent else Color.Transparent))
+                            Text(
+                                c, color = if (on) Accent else TextSecondary, fontFamily = Barlow,
+                                fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 15.sp,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f).padding(start = 10.dp, top = 8.dp, bottom = 8.dp),
+                            )
+                            Text(
+                                (s.catCounts[c] ?: 0).toString(), color = TextMuted, fontFamily = Mono, fontSize = 10.5.sp,
+                                modifier = Modifier.padding(start = 6.dp, end = 11.dp),
+                            )
                         }
                     }
                 }
+            }
+
+            // ── products: search + grid + cancel ─────────────────────────────────
+            Column(Modifier.weight(42f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 FilledInput(
                     value = s.query, onValueChange = viewModel::setQuery,
                     placeholder = "Search products or scan a barcode…",
                     modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
                 )
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(2),
+                    columns = GridCells.Adaptive(minSize = 140.dp),
                     modifier = Modifier.weight(1f),
                     horizontalArrangement = Arrangement.spacedBy(9.dp),
                     verticalArrangement = Arrangement.spacedBy(9.dp),

@@ -45,7 +45,7 @@ data class CounterUiState(
     val query: String = "",
     val tab: String = "All", // category filter
     val categories: List<String> = listOf("All"),
-    val catOpen: Boolean = false, // collapsible category panel
+    val catCounts: Map<String, Int> = emptyMap(), // category → product count (rail scanning aid)
     val onHand: Map<String, Int> = emptyMap(), // productId → stock on hand (all locations)
     val adhocOpen: Boolean = false,
     val products: List<ProductEntity> = emptyList(),
@@ -130,6 +130,7 @@ class CounterViewModel @Inject constructor(
     val state: StateFlow<CounterUiState> =
         combine(local, catalog.products, catalog.customers) { s, products, customers ->
             val cats = listOf("All") + products.mapNotNull { it.category }.distinct().sorted()
+            val counts = products.mapNotNull { it.category }.groupingBy { it }.eachCount() + ("All" to products.size)
             val q = s.query.trim().lowercase()
             val filtered = products
                 .filter { s.tab == "All" || it.category == s.tab }
@@ -137,7 +138,7 @@ class CounterViewModel @Inject constructor(
             val cq = s.customerText.trim().lowercase()
             val matches = if (cq.isEmpty() || s.customerId != null) emptyList()
             else customers.filter { it.name.lowercase().contains(cq) }.take(6)
-            s.copy(products = filtered, categories = cats, customerMatches = matches)
+            s.copy(products = filtered, categories = cats, catCounts = counts, customerMatches = matches)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CounterUiState())
 
     init {
@@ -173,8 +174,7 @@ class CounterViewModel @Inject constructor(
         }
     }
 
-    fun setTab(t: String) { local.value = local.value.copy(tab = t, catOpen = false) }
-    fun toggleCats() { local.value = local.value.copy(catOpen = !local.value.catOpen) }
+    fun setTab(t: String) { local.value = local.value.copy(tab = t) }
 
     // ── ad-hoc line (typed name + price; saves with product_id = null) ─────────
     fun openAdhoc() { local.value = local.value.copy(adhocOpen = true) }
