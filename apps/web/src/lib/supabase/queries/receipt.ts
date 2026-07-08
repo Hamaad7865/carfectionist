@@ -3,33 +3,51 @@ import { rupeesToCents } from "@/lib/money";
 
 export interface ReceiptLine { qty: number; title: string; unitInclCents: number; totalInclCents: number; }
 export interface ReceiptVatGroup { rate: number; baseCents: number; vatCents: number; inclCents: number; }
+
 export interface ReceiptData {
   studioName: string;
   address: string;
   brn: string;
   vatNo: string;
+  phone: string;
   number: string | null;
-  dateTime: string;
+  docLabel: string;      // "Invoice" | "Quote" | "Credit note"
+  voided: boolean;
+  isInvoice: boolean;
+  dateTime: string;      // DD-MM-YYYY HH:MM:SS (thermal)
+  dateLabel: string;     // "26 May 2026, 14:08" (card)
   cashier: string;
+  customerName: string;
   lines: ReceiptLine[];
-  subtotalCents: number;
+  subtotalInclCents: number;   // sum of inclusive line totals, before order discount
+  subtotalCents: number;       // ex-VAT taxable base
+  discountInclCents: number;   // order discount (inclusive)
   vatCents: number;
   totalCents: number;
+  paidCents: number;
+  changeCents: number;
+  balanceDueCents: number;
+  methodLabel: string;
+  paid: boolean;
   vatGroups: ReceiptVatGroup[];
   payments: { method: string; amountCents: number }[];
+  footerNote: string;
+  barcodeValue: string;
+  codeLabel: string;
 }
 
-const METHOD_LABEL: Record<string, string> = { cash: "CASH", card: "CARD", juice: "JUICE", bank_transfer: "BANK TRANSFER" };
+const METHOD_LABEL: Record<string, string> = { cash: "cash", card: "card", juice: "Juice", bank_transfer: "bank transfer" };
+const METHOD_UPPER: Record<string, string> = { cash: "CASH", card: "CARD", juice: "JUICE", bank_transfer: "BANK TRANSFER" };
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const DEFAULT_FOOTER = "Goods sold are not refundable. Thank you for shopping with us.";
 
-/** DD-MM-YYYY HH:MM:SS in Mauritius time (+04), matching the thermal receipt. */
-function fmtDateTime(iso: string | null): string {
-  if (!iso) return "";
+function muDate(iso: string | null): Date | null {
+  if (!iso) return null;
   const t = Date.parse(iso);
-  if (Number.isNaN(t)) return "";
-  const d = new Date(t + 4 * 3600_000);
-  const p = (x: number) => String(x).padStart(2, "0");
-  return `${p(d.getUTCDate())}-${p(d.getUTCMonth() + 1)}-${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+  if (Number.isNaN(t)) return null;
+  return new Date(t + 4 * 3600_000); // Mauritius +04
 }
+const p2 = (x: number) => String(x).padStart(2, "0");
 
 export async function getReceipt(id: string): Promise<ReceiptData | null> {
   const sb = await createClient();
@@ -39,9 +57,9 @@ export async function getReceipt(id: string): Promise<ReceiptData | null> {
   const d: any = doc;
 
   const [{ data: lines }, { data: pays }, { data: bs }] = await Promise.all([
-    sb.from("document_lines").select("qty, title, line_total_excl, line_vat").eq("document_id", id).order("sort_order"),
-    sb.from("payments").select("method, amount").eq("document_id", id).order("received_at"),
-    sb.from("business_settings").select("trading_name, address, brn, vat_number").limit(1).maybeSingle(),
+    sb.from("document_lines").select("qty, title, line_total_excl, line_vat, vat_rate").eq("document_id", id).order("sort_order"),
+    sb.from("payments").select("*").eq("document_id", id).order("received_at"),
+    sb.from("business_settings").select("trading_name, address, brn, vat_number, phone, receipt_footer_text").limit(1).maybeSingle(),
   ]);
 
   let cashier = "";
@@ -63,6 +81,8 @@ export async function getReceipt(id: string): Promise<ReceiptData | null> {
   const subtotalCents = rupeesToCents(Number(d.subtotal_excl));
   const vatCents = rupeesToCents(Number(d.vat_total));
   const totalCents = rupeesToCents(Number(d.total_incl));
+  const subtotalInclCents = rLines.reduce((s, l) => s + l.totalInclCents, 0);
+  const discountInclCents = Math.max(0, subtotalInclCents - totalCents);
 
   let vatGroups: ReceiptVatGroup[] = Array.isArray(d.vat_breakdown)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -73,29 +93,79 @@ export async function getReceipt(id: string): Promise<ReceiptData | null> {
       })
     : [];
   if (vatGroups.length === 0 && totalCents > 0) {
-    vatGroups = [{ rate: 15, baseCents: subtotalCents, vatCents, inclCents: totalCents }];
+    // No fiscal snapshot (draft/legacy) — reconstruct groups from the real line
+    // rates rather than assuming 15%.
+    const byRate = new Map<number, { base: number; vat: number }>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const l of (lines ?? []) as any[]) {
+      const rate = Number(l.vat_rate ?? 15);
+      const g = byRate.get(rate) ?? { base: 0, vat: 0 };
+      g.base += rupeesToCents(Number(l.line_total_excl));
+      g.vat += rupeesToCents(Number(l.line_vat));
+      byRate.set(rate, g);
+    }
+    vatGroups = [...byRate.entries()].map(([rate, g]) => ({ rate, baseCents: g.base, vatCents: g.vat, inclCents: g.base + g.vat }));
+    if (vatGroups.length === 0) vatGroups = [{ rate: 15, baseCents: subtotalCents, vatCents, inclCents: totalCents }];
   }
 
-  // Net tenders by method so reversal/re-payment pairs collapse to the effective
-  // amount actually taken (a receipt shows what was paid, not the audit trail).
+  // Net tenders by method so reversal/re-payment pairs collapse to what was taken.
   const payMap = new Map<string, number>();
+  let changeCents = 0;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const p of (pays ?? []) as any[]) payMap.set(p.method, (payMap.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
-  const payments = [...payMap.entries()].filter(([, c]) => c > 0).map(([m, c]) => ({ method: METHOD_LABEL[m] ?? m.toUpperCase(), amountCents: c }));
+  const payRows = (pays ?? []) as any[];
+  const reversedIds = new Set(payRows.filter((p) => p.reverses_payment_id).map((p) => p.reverses_payment_id));
+  for (const pmt of payRows) {
+    const amt = rupeesToCents(Number(pmt.amount));
+    payMap.set(pmt.method, (payMap.get(pmt.method) ?? 0) + amt);
+    // Only count change from tenders that still stand (not a reversal, not reversed).
+    if (!pmt.reverses_payment_id && !reversedIds.has(pmt.id)) {
+      const chg = pmt.change_given != null ? rupeesToCents(Number(pmt.change_given)) : 0;
+      if (chg > 0) changeCents += chg;
+    }
+  }
+  const payments = [...payMap.entries()].filter(([, c]) => c > 0).map(([m, c]) => ({ method: METHOD_UPPER[m] ?? m.toUpperCase(), amountCents: c }));
+  const paidCents = [...payMap.values()].reduce((s, c) => s + Math.max(0, c), 0);
+  const topMethod = [...payMap.entries()].filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1])[0]?.[0];
+  const methodLabel = topMethod ? (METHOD_LABEL[topMethod] ?? topMethod) : "";
+  const paid = d.status === "paid" || (totalCents > 0 && paidCents >= totalCents);
+  const balanceDueCents = Math.max(0, totalCents - paidCents);
+
+  const dt = muDate(d.issued_at ?? (d.issue_date ? `${d.issue_date}T00:00:00Z` : null) ?? d.created_at);
+  const dateTime = dt ? `${p2(dt.getUTCDate())}-${p2(dt.getUTCMonth() + 1)}-${dt.getUTCFullYear()} ${p2(dt.getUTCHours())}:${p2(dt.getUTCMinutes())}:${p2(dt.getUTCSeconds())}` : "";
+  const dateLabel = dt ? `${dt.getUTCDate()} ${MONTHS[dt.getUTCMonth()]} ${dt.getUTCFullYear()}, ${p2(dt.getUTCHours())}:${p2(dt.getUTCMinutes())}` : "";
+  const ddmmyyyy = dt ? `${p2(dt.getUTCDate())}${p2(dt.getUTCMonth() + 1)}${dt.getUTCFullYear()}` : "";
+  const barcodeValue = d.number ?? id.slice(0, 8).toUpperCase();
+  const codeLabel = d.number ? `${d.number}${ddmmyyyy ? ` · ${ddmmyyyy}` : ""}` : barcodeValue;
 
   return {
     studioName: b.trading_name ?? "Carfectionist",
     address: b.address ?? "",
     brn: b.brn ?? "",
     vatNo: b.vat_number ?? "",
+    phone: b.phone ?? "",
     number: d.number,
-    dateTime: fmtDateTime(d.issued_at ?? (d.issue_date ? `${d.issue_date}T00:00:00Z` : null) ?? d.created_at),
+    docLabel: d.doc_type === "quote" ? "Quote" : d.doc_type === "credit_note" ? "Credit note" : "Invoice",
+    voided: d.status === "void",
+    isInvoice: d.doc_type === "invoice",
+    dateTime,
+    dateLabel,
     cashier,
+    customerName: d.customers?.name ?? "Walk-in customer",
     lines: rLines,
+    subtotalInclCents,
     subtotalCents,
+    discountInclCents,
     vatCents,
     totalCents,
+    paidCents,
+    changeCents,
+    balanceDueCents,
+    methodLabel,
+    paid,
     vatGroups,
     payments,
+    footerNote: (b.receipt_footer_text && String(b.receipt_footer_text).trim()) || DEFAULT_FOOTER,
+    barcodeValue,
+    codeLabel,
   };
 }

@@ -1,12 +1,15 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, Minus, Plus, X, Check } from "lucide-react";
+import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart } from "lucide-react";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
 import { formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
+import { ReceiptCard } from "@/components/pdf/ReceiptCard";
 import { counterSaleAction, type CounterResult } from "./actions";
+import { getReceiptDataAction } from "./receipt-action";
+import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 
 const KIND_LABEL: Record<string, string> = { service: "Service", consumable: "Consumable", product: "Product" };
 const METHODS = [
@@ -35,7 +38,21 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<Extract<CounterResult, { ok: true }> | null>(null);
+  const [receipt, setReceipt] = useState<ReceiptData | null>(null);
+  const [receiptError, setReceiptError] = useState(false);
   const [saleKey, setSaleKey] = useState(() => crypto.randomUUID()); // stable per sale, rotates on reset
+
+  // Pull the authoritative receipt for the completed sale so the panel shows
+  // exactly what prints. The Print / PDF / share actions work regardless, so a
+  // failed preview is non-fatal — just surface it instead of spinning forever.
+  useEffect(() => {
+    if (!done) { setReceipt(null); setReceiptError(false); return; }
+    let live = true;
+    getReceiptDataAction(done.invoiceId)
+      .then((r) => { if (live) { if (r) setReceipt(r); else setReceiptError(true); } })
+      .catch(() => { if (live) setReceiptError(true); });
+    return () => { live = false; };
+  }, [done]);
 
   function newKey() {
     setSaleKey(crypto.randomUUID());
@@ -105,35 +122,86 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   }
 
   function reset() {
-    setCart([]); setCustomer(""); setCustomerId(null); setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ(""); newKey();
+    setCart([]); setCustomer(""); setCustomerId(null); setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ("");
+    setOrderDiscKind(null); setOrderDiscValue(0); // never carry a discount into the next ticket
+    newKey();
     router.refresh();
   }
 
   if (done) {
+    const custName = customer.trim() || "Walk-in customer";
+    const methodName = METHODS.find((m) => m.key === method)?.label ?? method;
+    const bigCents = done.onAccount ? done.totalCents : done.changeCents > 0 ? done.changeCents : done.totalCents;
+    const bigLabel = done.onAccount ? "On account" : done.changeCents > 0 ? "Change due" : "Paid";
+    const subtitle = done.onAccount
+      ? `${formatMUR(done.totalCents)} owed by ${custName}`
+      : method === "cash"
+        ? `Paid in cash by ${custName}${done.changeCents > 0 ? ` · change ${formatMUR(done.changeCents)}` : ""}`
+        : `Paid by ${methodName} · ${custName}`;
+    const shareWhatsApp = () => {
+      const text = [
+        `${receipt?.studioName ?? "Carfectionist"} — Receipt ${done.number ?? ""}`.trim(),
+        `Total: ${formatMUR(done.totalCents)}`,
+        "Thank you for your visit!",
+      ].join("\n");
+      window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank");
+    };
+
     return (
-      <div className="mx-auto mt-10 max-w-md rounded-[18px] border border-line bg-card p-8 text-center shadow-brand">
-        <div className="mx-auto flex size-14 items-center justify-center rounded-full bg-[rgba(13,167,124,0.14)]">
-          <Check size={28} className="text-mint" strokeWidth={2.6} />
+      <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_360px]">
+        <style>{`@keyframes receiptSlide{from{opacity:0;transform:translateY(22px)}to{opacity:1;transform:translateY(0)}}`}</style>
+
+        {/* Confirmation + actions */}
+        <div className="rounded-[18px] border border-line bg-card p-6 sm:p-8">
+          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-faint">{done.number ?? "Invoice"} · Counter 01</div>
+          <div className="mt-3 inline-flex items-center gap-2 rounded-full bg-[rgba(13,167,124,0.12)] px-3 py-1">
+            <span className="size-2 rounded-full bg-mint" />
+            <span className="text-[11px] font-bold uppercase tracking-wide text-mint">{done.onAccount ? "Recorded on account" : "Payment confirmed"}</span>
+          </div>
+
+          <div className="mt-5 text-[11px] font-bold uppercase tracking-wide text-faint">{bigLabel}</div>
+          <div className="num mt-1 text-[46px] font-extrabold leading-none text-ink-strong">{formatMUR(bigCents)}</div>
+          <div className="mt-2 text-[13px] text-muted">{subtitle}</div>
+
+          <div className="mt-6 flex flex-wrap gap-2.5">
+            <button onClick={() => window.open(`/print/receipt/${done.invoiceId}`, "_blank")} className="grad-brand shadow-brand inline-flex h-11 items-center gap-2 rounded-[12px] px-5 text-[14px] font-bold text-white">
+              <Printer size={17} /> Print receipt
+            </button>
+            <button onClick={shareWhatsApp} className="inline-flex h-11 items-center gap-2 rounded-[12px] border border-line-2 bg-sub px-4 text-[13.5px] font-bold text-body hover:border-brand">
+              <MessageCircle size={16} /> SMS / WhatsApp
+            </button>
+            <a href={`/api/documents/${done.invoiceId}/pdf`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-[12px] border border-line-2 bg-sub px-4 text-[13.5px] font-bold text-body hover:border-brand">
+              <Download size={16} /> PDF
+            </a>
+          </div>
+
+          <div className="mt-6 flex items-center justify-between rounded-[14px] border border-line bg-sub px-4 py-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="grid size-9 shrink-0 place-items-center rounded-[10px] bg-[rgba(43,140,255,0.1)] text-link"><ShoppingCart size={17} /></div>
+              <div className="min-w-0">
+                <div className="text-[13px] font-bold text-body">New ticket ready</div>
+                <div className="truncate text-[11.5px] text-muted">Start the next walk-in sale</div>
+              </div>
+            </div>
+            <button onClick={reset} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[11px] bg-ink px-4 text-[13px] font-bold text-white">
+              Start <ArrowRight size={15} />
+            </button>
+          </div>
+
+          <Link href={`/sales/${done.invoiceId}`} className="mt-4 inline-block text-[12.5px] font-semibold text-link">View invoice →</Link>
         </div>
-        <div className="mt-4 font-display text-[20px] font-extrabold text-ink-strong">{done.onAccount ? "Recorded on account" : "Sale complete"}</div>
-        <div className="num mt-1 text-[13px] text-muted">{done.number ?? "Invoice"}</div>
-        <div className="num mt-5 text-[34px] font-extrabold text-ink-strong">{formatMUR(done.totalCents)}</div>
-        {done.onAccount ? (
-          <div className="mt-3 inline-flex items-center gap-2 rounded-[11px] bg-[rgba(245,166,35,0.12)] px-4 py-2">
-            <span className="text-[12px] font-bold uppercase tracking-wide text-amber-ink">On account</span>
-            <span className="num text-[16px] font-extrabold text-amber-ink">{formatMUR(done.totalCents)} owed</span>
-          </div>
-        ) : done.changeCents > 0 ? (
-          <div className="mt-3 inline-flex items-center gap-2 rounded-[11px] bg-[rgba(245,166,35,0.12)] px-4 py-2">
-            <span className="text-[12px] font-bold uppercase tracking-wide text-amber-ink">Change due</span>
-            <span className="num text-[16px] font-extrabold text-amber-ink">{formatMUR(done.changeCents)}</span>
-          </div>
-        ) : null}
-        <div className="mt-7 flex gap-2">
-          <button onClick={reset} className="grad-brand shadow-brand h-11 flex-1 rounded-[12px] font-bold text-white">New sale</button>
-          <Link href={`/sales/${done.invoiceId}`} className="flex h-11 flex-1 items-center justify-center rounded-[12px] border border-line-2 bg-sub font-bold text-body">
-            View invoice
-          </Link>
+
+        {/* Receipt */}
+        <div className="flex items-start justify-center rounded-[18px] border border-line p-5" style={{ background: "#ece5d8" }}>
+          {receipt ? (
+            <div style={{ animation: "receiptSlide .45s cubic-bezier(.2,.8,.2,1)" }}>
+              <ReceiptCard r={receipt} />
+            </div>
+          ) : receiptError ? (
+            <div className="py-24 text-center text-[12.5px] text-faint">Receipt preview unavailable.<br />Print / PDF still work.</div>
+          ) : (
+            <div className="py-24 text-[12.5px] text-faint">Preparing receipt…</div>
+          )}
         </div>
       </div>
     );
