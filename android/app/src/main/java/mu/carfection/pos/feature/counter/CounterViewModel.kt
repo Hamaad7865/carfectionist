@@ -254,9 +254,18 @@ class CounterViewModel @Inject constructor(
         else cart.map { if (it.product.id == productId) it.copy(qty = qty) else it }
     }
 
+    /** Tap a cart line → open its qty/discount editor (one open at a time, like the quote builder). */
+    fun toggleLine(productId: String) = mutateCart { cart ->
+        cart.map { if (it.product.id == productId) it.copy(expanded = !it.expanded) else it.copy(expanded = false) }
+    }
+
+    fun setDiscount(productId: String, pct: Int) = mutateCart { cart ->
+        cart.map { if (it.product.id == productId) it.copy(discountPct = pct) else it }
+    }
+
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {
         val cart = f(local.value.cart)
-        val totals = computeTotals(cart.map { LineInput(it.qty, it.product.sellingPriceCents, 0.0, it.product.vatRatePct) })
+        val totals = computeTotals(cart.map { LineInput(it.qty, it.product.sellingPriceCents, it.discountPct.toDouble(), it.product.vatRatePct) })
         local.value = local.value.copy(cart = cart, totals = totals, error = null)
     }
 

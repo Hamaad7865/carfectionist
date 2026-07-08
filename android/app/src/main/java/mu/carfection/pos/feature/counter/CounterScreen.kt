@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -192,23 +193,45 @@ fun CounterScreen(
                     Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(s.cart, key = { it.product.id }) { l ->
-                        Row(
-                            Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(11.dp)).border(1.dp, Color(0x0F0F1A24), RoundedCornerShape(11.dp)).padding(horizontal = 11.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        ) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(l.product.name, color = TextPrimary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(
-                                    "${l.qty.toInt()} × ${formatMUR(l.product.sellingPriceCents)}" + if (l.isAdhoc) "  ·  ad-hoc" else "",
-                                    color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
-                                )
+                    itemsIndexed(s.cart, key = { _, l -> l.product.id }) { i, l ->
+                        val lineTotal = s.totals.lines.getOrNull(i)?.exclCents ?: 0L
+                        Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Tile, RoundedCornerShape(11.dp)).border(1.dp, Color(0x0F0F1A24), RoundedCornerShape(11.dp))) {
+                            Row(
+                                Modifier.fillMaxWidth().clickable { viewModel.toggleLine(l.product.id) }.padding(horizontal = 11.dp, vertical = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(l.product.name, color = TextPrimary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(
+                                        "${l.qty.toInt()} × ${formatMUR(l.product.sellingPriceCents)}" +
+                                            (if (l.discountPct > 0) "  ·  −${l.discountPct}%" else "") +
+                                            (if (l.isAdhoc) "  ·  ad-hoc" else ""),
+                                        color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                                    )
+                                }
+                                Text(formatMUR(lineTotal), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                                Box(
+                                    Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
+                                    contentAlignment = Alignment.Center,
+                                ) { Text("✕", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
                             }
-                            Text(formatMUR((l.product.sellingPriceCents * l.qty).toLong()), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
-                            Box(
-                                Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
-                                contentAlignment = Alignment.Center,
-                            ) { Text("✕", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                            if (l.expanded) Row(
+                                Modifier.fillMaxWidth().padding(start = 11.dp, end = 11.dp, bottom = 9.dp),
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                StepBtn("−") { viewModel.setQty(l.product.id, l.qty - 1) }
+                                Text(l.qty.toInt().toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1, textAlign = TextAlign.Center)
+                                StepBtn("+") { viewModel.setQty(l.product.id, l.qty + 1) }
+                                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
+                                listOf(0, 5, 10, 15, 20).forEach { d ->
+                                    val on = l.discountPct == d
+                                    Box(
+                                        Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { viewModel.setDiscount(l.product.id, d) }.padding(horizontal = 10.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) { Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
+                                }
+                                Spacer(Modifier.weight(1f))
+                            }
                         }
                     }
                     if (s.cart.isEmpty()) item(key = "empty") {
@@ -244,6 +267,12 @@ fun CounterScreen(
     s.paymentAction?.let { PaymentActionDialog(it, viewModel) }
     s.notice?.let { Notice(it, onGone = viewModel::clearNotice) }
 }
+
+@Composable
+private fun StepBtn(t: String, onClick: () -> Unit) =
+    Box(Modifier.size(40.dp).background(InsetAlt, RoundedCornerShape(10.dp)).clickable(onClick = onClick), contentAlignment = Alignment.Center) {
+        Text(t, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+    }
 
 /** Handoff category chip: h38 · radius 19 · selected = accent soft/ring, else quiet outline. */
 @Composable

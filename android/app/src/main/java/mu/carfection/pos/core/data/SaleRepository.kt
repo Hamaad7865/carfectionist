@@ -12,7 +12,12 @@ import mu.carfection.pos.core.network.PosApi
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class CartLine(val product: ProductEntity, val qty: Double) {
+data class CartLine(
+    val product: ProductEntity,
+    val qty: Double,
+    val discountPct: Int = 0,
+    val expanded: Boolean = false, // UI: line row opened for qty/discount editing
+) {
     /** Ad-hoc (typed) lines carry a synthetic local id — they save with product_id = null. */
     val isAdhoc: Boolean get() = product.id.startsWith(ADHOC_PREFIX)
 
@@ -81,7 +86,7 @@ class SaleRepository @Inject constructor(
                     put("title", l.product.name)
                     put("qty", l.qty)
                     put("unit_price", centsToRupees(l.product.sellingPriceCents))
-                    put("discount_pct", 0)
+                    put("discount_pct", l.discountPct)
                     put("vat_rate", l.product.vatRatePct)
                     put("sort_order", i)
                 })
