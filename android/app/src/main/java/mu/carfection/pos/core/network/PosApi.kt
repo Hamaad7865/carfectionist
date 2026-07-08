@@ -101,6 +101,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     // ── Certificates ──────────────────────────────────────────────────────────────
+    /** Existing certificate numbers (to compute the next CERT-#### client-side). */
+    suspend fun fetchCertNumbers(): List<CertNumberRow> =
+        client.postgrest.from("certificates").select(Columns.raw("number")).decodeList()
+
+    /** Issue a ceramic certificate (direct insert — the web app does the same; RLS scopes tenant). */
+    suspend fun insertCertificate(row: NewCertificateDto): CertNumberRow =
+        client.postgrest.from("certificates").insert(row) { select(Columns.raw("number")) }.decodeSingle()
+
     suspend fun fetchCertificates(): List<CertificateDto> =
         client.postgrest.from("certificates")
             .select(Columns.raw("id, number, applied_at, warranty_months, expires_at, notes, job_id, customers(name), vehicles(plate, make, model, color), products(name), applied_by:app_users!certificates_created_by_fkey(display_name)")) {
@@ -136,7 +144,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Jobs board ──────────────────────────────────────────────────────────────
     suspend fun fetchJobs(): List<JobBoardDto> =
         client.postgrest.from("jobs")
-            .select(Columns.raw("id, status, scheduled_at, started_at, ready_at, delivered_at, technician_id, notes, checklist, damage_markers, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name)")) {
+            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, technician_id, notes, checklist, damage_markers, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name)")) {
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
             }
             .decodeList()

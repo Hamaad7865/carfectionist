@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -36,7 +37,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
+import mu.carfection.pos.core.money.formatMUR
 import kotlinx.coroutines.delay
 import mu.carfection.pos.core.network.JobBoardDto
 import mu.carfection.pos.ui.theme.Accent
@@ -90,8 +93,63 @@ fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: Jobs
         }
         viewModel.active(s)?.let { JobDetailSheet(s, it, viewModel, onGoCheckout) }
     }
+    if (s.certOpen) CertIssueDialog(s, viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(1800); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
+}
+
+@Composable
+private fun CertIssueDialog(s: JobsState, vm: JobsViewModel) {
+    val job = vm.active(s)
+    val products = vm.certProducts(s)
+    Dialog(onDismissRequest = vm::closeCertIssue) {
+        Column(
+            Modifier.width(520.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            Text("ISSUE WARRANTY CERTIFICATE", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.2.sp, color = TextPrimary)
+            Text(
+                "${job?.customers?.name ?: "—"} · ${job?.let { vehLabel(it) } ?: "Vehicle"}${job?.vehicles?.plate?.let { " · $it" } ?: ""}",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary,
+            )
+            SectionLabel("PRODUCT APPLIED")
+            Column(Modifier.heightIn(max = 210.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                products.forEach { p ->
+                    val on = p.id == s.certProductId
+                    Row(
+                        Modifier.fillMaxWidth().background(if (on) AccentSoft else Color(0xFFF4F7F9), RoundedCornerShape(11.dp))
+                            .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(11.dp))
+                            .clickable { vm.pickCertProduct(p.id) }.padding(horizontal = 13.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(p.name, Modifier.weight(1f), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(formatMUR(p.sellingPriceCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary)
+                    }
+                }
+            }
+            SectionLabel("WARRANTY TERM")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                CERT_TERMS.forEach { (months, label) ->
+                    val on = months == s.certTermMonths
+                    Box(
+                        Modifier.weight(1f).height(42.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(11.dp))
+                            .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(11.dp))
+                            .clickable { vm.pickCertTerm(months) },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (on) Accent else TextSecondary) }
+                }
+            }
+            Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(Modifier.weight(1f).height(52.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(13.dp)).clickable { vm.closeCertIssue() }, contentAlignment = Alignment.Center) {
+                    Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
+                }
+                val ok = s.certProductId != null && !s.certBusy
+                Box(Modifier.weight(1.5f).height(52.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ok) { vm.issueCert() }, contentAlignment = Alignment.Center) {
+                    Text(if (s.certBusy) "Issuing…" else "Issue certificate", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted)
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -194,7 +252,12 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
             }
             // footer action
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
-            Box(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp)) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                if (j.status == "ready" || j.status == "delivered") {
+                    Box(Modifier.fillMaxWidth().height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openCertIssue() }, contentAlignment = Alignment.Center) {
+                        Text("＋  Issue warranty certificate", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                    }
+                }
                 val doneN = j.checklist.count { it.done }
                 val (label, action) = when (j.status) {
                     "scheduled" -> "▶  Start job" to { vm.startJob() }

@@ -99,6 +99,8 @@ data class QuoteRowDto(
 data class JobBoardDto(
     val id: String,
     val status: String,
+    @SerialName("customer_id") val customerId: String? = null,
+    @SerialName("vehicle_id") val vehicleId: String? = null,
     @SerialName("scheduled_at") val scheduledAt: String? = null,
     @SerialName("started_at") val startedAt: String? = null,
     @SerialName("ready_at") val readyAt: String? = null,
@@ -159,6 +161,22 @@ data class TodayPaymentDto(
 
 // ── Certificates & warranty ───────────────────────────────────────────────────
 @Serializable data class CertProductDto(val name: String? = null)
+@Serializable data class CertNumberRow(val number: String)
+
+/** Insert payload for a new ceramic certificate (RLS scopes the tenant). */
+@Serializable
+data class NewCertificateDto(
+    @SerialName("tenant_id") val tenantId: String,
+    val number: String,
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("vehicle_id") val vehicleId: String,
+    @SerialName("product_id") val productId: String? = null,
+    @SerialName("job_id") val jobId: String? = null,
+    @SerialName("applied_at") val appliedAt: String,
+    @SerialName("warranty_months") val warrantyMonths: Int,
+    @SerialName("expires_at") val expiresAt: String,
+    val notes: String? = null,
+)
 
 @Serializable
 data class CertificateDto(

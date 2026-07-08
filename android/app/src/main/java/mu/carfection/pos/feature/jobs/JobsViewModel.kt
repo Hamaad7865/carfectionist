@@ -11,11 +11,15 @@ import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.network.ChecklistItemDto
 import mu.carfection.pos.core.network.JobBoardDto
+import mu.carfection.pos.core.network.NewCertificateDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.TechnicianDto
 import java.time.Instant
+import java.time.LocalDate
 import javax.inject.Inject
 
 /** The four kanban columns, in order, with the handoff's dot colours. */
@@ -26,6 +30,8 @@ enum class JobCol(val key: String, val label: String, val dot: Long) {
     DELIVERED("delivered", "Delivered", 0xFF68788A),
 }
 
+val CERT_TERMS = listOf(12 to "1 year", 36 to "3 years", 60 to "5 years", 120 to "10 years")
+
 data class JobsState(
     val loading: Boolean = true,
     val jobs: List<JobBoardDto> = emptyList(),
@@ -34,16 +40,67 @@ data class JobsState(
     val busy: Boolean = false,
     val toast: String? = null,
     val error: String? = null,
+    // certificate issuing (from a finished ceramic job)
+    val products: List<ProductEntity> = emptyList(),
+    val certOpen: Boolean = false,
+    val certProductId: String? = null,
+    val certTermMonths: Int = 36,
+    val certBusy: Boolean = false,
 )
 
 @HiltViewModel
-class JobsViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
+class JobsViewModel @Inject constructor(
+    private val api: PosApi,
+    private val catalog: CatalogRepository,
+) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
 
     init {
         load()
         viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
+        viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
+    }
+
+    // ── certificate issuing ────────────────────────────────────────────────────
+    /** Ceramic-ish products for the picker; falls back to all if nothing matches. */
+    fun certProducts(s: JobsState): List<ProductEntity> {
+        val hit = s.products.filter { p -> listOf("ceramic", "diamondbrite", "coat", "ppf", "graphene").any { p.name.contains(it, true) } }
+        return hit.ifEmpty { s.products }
+    }
+
+    fun openCertIssue() = _s.update { it.copy(certOpen = true, certProductId = null, certTermMonths = 36) }
+    fun closeCertIssue() = _s.update { it.copy(certOpen = false) }
+    fun pickCertProduct(id: String) = _s.update { it.copy(certProductId = id) }
+    fun pickCertTerm(months: Int) = _s.update { it.copy(certTermMonths = months) }
+
+    fun issueCert() {
+        val s = _s.value
+        val job = active(s) ?: return
+        val cid = job.customerId ?: run { _s.update { it.copy(toast = "This job has no customer") }; return }
+        val vid = job.vehicleId ?: run { _s.update { it.copy(toast = "This job has no vehicle") }; return }
+        _s.update { it.copy(certBusy = true) }
+        viewModelScope.launch {
+            runCatching {
+                val tenant = catalog.tenantId() ?: error("Not synced")
+                val next = nextCertNumber(runCatching { api.fetchCertNumbers() }.getOrDefault(emptyList()).map { it.number })
+                val applied = LocalDate.now()
+                val expires = applied.plusMonths(s.certTermMonths.toLong())
+                api.insertCertificate(
+                    NewCertificateDto(
+                        tenantId = tenant, number = next, customerId = cid, vehicleId = vid,
+                        productId = s.certProductId, jobId = job.id,
+                        appliedAt = applied.toString(), warrantyMonths = s.certTermMonths, expiresAt = expires.toString(),
+                    ),
+                ).number
+            }.onSuccess { num -> _s.update { it.copy(certBusy = false, certOpen = false, toast = "Certificate $num issued") } }
+                .onFailure { e -> _s.update { it.copy(certBusy = false, toast = e.message ?: "Couldn't issue the certificate") } }
+        }
+    }
+
+    private fun nextCertNumber(existing: List<String>): String {
+        val max = existing.mapNotNull { Regex("(\\d+)$").find(it)?.groupValues?.get(1)?.toIntOrNull() }.maxOrNull() ?: 0
+        return "CERT-" + (max + 1).toString().padStart(4, '0')
     }
 
     fun load() {

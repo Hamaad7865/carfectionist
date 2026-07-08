@@ -24,8 +24,10 @@ Convention mirrors FRONTEND_PROGRESS.md: build → verify on emulator-5554 → c
   Collect pad on an unpaid invoice shows "Void this invoice" (owner/manager); a tapped PAID TODAY row
   opens Refund (credit note, restock) / Reverse-payment. RLS enforces owner/manager; graceful message
   otherwise. **Compiles; runtime-verify once fresh data is loaded.**
-- [ ] **4 · Certificate issuing** — Android only views certs. Add "Issue certificate" from a ready/
-  delivered ceramic job (direct `certificates` insert, as the web app does; RLS `cert_insert`).
+- [~] **4 · Certificate issuing** — a ready/delivered job's detail sheet now has "＋ Issue warranty
+  certificate": pick a ceramic product + term (1/3/5/10 yr) → direct `certificates` insert (customer +
+  vehicle from the job, next `CERT-####` computed client-side, applied/expiry dates set). It then shows on
+  the Certificates screen. **Compiles; runtime-verify once fresh data is loaded.**
 - [ ] **5 · Quote flows parity** — integrate `convert_quote_to_job` (in flight in a separate session)
   for proper accept→job; wire `convert_quote_to_invoice` + `revise_quote` where the web app offers them.
 - [ ] **6 · Role-based UI gating** — hide tabs/actions the signed-in role can't use (web enforces RBAC;
