@@ -8,6 +8,8 @@ import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.auth.providers.builtin.Email
 import io.github.jan.supabase.auth.status.SessionStatus
+import io.github.jan.supabase.auth.user.UserSession
+import mu.carfection.pos.core.network.PinSessionDto
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.coroutines.flow.Flow
@@ -39,13 +41,19 @@ class SessionRepository @Inject constructor(
     private fun meta(key: String): String? =
         (client.auth.currentUserOrNull()?.userMetadata?.get(key) as? JsonPrimitive)?.contentOrNull
 
-    /** Display name (seeded as "Rakesh (Owner)" → "Rakesh") for the header staff chip. */
+    // Operator identity from the PIN-login response, so the header is right from the first frame
+    // (importSession flips to Authenticated before the user's metadata finishes loading). Metadata
+    // covers the restore-on-restart case, when these are null.
+    @Volatile private var opName: String? = null
+    @Volatile private var opRole: String? = null
+
+    /** Display name (e.g. "Rakesh (Owner)" → "Rakesh") for the header staff chip. */
     val userName: String
-        get() = (meta("display_name") ?: userEmail?.substringBefore("@") ?: "Staff")
+        get() = (opName ?: meta("display_name") ?: userEmail?.substringBefore("@") ?: "Staff")
             .replace(Regex("\\s*\\(.*\\)\\s*$"), "").trim()
 
     val userRole: String
-        get() = meta("role")?.replaceFirstChar { it.uppercase() } ?: "POS"
+        get() = (opRole ?: meta("role"))?.replaceFirstChar { it.uppercase() } ?: "POS"
 
     suspend fun signIn(email: String, password: String) {
         client.auth.signInWith(Email) {
@@ -54,7 +62,32 @@ class SessionRepository @Inject constructor(
         }
     }
 
-    suspend fun signOut() = client.auth.signOut()
+    /**
+     * Adopt the session minted by the PIN-login endpoint. The tokens are a normal Supabase session,
+     * so RLS and the header name/role (from the user's metadata) work exactly as with a password
+     * sign-in; we refresh the user so its metadata is populated and persisted for restarts.
+     */
+    suspend fun signInWithPin(s: PinSessionDto) {
+        opName = s.operator.displayName
+        opRole = s.operator.role
+        val nowSec = System.currentTimeMillis() / 1000
+        val expiresIn = ((s.expiresAt ?: (nowSec + 3600)) - nowSec).coerceAtLeast(60)
+        client.auth.importSession(
+            UserSession(
+                accessToken = s.accessToken,
+                refreshToken = s.refreshToken,
+                expiresIn = expiresIn,
+                tokenType = "bearer",
+                user = null,
+            )
+        )
+        runCatching { client.auth.retrieveUserForCurrentSession(updateSession = true) }
+    }
+
+    suspend fun signOut() {
+        opName = null; opRole = null
+        client.auth.signOut()
+    }
 
     /** Stable per-tablet id for the till (one open session per device). */
     suspend fun deviceId(): String {

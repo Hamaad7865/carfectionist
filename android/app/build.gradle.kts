@@ -28,6 +28,10 @@ android {
         versionName = "0.1.0"
         buildConfigField("String", "SUPABASE_URL", "\"${prop("supabase.url")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("supabase.anonKey")}\"")
+        // Staff-PIN login talks to the web app's server-side routes (service-role stays there).
+        // Emulator reaches the host dev server at 10.0.2.2; override in local.properties for a real device/deploy.
+        buildConfigField("String", "POS_WEB_URL", "\"${prop("pos.webUrl").ifBlank { "http://10.0.2.2:3000" }}\"")
+        buildConfigField("String", "POS_DEVICE_KEY", "\"${prop("pos.deviceKey")}\"")
     }
 
     buildTypes {
