@@ -11,13 +11,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import mu.carfection.pos.R
 
-// ─── "Detailing POS" handoff design tokens — LIGHT theme, teal accent ─────────
-// Recreated 1:1 from Detailing POS.dc.html. Do not re-theme (see project memory).
-val Accent = Color(0xFF0FBFA6)          // --ac (teal)
+// ─── Design tokens — LIGHT theme; layout per the Detailing POS handoff ────────
+// Accent re-brand 2026-07-09 (user request): the POS must match the WEB app's
+// brand palette (apps/web globals.css) — blue #2B8CFF family, not handoff teal.
+val Accent = Color(0xFF2B8CFF)          // --color-brand (same as the web app)
 val AccentInk = Color(0xFFFFFFFF)       // text on accent
-val AccentSoft = Color(0x240FBFA6)      // accent @14%
-val AccentLine = Color(0x730FBFA6)      // accent @45%
-val AccentBlue = Color(0xFF3E8BFF)      // gradient partner (logo/cert)
+val AccentSoft = Color(0x242B8CFF)      // accent @14%
+val AccentLine = Color(0x732B8CFF)      // accent @45%
+val AccentBlue = Color(0xFF4F74FF)      // gradient partner = web --color-brand-2
 
 val ScreenBg = Color(0xFFF2F4F7)        // main area
 val CardBg = Color(0xFFFFFFFF)          // surfaces / cards

@@ -1,5 +1,6 @@
 package mu.carfection.pos.feature.login
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,7 +24,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,6 +38,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import mu.carfection.pos.R
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.network.PinAuthApi
@@ -141,7 +145,13 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
 @Composable
 private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text("CARFECTIONIST", color = Accent, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 2.sp)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Image(
+                painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist",
+                modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)),
+            )
+            Text("CARFECTIONIST", color = Accent, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 2.sp)
+        }
         Text("SIGN IN", color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 17.sp, letterSpacing = 1.5.sp)
         when {
             s.loadingRoster -> Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {

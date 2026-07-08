@@ -48,7 +48,7 @@ import mu.carfection.pos.ui.theme.TextSecondary
 import mu.carfection.pos.ui.theme.Warning
 
 private val BestGrad = Brush.horizontalGradient(listOf(Accent, AccentBlue))
-private val BarGrad = Brush.verticalGradient(listOf(Accent, Color(0xFF0E8F7C)))
+private val BarGrad = Brush.verticalGradient(listOf(Accent, Color(0xFF1E6FE0))) // brand → web --color-link
 
 private fun Modifier.panel() = this.background(CardBg, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp))
 

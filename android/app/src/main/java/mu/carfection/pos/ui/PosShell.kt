@@ -1,5 +1,6 @@
 package mu.carfection.pos.ui
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -8,13 +9,16 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -27,15 +31,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import mu.carfection.pos.R
 import mu.carfection.pos.ui.theme.Accent
-import mu.carfection.pos.ui.theme.AccentBlue
 import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentSoft
 import mu.carfection.pos.ui.theme.Barlow
@@ -64,7 +69,6 @@ enum class PosTab(val label: String, val icon: ImageVector, val title: String, v
     DASH("Today", PosIcons.Today, "Today at the studio", "KPIs, turnover, best sellers, technicians"),
 }
 
-private val TileBrush = Brush.linearGradient(listOf(Accent, AccentBlue))
 private val Tracked2 = 2.sp
 
 @Composable
@@ -79,7 +83,9 @@ fun PosShell(
     onStaffClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    Column(Modifier.fillMaxSize().background(ScreenBg)) {
+    // Edge-to-edge (targetSdk 35): inset below the status bar so the clock/battery
+    // never overlap the header wordmark or the staff chip.
+    Column(Modifier.fillMaxSize().background(ScreenBg).windowInsetsPadding(WindowInsets.statusBars)) {
         Header(studioName, staffName, staffRole, online, pendingSync, onStaffClick)
         Row(Modifier.fillMaxSize()) {
             NavRail(active, onSelect)
@@ -101,13 +107,14 @@ private fun Header(studioName: String, staffName: String, staffRole: String, onl
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // logo tile
-        Box(Modifier.size(34.dp).background(TileBrush, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Text("C", color = AccentInk, fontFamily = Condensed, fontWeight = FontWeight.ExtraBold, fontSize = 17.sp)
-        }
+        // brand logo (same asset as the web favicon)
+        Image(
+            painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist",
+            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)),
+        )
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(studioName.uppercase(), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 16.sp, letterSpacing = Tracked2, color = TextPrimary)
-            Text("Grand Baie · Mauritius", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, letterSpacing = 0.4.sp)
+            Text("Helvetia · Mauritius", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, letterSpacing = 0.4.sp)
         }
         Spacer(Modifier.weight(1f))
         // time / date

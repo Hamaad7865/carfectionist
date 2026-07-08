@@ -166,7 +166,7 @@ private fun CertificateCard(c: CertificateDto, now: LocalDate, vm: CertViewModel
                 Box(Modifier.size(52.dp).background(CertGrad, CircleShape), contentAlignment = Alignment.Center) { Text("✓", fontFamily = Barlow, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = Color.White) }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text("CERTIFICATE OF CERAMIC PROTECTION", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 2.5.sp, color = TextPrimary, lineHeight = 22.sp)
-                    Text("$STUDIO · Grand Baie · Mauritius", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, letterSpacing = 0.6.sp, color = TextMuted)
+                    Text("$STUDIO · Helvetia · Mauritius", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, letterSpacing = 0.6.sp, color = TextMuted)
                 }
                 Text(c.number, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary)
             }
