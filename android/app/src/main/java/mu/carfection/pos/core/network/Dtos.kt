@@ -234,6 +234,9 @@ data class BusinessSettingsDto(
     val id: String, // tenant id
     @SerialName("vat_rate") val vatRate: FlexDouble,
     @SerialName("trading_name") val tradingName: String? = null,
+    val brn: String? = null,
+    @SerialName("vat_number") val vatNumber: String? = null,
+    val address: String? = null,
 )
 
 @Serializable

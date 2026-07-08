@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -168,13 +169,23 @@ fun CounterScreen(
                 if (s.tab != "All") Box(Modifier.padding(top = 10.dp).size(8.dp).background(Accent, CircleShape))
             }
 
-            // ── products: search + grid + cancel ─────────────────────────────────
+            // ── products: search + ad-hoc + grid + cancel ────────────────────────
             Column(Modifier.weight(42f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                FilledInput(
-                    value = s.query, onValueChange = viewModel::setQuery,
-                    placeholder = "Search products or scan a barcode…",
-                    modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
-                )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilledInput(
+                        value = s.query, onValueChange = viewModel::setQuery,
+                        placeholder = "Search products or scan a barcode…",
+                        modifier = Modifier.weight(1f), height = 44.dp, bg = CardBg, leadingSearch = true,
+                    )
+                    // always-visible ad-hoc entry (was buried at the end of the grid)
+                    Row(
+                        Modifier.height(44.dp).dashedBorder(Color(0x400F1A24), 11.dp).clickable { viewModel.openAdhoc() }.padding(horizontal = 13.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text("+", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text("Ad-hoc", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                }
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 140.dp),
                     modifier = Modifier.weight(1f),
@@ -187,16 +198,6 @@ fun CounterScreen(
                             inCartQty = s.cart.firstOrNull { it.product.id == p.id }?.qty?.toInt(),
                             onHand = s.onHand[p.id],
                         ) { viewModel.add(p) }
-                    }
-                    item(key = "adhoc") {
-                        Column(
-                            Modifier.height(92.dp).fillMaxWidth().dashedBorder(Color(0x400F1A24), 13.dp).clickable { viewModel.openAdhoc() },
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
-                        ) {
-                            Text("+", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
-                            Text("Ad-hoc line — typed", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
-                        }
                     }
                 }
                 Box(
@@ -337,7 +338,12 @@ fun CounterScreen(
 
     if (s.padOpen) PaymentPad(s, viewModel)
     if (s.adhocOpen) AdhocDialog(viewModel)
-    s.done?.let { SaleDone(it, onDone = viewModel::backToList) }
+    s.done?.let {
+        SaleDone(
+            result = it, receipt = s.receiptText, canVoid = viewModel.canManage,
+            onPrint = viewModel::reprint, onVoid = viewModel::voidCompletedSale, onDone = viewModel::backToList,
+        )
+    }
     s.paymentAction?.let { PaymentActionDialog(it, viewModel) }
     s.notice?.let { Notice(it, onGone = viewModel::clearNotice) }
 }
@@ -766,29 +772,60 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
 // ─── Success ─────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SaleDone(result: mu.carfection.pos.core.data.SaleResult, onDone: () -> Unit) {
-    Dialog(onDismissRequest = {}) {
-        Column(
-            Modifier.width(400.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(28.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+private fun SaleDone(
+    result: mu.carfection.pos.core.data.SaleResult,
+    receipt: String?,
+    canVoid: Boolean,
+    onPrint: () -> Unit,
+    onVoid: () -> Unit,
+    onDone: () -> Unit,
+) {
+    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Row(
+            Modifier.width(720.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(20.dp),
         ) {
-            Box(Modifier.size(56.dp).background(Success.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
-                Icon(Icons.Default.Check, null, tint = Success, modifier = Modifier.size(30.dp))
+            // left: outcome + actions (the Cashmag-style post-sale panel)
+            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(Modifier.size(56.dp).background(Success.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Default.Check, null, tint = Success, modifier = Modifier.size(30.dp))
+                }
+                Text(if (result.onAccount) "Recorded on account" else "Paid in full", color = TextPrimary, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text(result.number ?: "Invoice", color = TextSecondary, fontFamily = Mono, fontSize = 13.sp)
+                Text(formatMUR(result.totalCents), color = TextPrimary, fontFamily = Condensed, fontSize = 34.sp, fontWeight = FontWeight.Bold)
+                if (result.onAccount) {
+                    Text("${formatMUR(result.totalCents)} owed — shows on the customer's statement", color = Warning, fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
+                } else if (result.changeCents > 0) {
+                    Text("CHANGE ${formatMUR(result.changeCents)}", color = Success, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.weight(1f))
+                Box(
+                    Modifier.fillMaxWidth().height(46.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = onPrint),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Print again", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                if (canVoid) Box(
+                    Modifier.fillMaxWidth().height(46.dp).border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp)).clickable(onClick = onVoid),
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (result.onAccount) "Void this sale" else "Void — refund & restock", color = Danger, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                Box(
+                    Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Done", color = AccentInk, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
             }
-            Text(if (result.onAccount) "Recorded on account" else "Paid in full", color = TextPrimary, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(result.number ?: "Invoice", color = TextSecondary, fontFamily = Mono, fontSize = 13.sp)
-            Text(formatMUR(result.totalCents), color = TextPrimary, fontFamily = Condensed, fontSize = 36.sp, fontWeight = FontWeight.Bold)
-            if (result.onAccount) {
-                Text("${formatMUR(result.totalCents)} owed — shows on the customer's statement", color = Warning, fontSize = 14.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-            } else if (result.changeCents > 0) {
-                Text("CHANGE ${formatMUR(result.changeCents)}", color = Success, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+            // right: the slip exactly as it printed
+            Column(Modifier.weight(1f)) {
+                Text("RECEIPT", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, modifier = Modifier.padding(bottom = 6.dp))
+                Box(
+                    Modifier.fillMaxWidth().heightIn(min = 320.dp, max = 420.dp)
+                        .background(Inset, RoundedCornerShape(12.dp)).border(1.dp, Hairline, RoundedCornerShape(12.dp))
+                        .padding(14.dp),
+                ) {
+                    Text(
+                        receipt ?: "—", color = TextPrimary, fontFamily = Mono, fontSize = 11.sp, lineHeight = 15.sp,
+                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                    )
+                }
             }
-            Spacer(Modifier.height(6.dp))
-            Box(
-                Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone),
-                contentAlignment = Alignment.Center,
-            ) { Text("Done", color = AccentInk, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
         }
     }
 }

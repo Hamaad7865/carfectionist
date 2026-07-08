@@ -11,6 +11,7 @@ import mu.carfection.pos.core.database.CustomerDao
 import mu.carfection.pos.core.database.CustomerEntity
 import mu.carfection.pos.core.database.ProductDao
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.hardware.ReceiptBiz
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
 import javax.inject.Inject
@@ -31,6 +32,9 @@ class CatalogRepository @Inject constructor(
     private val tenantKey = stringPreferencesKey("tenant_id")
     private val vatKey = doublePreferencesKey("vat_default")
     private val nameKey = stringPreferencesKey("trading_name")
+    private val brnKey = stringPreferencesKey("brn")
+    private val vatNoKey = stringPreferencesKey("vat_number")
+    private val addressKey = stringPreferencesKey("address")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -39,6 +43,17 @@ class CatalogRepository @Inject constructor(
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
 
+    /** Receipt header identity (name/address/BRN/VAT no) from the synced settings. */
+    suspend fun receiptBiz(): ReceiptBiz {
+        val p = prefs.data.first()
+        return ReceiptBiz(
+            name = p[nameKey] ?: "Carfectionist",
+            address = p[addressKey],
+            brn = p[brnKey],
+            vatNo = p[vatNoKey],
+        )
+    }
+
     /** Pull settings + catalogue. Call after login and on pull-to-refresh. */
     suspend fun refresh() {
         val settings = api.fetchSettings()
@@ -46,6 +61,9 @@ class CatalogRepository @Inject constructor(
             it[tenantKey] = settings.id
             it[vatKey] = settings.vatRate
             settings.tradingName?.let { n -> it[nameKey] = n }
+            settings.brn?.let { v -> it[brnKey] = v }
+            settings.vatNumber?.let { v -> it[vatNoKey] = v }
+            settings.address?.let { v -> it[addressKey] = v }
         }
         val vatDefault = settings.vatRate
 
