@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -62,6 +63,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.parseMoneyToCents
@@ -115,10 +117,35 @@ fun CounterScreen(
 
         if (s.mode == CheckoutMode.LIST) CollectList(s, viewModel)
         else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // ── left (42fr, bare on bg): category chips + search + grid + cancel ─
+            // ── left (42fr, bare on bg): categories + search + grid + cancel ─────
             Column(Modifier.weight(42f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    s.categories.forEach { c -> CatChip(c, c == s.tab) { viewModel.setTab(c) } }
+                // collapsible vertical category picker
+                Column(Modifier.fillMaxWidth().background(CardBg, RoundedCornerShape(12.dp)).border(1.dp, Hairline, RoundedCornerShape(12.dp))) {
+                    Row(
+                        Modifier.fillMaxWidth().height(44.dp).clickable { viewModel.toggleCats() }.padding(horizontal = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text("CATEGORY", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp)
+                        Text(s.tab, color = if (s.tab == "All") TextPrimary else Accent, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(if (s.catOpen) "▴" else "▾", color = TextSecondary, fontSize = 13.sp)
+                    }
+                    if (s.catOpen) {
+                        Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+                        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 320.dp)) {
+                            items(s.categories, key = { it }) { c ->
+                                val on = c == s.tab
+                                Row(
+                                    Modifier.fillMaxWidth().height(42.dp)
+                                        .background(if (on) AccentSoft else Color.Transparent)
+                                        .clickable { viewModel.setTab(c) }.padding(horizontal = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(c, color = if (on) Accent else TextPrimary, fontFamily = Barlow, fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                                    if (on) Text("✓", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                }
+                            }
+                        }
+                    }
                 }
                 FilledInput(
                     value = s.query, onValueChange = viewModel::setQuery,
@@ -193,8 +220,7 @@ fun CounterScreen(
                     Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    itemsIndexed(s.cart, key = { _, l -> l.product.id }) { i, l ->
-                        val lineTotal = s.totals.lines.getOrNull(i)?.exclCents ?: 0L
+                    items(s.cart, key = { it.product.id }) { l ->
                         Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Tile, RoundedCornerShape(11.dp)).border(1.dp, Color(0x0F0F1A24), RoundedCornerShape(11.dp))) {
                             Row(
                                 Modifier.fillMaxWidth().clickable { viewModel.toggleLine(l.product.id) }.padding(horizontal = 11.dp, vertical = 9.dp),
@@ -202,14 +228,18 @@ fun CounterScreen(
                             ) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                     Text(l.product.name, color = TextPrimary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    val discountNote = when {
+                                        l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
+                                        l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
+                                        else -> ""
+                                    }
                                     Text(
-                                        "${l.qty.toInt()} × ${formatMUR(l.product.sellingPriceCents)}" +
-                                            (if (l.discountPct > 0) "  ·  −${l.discountPct}%" else "") +
+                                        "${l.qty.toInt()} × ${formatMUR(l.product.sellingPriceCents)}" + discountNote +
                                             (if (l.isAdhoc) "  ·  ad-hoc" else ""),
                                         color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                                     )
                                 }
-                                Text(formatMUR(lineTotal), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text(formatMUR(l.netCents), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                                 Box(
                                     Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
                                     contentAlignment = Alignment.Center,
@@ -223,12 +253,21 @@ fun CounterScreen(
                                 Text(l.qty.toInt().toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1, textAlign = TextAlign.Center)
                                 StepBtn("+") { viewModel.setQty(l.product.id, l.qty + 1) }
                                 Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
-                                listOf(0, 5, 10, 15, 20).forEach { d ->
-                                    val on = l.discountPct == d
-                                    Box(
-                                        Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { viewModel.setDiscount(l.product.id, d) }.padding(horizontal = 10.dp),
-                                        contentAlignment = Alignment.Center,
-                                    ) { Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
+                                ModeToggle(l.discountMode) { viewModel.setLineDiscountMode(l.product.id, it) }
+                                if (l.discountMode == DiscountMode.PCT) {
+                                    listOf(0, 5, 10, 15, 20).forEach { d ->
+                                        val on = l.discountPct == d
+                                        Box(
+                                            Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { viewModel.setDiscount(l.product.id, d) }.padding(horizontal = 10.dp),
+                                            contentAlignment = Alignment.Center,
+                                        ) { Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
+                                    }
+                                } else {
+                                    FilledInput(
+                                        value = l.discountAmtText, onValueChange = { viewModel.setLineDiscountAmt(l.product.id, it) },
+                                        placeholder = "0.00", modifier = Modifier.width(120.dp), height = 34.dp, radius = 9.dp, bg = CardBg, fontSize = 13.sp,
+                                    )
+                                    Text("off", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp)
                                 }
                                 Spacer(Modifier.weight(1f))
                             }
@@ -240,7 +279,19 @@ fun CounterScreen(
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
                 Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TotalRow("Subtotal", formatMUR(s.totals.subtotalCents), TextSecondary)
+                    TotalRow("Subtotal", formatMUR(s.preBasketSubtotalCents), TextSecondary)
+                    // basket discount — % or Rs off the whole sale, saved as explicit discount lines
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp)
+                        ModeToggle(s.basketMode, h = 30.dp) { viewModel.setBasketMode(it) }
+                        FilledInput(
+                            value = s.basketText, onValueChange = viewModel::setBasketText,
+                            placeholder = if (s.basketMode == DiscountMode.PCT) "0" else "0.00",
+                            modifier = Modifier.width(96.dp), height = 30.dp, radius = 8.dp, bg = Inset, fontSize = 13.sp,
+                        )
+                        Spacer(Modifier.weight(1f))
+                        if (s.basketAppliedCents > 0) Text("−" + formatMUR(s.basketAppliedCents), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+                    }
                     TotalRow("VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
                     TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -274,16 +325,18 @@ private fun StepBtn(t: String, onClick: () -> Unit) =
         Text(t, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
     }
 
-/** Handoff category chip: h38 · radius 19 · selected = accent soft/ring, else quiet outline. */
+/** Mini % / Rs switch used by both the line editor and the basket discount row. */
 @Composable
-private fun CatChip(label: String, on: Boolean, onClick: () -> Unit) {
-    Box(
-        Modifier.height(38.dp)
-            .background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(19.dp))
-            .border(1.5.dp, if (on) AccentLine else Color(0x1F0F1A24), RoundedCornerShape(19.dp))
-            .clickable(onClick = onClick).padding(horizontal = 15.dp),
-        contentAlignment = Alignment.Center,
-    ) { Text(label, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+private fun ModeToggle(mode: DiscountMode, h: Dp = 34.dp, onPick: (DiscountMode) -> Unit) {
+    Row(Modifier.height(h).background(InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, Color(0x17101A24), RoundedCornerShape(9.dp))) {
+        listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, label) ->
+            val on = mode == m
+            Box(
+                Modifier.fillMaxHeight().background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(9.dp)).clickable { onPick(m) }.padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
+        }
+    }
 }
 
 /**

@@ -28,8 +28,19 @@ data class DocTotals(
     val totalCents: Long,
 )
 
-/** Round half away from zero to whole cents (HALF_UP does this for positives). */
+/** Round half away from zero to whole cents (java HALF_UP never decreases magnitude — matches pg round()). */
 private fun BigDecimal.toCents(): Long = setScale(0, RoundingMode.HALF_UP).longValueExact()
+
+/** One line's excl total in cents — identical math to the DB's generated column. */
+fun lineExclCents(qty: Double, unitCents: Long, discountPct: Double = 0.0): Long =
+    BigDecimal.valueOf(qty)
+        .multiply(BigDecimal.valueOf(unitCents))
+        .multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(discountPct).movePointLeft(2)))
+        .toCents()
+
+/** pct% of an amount, in cents, rounded half away from zero. */
+fun pctOfCents(cents: Long, pct: Int): Long =
+    BigDecimal.valueOf(cents).multiply(BigDecimal.valueOf(pct.toLong())).movePointLeft(2).toCents()
 
 fun computeTotals(lines: List<LineInput>): DocTotals {
     val lineTotals = lines.map { l ->

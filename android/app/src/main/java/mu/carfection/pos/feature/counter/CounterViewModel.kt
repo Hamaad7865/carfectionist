@@ -12,9 +12,12 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.CartLine
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
+import mu.carfection.pos.core.data.SaleLineSpec
 import mu.carfection.pos.core.data.SaleRepository
 import mu.carfection.pos.core.data.SaleResult
+import mu.carfection.pos.core.data.expandSaleLines
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.data.TillRepository
 import mu.carfection.pos.core.database.CustomerEntity
@@ -40,12 +43,17 @@ import javax.inject.Inject
 /** Everything the counter screen renders. Totals are always derived, never stored. */
 data class CounterUiState(
     val query: String = "",
-    val tab: String = "All", // category chip filter
+    val tab: String = "All", // category filter
     val categories: List<String> = listOf("All"),
+    val catOpen: Boolean = false, // collapsible category panel
     val onHand: Map<String, Int> = emptyMap(), // productId → stock on hand (all locations)
     val adhocOpen: Boolean = false,
     val products: List<ProductEntity> = emptyList(),
     val cart: List<CartLine> = emptyList(),
+    // basket-level discount (applies after line discounts; emitted as negative lines)
+    val basketMode: DiscountMode = DiscountMode.PCT,
+    val basketText: String = "",
+    val specs: List<SaleLineSpec> = emptyList(), // the exact lines the invoice will carry
     val totals: DocTotals = computeTotals(emptyList()),
     // customer (optional walk-in name; picked id required for credit)
     val customerText: String = "",
@@ -91,6 +99,17 @@ data class CounterUiState(
             return listOf(up(100_00), up(500_00), up(1000_00), up(5000_00))
                 .filter { it > t }.distinct().take(3)
         }
+
+    // ── basket discount, derived from the raw input ─────────────────────────────
+    val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
+    val basketAmtCents: Long get() = if (basketMode == DiscountMode.AMT) (parseMoneyToCents(basketText) ?: 0L).coerceAtLeast(0) else 0
+
+    /** What the basket discount actually takes off (post-clamp, post-apportionment). */
+    val basketAppliedCents: Long
+        get() = specs.filter { it.productId == null && it.title.startsWith("Basket discount") }.sumOf { -it.unitCents }
+
+    /** Subtotal before the basket discount — what the "Subtotal" row shows. */
+    val preBasketSubtotalCents: Long get() = totals.subtotalCents + basketAppliedCents
 }
 
 enum class CheckoutMode { LIST, WALKIN }
@@ -154,7 +173,8 @@ class CounterViewModel @Inject constructor(
         }
     }
 
-    fun setTab(t: String) { local.value = local.value.copy(tab = t) }
+    fun setTab(t: String) { local.value = local.value.copy(tab = t, catOpen = false) }
+    fun toggleCats() { local.value = local.value.copy(catOpen = !local.value.catOpen) }
 
     // ── ad-hoc line (typed name + price; saves with product_id = null) ─────────
     fun openAdhoc() { local.value = local.value.copy(adhocOpen = true) }
@@ -263,10 +283,36 @@ class CounterViewModel @Inject constructor(
         cart.map { if (it.product.id == productId) it.copy(discountPct = pct) else it }
     }
 
+    fun setLineDiscountMode(productId: String, mode: DiscountMode) = mutateCart { cart ->
+        cart.map { if (it.product.id == productId) it.copy(discountMode = mode) else it }
+    }
+
+    fun setLineDiscountAmt(productId: String, text: String) = mutateCart { cart ->
+        cart.map { if (it.product.id == productId) it.copy(discountAmtText = text.filter { c -> c.isDigit() || c == '.' }) else it }
+    }
+
+    // ── basket discount ─────────────────────────────────────────────────────────
+    fun setBasketMode(mode: DiscountMode) {
+        local.value = local.value.copy(basketMode = mode, basketText = "")
+        mutateCart { it } // recompute
+    }
+
+    fun setBasketText(text: String) {
+        local.value = local.value.copy(basketText = text.filter { c -> c.isDigit() || c == '.' })
+        mutateCart { it } // recompute
+    }
+
+    /**
+     * Single recompute path: every cart/basket change rebuilds the exact invoice line set
+     * (expandSaleLines) and prices it with the shared money engine — the footer always shows
+     * what the server will charge.
+     */
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {
-        val cart = f(local.value.cart)
-        val totals = computeTotals(cart.map { LineInput(it.qty, it.product.sellingPriceCents, it.discountPct.toDouble(), it.product.vatRatePct) })
-        local.value = local.value.copy(cart = cart, totals = totals, error = null)
+        val s = local.value
+        val cart = f(s.cart)
+        val specs = expandSaleLines(cart, s.basketMode, s.basketPct, s.basketAmtCents)
+        val totals = computeTotals(specs.map { LineInput(it.qty, it.unitCents, it.discountPct, it.vatRatePct) })
+        local.value = s.copy(cart = cart, specs = specs, totals = totals, error = null)
     }
 
     // ── customer ─────────────────────────────────────────────────────────────
@@ -319,11 +365,15 @@ class CounterViewModel @Inject constructor(
                     walkInName = s.customerText,
                     cashSessionId = s.till?.id,
                     saleKey = saleKey,
+                    basketMode = s.basketMode,
+                    basketPct = s.basketPct,
+                    basketAmtCents = s.basketAmtCents,
                 )
                 // Sale is committed — printing/drawer are fire-and-forget (can never lose it).
                 launch {
                     runCatching {
-                        val lineView = s.cart.mapIndexed { i, l -> l.product.name to s.totals.lines[i].exclCents }
+                        // Receipt mirrors the saved lines (incl. discount lines), not just the cart.
+                        val lineView = s.specs.mapIndexed { i, sp -> sp.title to s.totals.lines[i].exclCents }
                         printer.printReceipt(ReceiptText.forSale(catalog.tradingName(), result, lineView))
                         if (s.method == PayMethod.CASH) drawer.kick()
                     }
