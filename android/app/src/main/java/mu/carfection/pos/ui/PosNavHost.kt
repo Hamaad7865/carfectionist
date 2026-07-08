@@ -17,6 +17,8 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.SessionRepository
+import mu.carfection.pos.core.sync.ConnectivityObserver
+import mu.carfection.pos.core.sync.OutboxRepository
 import mu.carfection.pos.feature.counter.CounterScreen
 import mu.carfection.pos.feature.cert.CertScreen
 import mu.carfection.pos.feature.dash.DashScreen
@@ -29,10 +31,16 @@ import mu.carfection.pos.feature.till.TillScreen
 import javax.inject.Inject
 
 @HiltViewModel
-class RootViewModel @Inject constructor(private val session: SessionRepository) : ViewModel() {
+class RootViewModel @Inject constructor(
+    private val session: SessionRepository,
+    connectivity: ConnectivityObserver,
+    outbox: OutboxRepository,
+) : ViewModel() {
     val isLoggedIn = session.isLoggedIn
     val staffName: String get() = session.userName
     val staffRole: String get() = session.userRole
+    val online = connectivity.online
+    val pendingSync = outbox.pending
     fun signOut() { viewModelScope.launch { session.signOut() } }
 }
 
@@ -46,12 +54,16 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
         true -> {
             var tab by remember { mutableStateOf(PosTab.SALE) }
             var showTill by remember { mutableStateOf(false) }
+            val online by rootViewModel.online.collectAsState()
+            val pendingSync by rootViewModel.pendingSync.collectAsState(initial = 0)
             PosShell(
                 active = tab,
                 onSelect = { tab = it; showTill = false },
                 studioName = "Carfectionist",
                 staffName = rootViewModel.staffName,
                 staffRole = rootViewModel.staffRole,
+                online = online,
+                pendingSync = pendingSync,
                 onStaffClick = { rootViewModel.signOut() },
             ) {
                 when (tab) {

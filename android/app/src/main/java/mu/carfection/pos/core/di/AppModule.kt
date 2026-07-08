@@ -18,6 +18,8 @@ import mu.carfection.pos.BuildConfig
 import mu.carfection.pos.core.database.CustomerDao
 import mu.carfection.pos.core.database.PosDatabase
 import mu.carfection.pos.core.database.ProductDao
+import mu.carfection.pos.core.sync.OutboxDao
+import mu.carfection.pos.core.sync.OutboxDatabase
 import javax.inject.Singleton
 
 private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "pos_prefs")
@@ -45,6 +47,15 @@ object AppModule {
 
     @Provides fun productDao(db: PosDatabase): ProductDao = db.productDao()
     @Provides fun customerDao(db: PosDatabase): CustomerDao = db.customerDao()
+
+    // Durable queue for offline writes — its own DB so the disposable read-cache above
+    // can keep rebuilding without ever discarding a pending write.
+    @Provides
+    @Singleton
+    fun outboxDatabase(@ApplicationContext ctx: Context): OutboxDatabase =
+        Room.databaseBuilder(ctx, OutboxDatabase::class.java, "outbox.db").build()
+
+    @Provides fun outboxDao(db: OutboxDatabase): OutboxDao = db.outboxDao()
 
     @Provides
     @Singleton

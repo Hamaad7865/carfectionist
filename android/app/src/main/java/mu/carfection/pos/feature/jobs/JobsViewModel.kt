@@ -21,6 +21,7 @@ import mu.carfection.pos.core.network.JobBoardDto
 import mu.carfection.pos.core.network.NewCertificateDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.TechnicianDto
+import mu.carfection.pos.core.sync.OutboxRepository
 import java.time.Instant
 import java.time.LocalDate
 import javax.inject.Inject
@@ -60,6 +61,7 @@ data class JobsState(
 class JobsViewModel @Inject constructor(
     private val api: PosApi,
     private val catalog: CatalogRepository,
+    private val outbox: OutboxRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
@@ -167,8 +169,10 @@ class JobsViewModel @Inject constructor(
 
     fun assignTech(techId: String) {
         val id = _s.value.activeJobId ?: return
+        val tech = _s.value.technicians.firstOrNull { it.id == techId }?.displayName ?: "technician"
         _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == id) it.copy(technicianId = techId) else it }) }
-        viewModelScope.launch { runCatching { api.assignTechnician(id, techId) }.onFailure { load() } }
+        // Durable + idempotent: survives a dropped connection, replays safely on reconnect.
+        viewModelScope.launch { outbox.enqueueAssignTech(id, techId, "Assign $tech") }
     }
 
     fun toggleChecklist(index: Int) {
@@ -178,7 +182,8 @@ class JobsViewModel @Inject constructor(
         val updated = job.checklist.mapIndexed { i, c -> if (i == index) c.copy(done = !c.done) else c }
         _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == id) it.copy(checklist = updated) else it }) }
         val json = buildJsonArray { updated.forEach { add(buildJsonObject { put("label", it.label); put("done", it.done) }) } }
-        viewModelScope.launch { runCatching { api.setChecklist(id, json) }.onFailure { load() } }
+        val done = updated.count { it.done }
+        viewModelScope.launch { outbox.enqueueSetChecklist(id, json, "Checklist $done/${updated.size}") }
     }
 
     fun startJob() {

@@ -41,6 +41,7 @@ import mu.carfection.pos.ui.theme.AccentSoft
 import mu.carfection.pos.ui.theme.Barlow
 import mu.carfection.pos.ui.theme.CardBg
 import mu.carfection.pos.ui.theme.Condensed
+import mu.carfection.pos.ui.theme.Danger
 import mu.carfection.pos.ui.theme.Hairline
 import mu.carfection.pos.ui.theme.PosIcons
 import mu.carfection.pos.ui.theme.ScreenBg
@@ -49,6 +50,7 @@ import mu.carfection.pos.ui.theme.TextMuted
 import mu.carfection.pos.ui.theme.TextPrimary
 import mu.carfection.pos.ui.theme.TextSecondary
 import mu.carfection.pos.ui.theme.Tile
+import mu.carfection.pos.ui.theme.Warning
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 
@@ -72,11 +74,13 @@ fun PosShell(
     studioName: String,
     staffName: String,
     staffRole: String,
+    online: Boolean,
+    pendingSync: Int,
     onStaffClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     Column(Modifier.fillMaxSize().background(ScreenBg)) {
-        Header(studioName, staffName, staffRole, onStaffClick)
+        Header(studioName, staffName, staffRole, online, pendingSync, onStaffClick)
         Row(Modifier.fillMaxSize()) {
             NavRail(active, onSelect)
             Box(Modifier.weight(1f).fillMaxHeight().background(ScreenBg)) { content() }
@@ -85,7 +89,7 @@ fun PosShell(
 }
 
 @Composable
-private fun Header(studioName: String, staffName: String, staffRole: String, onStaffClick: () -> Unit) {
+private fun Header(studioName: String, staffName: String, staffRole: String, online: Boolean, pendingSync: Int, onStaffClick: () -> Unit) {
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) { while (true) { now = LocalDateTime.now(); delay(1000) } }
     val timeStr = now.format(DateTimeFormatter.ofPattern("HH:mm"))
@@ -111,10 +115,17 @@ private fun Header(studioName: String, staffName: String, staffRole: String, onS
             Text(timeStr, fontFamily = Condensed, fontWeight = FontWeight.SemiBold, fontSize = 19.sp, letterSpacing = 1.sp, color = TextPrimary)
             Text(dateStr, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted)
         }
-        // sync pill (online in M1)
+        // sync pill — reflects real connectivity and any writes still queued in the outbox
+        val dotColor = when { !online -> Danger; pendingSync > 0 -> Warning; else -> Success }
+        val syncLabel = when {
+            !online && pendingSync > 0 -> "Offline · $pendingSync"
+            !online -> "Offline"
+            pendingSync > 0 -> "Syncing $pendingSync"
+            else -> "Online"
+        }
         Pill {
-            Box(Modifier.size(9.dp).background(Success, CircleShape))
-            Text("Online", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextPrimary)
+            Box(Modifier.size(9.dp).background(dotColor, CircleShape))
+            Text(syncLabel, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextPrimary)
         }
         // staff chip (tap = sign out — our functional equivalent of the PIN switch)
         Row(
