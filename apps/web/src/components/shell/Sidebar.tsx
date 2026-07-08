@@ -21,7 +21,7 @@ export function Sidebar({ role, displayName, modules }: { role: Role; displayNam
 
   return (
     <nav
-      className="flex w-[236px] shrink-0 flex-col border-r border-line px-[13px] py-[18px]"
+      className="flex h-full w-full shrink-0 flex-col border-r border-line px-[13px] py-[18px]"
       style={{ background: "linear-gradient(180deg,#ffffff,#f6f8fb)" }}
     >
       <div className="px-2 pb-[18px] pt-1">

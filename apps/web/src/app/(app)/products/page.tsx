@@ -30,8 +30,8 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const categoryData = tab === "categories" ? await getCategoryStats() : null;
 
   return (
-    <div className="flex flex-col gap-4 p-6">
-      <div className="flex items-center gap-1.5">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
+      <div className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0 sm:pb-0 [&>*]:shrink-0">
         <Link href="/products" className={tabCls(tab === "catalogue")}>Catalogue</Link>
         <Link href="/products?tab=inventory" className={tabCls(tab === "inventory")}>Inventory</Link>
         <Link href="/products?tab=categories" className={tabCls(tab === "categories")}>Categories</Link>
