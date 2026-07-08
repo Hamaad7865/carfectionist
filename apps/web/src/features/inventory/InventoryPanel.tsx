@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Minus, SlidersHorizontal } from "lucide-react";
 import { Field, inputCls, FormError } from "@/components/ui/form";
@@ -19,7 +19,9 @@ const num = (n: number) => (Number.isInteger(n) ? String(n) : String(n));
 
 export function InventoryPanel({ data }: { data: InventoryOpsData }) {
   const router = useRouter();
-  const [productId, setProductId] = useState(data.products[0]?.id ?? "");
+  const [productId, setProductId] = useState("");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
   const [locationId, setLocationId] = useState(data.locations[0]?.id ?? "");
   const [dir, setDir] = useState<1 | -1>(1);
   const [qtyStr, setQtyStr] = useState("");
@@ -28,6 +30,11 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
   const [error, setError] = useState<string | null>(null);
 
   const unit = data.products.find((p) => p.id === productId)?.unit ?? "";
+  const matches = useMemo(() => {
+    const s = query.trim().toLowerCase();
+    if (!s) return [];
+    return data.products.filter((p) => p.name.toLowerCase().includes(s)).slice(0, 8);
+  }, [query, data.products]);
 
   async function submit() {
     setError(null);
@@ -53,11 +60,41 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
           <span className="font-display text-[14px] font-bold text-ink-strong">Manual stock adjustment</span>
         </div>
         <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_auto_120px_1fr_auto] md:items-end">
-          <Field label="Product">
-            <select className={inputCls} value={productId} onChange={(e) => setProductId(e.target.value)}>
-              {data.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </Field>
+          <div>
+            <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-faint">Product</span>
+            <div className="relative">
+              <input
+                className={`${inputCls} ${productId ? "pr-8" : ""}`}
+                value={query}
+                onChange={(e) => { setQuery(e.target.value); setProductId(""); setOpen(true); }}
+                onFocus={() => setOpen(true)}
+                onBlur={() => setTimeout(() => setOpen(false), 150)}
+                placeholder="Search product…"
+                role="combobox"
+                aria-expanded={open}
+              />
+              {productId && <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[13px] font-bold text-mint">✓</span>}
+              {open && matches.length > 0 && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-y-auto rounded-[10px] border border-line bg-card p-1 shadow-lg">
+                  {matches.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onMouseDown={(e) => e.preventDefault()}
+                      onClick={() => { setProductId(p.id); setQuery(p.name); setOpen(false); }}
+                      className="flex w-full items-center justify-between gap-2 rounded-[8px] px-2.5 py-2 text-left hover:bg-sub"
+                    >
+                      <span className="truncate text-[13px] font-semibold text-body">{p.name}</span>
+                      {p.unit && <span className="shrink-0 text-[11px] text-faint">{p.unit}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {open && query.trim() && matches.length === 0 && (
+                <div className="absolute left-0 right-0 top-full z-20 mt-1 rounded-[10px] border border-line bg-card px-3 py-2.5 text-[12.5px] text-faint shadow-lg">No product matches “{query.trim()}”.</div>
+              )}
+            </div>
+          </div>
           <Field label="Location">
             <select className={inputCls} value={locationId} onChange={(e) => setLocationId(e.target.value)}>
               {data.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
