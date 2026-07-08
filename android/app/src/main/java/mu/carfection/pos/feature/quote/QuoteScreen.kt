@@ -93,6 +93,15 @@ fun QuoteScreen(onGoIntake: () -> Unit, viewModel: QuoteViewModel = hiltViewMode
             }
         }
     }
+    s.createdInvoiceRef?.let {
+        Dialog(onDismissRequest = viewModel::clearToast) {
+            Column(Modifier.width(380.dp).card().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Invoice issued", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+                Text("$it — collect it in Checkout.", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
+                FillBtn("Done", Modifier.fillMaxWidth()) { viewModel.clearToast(); viewModel.back() }
+            }
+        }
+    }
     if (s.adhocOpen) AdhocDialog(viewModel)
 }
 
@@ -263,6 +272,9 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel) {
                         Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
                             Text("Accept → create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
                         }
+                    }
+                    Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
+                        Text(if (s.busy) "Working…" else "Bill now — create invoice", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.lines.isNotEmpty()) Accent else TextMuted)
                     }
                 } else {
                     AcceptPanel(s, vm)

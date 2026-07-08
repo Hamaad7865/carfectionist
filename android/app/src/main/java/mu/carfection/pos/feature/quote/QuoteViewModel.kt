@@ -60,6 +60,7 @@ data class QuoteState(
     val adhocOpen: Boolean = false,
     val savedRef: String? = null,
     val createdJobId: String? = null,
+    val createdInvoiceRef: String? = null,
     val error: String? = null,
 )
 
@@ -184,5 +185,21 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
-    fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null) }
+    /** Bill the quote now: persist it, copy into a draft invoice, then issue for gapless INV#. */
+    fun convertToInvoice() {
+        val s = _s.value
+        val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
+        if (s.lines.isEmpty()) { _s.update { it.copy(error = "Add a line before billing") }; return }
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val quote = api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s))
+                val draft = api.convertQuoteToInvoice(quote.id)
+                api.issueDocument(draft.id, "quote-inv:${quote.id}")
+            }.onSuccess { d -> _s.update { it.copy(busy = false, acceptOpen = false, createdInvoiceRef = d.number ?: "Invoice issued") } }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+        }
+    }
+
+    fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null, createdInvoiceRef = null) }
 }
