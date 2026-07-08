@@ -12,7 +12,12 @@ import mu.carfection.pos.core.network.PosApi
 import javax.inject.Inject
 import javax.inject.Singleton
 
-data class CartLine(val product: ProductEntity, val qty: Double)
+data class CartLine(val product: ProductEntity, val qty: Double) {
+    /** Ad-hoc (typed) lines carry a synthetic local id — they save with product_id = null. */
+    val isAdhoc: Boolean get() = product.id.startsWith(ADHOC_PREFIX)
+
+    companion object { const val ADHOC_PREFIX = "adhoc:" }
+}
 
 enum class PayMethod(val rpcValue: String?, val label: String) {
     CASH("cash", "Cash"),
@@ -72,7 +77,7 @@ class SaleRepository @Inject constructor(
         val lines = buildJsonArray {
             cart.forEachIndexed { i, l ->
                 add(buildJsonObject {
-                    put("product_id", l.product.id)
+                    if (l.isAdhoc) put("product_id", kotlinx.serialization.json.JsonNull) else put("product_id", l.product.id)
                     put("title", l.product.name)
                     put("qty", l.qty)
                     put("unit_price", centsToRupees(l.product.sellingPriceCents))

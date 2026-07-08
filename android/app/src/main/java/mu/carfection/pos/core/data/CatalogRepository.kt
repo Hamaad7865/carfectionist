@@ -37,6 +37,7 @@ class CatalogRepository @Inject constructor(
 
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
+    suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
 
     /** Pull settings + catalogue. Call after login and on pull-to-refresh. */
     suspend fun refresh() {
@@ -57,6 +58,7 @@ class CatalogRepository @Inject constructor(
                 vatRatePct = p.vatRate ?: vatDefault,
                 barcode = p.barcode,
                 isStocked = p.isStocked,
+                category = p.category?.ifBlank { null },
             )
         }
         productDao.replaceAll(products)

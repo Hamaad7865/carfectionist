@@ -40,6 +40,10 @@ import javax.inject.Inject
 /** Everything the counter screen renders. Totals are always derived, never stored. */
 data class CounterUiState(
     val query: String = "",
+    val tab: String = "All", // category chip filter
+    val categories: List<String> = listOf("All"),
+    val onHand: Map<String, Int> = emptyMap(), // productId → stock on hand (all locations)
+    val adhocOpen: Boolean = false,
     val products: List<ProductEntity> = emptyList(),
     val cart: List<CartLine> = emptyList(),
     val totals: DocTotals = computeTotals(emptyList()),
@@ -106,18 +110,21 @@ class CounterViewModel @Inject constructor(
 
     val state: StateFlow<CounterUiState> =
         combine(local, catalog.products, catalog.customers) { s, products, customers ->
+            val cats = listOf("All") + products.mapNotNull { it.category }.distinct().sorted()
             val q = s.query.trim().lowercase()
-            val filtered = if (q.isEmpty()) products
-            else products.filter { it.name.lowercase().contains(q) || (it.barcode ?: "").contains(q) }
+            val filtered = products
+                .filter { s.tab == "All" || it.category == s.tab }
+                .filter { q.isEmpty() || it.name.lowercase().contains(q) || (it.barcode ?: "").contains(q) }
             val cq = s.customerText.trim().lowercase()
             val matches = if (cq.isEmpty() || s.customerId != null) emptyList()
             else customers.filter { it.name.lowercase().contains(cq) }.take(6)
-            s.copy(products = filtered, customerMatches = matches)
+            s.copy(products = filtered, categories = cats, customerMatches = matches)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CounterUiState())
 
     init {
         refreshTill()
         loadLists()
+        refreshStock()
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
     }
 
@@ -133,8 +140,39 @@ class CounterViewModel @Inject constructor(
         }
     }
 
-    fun startWalkIn() { local.value = local.value.copy(mode = CheckoutMode.WALKIN, collect = null) }
+    fun startWalkIn() {
+        local.value = local.value.copy(mode = CheckoutMode.WALKIN, collect = null)
+        refreshStock()
+    }
     fun backToList() { newSale(); local.value = local.value.copy(mode = CheckoutMode.LIST); loadLists() }
+
+    /** On-hand counts for the product tiles (stock line + low-stock badge). */
+    private fun refreshStock() = viewModelScope.launch {
+        runCatching { api.fetchStockOnHand() }.onSuccess { rows ->
+            val map = rows.groupBy { it.productId }.mapValues { (_, r) -> r.sumOf { it.qtyOnHand }.toInt() }
+            local.value = local.value.copy(onHand = map)
+        }
+    }
+
+    fun setTab(t: String) { local.value = local.value.copy(tab = t) }
+
+    // ── ad-hoc line (typed name + price; saves with product_id = null) ─────────
+    fun openAdhoc() { local.value = local.value.copy(adhocOpen = true) }
+    fun closeAdhoc() { local.value = local.value.copy(adhocOpen = false) }
+
+    fun addAdhoc(name: String, priceCents: Long) {
+        if (name.isBlank() || priceCents <= 0) { closeAdhoc(); return }
+        viewModelScope.launch {
+            val vat = catalog.vatDefault()
+            val p = ProductEntity(
+                id = CartLine.ADHOC_PREFIX + UUID.randomUUID(),
+                name = name.trim(), kind = "adhoc", sellingPriceCents = priceCents,
+                vatRatePct = vat, barcode = null, isStocked = false, category = null,
+            )
+            local.value = local.value.copy(adhocOpen = false)
+            mutateCart { cart -> cart + CartLine(p, 1.0) }
+        }
+    }
 
     // ── corrections (void / reverse / refund) — RLS enforces owner/manager ─────
     val canManage: Boolean get() = session.userRole.lowercase().let { it.contains("owner") || it.contains("manager") }

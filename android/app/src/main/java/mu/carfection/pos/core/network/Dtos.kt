@@ -18,6 +18,7 @@ data class ProductDto(
     @SerialName("vat_rate") val vatRate: FlexDouble? = null,
     val barcode: String? = null,
     @SerialName("is_stocked") val isStocked: Boolean = false,
+    val category: String? = null,
 )
 
 @Serializable

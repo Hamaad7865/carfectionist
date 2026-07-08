@@ -3,11 +3,13 @@ package mu.carfection.pos.feature.counter
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,6 +17,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -35,14 +38,24 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -50,6 +63,9 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.core.money.parseMoneyToCents
+import mu.carfection.pos.ui.FilledInput
+import mu.carfection.pos.ui.theme.Barlow
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentLine
@@ -78,16 +94,14 @@ fun CounterScreen(
     LaunchedEffect(Unit) { viewModel.loadLists() } // refresh outstanding/paid on entry
 
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
-        // ── top bar ──────────────────────────────────────────────────────────
+        // ── top bar (handoff: constant CHECKOUT title, caption swaps by mode) ─
         Row(verticalAlignment = Alignment.CenterVertically) {
-            if (s.mode == CheckoutMode.WALKIN) {
-                Box(
-                    Modifier.size(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { viewModel.backToList() },
-                    contentAlignment = Alignment.Center,
-                ) { Text("←", color = TextSecondary, fontSize = 18.sp, fontWeight = FontWeight.Bold) }
-                Spacer(Modifier.width(12.dp))
-            }
-            Text(if (s.mode == CheckoutMode.WALKIN) "New counter sale" else "Checkout", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            Text("CHECKOUT", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+            Spacer(Modifier.width(12.dp))
+            Text(
+                if (s.mode == CheckoutMode.WALKIN) "Counter sale — add products, then record payment" else "Collect payment — job invoices & counter sales",
+                color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
+            )
             Spacer(Modifier.width(16.dp))
             val till = s.till
             Chip(
@@ -100,130 +114,230 @@ fun CounterScreen(
 
         if (s.mode == CheckoutMode.LIST) CollectList(s, viewModel)
         else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // ── left: search + product grid ──────────────────────────────────
-            Column(
-                Modifier.weight(1.15f).fillMaxHeight()
-                    .background(CardBg, RoundedCornerShape(16.dp))
-                    .border(1.dp, Hairline, RoundedCornerShape(16.dp))
-                    .padding(12.dp),
-            ) {
-                OutlinedTextField(
-                    value = s.query,
-                    onValueChange = viewModel::setQuery,
-                    placeholder = { Text("Search products or scan a barcode…", color = TextMuted) },
-                    leadingIcon = { Icon(Icons.Default.Search, null, tint = TextMuted) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
+            // ── left (42fr, bare on bg): category chips + search + grid + cancel ─
+            Column(Modifier.weight(42f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    s.categories.forEach { c -> CatChip(c, c == s.tab) { viewModel.setTab(c) } }
+                }
+                FilledInput(
+                    value = s.query, onValueChange = viewModel::setQuery,
+                    placeholder = "Search products or scan a barcode…",
+                    modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
                 )
-                Spacer(Modifier.height(10.dp))
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 150.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    columns = GridCells.Fixed(2),
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp),
+                    verticalArrangement = Arrangement.spacedBy(9.dp),
                 ) {
                     items(s.products, key = { it.id }) { p ->
-                        val inCart = s.cart.firstOrNull { it.product.id == p.id }?.qty
+                        ProductTile(
+                            p = p,
+                            inCartQty = s.cart.firstOrNull { it.product.id == p.id }?.qty?.toInt(),
+                            onHand = s.onHand[p.id],
+                        ) { viewModel.add(p) }
+                    }
+                    item(key = "adhoc") {
                         Column(
-                            Modifier
-                                .background(Tile, RoundedCornerShape(12.dp))
-                                .border(1.dp, if (inCart != null) AccentLine else Hairline, RoundedCornerShape(12.dp))
-                                .clickable { viewModel.add(p) }
-                                .padding(10.dp)
-                                .height(84.dp),
+                            Modifier.height(92.dp).fillMaxWidth().dashedBorder(Color(0x400F1A24), 13.dp).clickable { viewModel.openAdhoc() },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
                         ) {
-                            Row {
-                                Text(p.kind.uppercase(), color = TextMuted, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-                                Spacer(Modifier.weight(1f))
-                                if (inCart != null) Box(
-                                    Modifier.size(20.dp).background(Accent, CircleShape),
-                                    contentAlignment = Alignment.Center,
-                                ) { Text(inCart.toInt().toString(), color = AccentInk, fontSize = 11.sp, fontWeight = FontWeight.Bold) }
-                            }
-                            Text(p.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Spacer(Modifier.weight(1f))
-                            Text(formatMUR(p.sellingPriceCents), color = TextPrimary, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text("+", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 20.sp)
+                            Text("Ad-hoc line — typed", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                         }
                     }
                 }
+                Box(
+                    Modifier.fillMaxWidth().height(46.dp)
+                        .border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp))
+                        .clickable { viewModel.backToList() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕ Cancel counter sale", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp) }
             }
 
-            // ── right: customer + cart + totals + charge ─────────────────────
+            // ── right (58fr): the bill — header · lines · totals ──────────────
             Column(
-                Modifier.weight(0.85f).fillMaxHeight()
+                Modifier.weight(58f).fillMaxHeight()
                     .background(CardBg, RoundedCornerShape(16.dp))
-                    .border(1.dp, Hairline, RoundedCornerShape(16.dp))
-                    .padding(12.dp),
+                    .border(1.dp, Hairline, RoundedCornerShape(16.dp)),
             ) {
-                OutlinedTextField(
-                    value = s.customerText,
-                    onValueChange = viewModel::setCustomerText,
-                    placeholder = { Text(if (s.method == PayMethod.CREDIT) "Pick the customer (required for credit)" else "Customer (optional)", color = TextMuted) },
-                    singleLine = true,
-                    trailingIcon = { if (s.customerId != null) Icon(Icons.Default.Check, null, tint = Success) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                s.customerMatches.forEach { c ->
-                    Text(
-                        c.name,
-                        color = TextPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.fillMaxWidth().clickable { viewModel.pickCustomer(c) }.padding(horizontal = 10.dp, vertical = 8.dp),
-                    )
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp),
+                ) {
+                    Text("NEW SALE", color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 19.sp, letterSpacing = 1.2.sp)
+                    Box(Modifier.height(25.dp).background(InsetAlt, RoundedCornerShape(13.dp)).padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
+                        Text("UNPAID", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 0.6.sp)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("Counter sale", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
                 }
-                Spacer(Modifier.height(8.dp))
-
-                LazyColumn(Modifier.weight(1f)) {
-                    items(s.cart, key = { it.product.id }) { l ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(l.product.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(formatMUR(l.product.sellingPriceCents) + " each", color = TextMuted, fontFamily = Mono, fontSize = 11.sp)
-                            }
-                            Stepper(l.qty.toInt(), onMinus = { viewModel.setQty(l.product.id, l.qty - 1) }, onPlus = { viewModel.setQty(l.product.id, l.qty + 1) })
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                formatMUR((l.product.sellingPriceCents * l.qty).toLong()),
-                                color = TextPrimary, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Bold,
-                                modifier = Modifier.width(92.dp), textAlign = TextAlign.End,
-                            )
-                            Icon(
-                                Icons.Default.Close, null, tint = TextMuted,
-                                modifier = Modifier.padding(start = 6.dp).size(18.dp).clickable { viewModel.setQty(l.product.id, 0.0) },
-                            )
-                        }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+                // customer (functional addition — needed for credit sales; optional otherwise)
+                Column(Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 10.dp)) {
+                    FilledInput(
+                        value = s.customerText, onValueChange = viewModel::setCustomerText,
+                        placeholder = if (s.method == PayMethod.CREDIT) "Pick the customer (required for credit)" else "Customer (optional)",
+                        modifier = Modifier.fillMaxWidth(), height = 40.dp, bg = Inset,
+                    )
+                    s.customerMatches.forEach { c ->
+                        Text(
+                            c.name, color = TextPrimary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.fillMaxWidth().clickable { viewModel.pickCustomer(c) }.padding(horizontal = 10.dp, vertical = 8.dp),
+                        )
                     }
                 }
-                if (s.cart.isEmpty()) Text("Tap products to build the sale.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 20.dp))
-
-                // totals
-                TotalRow("Subtotal", formatMUR(s.totals.subtotalCents), TextSecondary)
-                TotalRow("VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
-                TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)
-                s.error?.takeUnless { s.padOpen }?.let { Text(it, color = Danger, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp)) }
-                Spacer(Modifier.height(10.dp))
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(56.dp)
-                        .background(if (s.cart.isEmpty()) InsetAlt else Accent, RoundedCornerShape(14.dp))
-                        .clickable(enabled = s.cart.isNotEmpty()) { viewModel.openPad() },
-                    contentAlignment = Alignment.Center,
+                LazyColumn(
+                    Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 11.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    Text(
-                        "Record payment · ${formatMUR(s.totals.totalCents)}",
-                        color = if (s.cart.isEmpty()) TextMuted else AccentInk,
-                        fontSize = 16.5.sp, fontWeight = FontWeight.Bold,
-                    )
+                    items(s.cart, key = { it.product.id }) { l ->
+                        Row(
+                            Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(11.dp)).border(1.dp, Color(0x0F0F1A24), RoundedCornerShape(11.dp)).padding(horizontal = 11.dp, vertical = 9.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(l.product.name, color = TextPrimary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    "${l.qty.toInt()} × ${formatMUR(l.product.sellingPriceCents)}" + if (l.isAdhoc) "  ·  ad-hoc" else "",
+                                    color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                                )
+                            }
+                            Text(formatMUR((l.product.sellingPriceCents * l.qty).toLong()), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                            Box(
+                                Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("✕", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                        }
+                    }
+                    if (s.cart.isEmpty()) item(key = "empty") {
+                        Text("Tap products to build the sale.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 20.dp))
+                    }
+                }
+                Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+                Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TotalRow("Subtotal", formatMUR(s.totals.subtotalCents), TextSecondary)
+                    TotalRow("VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
+                    TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
+                        Text("BALANCE DUE", color = Warning, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Text(formatMUR(s.totals.totalCents), color = Warning, fontFamily = Condensed, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                    }
+                    s.error?.takeUnless { s.padOpen }?.let { Text(it, color = Danger, fontSize = 12.sp) }
+                    Box(
+                        Modifier.fillMaxWidth().height(56.dp)
+                            .background(if (s.cart.isEmpty()) InsetAlt else Accent, RoundedCornerShape(14.dp))
+                            .clickable(enabled = s.cart.isNotEmpty()) { viewModel.openPad() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("Record payment", color = if (s.cart.isEmpty()) TextMuted else AccentInk, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
             }
         }
     }
 
     if (s.padOpen) PaymentPad(s, viewModel)
+    if (s.adhocOpen) AdhocDialog(viewModel)
     s.done?.let { SaleDone(it, onDone = viewModel::backToList) }
     s.paymentAction?.let { PaymentActionDialog(it, viewModel) }
     s.notice?.let { Notice(it, onGone = viewModel::clearNotice) }
+}
+
+/** Handoff category chip: h38 · radius 19 · selected = accent soft/ring, else quiet outline. */
+@Composable
+private fun CatChip(label: String, on: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.height(38.dp)
+            .background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(19.dp))
+            .border(1.5.dp, if (on) AccentLine else Color(0x1F0F1A24), RoundedCornerShape(19.dp))
+            .clickable(onClick = onClick).padding(horizontal = 15.dp),
+        contentAlignment = Alignment.Center,
+    ) { Text(label, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+}
+
+/**
+ * Handoff product tile: name · stock line · price, with a round top-right badge.
+ * Badge shows the in-cart count (accent) once tapped; otherwise the remaining
+ * stock when it's low (< 10 — warning, red at zero) so the cashier sees scarcity.
+ */
+@Composable
+private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCartQty: Int?, onHand: Int?, onAdd: () -> Unit) {
+    Box(Modifier.background(Tile, RoundedCornerShape(13.dp)).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onAdd)) {
+        Column(Modifier.fillMaxWidth().height(92.dp).padding(horizontal = 13.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text(
+                p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
+                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp),
+            )
+            Spacer(Modifier.weight(1f))
+            val oh = (onHand ?: 0).coerceAtLeast(0) // oversold rows read as empty, not "-1"
+            val (meta, metaC) = when {
+                !p.isStocked -> (if (p.kind == "service") "Service" else "—") to TextMuted
+                oh == 0 -> "Out of stock" to Danger
+                oh <= 4 -> "Stock $oh · low" to Warning
+                else -> "Stock $oh" to TextMuted
+            }
+            Text(meta, color = metaC, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, maxLines = 1)
+            Text(formatMUR(p.sellingPriceCents), color = TextSecondary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
+        }
+        val ohBadge = (onHand ?: 0).coerceAtLeast(0)
+        val badge: Pair<String, Color>? = when {
+            inCartQty != null && inCartQty > 0 -> inCartQty.toString() to Accent
+            p.isStocked && ohBadge == 0 -> "0" to Danger
+            p.isStocked && ohBadge < 10 -> ohBadge.toString() to Warning
+            else -> null
+        }
+        badge?.let { (txt, bg) ->
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(top = 9.dp, end = 9.dp)
+                    .defaultMinSize(minWidth = 23.dp).height(23.dp)
+                    .background(bg, RoundedCornerShape(12.dp)).padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(txt, color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp) }
+        }
+    }
+}
+
+/** Dashed rounded outline (Compose has no dashed border modifier). */
+private fun Modifier.dashedBorder(color: Color, radius: Dp, stroke: Dp = 1.5.dp) = this.drawBehind {
+    val sw = stroke.toPx(); val r = radius.toPx()
+    drawRoundRect(
+        color = color, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw),
+        cornerRadius = CornerRadius(r, r), style = Stroke(width = sw, pathEffect = PathEffect.dashPathEffect(floatArrayOf(sw * 5, sw * 4))),
+    )
+}
+
+/** Type a one-off line: description + VAT-exclusive unit price (saves with product_id = null). */
+@Composable
+private fun AdhocDialog(vm: CounterViewModel) {
+    var name by remember { mutableStateOf("") }
+    var price by remember { mutableStateOf("") }
+    val cents = parseMoneyToCents(price)
+    val ok = name.isNotBlank() && cents != null && cents > 0
+    Dialog(onDismissRequest = vm::closeAdhoc) {
+        Column(
+            Modifier.width(440.dp).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Ad-hoc line", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+            Text("A one-off service or product, priced by hand.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary)
+            Text("DESCRIPTION", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            FilledInput(value = name, onValueChange = { name = it }, placeholder = "e.g. Headlight restoration", modifier = Modifier.fillMaxWidth(), bg = Inset)
+            Text("UNIT PRICE (Rs, excl. VAT)", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            FilledInput(value = price, onValueChange = { p -> price = p.filter { it.isDigit() || it == '.' } }, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset)
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(52.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.closeAdhoc() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                Box(
+                    Modifier.weight(1.4f).height(52.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ok) { vm.addAdhoc(name, cents ?: 0) },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Add line", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted) }
+            }
+        }
+    }
 }
 
 // ─── Collect list: TO COLLECT (outstanding invoices) + PAID TODAY ─────────────

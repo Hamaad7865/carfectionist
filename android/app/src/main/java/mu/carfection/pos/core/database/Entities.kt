@@ -17,6 +17,7 @@ data class ProductEntity(
     val vatRatePct: Double, // resolved (product override ?: tenant default)
     val barcode: String?,
     val isStocked: Boolean,
+    val category: String?, // checkout/stock category chips
 )
 
 @Entity(tableName = "customers", indices = [Index("name")])
