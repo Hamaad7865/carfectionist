@@ -112,6 +112,7 @@ class IntakeViewModel @Inject constructor(
     fun setMarkerType(t: DamageType) = _s.update { it.copy(markerType = t) }
     fun addMarker(x: Float, y: Float) = _s.update { it.copy(markers = it.markers + DamageMarker(x, y, it.markerType.letter, it.markerType.color)) }
     fun removeMarker(i: Int) = _s.update { it.copy(markers = it.markers.filterIndexed { j, _ -> j != i }) }
+    fun clearMarkers() = _s.update { it.copy(markers = emptyList()) }
 
     fun start() {
         val st = _s.value

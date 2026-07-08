@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import mu.carfection.pos.ui.theme.Danger
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -181,6 +182,13 @@ private fun ConditionCard(s: IntakeState, vm: IntakeViewModel, modifier: Modifie
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("CONDITION & DAMAGE", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = secLabel, letterSpacing = 1.6.sp, color = TextMuted)
             Spacer(Modifier.weight(1f))
+            if (s.markers.isNotEmpty()) {
+                Box(
+                    Modifier.height(30.dp).background(Color(0x14D63A3A), RoundedCornerShape(15.dp)).clickable { vm.clearMarkers() }.padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Clear all", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Danger) }
+                Spacer(Modifier.width(8.dp))
+            }
             CountBadge("${s.markers.size} marked")
         }
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
