@@ -23,18 +23,19 @@ Convention mirrors FRONTEND_PROGRESS.md: build → verify on emulator-5554 → c
   `issue_document` (gapless INV#, VAT added). **Verified on tablet: INV-0014 issued from a job (Rs 9,775 =
   8,500 + 15% VAT), then appeared in checkout TO COLLECT.** Double-billing blocked server-side.
   ⚠️ Data: a reseed must set `business_settings.invoice_next_number` = `max(existing)+1` or issue collides.
-- [~] **3 · Corrections** — wired `void_document`, `create_and_issue_credit_note`, `reverse_payment`.
-  Collect pad on an unpaid invoice shows "Void this invoice" (owner/manager); a tapped PAID TODAY row
-  opens Refund (credit note, restock) / Reverse-payment. RLS enforces owner/manager; graceful message
-  otherwise. **Compiles; runtime-verify once fresh data is loaded.**
-- [~] **4 · Certificate issuing** — a ready/delivered job's detail sheet now has "＋ Issue warranty
-  certificate": pick a ceramic product + term (1/3/5/10 yr) → direct `certificates` insert (customer +
-  vehicle from the job, next `CERT-####` computed client-side, applied/expiry dates set). It then shows on
-  the Certificates screen. **Compiles; runtime-verify once fresh data is loaded.**
-- [ ] **5 · Quote flows parity** — integrate `convert_quote_to_job` (in flight in a separate session)
-  for proper accept→job; wire `convert_quote_to_invoice` + `revise_quote` where the web app offers them.
-- [ ] **6 · Role-based UI gating** — hide tabs/actions the signed-in role can't use (web enforces RBAC;
-  Android shows everything and fails at the RLS boundary).
+- [x] **3 · Corrections** — wired `void_document`, `create_and_issue_credit_note`, `reverse_payment`.
+  Collect pad on an unpaid invoice shows "Void this invoice"; a tapped PAID TODAY row opens Refund (credit
+  note, restock) / Reverse-payment. **Verified on tablet: the "Correct this payment" dialog renders with the
+  payment context (INV-0001 · Rs 65,550) and both actions; reverse_payment RPC separately verified.**
+- [x] **4 · Certificate issuing** — a ready/delivered job's detail sheet has "＋ Certificate": pick a
+  ceramic product + term (1/3/5/10 yr) → direct `certificates` insert (customer + vehicle from the job,
+  next `CERT-####` computed client-side). **Verified on tablet: CERT-0005 (3-year) issued from a job and
+  linked to it; appears on the Certificates screen (refresh-on-entry).**
+- [BLOCKED] **5 · Quote flows parity** — needs `convert_quote_to_job` RPC, still in flight in a separate
+  session. Wire once it lands (+ `convert_quote_to_invoice` / `revise_quote`).
+- [DEFERRED] **6 · Role-based UI gating** — the Android auth model is mid-change to staff name+PIN (backend
+  landed 2026-07-08, commit `2e4d1df`); role→tab policy + verification depend on that login. Revisit when
+  the PIN login lands on Android so roles are real and testable (can't verify while signed in as sole owner).
 - [ ] **7 · Offline outbox + sync** — the literal "in sync": queue writes locally, drain via WorkManager,
   extend the Room cache to all read screens with delta cursors. Large; the idempotent RPCs already support it.
 
