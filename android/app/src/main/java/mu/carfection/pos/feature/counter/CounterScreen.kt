@@ -340,8 +340,12 @@ fun CounterScreen(
     if (s.adhocOpen) AdhocDialog(viewModel)
     s.done?.let {
         SaleDone(
-            result = it, receipt = s.receiptText, canVoid = viewModel.canManage,
-            onPrint = viewModel::reprint, onVoid = viewModel::voidCompletedSale, onDone = viewModel::backToList,
+            result = it, receipt = s.receiptText,
+            methodLabel = s.method.label,
+            customerLabel = s.customerText.trim().ifBlank { "Walk-in" },
+            canVoid = viewModel.canManage,
+            onPrint = viewModel::reprint, onVoid = viewModel::voidCompletedSale,
+            onNewSale = viewModel::startNextSale, onDone = viewModel::backToList,
         )
     }
     s.paymentAction?.let { PaymentActionDialog(it, viewModel) }
@@ -775,57 +779,95 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
 private fun SaleDone(
     result: mu.carfection.pos.core.data.SaleResult,
     receipt: String?,
+    methodLabel: String,
+    customerLabel: String,
     canVoid: Boolean,
     onPrint: () -> Unit,
     onVoid: () -> Unit,
+    onNewSale: () -> Unit,
     onDone: () -> Unit,
 ) {
+    val receivedCents = result.totalCents + result.changeCents // what the customer handed over
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Row(
-            Modifier.width(720.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(24.dp),
-            horizontalArrangement = Arrangement.spacedBy(20.dp),
+            Modifier.width(960.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(26.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            // left: outcome + actions (the Cashmag-style post-sale panel)
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(Modifier.size(56.dp).background(Success.copy(alpha = 0.15f), CircleShape), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Check, null, tint = Success, modifier = Modifier.size(30.dp))
+            // ── left: sale complete + actions ─────────────────────────────────
+            Column(Modifier.weight(1.15f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Sale complete", color = TextPrimary, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                        Text(
+                            "Invoice ${result.number ?: "—"} · ${if (result.onAccount) "on account" else "paid in ${methodLabel.lowercase()}"}",
+                            color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
+                        )
+                    }
+                    Box(
+                        Modifier.height(42.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = onDone).padding(horizontal = 15.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("←  Back to POS", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp) }
                 }
-                Text(if (result.onAccount) "Recorded on account" else "Paid in full", color = TextPrimary, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text(result.number ?: "Invoice", color = TextSecondary, fontFamily = Mono, fontSize = 13.sp)
-                Text(formatMUR(result.totalCents), color = TextPrimary, fontFamily = Condensed, fontSize = 34.sp, fontWeight = FontWeight.Bold)
-                if (result.onAccount) {
-                    Text("${formatMUR(result.totalCents)} owed — shows on the customer's statement", color = Warning, fontSize = 13.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
-                } else if (result.changeCents > 0) {
-                    Text("CHANGE ${formatMUR(result.changeCents)}", color = Success, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold)
-                }
-                Spacer(Modifier.weight(1f))
-                Box(
-                    Modifier.fillMaxWidth().height(46.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = onPrint),
-                    contentAlignment = Alignment.Center,
-                ) { Text("Print again", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-                if (canVoid) Box(
-                    Modifier.fillMaxWidth().height(46.dp).border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp)).clickable(onClick = onVoid),
-                    contentAlignment = Alignment.Center,
-                ) { Text(if (result.onAccount) "Void this sale" else "Void — refund & restock", color = Danger, fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
-                Box(
-                    Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone),
-                    contentAlignment = Alignment.Center,
-                ) { Text("Done", color = AccentInk, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
-            }
-            // right: the slip exactly as it printed
-            Column(Modifier.weight(1f)) {
-                Text("RECEIPT", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp, modifier = Modifier.padding(bottom = 6.dp))
-                Box(
-                    Modifier.fillMaxWidth().heightIn(min = 320.dp, max = 420.dp)
-                        .background(Inset, RoundedCornerShape(12.dp)).border(1.dp, Hairline, RoundedCornerShape(12.dp))
-                        .padding(14.dp),
-                ) {
+                Spacer(Modifier.height(24.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Box(Modifier.size(8.dp).background(if (result.onAccount) Warning else Success, CircleShape))
                     Text(
-                        receipt ?: "—", color = TextPrimary, fontFamily = Mono, fontSize = 11.sp, lineHeight = 15.sp,
-                        modifier = Modifier.verticalScroll(rememberScrollState()),
+                        if (result.onAccount) "RECORDED ON ACCOUNT" else "PAYMENT CONFIRMED",
+                        color = if (result.onAccount) Warning else Success, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp,
                     )
                 }
+                Spacer(Modifier.height(6.dp))
+                Text(formatMUR(if (result.onAccount) result.totalCents else receivedCents), color = TextPrimary, fontFamily = Condensed, fontSize = 46.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    if (result.onAccount) "owed by $customerLabel — shows on their statement"
+                    else "received from $customerLabel · change ${formatMUR(result.changeCents)}",
+                    color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // printed automatically at payment — this re-sends the same slip
+                    Box(
+                        Modifier.height(48.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = onPrint).padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Print again", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp) }
+                    if (canVoid) Box(
+                        Modifier.height(48.dp).border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp)).clickable(onClick = onVoid).padding(horizontal = 18.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(if (result.onAccount) "Void sale" else "Void — refund & restock", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                }
+                Spacer(Modifier.height(16.dp))
+                // next sale, one tap away (mirrors the "new ticket ready" row)
+                Row(
+                    Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp)).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(Modifier.size(38.dp).background(AccentSoft, CircleShape), contentAlignment = Alignment.Center) {
+                        Text("+", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("New sale ready", color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Counter is clear — start the next customer", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp)
+                    }
+                    Box(
+                        Modifier.height(40.dp).background(Accent, RoundedCornerShape(11.dp)).clickable(onClick = onNewSale).padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Start  →", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp) }
+                }
+            }
+            // ── right: the slip exactly as it printed (no stamps, plain paper) ─
+            Column(
+                Modifier.weight(0.85f)
+                    .background(Color(0xFFFDFDFB), RoundedCornerShape(6.dp))
+                    .border(1.dp, HairlineColorForPaper, RoundedCornerShape(6.dp))
+                    .padding(18.dp),
+            ) {
+                Text(
+                    receipt ?: "—", color = TextPrimary, fontFamily = Mono, fontSize = 11.sp, lineHeight = 15.5.sp,
+                    modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+                )
             }
         }
     }
 }
+
+private val HairlineColorForPaper = Color(0x1A0F1A24)

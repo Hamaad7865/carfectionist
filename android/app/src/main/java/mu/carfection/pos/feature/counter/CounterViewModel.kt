@@ -219,6 +219,13 @@ class CounterViewModel @Inject constructor(
         }
     }
 
+    /** "Start next sale" on the post-sale panel: clear the counter, straight into a fresh walk-in. */
+    fun startNextSale() {
+        newSale()
+        local.value = local.value.copy(mode = CheckoutMode.WALKIN)
+        refreshStock()
+    }
+
     /** Reprint the slip shown in the post-sale panel. */
     fun reprint() {
         val text = local.value.receiptText ?: return
