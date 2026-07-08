@@ -126,12 +126,12 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
 
       {rowError && <FormError error={rowError} />}
 
-      <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-        <div className={`grid ${GRID} gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint`}>
+      <div className="overflow-x-auto rounded-[14px] border border-line bg-card">
+        <div className={`grid ${GRID} min-w-[600px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint`}>
           <span>Member</span><span>Role</span><span>Status</span><span>Tablet PIN</span><span className="text-right"> </span>
         </div>
         {members.map((m) => (
-          <div key={m.id} className={`grid ${GRID} items-center gap-3 border-b border-line px-5 py-3 ${m.active ? "" : "opacity-55"}`}>
+          <div key={m.id} className={`grid ${GRID} min-w-[600px] items-center gap-3 border-b border-line px-5 py-3 ${m.active ? "" : "opacity-55"}`}>
             <div className="flex items-center gap-3">
               <span className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-[#3f5065]" style={{ background: "linear-gradient(140deg,#e5eaf1,#d2dae4)" }}>{initials(m.name)}</span>
               <div className="min-w-0">

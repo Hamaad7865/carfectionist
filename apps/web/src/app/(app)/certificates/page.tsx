@@ -15,7 +15,7 @@ export default async function CertificatesPage({ searchParams }: { searchParams:
   const remData = tab === "reminders" ? await getReminders(today) : null;
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex gap-1.5">
         <Link href="/certificates" className={tabCls(tab === "certificates")}>Certificates</Link>
         <Link href="/certificates?tab=reminders" className={tabCls(tab === "reminders")}>Reminders</Link>

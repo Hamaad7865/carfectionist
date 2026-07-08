@@ -7,7 +7,7 @@ export default async function JobsPage() {
   const [board, intake] = await Promise.all([getJobsBoard(), getIntakeRef()]);
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex items-start justify-between gap-4">
         <h2 className="font-display text-[20px] font-extrabold text-ink-strong">Jobs board</h2>
         <div className="flex items-center gap-2">

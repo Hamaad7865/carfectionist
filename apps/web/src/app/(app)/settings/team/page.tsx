@@ -8,7 +8,7 @@ export default async function TeamSettingsPage() {
   const canManage = session?.role === "owner";
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mx-auto max-w-3xl">
         <SettingsNav active="team" />
         <h2 className="font-display text-[20px] font-extrabold text-ink-strong">Team &amp; roles</h2>

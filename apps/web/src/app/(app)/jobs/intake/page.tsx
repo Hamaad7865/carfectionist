@@ -7,7 +7,7 @@ export default async function IntakePage() {
   const { tenantId, customers } = await getIntakeData();
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex items-center gap-3">
         <Link href="/jobs" className="flex size-9 items-center justify-center rounded-[10px] border border-line-2 bg-card text-muted hover:text-body">
           <ArrowLeft size={17} />

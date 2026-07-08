@@ -29,7 +29,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const title = doc.docType === "quote" ? "Quotation" : doc.docType === "credit_note" ? "Credit note" : "Invoice";
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mx-auto max-w-5xl">
         <div className="flex items-start justify-between gap-4">
           <div>

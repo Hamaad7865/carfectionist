@@ -28,7 +28,7 @@ export default async function ContactsPage({
   const sel = data.selected;
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex items-center gap-1.5">
         <Link href="/contacts" className={tabCls(tab === "customers")}>Customers</Link>
         <Link href="/contacts?tab=suppliers" className={tabCls(tab === "suppliers")}>Suppliers</Link>

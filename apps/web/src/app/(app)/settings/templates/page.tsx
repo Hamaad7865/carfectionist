@@ -7,7 +7,7 @@ export default async function TemplatesSettingsPage() {
   const template = await getDefaultTemplate();
 
   return (
-    <div className="p-6">
+    <div className="p-4 sm:p-6">
       <div className="mx-auto max-w-3xl">
         <SettingsNav active="templates" />
         <h2 className="font-display text-[20px] font-extrabold text-ink-strong">Document template</h2>

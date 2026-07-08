@@ -16,7 +16,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
   const today = new Date().toISOString().slice(0, 10);
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex items-center gap-1.5">
         <Link href="/purchases" className={tabCls(tab === "expenses")}>Expenses</Link>
         <Link href="/purchases?tab=orders" className={tabCls(tab === "orders")}>Purchase orders</Link>

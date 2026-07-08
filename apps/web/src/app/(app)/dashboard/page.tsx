@@ -44,7 +44,7 @@ export default async function DashboardPage() {
   const bestMax = d.bestServices[0]?.cents ?? 1;
 
   return (
-    <div className="flex flex-col gap-4 p-6">
+    <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div>
         <h2 className="font-display text-[20px] font-extrabold text-ink-strong">
           Welcome back{name ? `, ${name}` : ""}
