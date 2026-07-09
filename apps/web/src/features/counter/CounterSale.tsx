@@ -38,7 +38,7 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   const [ref, setRef] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [confirmNeg, setConfirmNeg] = useState<{ name: string; have: number; selling: number }[] | null>(null);
+  const [confirmNeg, setConfirmNeg] = useState<{ name: string; shop: number; warehouse: number; selling: number }[] | null>(null);
   const [done, setDone] = useState<Extract<CounterResult, { ok: true }> | null>(null);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [receiptError, setReceiptError] = useState(false);
@@ -110,8 +110,8 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
     // Warn (and let them proceed) — sales are never hard-blocked on stock.
     if (!force) {
       const negatives = cart
-        .filter((l) => l.product.isStocked && l.qty > l.product.stockQty)
-        .map((l) => ({ name: l.product.name, have: l.product.stockQty, selling: l.qty }));
+        .filter((l) => l.product.isStocked && l.qty > l.product.shopQty)
+        .map((l) => ({ name: l.product.name, shop: l.product.shopQty, warehouse: l.product.warehouseQty, selling: l.qty }));
       if (negatives.length > 0) { setConfirmNeg(negatives); return; }
     }
     setBusy(true);
@@ -261,7 +261,7 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
             >
               <span className="flex w-full items-center justify-between gap-1">
                 <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
-                {p.isStocked && p.stockQty <= 0 && <span className="rounded-[4px] bg-[rgba(214,59,80,0.14)] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-rose">0 left</span>}
+                {p.isStocked && p.shopQty <= 0 && <span className="rounded-[4px] bg-[rgba(214,59,80,0.14)] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-rose">0 left</span>}
               </span>
               <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
               <span className="num mt-auto text-[13px] font-extrabold text-ink">{formatMUR(p.priceCents)}</span>
@@ -405,14 +405,17 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           <div className="relative w-full max-w-sm rounded-[16px] border border-line bg-card p-6 shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
             <div className="flex items-center gap-2.5">
               <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[rgba(245,166,35,0.16)] text-amber-ink"><AlertTriangle size={18} /></div>
-              <div className="font-display text-[16px] font-extrabold text-ink-strong">Stock will go negative</div>
+              <div className="font-display text-[16px] font-extrabold text-ink-strong">Shop stock will go negative</div>
             </div>
-            <p className="mt-3 text-[13px] text-muted">These items don&apos;t have enough on hand — selling them takes the count below zero:</p>
+            <p className="mt-3 text-[13px] text-muted">Selling these takes the shop count below zero:</p>
             <ul className="mt-2.5 space-y-1.5">
               {confirmNeg.map((n, i) => (
-                <li key={i} className="flex items-center justify-between gap-2 rounded-[9px] bg-sub px-3 py-2 text-[12.5px]">
-                  <span className="min-w-0 truncate font-semibold text-body">{n.name}</span>
-                  <span className="num shrink-0 text-amber-ink">{fmtQty(n.have)} on hand → {fmtQty(n.have - n.selling)}</span>
+                <li key={i} className="rounded-[9px] bg-sub px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="min-w-0 truncate text-[12.5px] font-semibold text-body">{n.name}</span>
+                    <span className="num shrink-0 text-[12.5px] font-bold text-amber-ink">shop {fmtQty(n.shop)} → {fmtQty(n.shop - n.selling)}</span>
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-faint">{n.warehouse > 0 ? `${fmtQty(n.warehouse)} in the warehouse — transfer or continue` : "none in the warehouse either"}</div>
                 </li>
               ))}
             </ul>

@@ -128,7 +128,13 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     );
 
     const key = p.data.idempotencyKey?.trim() || null;
-    const issued = await rpc.issueDocument(sb, draft.id, null, key ? `${key}:issue` : null);
+    // Counter sales draw stock from the Shop (walk-in front), not the Warehouse
+    // default; fall back to the tenant default if no Shop location exists.
+    const { data: locs } = await sb.from("stock_locations").select("id, name, is_default");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const locArr = (locs ?? []) as any[];
+    const shopLocationId = (locArr.find((l) => l.name === "Shop") ?? locArr.find((l) => !l.is_default))?.id ?? null;
+    const issued = await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null);
     const totalRupees = Number(issued.total_incl);
 
     let changeCents = 0;
