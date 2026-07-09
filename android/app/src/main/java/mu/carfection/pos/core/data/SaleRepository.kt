@@ -26,6 +26,7 @@ data class CartLine(
     val discountPct: Int = 0, // PCT mode
     val discountAmtText: String = "", // AMT mode — raw input, parsed to cents
     val expanded: Boolean = false, // UI: line row opened for qty/discount editing
+    val oversellOk: Boolean = false, // cashier confirmed selling past available stock (asked once per sale)
 ) {
     /** Ad-hoc (typed) lines carry a synthetic local id — they save with product_id = null. */
     val isAdhoc: Boolean get() = product.id.startsWith(ADHOC_PREFIX)

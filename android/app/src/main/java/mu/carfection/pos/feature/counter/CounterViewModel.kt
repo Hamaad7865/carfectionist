@@ -81,6 +81,7 @@ data class CounterUiState(
     val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
     val paymentAction: TodayPaymentDto? = null, // a tapped PAID TODAY row → reverse / refund
     val notice: String? = null, // transient corrections feedback
+    val oversell: OversellPrompt? = null, // adding this would drive stock negative — confirm first
 ) {
     /** The amount the pad is settling: an existing invoice's balance, or the cart total. */
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
@@ -117,6 +118,23 @@ data class CounterUiState(
 }
 
 enum class CheckoutMode { LIST, WALKIN }
+
+/** A tap that would sell past available stock, held until the cashier confirms. */
+data class OversellPrompt(val product: ProductEntity, val targetQty: Double)
+
+/**
+ * Single recompute path: every cart/basket change rebuilds the exact invoice line set
+ * (expandSaleLines) and prices it with the shared money engine — the footer always shows
+ * what the server will charge.
+ */
+internal fun CounterUiState.withCart(cart: List<CartLine>): CounterUiState {
+    // Emptying the cart ends the ticket, so the whole-sale discount goes with it. Otherwise a
+    // discount typed for one walk-in silently re-prices the next basket built on this screen.
+    val s = if (cart.isEmpty() && this.cart.isNotEmpty()) copy(basketMode = DiscountMode.PCT, basketText = "") else this
+    val specs = expandSaleLines(cart, s.basketMode, s.basketPct, s.basketAmtCents)
+    val totals = computeTotals(specs.map { LineInput(it.qty, it.unitCents, it.discountPct, it.vatRatePct) })
+    return s.copy(cart = cart, specs = specs, totals = totals, error = null)
+}
 
 @HiltViewModel
 class CounterViewModel @Inject constructor(
@@ -305,16 +323,46 @@ class CounterViewModel @Inject constructor(
     // ── cart ──────────────────────────────────────────────────────────────────
     fun setQuery(q: String) { local.value = local.value.copy(query = q) }
 
-    fun add(p: ProductEntity) = mutateCart { cart ->
-        val i = cart.indexOfFirst { it.product.id == p.id }
-        if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = it[i].qty + 1) }
-        else cart + CartLine(p, 1.0)
+    fun add(p: ProductEntity) {
+        val target = (local.value.cart.firstOrNull { it.product.id == p.id }?.qty ?: 0.0) + 1
+        if (needsOversellPrompt(p, target)) { local.value = local.value.copy(oversell = OversellPrompt(p, target)); return }
+        mutateCart { cart ->
+            val i = cart.indexOfFirst { it.product.id == p.id }
+            if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = it[i].qty + 1) }
+            else cart + CartLine(p, 1.0)
+        }
     }
 
-    fun setQty(productId: String, qty: Double) = mutateCart { cart ->
-        if (qty <= 0) cart.filterNot { it.product.id == productId }
-        else cart.map { if (it.product.id == productId) it.copy(qty = qty) else it }
+    fun setQty(productId: String, qty: Double) {
+        val cur = local.value.cart.firstOrNull { it.product.id == productId }
+        if (cur != null && qty > cur.qty && needsOversellPrompt(cur.product, qty)) {
+            local.value = local.value.copy(oversell = OversellPrompt(cur.product, qty)); return
+        }
+        mutateCart { cart ->
+            if (qty <= 0) cart.filterNot { it.product.id == productId }
+            else cart.map { if (it.product.id == productId) it.copy(qty = qty) else it }
+        }
     }
+
+    /** True when selling [targetQty] would drive stock negative and the cashier hasn't OK'd it yet. */
+    private fun needsOversellPrompt(p: ProductEntity, targetQty: Double): Boolean {
+        if (!p.isStocked) return false // services / ad-hoc lines don't track stock
+        if (local.value.cart.firstOrNull { it.product.id == p.id }?.oversellOk == true) return false
+        return (local.value.onHand[p.id] ?: 0) - targetQty < 0
+    }
+
+    /** "Sell anyway" — apply the held quantity and stop asking for this product this sale. */
+    fun confirmOversell() {
+        val o = local.value.oversell ?: return
+        local.value = local.value.copy(oversell = null)
+        mutateCart { cart ->
+            val i = cart.indexOfFirst { it.product.id == o.product.id }
+            if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = o.targetQty, oversellOk = true) }
+            else cart + CartLine(o.product, o.targetQty, oversellOk = true)
+        }
+    }
+
+    fun dismissOversell() { local.value = local.value.copy(oversell = null) }
 
     /** Tap a cart line → open its qty/discount editor (one open at a time, like the quote builder). */
     fun toggleLine(productId: String) = mutateCart { cart ->
@@ -344,17 +392,9 @@ class CounterViewModel @Inject constructor(
         mutateCart { it } // recompute
     }
 
-    /**
-     * Single recompute path: every cart/basket change rebuilds the exact invoice line set
-     * (expandSaleLines) and prices it with the shared money engine — the footer always shows
-     * what the server will charge.
-     */
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {
         val s = local.value
-        val cart = f(s.cart)
-        val specs = expandSaleLines(cart, s.basketMode, s.basketPct, s.basketAmtCents)
-        val totals = computeTotals(specs.map { LineInput(it.qty, it.unitCents, it.discountPct, it.vatRatePct) })
-        local.value = s.copy(cart = cart, specs = specs, totals = totals, error = null)
+        local.value = s.withCart(f(s.cart))
     }
 
     // ── customer ─────────────────────────────────────────────────────────────

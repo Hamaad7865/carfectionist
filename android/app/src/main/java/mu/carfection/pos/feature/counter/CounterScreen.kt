@@ -338,6 +338,36 @@ fun CounterScreen(
 
     if (s.padOpen) PaymentPad(s, viewModel)
     if (s.adhocOpen) AdhocDialog(viewModel)
+    s.oversell?.let { o ->
+        val oh = s.onHand[o.product.id] ?: 0
+        Dialog(onDismissRequest = viewModel::dismissOversell) {
+            Column(
+                Modifier.width(460.dp).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text("Selling into negative stock", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+                val opening = when {
+                    oh > 0 -> "only $oh on hand"
+                    oh == 0 -> "no stock on hand"
+                    else -> "no stock on hand (already at $oh)"
+                }
+                Text(
+                    "${o.product.name} has $opening. Selling ${o.targetQty.toInt()} will leave stock at ${oh - o.targetQty.toInt()}. Do you wish to continue?",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 19.sp, color = TextSecondary,
+                )
+                Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Box(
+                        Modifier.weight(1f).height(52.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { viewModel.dismissOversell() },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                    Box(
+                        Modifier.weight(1.4f).height(52.dp).background(Warning, RoundedCornerShape(13.dp)).clickable { viewModel.confirmOversell() },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Sell anyway", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White) }
+                }
+            }
+        }
+    }
     s.done?.let {
         SaleDone(
             result = it, receipt = s.receiptText,
