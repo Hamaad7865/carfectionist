@@ -148,7 +148,13 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             ))}
             <div className="flex justify-end px-5 py-3">
               <div className="w-56 text-[13px]">
-                <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(doc.subtotalCents)}</span></div>
+                <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(doc.grossSubtotalCents)}</span></div>
+                {doc.orderDiscountCents > 0 && (
+                  <div className="flex justify-between py-1 text-amber-ink">
+                    <span>Discount{doc.discountKind === "percent" ? ` (${doc.discountValue}%)` : ""}</span>
+                    <span className="num">−{formatMUR(doc.orderDiscountCents)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between py-1 text-muted"><span>VAT</span><span className="num text-ink">{formatMUR(doc.vatCents)}</span></div>
                 <div className="mt-1 flex justify-between border-t border-line pt-2 font-bold"><span className="text-ink">Total (MUR)</span><span className="num text-brand">{formatMUR(doc.totalCents)}</span></div>
               </div>

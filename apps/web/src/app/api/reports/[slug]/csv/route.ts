@@ -1,4 +1,4 @@
-import { getReportsData, getExtraReports } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports, getDiscountsReport } from "@/lib/supabase/queries/reports";
 import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { getSessionContext } from "@/lib/auth/session";
 
@@ -72,6 +72,16 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       const d = await getExtraReports(from, to);
       rows = [["Technician", "Jobs", "Revenue (Rs)"], ...d.byTechnician.map((t) => [t.name, t.jobs, rs(t.revenueCents)])];
       name = "revenue-by-technician";
+      break;
+    }
+    case "discounts": {
+      const d = await getDiscountsReport(from, to);
+      rows = [
+        ["Date", "Invoice", "Customer", "Gross ex-VAT (Rs)", "Line discount (Rs)", "Order discount (Rs)", "Total discount (Rs)", "Discount %", "Total incl (Rs)"],
+        ...d.rows.map((r) => [r.date ?? "", r.number ?? "", r.customer ?? "", rs(r.grossExclCents), rs(r.lineDiscountCents), rs(r.orderDiscountCents), rs(r.totalDiscountCents), r.discountPct.toFixed(1), rs(r.netTotalCents)]),
+        ["Total", "", "", "", rs(d.lineDiscountCents), rs(d.orderDiscountCents), rs(d.totalDiscountCents), "", ""],
+      ];
+      name = "discounts-given";
       break;
     }
     default:

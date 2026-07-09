@@ -252,6 +252,100 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
   };
 }
 
+// ── Discounts given ───────────────────────────────────────────────────────────
+export interface DiscountReportRow {
+  id: string;
+  date: string | null;
+  number: string | null;
+  customer: string | null;
+  grossExclCents: number;      // ex-VAT before any discount
+  lineDiscountCents: number;   // ex-VAT, from per-line discounts
+  orderDiscountCents: number;  // ex-VAT, from the whole-sale discount
+  totalDiscountCents: number;  // line + order
+  netTotalCents: number;       // inclusive total charged
+  discountPct: number;         // of gross ex-VAT
+}
+export interface DiscountsReport {
+  rows: DiscountReportRow[];
+  totalDiscountCents: number;
+  lineDiscountCents: number;
+  orderDiscountCents: number;
+  grossExclCents: number;      // over ALL invoices in range (discounted or not)
+  discountedCount: number;
+  invoiceCount: number;
+}
+
+/** Discounts given on issued invoices in the range. Ex-VAT revenue foregone,
+ *  split into per-line vs whole-sale discount. Total discount ex-VAT =
+ *  Σ(qty·unit_price) − subtotal_excl (gross before any discount − net taxable). */
+export async function getDiscountsReport(from?: string, to?: string): Promise<DiscountsReport> {
+  const sb = await createClient();
+
+  const makeDocQ = () => {
+    let q = sb.from("documents").select("id, number, issue_date, subtotal_excl, total_incl, customers(name)").eq("doc_type", "invoice").in("status", ["issued", "partly_paid", "paid"]);
+    if (from) q = q.gte("issue_date", from);
+    if (to) q = q.lte("issue_date", to);
+    return q;
+  };
+  const makeLineQ = () => {
+    let q = sb.from("document_lines").select("document_id, qty, unit_price, line_total_excl, documents!inner(doc_type, status, issue_date)").eq("documents.doc_type", "invoice").in("documents.status", ["issued", "partly_paid", "paid"]);
+    if (from) q = q.gte("documents.issue_date", from);
+    if (to) q = q.lte("documents.issue_date", to);
+    return q;
+  };
+
+  const [docRows, lineRows] = await Promise.all([fetchAllRows(makeDocQ), fetchAllRows(makeLineQ)]);
+
+  // Per-doc gross (pre-discount) and post-line-discount subtotals, both ex-VAT.
+  const perDoc = new Map<string, { gross: number; net0: number }>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const l of lineRows as any[]) {
+    const g = perDoc.get(l.document_id) ?? { gross: 0, net0: 0 };
+    g.gross += rupeesToCents(Number(l.qty) * Number(l.unit_price));
+    g.net0 += rupeesToCents(Number(l.line_total_excl));
+    perDoc.set(l.document_id, g);
+  }
+
+  const rows: DiscountReportRow[] = [];
+  let totalDiscount = 0, lineDiscount = 0, orderDiscount = 0, grossSum = 0, discountedCount = 0;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of docRows as any[]) {
+    const netExcl = rupeesToCents(Number(d.subtotal_excl));
+    const agg = perDoc.get(d.id) ?? { gross: netExcl, net0: netExcl };
+    const lineDisc = Math.max(0, agg.gross - agg.net0);
+    const orderDisc = Math.max(0, agg.net0 - netExcl);
+    const totalDisc = Math.max(0, agg.gross - netExcl);
+    grossSum += agg.gross;
+    if (totalDisc > 1) {
+      totalDiscount += totalDisc; lineDiscount += lineDisc; orderDiscount += orderDisc; discountedCount += 1;
+      rows.push({
+        id: d.id,
+        date: d.issue_date,
+        number: d.number,
+        customer: d.customers?.name ?? null,
+        grossExclCents: agg.gross,
+        lineDiscountCents: lineDisc,
+        orderDiscountCents: orderDisc,
+        totalDiscountCents: totalDisc,
+        netTotalCents: rupeesToCents(Number(d.total_incl)),
+        discountPct: agg.gross > 0 ? (totalDisc / agg.gross) * 100 : 0,
+      });
+    }
+  }
+  rows.sort((a, b) => b.totalDiscountCents - a.totalDiscountCents);
+
+  return {
+    rows,
+    totalDiscountCents: totalDiscount,
+    lineDiscountCents: lineDiscount,
+    orderDiscountCents: orderDiscount,
+    grossExclCents: grossSum,
+    discountedCount,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    invoiceCount: (docRows as any[]).length,
+  };
+}
+
 // ── Customer statement ────────────────────────────────────────────────────────
 const STMT_METHOD: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
 

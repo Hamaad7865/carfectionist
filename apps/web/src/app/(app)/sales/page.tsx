@@ -69,6 +69,7 @@ export default async function SalesPage({
                   <div className="flex items-center gap-2">
                     <span className="num text-[13px] font-bold" style={{ color: r.doc_type === "quote" ? "#6f5cd9" : "#1e6fe0" }}>{r.number ?? "Draft"}</span>
                     <StatusPill status={r.status} />
+                    {r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}
                   </div>
                   <div className="mt-1 truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</div>
                   <div className="mt-0.5 text-[11.5px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)} · {r.methodLabel}</div>
@@ -83,7 +84,7 @@ export default async function SalesPage({
                 <span className="truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</span>
                 <span className="num text-[12px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)}</span>
                 <span className="text-[12px] text-muted">{r.methodLabel}</span>
-                <span><StatusPill status={r.status} /></span>
+                <span className="flex items-center gap-1.5"><StatusPill status={r.status} />{r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}</span>
                 <span className="num text-right text-[13px] font-bold text-ink-strong">{rs(r.total_incl)}</span>
                 <span className="flex justify-end text-faint"><ChevronRight size={16} /></span>
               </div>

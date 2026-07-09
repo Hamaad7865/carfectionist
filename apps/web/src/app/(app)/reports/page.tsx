@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
-import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport } from "@/lib/supabase/queries/reports";
 import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { CashSessions } from "@/features/cash/CashSessions";
@@ -16,6 +16,7 @@ const REPORTS = [
   { key: "pnl", label: "Simple P&L" },
   { key: "bestsellers", label: "Best-sellers" },
   { key: "technician", label: "Revenue by technician" },
+  { key: "discounts", label: "Discounts given" },
   { key: "receivables", label: "Aged receivables" },
   { key: "statement", label: "Customer statement" },
   { key: "cash", label: "End-of-day cash-up" },
@@ -40,6 +41,7 @@ export default async function ReportsPage({
   const data = await getReportsData(sp.from, sp.to, method);
   const cash = report === "cash" ? await getCashSessions() : null;
   const extra = EXTRA.includes(report) ? await getExtraReports(sp.from, sp.to) : null;
+  const discounts = report === "discounts" ? await getDiscountsReport(sp.from, sp.to) : null;
   const statement =
     report === "statement"
       ? { customers: await getStatementCustomers(), data: sp.c ? await getCustomerStatement(sp.c, sp.from, sp.to) : null }
@@ -309,6 +311,48 @@ export default async function ReportsPage({
                   </div>
                 ))
               )}
+            </div>
+          )}
+
+          {report === "discounts" && discounts && (
+            <div className="flex flex-col gap-4">
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+                <div className="rounded-[15px] border border-[rgba(245,166,35,0.3)] p-5" style={{ background: "linear-gradient(150deg,#fff5e4,#ffedd0)" }}>
+                  <div className="text-[12px] font-semibold text-[#8a6410]">Discount given · {rangeLabel}</div>
+                  <div className="num mt-2 text-[30px] font-extrabold text-[#7a4f00]">{formatMUR(discounts.totalDiscountCents)}</div>
+                  <div className="mt-1 text-[11px] text-[#8a6410]">Revenue foregone (excl. VAT)</div>
+                </div>
+                <div className="rounded-[15px] border border-line bg-card p-5">
+                  <div className="text-[12px] font-semibold text-muted">Whole-sale vs line</div>
+                  <div className="num mt-2 text-[17px] font-extrabold text-ink-strong">{formatMUR(discounts.orderDiscountCents)} <span className="text-[11.5px] font-semibold text-muted">basket</span></div>
+                  <div className="num mt-0.5 text-[17px] font-extrabold text-ink-strong">{formatMUR(discounts.lineDiscountCents)} <span className="text-[11.5px] font-semibold text-muted">line</span></div>
+                </div>
+                <div className="rounded-[15px] border border-line bg-card p-5">
+                  <div className="text-[12px] font-semibold text-muted">Discounted invoices</div>
+                  <div className="num mt-2 text-[24px] font-extrabold text-ink-strong">{discounts.discountedCount} <span className="text-[13px] font-semibold text-muted">of {discounts.invoiceCount}</span></div>
+                  <div className="mt-1 text-[11px] text-faint">{discounts.grossExclCents > 0 ? ((discounts.totalDiscountCents / discounts.grossExclCents) * 100).toFixed(1) : "0.0"}% of gross ex-VAT</div>
+                </div>
+              </div>
+
+              <div className="overflow-hidden rounded-[14px] border border-line bg-card">
+                <div className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+                  <span>Date</span><span>Invoice</span><span>Customer</span><span className="text-right">Gross ex-VAT</span><span className="text-right">Discount</span><span className="text-right">%</span>
+                </div>
+                {discounts.rows.length === 0 ? (
+                  <div className="px-5 py-14 text-center text-[13px] text-faint">No discounts given in this range.</div>
+                ) : (
+                  discounts.rows.map((d) => (
+                    <div key={d.id} className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] items-center gap-3 border-b border-line px-5 py-3 text-[12.5px]">
+                      <span className="num text-muted">{d.date ?? "—"}</span>
+                      <Link href={`/sales/${d.id}`} className="num font-bold text-link hover:underline">{d.number ?? "—"}</Link>
+                      <span className="truncate text-body">{d.customer ?? "—"}</span>
+                      <span className="num text-right text-muted">{formatMUR(d.grossExclCents)}</span>
+                      <span className="num text-right font-bold text-amber-ink">−{formatMUR(d.totalDiscountCents)}</span>
+                      <span className="num text-right text-muted">{d.discountPct.toFixed(1)}%</span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
 

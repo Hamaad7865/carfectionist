@@ -26,7 +26,11 @@ export interface DocumentDetail {
   issueDate: string | null;
   createdAt: string;
   customerName: string | null;
-  subtotalCents: number;
+  subtotalCents: number;        // ex-VAT taxable base (post-discount)
+  grossSubtotalCents: number;   // sum of line amounts (pre-order-discount)
+  orderDiscountCents: number;   // whole-sale discount, ex-VAT
+  discountKind: "percent" | "amount" | null;
+  discountValue: number;
   vatCents: number;
   totalCents: number;
   paidCents: number;
@@ -83,6 +87,11 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
 
   const totalCents = rupeesToCents(Number(d.total_incl));
   const paidCents = rupeesToCents(Number(d.amount_paid));
+  const subtotalCents = rupeesToCents(Number(d.subtotal_excl));
+  // Sum of the (line-discounted) line amounts, before any whole-sale discount.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const grossSubtotalCents = ((lines ?? []) as any[]).reduce((s, l) => s + rupeesToCents(Number(l.line_total_excl)), 0);
+  const orderDiscountCents = Math.max(0, grossSubtotalCents - subtotalCents);
 
   return {
     id: d.id,
@@ -92,7 +101,11 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     issueDate: d.issue_date,
     createdAt: d.created_at,
     customerName: d.customers?.name ?? d.bill_to_name ?? null,
-    subtotalCents: rupeesToCents(Number(d.subtotal_excl)),
+    subtotalCents,
+    grossSubtotalCents,
+    orderDiscountCents,
+    discountKind: d.discount_kind ?? null,
+    discountValue: Number(d.discount_value ?? 0),
     vatCents: rupeesToCents(Number(d.vat_total)),
     totalCents,
     paidCents,

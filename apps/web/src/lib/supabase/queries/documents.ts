@@ -20,6 +20,7 @@ export interface DocListRow {
   amount_paid: string;
   customerName: string | null;
   methodLabel: string;
+  hasDiscount: boolean;
 }
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank" };
@@ -51,7 +52,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   const listQ = applyFilters(
     sb
       .from("documents")
-      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, payments(method), ${rel}`)
+      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, discount_kind, discount_value, payments(method), ${rel}`)
       .order("created_at", { ascending: false })
       .limit(200),
   );
@@ -79,6 +80,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
       amount_paid: d.amount_paid,
       customerName: d.customers?.name ?? null,
       methodLabel,
+      hasDiscount: d.discount_kind != null && Number(d.discount_value) > 0,
     };
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
