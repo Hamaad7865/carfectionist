@@ -7,8 +7,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -125,18 +127,40 @@ class LoginViewModel @Inject constructor(
     }
 }
 
+/** Distinct avatar colours per operator, cycled by roster position (handoff palette). */
+private val AvatarColors = listOf(
+    Color(0xFF2B8CFF), Color(0xFF8B5CF6), Color(0xFFF08C2E),
+    Color(0xFF22A06B), Color(0xFF5B5BD6), Color(0xFFE5484D),
+)
+
+private fun initials(name: String): String {
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    return when {
+        parts.size >= 2 -> "${parts[0].first()}${parts[1].first()}".uppercase()
+        parts.isNotEmpty() -> parts[0].take(2).uppercase()
+        else -> "?"
+    }
+}
+
 @Composable
 fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
-    Box(Modifier.fillMaxSize().background(ScreenBg), contentAlignment = Alignment.Center) {
-        when {
-            !s.configured -> NotConfiguredCard()
-            else -> Row(
-                Modifier.width(700.dp).background(CardBg, RoundedCornerShape(22.dp)).border(1.dp, Hairline, RoundedCornerShape(22.dp)).padding(22.dp),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
-            ) {
-                RosterPanel(Modifier.weight(1f), s, viewModel)
-                KeypadPanel(s, viewModel)
+    // Handoff "Switch user" modal: dimmed backdrop, centred 660dp card, roster | keypad.
+    Box(Modifier.fillMaxSize().background(ScreenBg)) {
+        Box(Modifier.fillMaxSize().background(Color(0x730F1A24)))
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            when {
+                !s.configured -> NotConfiguredCard()
+                else -> Row(
+                    Modifier.width(660.dp).height(IntrinsicSize.Min)
+                        .background(CardBg, RoundedCornerShape(22.dp))
+                        .border(1.dp, Color(0x1F0F1A24), RoundedCornerShape(22.dp))
+                        .padding(20.dp),
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                ) {
+                    RosterPanel(Modifier.weight(1f).fillMaxHeight(), s, viewModel)
+                    KeypadPanel(s, viewModel)
+                }
             }
         }
     }
@@ -145,29 +169,30 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
 @Composable
 private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.padding(top = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Image(
                 painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist",
-                modifier = Modifier.size(30.dp).clip(RoundedCornerShape(9.dp)),
+                modifier = Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)),
             )
-            Text("CARFECTIONIST", color = Accent, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 2.sp)
+            Text("SIGN IN", color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = 1.5.sp)
         }
-        Text("SIGN IN", color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 17.sp, letterSpacing = 1.5.sp)
         when {
-            s.loadingRoster -> Box(Modifier.fillMaxWidth().height(220.dp), contentAlignment = Alignment.Center) {
+            s.loadingRoster -> Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(Modifier.size(26.dp), strokeWidth = 2.dp, color = Accent)
             }
             s.rosterError != null -> Column(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(s.rosterError, color = Danger, fontFamily = Barlow, fontSize = 13.sp)
+                Text(s.rosterError, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 18.sp)
                 Box(Modifier.height(42.dp).background(Accent, RoundedCornerShape(11.dp)).clickable { vm.loadRoster() }.padding(horizontal = 18.dp), contentAlignment = Alignment.Center) {
                     Text("Retry", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
             }
             s.roster.isEmpty() -> Text("No staff with a PIN yet. Set one from the web app's Team settings.", color = TextMuted, fontFamily = Barlow, fontSize = 13.sp)
             else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                s.roster.chunked(2).forEach { pair ->
+                s.roster.chunked(2).forEachIndexed { rowIx, pair ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        pair.forEach { u -> StaffTile(Modifier.weight(1f), u, u.appUserId == s.selectedId) { vm.pick(u.appUserId) } }
+                        pair.forEachIndexed { colIx, u ->
+                            StaffTile(Modifier.weight(1f), u, AvatarColors[(rowIx * 2 + colIx) % AvatarColors.size], u.appUserId == s.selectedId) { vm.pick(u.appUserId) }
+                        }
                         if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
@@ -179,16 +204,16 @@ private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel)
 }
 
 @Composable
-private fun StaffTile(modifier: Modifier, u: RosterEntry, selected: Boolean, onClick: () -> Unit) {
+private fun StaffTile(modifier: Modifier, u: RosterEntry, avatarColor: Color, selected: Boolean, onClick: () -> Unit) {
     Row(
         modifier
             .background(if (selected) AccentSoft else Tile, RoundedCornerShape(13.dp))
-            .border(if (selected) 1.5.dp else 1.dp, if (selected) AccentLine else Hairline, RoundedCornerShape(13.dp))
+            .border(1.5.dp, if (selected) AccentLine else Color.Transparent, RoundedCornerShape(13.dp))
             .clickable(onClick = onClick).padding(horizontal = 11.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(Modifier.size(36.dp).background(Accent, CircleShape), contentAlignment = Alignment.Center) {
-            Text(u.displayName.trim().take(1).uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AccentInk)
+        Box(Modifier.size(36.dp).background(avatarColor, CircleShape), contentAlignment = Alignment.Center) {
+            Text(initials(u.displayName), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
         }
         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(u.displayName, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1)
@@ -199,34 +224,37 @@ private fun StaffTile(modifier: Modifier, u: RosterEntry, selected: Boolean, onC
 
 @Composable
 private fun KeypadPanel(s: LoginUiState, vm: LoginViewModel) {
-    Column(
-        Modifier.width(240.dp).padding(start = 18.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        // PIN dots
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp), horizontalArrangement = Arrangement.Center) {
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                repeat(4) { i ->
-                    Box(Modifier.size(13.dp).background(if (i < s.pin.length) Accent else Color.Transparent, CircleShape).border(1.5.dp, Hairline, CircleShape))
+    Row(Modifier.width(257.dp)) {
+        Box(Modifier.width(1.dp).fillMaxHeight().background(Color(0x170F1A24)))
+        Column(
+            Modifier.padding(start = 18.dp).weight(1f),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // PIN dots
+            Row(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp), horizontalArrangement = Arrangement.Center) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    repeat(4) { i ->
+                        Box(Modifier.size(13.dp).background(if (i < s.pin.length) Accent else Color.Transparent, CircleShape).border(1.5.dp, Color(0x4D0F1A24), CircleShape))
+                    }
                 }
             }
-        }
-        s.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, modifier = Modifier.fillMaxWidth()) }
-        // keypad
-        val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫")
-        Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            keys.chunked(3).forEach { row ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    row.forEach { k -> Key(Modifier.weight(1f), k, s.busy) {
-                        when (k) { "" -> {}; "⌫" -> vm.backspace(); else -> vm.press(k) }
-                    } }
+            s.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, modifier = Modifier.fillMaxWidth()) }
+            // keypad
+            val keys = listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫")
+            Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                keys.chunked(3).forEach { row ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        row.forEach { k -> Key(Modifier.weight(1f), k, s.busy) {
+                            when (k) { "" -> {}; "⌫" -> vm.backspace(); else -> vm.press(k) }
+                        } }
+                    }
                 }
             }
+            Box(
+                Modifier.fillMaxWidth().height(44.dp).border(1.dp, Color(0x2E0F1A24), RoundedCornerShape(11.dp)).clickable { vm.cancel() },
+                contentAlignment = Alignment.Center,
+            ) { Text("Cancel", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp) }
         }
-        Box(
-            Modifier.fillMaxWidth().height(44.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { vm.cancel() },
-            contentAlignment = Alignment.Center,
-        ) { Text("Cancel", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp) }
     }
 }
 
@@ -234,7 +262,7 @@ private fun KeypadPanel(s: LoginUiState, vm: LoginViewModel) {
 private fun Key(modifier: Modifier, label: String, busy: Boolean, onClick: () -> Unit) {
     if (label.isBlank()) { Box(modifier.height(52.dp)); return }
     Box(
-        modifier.height(52.dp).background(InsetAlt, RoundedCornerShape(11.dp)).border(1.dp, Hairline, RoundedCornerShape(11.dp))
+        modifier.height(52.dp).background(InsetAlt, RoundedCornerShape(11.dp)).border(1.dp, Color(0x120F1A24), RoundedCornerShape(11.dp))
             .clickable(enabled = !busy, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
