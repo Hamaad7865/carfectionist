@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart } from "lucide-react";
+import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle } from "lucide-react";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
 import { formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
@@ -20,6 +20,7 @@ const METHODS = [
   { key: "credit", label: "Credit" },
 ] as const;
 type Method = (typeof METHODS)[number]["key"];
+const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 
 interface CartLine { product: CounterProduct; qty: number; discountKind?: "percent" | "amount"; discountPct?: number; discountAmountCents?: number }
 
@@ -37,6 +38,7 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   const [ref, setRef] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmNeg, setConfirmNeg] = useState<{ name: string; have: number; selling: number }[] | null>(null);
   const [done, setDone] = useState<Extract<CounterResult, { ok: true }> | null>(null);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [receiptError, setReceiptError] = useState(false);
@@ -99,11 +101,19 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   const tenderCents = parseMoneyInput(tender);
   const changeCents = method === "cash" && tenderCents != null ? tenderCents - totals.totalCents : null;
 
-  async function complete() {
+  async function complete(force = false) {
     setError(null);
     if (cart.length === 0) return setError("Add at least one product.");
     if (method === "credit" && !customerId) return setError("Pick an existing customer for a credit sale — the amount owed is tracked against them.");
     if (method === "cash" && tenderCents != null && tenderCents < totals.totalCents) return setError("Tendered is less than the total.");
+    // Soft guard: a stocked line that exceeds on-hand will drive stock negative.
+    // Warn (and let them proceed) — sales are never hard-blocked on stock.
+    if (!force) {
+      const negatives = cart
+        .filter((l) => l.product.isStocked && l.qty > l.product.stockQty)
+        .map((l) => ({ name: l.product.name, have: l.product.stockQty, selling: l.qty }));
+      if (negatives.length > 0) { setConfirmNeg(negatives); return; }
+    }
     setBusy(true);
     const r = await counterSaleAction({
       customerId: customerId ?? undefined,
@@ -249,7 +259,10 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
               onClick={() => add(p)}
               className="flex flex-col items-start gap-1 rounded-[12px] border border-line bg-sub p-3 text-left transition hover:border-brand hover:bg-[rgba(43,140,255,0.05)]"
             >
-              <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
+              <span className="flex w-full items-center justify-between gap-1">
+                <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
+                {p.isStocked && p.stockQty <= 0 && <span className="rounded-[4px] bg-[rgba(214,59,80,0.14)] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-rose">0 left</span>}
+              </span>
               <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
               <span className="num mt-auto text-[13px] font-extrabold text-ink">{formatMUR(p.priceCents)}</span>
             </button>
@@ -377,7 +390,7 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           {error && <p className="mt-2 rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
 
           <button
-            onClick={complete}
+            onClick={() => complete()}
             disabled={busy || cart.length === 0}
             className="grad-brand shadow-brand mt-3 flex h-12 w-full items-center justify-center rounded-[12px] text-[15px] font-extrabold text-white disabled:opacity-50"
           >
@@ -385,6 +398,31 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           </button>
         </div>
       </div>
+
+      {confirmNeg && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-[rgba(15,23,32,0.5)]" onClick={() => setConfirmNeg(null)} />
+          <div className="relative w-full max-w-sm rounded-[16px] border border-line bg-card p-6 shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
+            <div className="flex items-center gap-2.5">
+              <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[rgba(245,166,35,0.16)] text-amber-ink"><AlertTriangle size={18} /></div>
+              <div className="font-display text-[16px] font-extrabold text-ink-strong">Stock will go negative</div>
+            </div>
+            <p className="mt-3 text-[13px] text-muted">These items don&apos;t have enough on hand — selling them takes the count below zero:</p>
+            <ul className="mt-2.5 space-y-1.5">
+              {confirmNeg.map((n, i) => (
+                <li key={i} className="flex items-center justify-between gap-2 rounded-[9px] bg-sub px-3 py-2 text-[12.5px]">
+                  <span className="min-w-0 truncate font-semibold text-body">{n.name}</span>
+                  <span className="num shrink-0 text-amber-ink">{fmtQty(n.have)} on hand → {fmtQty(n.have - n.selling)}</span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-5 flex gap-2">
+              <button onClick={() => setConfirmNeg(null)} className="h-11 flex-1 rounded-[12px] border border-line-2 bg-sub font-bold text-body">Cancel</button>
+              <button onClick={() => { setConfirmNeg(null); complete(true); }} className="h-11 flex-1 rounded-[12px] font-bold text-white" style={{ background: "#e0891c" }}>Continue anyway</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
