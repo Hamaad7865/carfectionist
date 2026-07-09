@@ -170,10 +170,9 @@ fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
 private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.padding(top = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Image(
-                painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist",
-                modifier = Modifier.size(26.dp).clip(RoundedCornerShape(8.dp)),
-            )
+            Box(Modifier.size(28.dp).background(Color(0xFF0B0D0F), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                Image(painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist", modifier = Modifier.size(26.dp))
+            }
             Text("SIGN IN", color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = 1.5.sp)
         }
         when {

@@ -107,11 +107,10 @@ private fun Header(studioName: String, staffName: String, staffRole: String, onl
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        // brand logo (same asset as the web favicon)
-        Image(
-            painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist",
-            modifier = Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)),
-        )
+        // brand logo — gold line-art on its black tile, as the brand asset is designed
+        Box(Modifier.size(34.dp).background(Color(0xFF0B0D0F), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+            Image(painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist", modifier = Modifier.size(32.dp))
+        }
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(studioName.uppercase(), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 16.sp, letterSpacing = Tracked2, color = TextPrimary)
             Text("Helvetia · Mauritius", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, letterSpacing = 0.4.sp)
@@ -144,8 +143,8 @@ private fun Header(studioName: String, staffName: String, staffRole: String, onl
                 Text(init, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = AccentInk)
             }
             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
-                Text(staffName, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
-                Text(staffRole, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, color = TextMuted)
+                Text(staffName, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, lineHeight = 14.sp, color = TextPrimary)
+                Text(staffRole.replaceFirstChar { it.uppercase() }, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 11.sp, color = TextMuted)
             }
         }
     }
