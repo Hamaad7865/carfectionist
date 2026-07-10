@@ -278,11 +278,42 @@ class JobsViewModel @Inject constructor(
         }
     }
 
+    // ── job timer pause/resume ─────────────────────────────────────────────────
+    private fun isoToInstant(iso: String?): Instant? =
+        iso?.let { runCatching { java.time.OffsetDateTime.parse(it).toInstant() }.getOrNull() }
+
+    /** Pause when running, resume when paused — optimistic, then persisted. */
+    fun togglePause() {
+        val id = _s.value.activeJobId ?: return
+        val job = _s.value.jobs.firstOrNull { it.id == id } ?: return
+        if (job.status != "in_progress") return
+        val now = Instant.now()
+        val pausedSince = isoToInstant(job.pausedAt)
+        val (at, ms, note) =
+            if (pausedSince == null) Triple(now.toString(), job.pausedMs, "Timer paused")
+            else Triple(null, job.pausedMs + (now.toEpochMilli() - pausedSince.toEpochMilli()).coerceAtLeast(0), "Timer running")
+        _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == id) it.copy(pausedAt = at, pausedMs = ms) else it }, toast = note) }
+        viewModelScope.launch {
+            runCatching { api.setJobPause(id, at, ms) }
+                .onFailure { e -> _s.update { it.copy(error = e.message) }; load() }
+        }
+    }
+
     fun markReady() {
         val id = _s.value.activeJobId ?: return
+        val job = _s.value.jobs.firstOrNull { it.id == id }
         _s.update { it.copy(busy = true) }
         viewModelScope.launch {
-            runCatching { api.markJobReady(id) }
+            runCatching {
+                // A job marked ready while paused: close the open pause first, so the
+                // recorded time-on-job stops at the pause, not at collection.
+                val pausedSince = isoToInstant(job?.pausedAt)
+                if (job != null && pausedSince != null) {
+                    val folded = job.pausedMs + (Instant.now().toEpochMilli() - pausedSince.toEpochMilli()).coerceAtLeast(0)
+                    api.setJobPause(id, null, folded)
+                }
+                api.markJobReady(id)
+            }
                 .onSuccess { _s.update { it.copy(busy = false, toast = "Marked ready for collection") }; load() }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
         }

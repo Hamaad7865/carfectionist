@@ -121,6 +121,9 @@ data class JobBoardDto(
     @SerialName("started_at") val startedAt: String? = null,
     @SerialName("ready_at") val readyAt: String? = null,
     @SerialName("delivered_at") val deliveredAt: String? = null,
+    @SerialName("paused_at") val pausedAt: String? = null, // timer paused since; null = running
+    @SerialName("paused_ms") val pausedMs: Long = 0, // accumulated paused time
+
     @SerialName("technician_id") val technicianId: String? = null,
     val notes: String? = null,
     val checklist: List<ChecklistItemDto> = emptyList(),

@@ -234,7 +234,12 @@ private fun JobColumn(s: JobsState, vm: JobsViewModel, col: JobCol, modifier: Mo
 private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onClick: () -> Unit) {
     val (right, rightC) = when (col) {
         JobCol.SCHEDULED -> clock(j.scheduledAt) to TextMuted
-        JobCol.IN_PROGRESS -> (epoch(j.startedAt)?.let { elapsedShort(System.currentTimeMillis() - it) } ?: "0m") to Warning
+        JobCol.IN_PROGRESS -> {
+            val now = System.currentTimeMillis()
+            val pausedTotal = j.pausedMs + (epoch(j.pausedAt)?.let { (now - it).coerceAtLeast(0) } ?: 0L)
+            val t = epoch(j.startedAt)?.let { elapsedShort((now - it - pausedTotal).coerceAtLeast(0)) } ?: "0m"
+            if (j.pausedAt != null) "❚❚ $t" to TextMuted else t to Warning
+        }
         JobCol.READY -> clock(j.readyAt) to Success
         JobCol.DELIVERED -> "Done" to TextMuted
     }
@@ -348,22 +353,32 @@ private fun TimerCard(j: JobBoardDto, vm: JobsViewModel) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     LaunchedEffect(j.id, j.status) { while (j.status == "in_progress") { now = System.currentTimeMillis(); delay(1000) } }
     val running = j.status == "in_progress"
+    val paused = j.pausedAt != null
+    // While paused, `now` and the open pause grow in step, so the display freezes.
+    val pausedTotal = j.pausedMs + (epoch(j.pausedAt)?.let { (now - it).coerceAtLeast(0) } ?: 0L)
     val elapsed = when {
-        running && started != null -> now - started
-        j.status == "ready" && started != null && readyE != null -> readyE - started
+        running && started != null -> (now - started - pausedTotal).coerceAtLeast(0)
+        j.status == "ready" && started != null && readyE != null -> (readyE - started - j.pausedMs).coerceAtLeast(0)
         else -> 0L
     }
     Row(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(15.dp)).border(1.dp, Hairline, RoundedCornerShape(15.dp)).padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            SectionLabel("TIME ON JOB")
-            Text(elapsedLong(elapsed), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 38.sp, letterSpacing = 1.sp, color = if (running) TextPrimary else TextSecondary)
+            SectionLabel(if (running && paused) "TIME ON JOB — PAUSED" else "TIME ON JOB")
+            Text(elapsedLong(elapsed), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 38.sp, letterSpacing = 1.sp, color = if (running && !paused) TextPrimary else TextSecondary)
         }
         when (j.status) {
             "scheduled" -> Box(Modifier.height(54.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { vm.startJob() }.padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
                 Text("▶  Start", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
             }
-            "in_progress" -> Box(Modifier.height(54.dp).background(Color(0x24C17A00), RoundedCornerShape(13.dp)).border(1.dp, Color(0x66C17A00), RoundedCornerShape(13.dp)).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) {
-                Text("● Running", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Warning)
+            "in_progress" -> Box(
+                Modifier.height(54.dp)
+                    .background(if (paused) InsetAlt else Color(0x24C17A00), RoundedCornerShape(13.dp))
+                    .border(1.dp, if (paused) Hairline else Color(0x66C17A00), RoundedCornerShape(13.dp))
+                    .clickable { vm.togglePause() }
+                    .padding(horizontal = 22.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(if (paused) "▶  Resume" else "❚❚  Pause", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (paused) TextSecondary else Warning)
             }
             else -> Box(Modifier.height(54.dp).background(InsetAlt, RoundedCornerShape(13.dp)).padding(horizontal = 22.dp), contentAlignment = Alignment.Center) {
                 Text("Finished", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary)

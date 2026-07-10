@@ -146,7 +146,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Jobs board ──────────────────────────────────────────────────────────────
     suspend fun fetchJobs(): List<JobBoardDto> =
         client.postgrest.from("jobs")
-            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, technician_id, notes, checklist, damage_markers, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name)")) {
+            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, paused_at, paused_ms, technician_id, notes, checklist, damage_markers, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name)")) {
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
             }
             .decodeList()
@@ -161,6 +161,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun assignTechnician(jobId: String, technicianId: String) {
         client.postgrest.from("jobs").update({ set("technician_id", technicianId) }) { filter { eq("id", jobId) } }
+    }
+
+    /**
+     * Pause/resume the job timer. Pausing stamps paused_at; resuming clears it with the
+     * finished pause folded into paused_ms (computed by the caller, so the write is idempotent).
+     */
+    suspend fun setJobPause(jobId: String, pausedAtIso: String?, pausedMs: Long) {
+        client.postgrest.from("jobs").update({
+            set("paused_at", pausedAtIso)
+            set("paused_ms", pausedMs)
+        }) { filter { eq("id", jobId) } }
     }
 
     suspend fun setChecklist(jobId: String, checklist: JsonArray) {
