@@ -173,14 +173,18 @@ class QuoteViewModel @Inject constructor(
     fun create() {
         val s = _s.value
         val cid = s.customerId ?: return
-        val vid = s.vehicleId ?: run { _s.update { it.copy(error = "This quote has no vehicle") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
-                api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s))
-                api.createJob(cid, vid, "From quote ${s.ref}", s.techId)
-            }.onSuccess { jobId -> _s.update { it.copy(busy = false, createdJobId = jobId, acceptOpen = false) } }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+                // Persist the builder's edits first, then convert atomically: the
+                // RPC issues+accepts the quote and spawns the linked job in one txn
+                // (idempotent, and it owns the customer/vehicle guards — no client
+                // vehicle-less pre-check needed; a missing vehicle surfaces its error).
+                val saved = api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s))
+                saved to api.convertQuoteToJob(saved.id, s.techId)
+            }.onSuccess { (saved, jobId) ->
+                _s.update { it.copy(busy = false, quoteId = saved.id, status = "accepted", createdJobId = jobId, acceptOpen = false) }
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
         }
     }
 

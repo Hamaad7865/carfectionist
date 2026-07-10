@@ -65,12 +65,17 @@ Tokens live in `ui/theme/Theme.kt` (exact handoff values). Shared components bui
   match the handoff. Price parses via the shared `parseMoneyToCents`.
 - **Quote: technician avatars use the accent colour** (handoff assigns a per-staff colour). Same root cause
   as the app-shell staff-avatar deviation — no per-staff colour data.
-- **Quote: "Accept → create job" creates the job (create_job) but does NOT mark the quote `accepted` or link
-  the job to the quote document.** Justified: the backend has no `convert_quote_to_job` RPC (only
-  `convert_quote_to_invoice`); linking + status flip needs a new migration (spawned as a follow-up task).
-  Guarded against double-submit (busy-disabled buttons). Vehicle-less standalone quotes surface
-  "This quote has no vehicle" rather than converting (create_job requires a vehicle).
-- **Quote: START time is captured but not persisted** — `create_job` has no `scheduled_at` param.
+- **~~Quote: "Accept → create job" creates the job but does NOT mark the quote `accepted` or link it~~ —
+  RESOLVED.** Migration `0014_convert_quote_to_job` adds a security-definer `convert_quote_to_job` RPC that,
+  in one txn, issues+accepts the quote (reusing `issue_document` for the gapless number + fiscal snapshot),
+  creates the job from the quote's customer+vehicle, and links both ways (`jobs.source_quote_id` → quote,
+  `documents.job_id` → job). Idempotent via a unique index on `jobs.source_quote_id`, so a re-tap returns the
+  same job (no duplicate jobs; no quote stuck in draft). `QuoteViewModel.create()` now calls it instead of
+  `create_job` and drops its client-side vehicle-less pre-check — the RPC raises "this quote has no
+  vehicle/customer …" and the builder surfaces it.
+- **Quote: START time is captured but not sent** — `convert_quote_to_job` now takes a `p_scheduled_at`
+  param, but the START chips ("Now"/"13:30"/"Tomorrow") are placeholder labels, not real timestamps, so the
+  app passes `null` for now. Wiring a real time picker → `scheduled_at` is a follow-up.
 - **Data fix (not a code deviation):** the 3 seed technicians (Deven/Yash/Kevin) were `is_active=false`, so
   the ASSIGN TECHNICIAN row was empty; activated them so job assignment works. Empty-state hint added too.
 

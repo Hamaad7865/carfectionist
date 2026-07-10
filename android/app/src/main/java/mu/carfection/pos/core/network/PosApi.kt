@@ -114,6 +114,18 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_checklist", JsonArray(emptyList()))
         }).decodeAs<JobRow>().id
 
+    /**
+     * Accept a quote → issue+accept it and spawn the linked job in one txn
+     * (convert_quote_to_job RPC). Idempotent: a re-tap returns the same job, so
+     * a draft can't be accepted twice. The RPC owns the customer/vehicle guards.
+     */
+    suspend fun convertQuoteToJob(quoteId: String, technicianId: String? = null, scheduledAt: String? = null): String =
+        client.postgrest.rpc("convert_quote_to_job", buildJsonObject {
+            put("p_quote_id", quoteId)
+            if (technicianId != null) put("p_technician_id", technicianId) else put("p_technician_id", JsonNull)
+            if (scheduledAt != null) put("p_scheduled_at", scheduledAt) else put("p_scheduled_at", JsonNull)
+        }).decodeAs<JobRow>().id
+
     // ── Writes — the shared RPCs (all invariants live server-side) ───────────
 
     /** Atomic draft upsert (doc + lines). Lines carry rupee prices, DB re-rounds. */
