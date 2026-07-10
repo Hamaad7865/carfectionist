@@ -122,7 +122,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
 
       {/* ledger */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="grid grid-cols-[110px_1fr_120px_110px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+        <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint md:grid">
           <span>Date</span><span>Product</span><span>Location</span><span>Type</span><span className="text-right">Qty</span><span>Note</span>
         </div>
         {data.movements.length === 0 ? (
@@ -131,13 +131,33 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
           data.movements.map((m) => {
             const st = REF_STYLE[m.refType] ?? { label: m.refType, cls: "bg-sub text-muted" };
             return (
-              <div key={m.id} className="grid grid-cols-[110px_1fr_120px_110px_90px_1fr] items-center gap-3 border-b border-line px-5 py-2.5 text-[12.5px]">
-                <span className="num text-muted">{m.movedAt.slice(0, 10)}</span>
-                <span className="truncate font-semibold text-body">{m.productName}</span>
-                <span className="text-muted">{m.locationName}</span>
-                <span><span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${st.cls}`}>{st.label}</span></span>
-                <span className={`num text-right font-bold ${m.qty < 0 ? "text-rose" : "text-mint"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty)}</span>
-                <span className="truncate text-faint">{m.note ?? (m.by ? `by ${m.by}` : "—")}</span>
+              <div key={m.id} className="border-b border-line">
+                {/* Mobile card */}
+                <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="min-w-0 truncate text-[13px] font-semibold text-body">{m.productName}</span>
+                      <span className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${st.cls}`}>{st.label}</span>
+                    </div>
+                    <div className="mt-1 truncate text-[12px] text-muted">{m.locationName}</div>
+                    <div className="mt-0.5 truncate text-[11.5px] text-faint">
+                      <span className="num">{m.movedAt.slice(0, 10)}</span>
+                      {m.note ? ` · ${m.note}` : m.by ? ` · by ${m.by}` : ""}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className={`num text-[14px] font-bold ${m.qty < 0 ? "text-rose" : "text-mint"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty)}</div>
+                  </div>
+                </div>
+                {/* Desktop grid */}
+                <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_1fr] items-center gap-3 px-5 py-2.5 text-[12.5px] md:grid">
+                  <span className="num text-muted">{m.movedAt.slice(0, 10)}</span>
+                  <span className="truncate font-semibold text-body">{m.productName}</span>
+                  <span className="text-muted">{m.locationName}</span>
+                  <span><span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${st.cls}`}>{st.label}</span></span>
+                  <span className={`num text-right font-bold ${m.qty < 0 ? "text-rose" : "text-mint"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty)}</span>
+                  <span className="truncate text-faint">{m.note ?? (m.by ? `by ${m.by}` : "—")}</span>
+                </div>
               </div>
             );
           })

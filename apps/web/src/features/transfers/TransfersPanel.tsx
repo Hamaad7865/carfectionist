@@ -71,14 +71,14 @@ export function TransfersPanel({ transfers, refData }: { transfers: Transfer[]; 
 
       {/* new transfer */}
       <div className="rounded-[15px] border border-line bg-card p-5">
-        <div className="mb-4 flex items-center gap-3">
+        <div className="mb-4 flex flex-col items-start gap-3 md:flex-row md:items-center">
           <span className="font-display text-[14px] font-bold text-ink-strong">New transfer</span>
-          <div className="flex items-center gap-2 text-[13px]">
-            <select className={field} value={fromId} onChange={(e) => setFromId(e.target.value)}>
+          <div className="flex w-full items-center gap-2 text-[13px] md:w-auto">
+            <select className={`${field} min-w-0 flex-1 md:flex-initial`} value={fromId} onChange={(e) => setFromId(e.target.value)}>
               {refData.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
-            <ArrowRight size={15} className="text-faint" />
-            <select className={field} value={toId} onChange={(e) => setToId(e.target.value)}>
+            <ArrowRight size={15} className="shrink-0 text-faint" />
+            <select className={`${field} min-w-0 flex-1 md:flex-initial`} value={toId} onChange={(e) => setToId(e.target.value)}>
               {refData.locations.map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>
@@ -90,23 +90,23 @@ export function TransfersPanel({ transfers, refData }: { transfers: Transfer[]; 
               const avail = availAt(l.productId);
               const over = parseFloat(l.qty) > avail;
               return (
-                <div key={l.key} className="flex items-center gap-2">
-                  <select className={`${field} flex-1`} value={l.productId} onChange={(e) => setLine(l.key, { productId: e.target.value })}>
+                <div key={l.key} className="flex flex-col gap-2 md:flex-row md:items-center">
+                  <select className={`${field} w-full md:w-auto md:flex-1`} value={l.productId} onChange={(e) => setLine(l.key, { productId: e.target.value })}>
                     {refData.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                   </select>
-                  <div className="flex flex-col items-end">
+                  <div className="flex items-center gap-2">
                     <input
-                      className={`${field} w-[110px] text-right ${over ? "border-rose text-rose" : ""}`}
+                      className={`${field} flex-1 text-right md:w-[110px] md:flex-none ${over ? "border-rose text-rose" : ""}`}
                       value={l.qty}
                       onChange={(e) => setLine(l.key, { qty: e.target.value })}
                       inputMode="decimal"
                       placeholder="Qty"
                     />
+                    <span className="w-[86px] text-[11px] text-faint">avail {qfmt(avail)}</span>
+                    <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-faint hover:text-rose">
+                      <Trash2 size={15} />
+                    </button>
                   </div>
-                  <span className="w-[86px] text-[11px] text-faint">avail {qfmt(avail)}</span>
-                  <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-faint hover:text-rose">
-                    <Trash2 size={15} />
-                  </button>
                 </div>
               );
             })}
@@ -165,7 +165,7 @@ function TransferCard({
 
   return (
     <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-      <div className="flex items-center gap-3 border-b border-line px-5 py-3">
+      <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-3">
         <span className="text-[13px] font-bold text-ink">{t.fromName}</span>
         <ArrowRight size={14} className="text-faint" />
         <span className="text-[13px] font-bold text-ink">{t.toName}</span>
@@ -179,7 +179,7 @@ function TransferCard({
       <div className="divide-y divide-line">
         {t.lines.map((l) => (
           <div key={l.id} className="flex items-center gap-3 px-5 py-2.5 text-[12.5px]">
-            <span className="flex-1 text-body">{l.name}</span>
+            <span className="min-w-0 flex-1 text-body">{l.name}</span>
             <span className="num text-muted">
               {qfmt(l.qtyDispatched)} {l.unit}
             </span>

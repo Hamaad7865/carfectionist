@@ -50,15 +50,15 @@ export function RecipesPanel({ data }: { data: RecipesData }) {
         </div>
         <p className="mb-4 text-[12.5px] text-muted">Bills of materials pre-fill the consumables deducted when a job for this service completes.</p>
         <div className="flex flex-wrap items-end gap-2">
-          <label className="flex flex-col gap-1">
+          <label className="flex w-full flex-col gap-1 sm:w-auto">
             <span className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Service</span>
-            <select className={`${field} min-w-[220px]`} value={svc} onChange={(e) => setSvc(e.target.value)}>
+            <select className={`${field} w-full sm:w-auto sm:min-w-[220px]`} value={svc} onChange={(e) => setSvc(e.target.value)}>
               {data.services.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </label>
-          <label className="flex flex-col gap-1">
+          <label className="flex w-full flex-col gap-1 sm:w-auto">
             <span className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Consumes</span>
-            <select className={`${field} min-w-[200px]`} value={comp} onChange={(e) => setComp(e.target.value)}>
+            <select className={`${field} w-full sm:w-auto sm:min-w-[200px]`} value={comp} onChange={(e) => setComp(e.target.value)}>
               {data.components.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.unit})</option>)}
             </select>
           </label>

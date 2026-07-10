@@ -121,7 +121,7 @@ export function AppointmentsPanel({ data }: { data: AppointmentsData }) {
 
       {/* schedule */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="grid grid-cols-[140px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+        <div className="hidden md:grid grid-cols-[140px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
           <span>When</span><span>Customer</span><span>Vehicle · service</span><span>Status</span><span className="text-right">Actions</span>
         </div>
         {data.appointments.length === 0 ? (
@@ -131,27 +131,59 @@ export function AppointmentsPanel({ data }: { data: AppointmentsData }) {
             const st = STATUS_STYLE[a.status] ?? STATUS_STYLE.scheduled;
             const open = a.status === "scheduled" || a.status === "confirmed";
             return (
-              <div key={a.id} className="grid grid-cols-[140px_1fr_1fr_100px_150px] items-center gap-3 border-b border-line px-5 py-3 text-[12.5px]">
-                <span className={`num ${a.overdue ? "font-bold text-rose" : "text-body"}`}>{fmtWhen(a.scheduledAt)}</span>
-                <span className="truncate text-body">{a.customerName}</span>
-                <span className="truncate text-muted">
-                  {a.vehicle}
-                  {(a.service || a.department) && <span className="text-faint"> · {[a.service, a.department].filter(Boolean).join(" / ")}</span>}
-                </span>
-                <span><span className={`inline-block rounded-full px-2.5 py-1 text-[10.5px] font-bold ${st.cls}`}>{st.label}</span></span>
-                <span className="flex items-center justify-end gap-1.5">
-                  {a.jobId ? (
-                    <Link href={`/jobs/${a.jobId}`} className="text-[11.5px] font-bold text-link hover:underline">View job →</Link>
-                  ) : open ? (
-                    <>
-                      {a.status === "scheduled" && <button title="Confirm" onClick={() => setStatus(a.id, "confirmed")} disabled={busy} className={`${iconBtn} hover:text-[#6a5cff]`}><Check size={15} /></button>}
-                      <button title="Convert to job" onClick={() => convert(a.id)} disabled={busy} className="inline-flex h-7 items-center gap-1 rounded-md bg-[rgba(43,140,255,0.12)] px-2 text-[11px] font-bold text-link hover:bg-[rgba(43,140,255,0.2)]">
-                        Job <ArrowRight size={12} />
-                      </button>
-                      <button title="Cancel" onClick={() => setStatus(a.id, "cancelled")} disabled={busy} className={`${iconBtn} hover:text-rose`}><X size={14} /></button>
-                    </>
-                  ) : null}
-                </span>
+              <div key={a.id} className="border-b border-line">
+                {/* Mobile card */}
+                <div className="flex flex-col gap-2 px-4 py-3 md:hidden">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-[13px] font-bold text-body">{a.customerName}</span>
+                      <span className={`inline-block shrink-0 rounded-full px-2.5 py-1 text-[10.5px] font-bold ${st.cls}`}>{st.label}</span>
+                    </div>
+                    <div className="mt-1 truncate text-[12.5px] text-muted">
+                      {a.vehicle}
+                      {(a.service || a.department) && <span className="text-faint"> · {[a.service, a.department].filter(Boolean).join(" / ")}</span>}
+                    </div>
+                    <div className={`num mt-0.5 text-[11.5px] ${a.overdue ? "font-bold text-rose" : "text-faint"}`}>{fmtWhen(a.scheduledAt)}</div>
+                  </div>
+                  {(a.jobId || open) && (
+                    <div className="flex items-center gap-1.5">
+                      {a.jobId ? (
+                        <Link href={`/jobs/${a.jobId}`} className="text-[11.5px] font-bold text-link hover:underline">View job →</Link>
+                      ) : open ? (
+                        <>
+                          {a.status === "scheduled" && <button title="Confirm" onClick={() => setStatus(a.id, "confirmed")} disabled={busy} className={`${iconBtn} hover:text-[#6a5cff]`}><Check size={15} /></button>}
+                          <button title="Convert to job" onClick={() => convert(a.id)} disabled={busy} className="inline-flex h-7 items-center gap-1 rounded-md bg-[rgba(43,140,255,0.12)] px-2 text-[11px] font-bold text-link hover:bg-[rgba(43,140,255,0.2)]">
+                            Job <ArrowRight size={12} />
+                          </button>
+                          <button title="Cancel" onClick={() => setStatus(a.id, "cancelled")} disabled={busy} className={`${iconBtn} hover:text-rose`}><X size={14} /></button>
+                        </>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+                {/* Desktop grid */}
+                <div className="hidden md:grid grid-cols-[140px_1fr_1fr_100px_150px] items-center gap-3 px-5 py-3 text-[12.5px]">
+                  <span className={`num ${a.overdue ? "font-bold text-rose" : "text-body"}`}>{fmtWhen(a.scheduledAt)}</span>
+                  <span className="truncate text-body">{a.customerName}</span>
+                  <span className="truncate text-muted">
+                    {a.vehicle}
+                    {(a.service || a.department) && <span className="text-faint"> · {[a.service, a.department].filter(Boolean).join(" / ")}</span>}
+                  </span>
+                  <span><span className={`inline-block rounded-full px-2.5 py-1 text-[10.5px] font-bold ${st.cls}`}>{st.label}</span></span>
+                  <span className="flex items-center justify-end gap-1.5">
+                    {a.jobId ? (
+                      <Link href={`/jobs/${a.jobId}`} className="text-[11.5px] font-bold text-link hover:underline">View job →</Link>
+                    ) : open ? (
+                      <>
+                        {a.status === "scheduled" && <button title="Confirm" onClick={() => setStatus(a.id, "confirmed")} disabled={busy} className={`${iconBtn} hover:text-[#6a5cff]`}><Check size={15} /></button>}
+                        <button title="Convert to job" onClick={() => convert(a.id)} disabled={busy} className="inline-flex h-7 items-center gap-1 rounded-md bg-[rgba(43,140,255,0.12)] px-2 text-[11px] font-bold text-link hover:bg-[rgba(43,140,255,0.2)]">
+                          Job <ArrowRight size={12} />
+                        </button>
+                        <button title="Cancel" onClick={() => setStatus(a.id, "cancelled")} disabled={busy} className={`${iconBtn} hover:text-rose`}><X size={14} /></button>
+                      </>
+                    ) : null}
+                  </span>
+                </div>
               </div>
             );
           })

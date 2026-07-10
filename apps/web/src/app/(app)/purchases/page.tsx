@@ -26,7 +26,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
 
       {tab === "expenses" && data && (
         <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-          <div className="grid grid-cols-[100px_150px_1fr_100px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+          <div className="hidden grid-cols-[100px_150px_1fr_100px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint md:grid">
             <span>Date</span>
             <span>Category</span>
             <span>Description</span>
@@ -37,12 +37,26 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
             <div className="px-5 py-14 text-center text-[13px] text-faint">No expenses yet. Add your first with “New expense”.</div>
           ) : (
             data.expenses.map((e) => (
-              <div key={e.id} className="grid grid-cols-[100px_150px_1fr_100px_140px] items-center gap-3 border-b border-line px-5 py-3.5 text-[13px]">
-                <span className="num text-muted">{e.date}</span>
-                <span className="text-[#5e6a77]">{e.category}</span>
-                <span className="font-semibold text-body">{e.description ?? "—"}</span>
-                <span><StatusPill status={e.status} /></span>
-                <span className="num text-right font-bold text-ink">{formatMUR(e.amountCents + e.vatCents)}</span>
+              <div key={e.id} className="border-b border-line">
+                {/* Mobile card */}
+                <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <span className="truncate text-[13px] font-semibold text-body">{e.description ?? "—"}</span>
+                      <StatusPill status={e.status} />
+                    </div>
+                    <div className="mt-0.5 text-[11.5px] text-muted">{e.category} · {e.date}</div>
+                  </div>
+                  <span className="num shrink-0 text-[13px] font-bold text-ink">{formatMUR(e.amountCents + e.vatCents)}</span>
+                </div>
+                {/* Desktop grid */}
+                <div className="hidden grid-cols-[100px_150px_1fr_100px_140px] items-center gap-3 px-5 py-3.5 text-[13px] md:grid">
+                  <span className="num text-muted">{e.date}</span>
+                  <span className="text-[#5e6a77]">{e.category}</span>
+                  <span className="font-semibold text-body">{e.description ?? "—"}</span>
+                  <span><StatusPill status={e.status} /></span>
+                  <span className="num text-right font-bold text-ink">{formatMUR(e.amountCents + e.vatCents)}</span>
+                </div>
               </div>
             ))
           )}

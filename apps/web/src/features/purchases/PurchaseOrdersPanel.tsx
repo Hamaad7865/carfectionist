@@ -114,22 +114,48 @@ export function PurchaseOrdersPanel({ data }: { data: POData }) {
 
         {lines.length > 0 && (
           <div className="mb-3 flex flex-col gap-2">
-            <div className="grid grid-cols-[1fr_100px_120px_110px_28px] gap-2 px-1 text-[10px] font-bold uppercase tracking-wide text-faint">
+            <div className="hidden md:grid grid-cols-[1fr_100px_120px_110px_28px] gap-2 px-1 text-[10px] font-bold uppercase tracking-wide text-faint">
               <span>Product</span><span className="text-right">Qty</span><span className="text-right">Unit cost</span><span className="text-right">Line</span><span />
             </div>
             {lines.map((l) => {
               const lineTotal = (parseFloat(l.qty) || 0) * (parseFloat(l.cost) || 0);
               return (
-                <div key={l.key} className="grid grid-cols-[1fr_100px_120px_110px_28px] items-center gap-2">
-                  <select className={field} value={l.productId} onChange={(e) => setLine(l.key, { productId: e.target.value })}>
-                    {data.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-                  </select>
-                  <input className={`${field} text-right`} value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} inputMode="decimal" placeholder="0" />
-                  <input className={`${field} text-right`} value={l.cost} onChange={(e) => setLine(l.key, { cost: e.target.value })} inputMode="decimal" placeholder="0.00" />
-                  <span className="num text-right text-[13px] font-semibold text-body">{formatMUR(Math.round(lineTotal * 100))}</span>
-                  <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-faint hover:text-rose">
-                    <Trash2 size={15} />
-                  </button>
+                <div key={l.key}>
+                  {/* Mobile: stacked editable line */}
+                  <div className="flex flex-col gap-2 rounded-[11px] border border-line-2 bg-sub px-3 py-2.5 md:hidden">
+                    <select className={field} value={l.productId} onChange={(e) => setLine(l.key, { productId: e.target.value })}>
+                      {data.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <div className="flex items-end gap-2">
+                      <label className="flex flex-1 flex-col gap-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-faint">Qty</span>
+                        <input className={`${field} text-right`} value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} inputMode="decimal" placeholder="0" />
+                      </label>
+                      <label className="flex flex-1 flex-col gap-1">
+                        <span className="text-[10px] font-bold uppercase tracking-wide text-faint">Unit cost</span>
+                        <input className={`${field} text-right`} value={l.cost} onChange={(e) => setLine(l.key, { cost: e.target.value })} inputMode="decimal" placeholder="0.00" />
+                      </label>
+                      <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="flex h-10 w-10 shrink-0 items-center justify-center text-faint hover:text-rose">
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-[10px] font-bold uppercase tracking-wide text-faint">Line total</span>
+                      <span className="num text-[13px] font-semibold text-body">{formatMUR(Math.round(lineTotal * 100))}</span>
+                    </div>
+                  </div>
+                  {/* Desktop grid (unchanged) */}
+                  <div className="hidden md:grid grid-cols-[1fr_100px_120px_110px_28px] items-center gap-2">
+                    <select className={field} value={l.productId} onChange={(e) => setLine(l.key, { productId: e.target.value })}>
+                      {data.products.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                    <input className={`${field} text-right`} value={l.qty} onChange={(e) => setLine(l.key, { qty: e.target.value })} inputMode="decimal" placeholder="0" />
+                    <input className={`${field} text-right`} value={l.cost} onChange={(e) => setLine(l.key, { cost: e.target.value })} inputMode="decimal" placeholder="0.00" />
+                    <span className="num text-right text-[13px] font-semibold text-body">{formatMUR(Math.round(lineTotal * 100))}</span>
+                    <button onClick={() => setLines((ls) => ls.filter((x) => x.key !== l.key))} className="text-faint hover:text-rose">
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               );
             })}
@@ -194,7 +220,7 @@ function POCard({
 
   return (
     <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-      <div className="flex items-center gap-3 border-b border-line px-5 py-3">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-line px-4 py-3 md:flex-nowrap md:px-5">
         <span className="text-[13px] font-bold text-ink">{po.supplier ?? "—"}</span>
         {po.reference && <span className="num text-[11px] text-faint">{po.reference}</span>}
         <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold ${s.cls}`}>
@@ -204,31 +230,56 @@ function POCard({
         <span className="num ml-auto text-[13px] font-extrabold text-ink">{formatMUR(po.totalCents)}</span>
       </div>
 
-      <div className="grid grid-cols-[1fr_90px_90px_110px] gap-2 border-b border-line bg-sub px-5 py-2 text-[10px] font-bold uppercase tracking-wide text-faint">
+      <div className="hidden md:grid grid-cols-[1fr_90px_90px_110px] gap-2 border-b border-line bg-sub px-5 py-2 text-[10px] font-bold uppercase tracking-wide text-faint">
         <span>Product</span><span className="text-right">Ordered</span><span className="text-right">Received</span><span className="text-right">Receive now</span>
       </div>
       <div className="divide-y divide-line">
         {po.lines.map((l) => (
-          <div key={l.id} className="grid grid-cols-[1fr_90px_90px_110px] items-center gap-2 px-5 py-2.5 text-[12.5px]">
-            <span className="text-body">{l.name}</span>
-            <span className="num text-right text-muted">{qfmt(l.qtyOrdered)} {l.unit}</span>
-            <span className="num text-right text-muted">{qfmt(l.qtyReceived)}</span>
-            {receivable ? (
-              <input
-                className={`${field} h-9 w-full text-right`}
-                value={recv[l.id] ?? ""}
-                onChange={(e) => setRecv((r) => ({ ...r, [l.id]: e.target.value }))}
-                inputMode="decimal"
-              />
-            ) : (
-              <span className="text-right text-faint">—</span>
-            )}
+          <div key={l.id}>
+            {/* Mobile card */}
+            <div className="flex items-center justify-between gap-3 px-4 py-3 md:hidden">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-semibold text-body">{l.name}</div>
+                <div className="mt-0.5 text-[11.5px] text-muted">
+                  <span className="num">{qfmt(l.qtyOrdered)} {l.unit}</span> ordered · <span className="num">{qfmt(l.qtyReceived)}</span> received
+                </div>
+              </div>
+              {receivable ? (
+                <label className="flex shrink-0 flex-col items-end gap-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-faint">Receive</span>
+                  <input
+                    className={`${field} h-9 w-24 text-right`}
+                    value={recv[l.id] ?? ""}
+                    onChange={(e) => setRecv((r) => ({ ...r, [l.id]: e.target.value }))}
+                    inputMode="decimal"
+                  />
+                </label>
+              ) : (
+                <span className="shrink-0 text-faint">—</span>
+              )}
+            </div>
+            {/* Desktop grid (unchanged) */}
+            <div className="hidden md:grid grid-cols-[1fr_90px_90px_110px] items-center gap-2 px-5 py-2.5 text-[12.5px]">
+              <span className="text-body">{l.name}</span>
+              <span className="num text-right text-muted">{qfmt(l.qtyOrdered)} {l.unit}</span>
+              <span className="num text-right text-muted">{qfmt(l.qtyReceived)}</span>
+              {receivable ? (
+                <input
+                  className={`${field} h-9 w-full text-right`}
+                  value={recv[l.id] ?? ""}
+                  onChange={(e) => setRecv((r) => ({ ...r, [l.id]: e.target.value }))}
+                  inputMode="decimal"
+                />
+              ) : (
+                <span className="text-right text-faint">—</span>
+              )}
+            </div>
           </div>
         ))}
       </div>
 
       {receivable && (
-        <div className="flex items-center justify-end gap-2 border-t border-line bg-sub px-5 py-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-sub px-4 py-3 md:px-5">
           <span className="text-[11px] font-bold uppercase tracking-wide text-faint">Into</span>
           <select className={`${field} h-9`} value={locId} onChange={(e) => setLocId(e.target.value)}>
             {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
