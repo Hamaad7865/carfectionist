@@ -179,8 +179,11 @@ class SaleRepository @Inject constructor(
         }
         val draft = api.saveDraft(doc, lines)
 
-        // 3) Issue — draws the gapless INV number + fires stock movements.
-        val issued = api.issueDocument(draft.id, "$saleKey:issue")
+        // 3) Issue — draws the gapless INV number + fires stock movements against the Shop
+        // (the walk-in front), not the Warehouse default. A null id means the tenant has no
+        // Shop row and the server falls back to its default. The key is unchanged, so a
+        // replay still returns the stored result rather than issuing a second time.
+        val issued = api.issueDocument(draft.id, catalog.counterLocations().shopId, "$saleKey:issue")
         val totalCents = rupeesToCents(issued.totalIncl) // server total is authoritative
 
         // 4) Payment (skipped for on-account credit).

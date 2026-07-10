@@ -141,7 +141,8 @@ class JobsViewModel @Inject constructor(
                     })
                 }
                 api.saveDraft(doc, lines)
-                api.issueDocument(draft.id, "job-inv:${job.id}")
+                // Workshop stock, not the shop floor: a job invoice keeps the default location.
+                api.issueDocument(draft.id, null, "job-inv:${job.id}")
             }.onSuccess { d -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${d.number ?: "Invoice"} created — collect it in Checkout") } }
                 .onFailure { e ->
                     val msg = if (e.message?.contains("already has", true) == true) "This job already has an invoice — collect it in Checkout" else (e.message ?: "Couldn't create the invoice")

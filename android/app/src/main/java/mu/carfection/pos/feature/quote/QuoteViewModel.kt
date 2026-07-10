@@ -195,7 +195,8 @@ class QuoteViewModel @Inject constructor(
             runCatching {
                 val quote = api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s))
                 val draft = api.convertQuoteToInvoice(quote.id)
-                api.issueDocument(draft.id, "quote-inv:${quote.id}")
+                // An accepted quote isn't a counter sale — it keeps the default location.
+                api.issueDocument(draft.id, null, "quote-inv:${quote.id}")
             }.onSuccess { d -> _s.update { it.copy(busy = false, acceptOpen = false, createdInvoiceRef = d.number ?: "Invoice issued") } }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
         }

@@ -36,6 +36,8 @@ class CatalogRepository @Inject constructor(
     private val vatNoKey = stringPreferencesKey("vat_number")
     private val addressKey = stringPreferencesKey("address")
     private val phoneKey = stringPreferencesKey("phone")
+    private val shopLocKey = stringPreferencesKey("shop_location_id")
+    private val warehouseLocKey = stringPreferencesKey("warehouse_location_id")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -43,6 +45,28 @@ class CatalogRepository @Inject constructor(
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
+
+    /**
+     * Where a counter sale draws stock from (Shop) and where restock sits (Warehouse).
+     * Cached so the sale path never pays a round trip; resolved on first use if the
+     * cache is cold, and re-synced by every [refresh]. Nulls are safe — the server
+     * falls back to its default location when no shop id is passed.
+     */
+    suspend fun counterLocations(): CounterLocations {
+        val p = prefs.data.first()
+        val cached = CounterLocations(p[shopLocKey], p[warehouseLocKey])
+        if (cached.shopId != null || cached.warehouseId != null) return cached
+        return runCatching { syncLocations() }.getOrDefault(cached)
+    }
+
+    private suspend fun syncLocations(): CounterLocations {
+        val loc = resolveCounterLocations(api.fetchStockLocations())
+        prefs.edit {
+            loc.shopId?.let { v -> it[shopLocKey] = v }
+            loc.warehouseId?.let { v -> it[warehouseLocKey] = v }
+        }
+        return loc
+    }
 
     /** Receipt header identity (name/address/BRN/VAT no) from the synced settings. */
     suspend fun receiptBiz(): ReceiptBiz {
@@ -87,5 +111,8 @@ class CatalogRepository @Inject constructor(
 
         val customers = api.fetchCustomers().map { c -> CustomerEntity(c.id, c.name, c.phone) }
         customerDao.replaceAll(customers)
+
+        // Secondary to the catalogue: a locations hiccup must not lose the products pull.
+        runCatching { syncLocations() }
     }
 }

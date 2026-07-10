@@ -197,7 +197,7 @@ fun CounterScreen(
                         ProductTile(
                             p = p,
                             inCartQty = s.cart.firstOrNull { it.product.id == p.id }?.qty?.toInt(),
-                            onHand = s.onHand[p.id],
+                            onHand = s.shopQty[p.id], // the shelf this sale draws down
                         ) { viewModel.add(p) }
                     }
                 }
@@ -340,22 +340,29 @@ fun CounterScreen(
     if (s.padOpen) PaymentPad(s, viewModel)
     if (s.adhocOpen) AdhocDialog(viewModel)
     s.oversell?.let { o ->
-        val oh = s.onHand[o.product.id] ?: 0
         Dialog(onDismissRequest = viewModel::dismissOversell) {
             Column(
                 Modifier.width(460.dp).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Selling into negative stock", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
-                val opening = when {
-                    oh > 0 -> "only $oh on hand"
-                    oh == 0 -> "no stock on hand"
-                    else -> "no stock on hand (already at $oh)"
-                }
+                Text("Shop stock will go negative", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
                 Text(
-                    "${o.product.name} has $opening. Selling ${o.targetQty.toInt()} will leave stock at ${oh - o.targetQty.toInt()}. Do you wish to continue?",
+                    "Selling this takes the shop count below zero:",
                     fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 19.sp, color = TextSecondary,
                 )
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(
+                            o.product.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextPrimary,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).padding(end = 10.dp),
+                        )
+                        Text(
+                            "shop ${o.shopQty} → ${o.shopQty - o.targetQty.toInt()}",
+                            fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Warning, maxLines = 1,
+                        )
+                    }
+                    Text(warehouseHint(o.warehouseQty), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                }
                 Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     Box(
                         Modifier.weight(1f).height(52.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { viewModel.dismissOversell() },

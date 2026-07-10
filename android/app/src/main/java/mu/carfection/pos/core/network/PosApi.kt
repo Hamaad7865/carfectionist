@@ -125,16 +125,19 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    /** On-hand per product PER LOCATION — the counter needs the Shop shelf, not the sum. */
     suspend fun fetchStockOnHand(): List<StockOnHandDto> =
         client.postgrest.from("stock_on_hand")
-            .select(Columns.raw("product_id, qty_on_hand"))
+            .select(Columns.raw("product_id, location_id, qty_on_hand"))
+            .decodeList()
+
+    suspend fun fetchStockLocations(): List<StockLocationDto> =
+        client.postgrest.from("stock_locations")
+            .select(Columns.raw("id, name, is_default"))
             .decodeList()
 
     suspend fun fetchDefaultLocationId(): String? =
-        client.postgrest.from("stock_locations")
-            .select(Columns.raw("id")) { filter { eq("is_default", true) }; limit(1) }
-            .decodeList<StockLocationDto>()
-            .firstOrNull()?.id
+        fetchStockLocations().firstOrNull { it.isDefault }?.id
 
     /** Insert a signed adjustment movement (sm_insert RLS: adjustment + owner/manager). */
     suspend fun adjustStock(row: NewStockMovementDto) {
@@ -226,11 +229,15 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_expected_rev", JsonNull)
         }).decodeAs()
 
-    /** Assigns the gapless INV number + fires sale stock movements. Idempotent. */
-    suspend fun issueDocument(documentId: String, idempotencyKey: String): DocumentDto =
+    /**
+     * Assigns the gapless INV number + fires sale stock movements. Idempotent.
+     * [stockLocationId] is the shelf those movements draw down; null lets the server
+     * fall back to the tenant's default location.
+     */
+    suspend fun issueDocument(documentId: String, stockLocationId: String?, idempotencyKey: String): DocumentDto =
         client.postgrest.rpc("issue_document", buildJsonObject {
             put("p_document_id", documentId)
-            put("p_stock_location_id", JsonNull)
+            if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
             put("p_idempotency_key", idempotencyKey)
         }).decodeAs()
 

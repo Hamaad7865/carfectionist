@@ -208,10 +208,16 @@ data class StockProductDto(
 @Serializable
 data class StockOnHandDto(
     @SerialName("product_id") val productId: String,
+    @SerialName("location_id") val locationId: String? = null,
     @SerialName("qty_on_hand") val qtyOnHand: FlexDouble = 0.0,
 )
 
-@Serializable data class StockLocationDto(val id: String)
+@Serializable
+data class StockLocationDto(
+    val id: String,
+    val name: String = "",
+    @SerialName("is_default") val isDefault: Boolean = false,
+)
 
 /**
  * An adjustment movement (owner/manager only, per the sm_insert RLS policy).

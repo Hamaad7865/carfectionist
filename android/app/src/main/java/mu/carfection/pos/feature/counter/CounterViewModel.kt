@@ -18,6 +18,8 @@ import mu.carfection.pos.core.data.SaleLineSpec
 import mu.carfection.pos.core.data.SaleRepository
 import mu.carfection.pos.core.data.SaleResult
 import mu.carfection.pos.core.data.expandSaleLines
+import mu.carfection.pos.core.data.qtyAtLocation
+import mu.carfection.pos.core.data.qtyEverywhere
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.data.TillRepository
 import mu.carfection.pos.core.database.CustomerEntity
@@ -51,7 +53,10 @@ data class CounterUiState(
     val categories: List<String> = listOf("All"),
     val catCounts: Map<String, Int> = emptyMap(), // category → product count (rail scanning aid)
     val railOpen: Boolean = true, // category rail expanded / collapsed to a slim strip
-    val onHand: Map<String, Int> = emptyMap(), // productId → stock on hand (all locations)
+    // Counter sales draw down the Shop, so the tiles and the warning read the Shop shelf;
+    // the Warehouse figure rides along as a restock hint.
+    val shopQty: Map<String, Int> = emptyMap(), // productId → on hand at the Shop
+    val warehouseQty: Map<String, Int> = emptyMap(), // productId → on hand at the Warehouse
     val adhocOpen: Boolean = false,
     val products: List<ProductEntity> = emptyList(),
     val cart: List<CartLine> = emptyList(),
@@ -121,8 +126,28 @@ data class CounterUiState(
 
 enum class CheckoutMode { LIST, WALKIN }
 
-/** A tap that would sell past available stock, held until the cashier confirms. */
-data class OversellPrompt(val product: ProductEntity, val targetQty: Double)
+/**
+ * A tap that would drive the SHOP shelf below zero, held until the cashier confirms.
+ * Carries both figures so the dialog can tell a transferable shortfall from a real stock-out.
+ */
+data class OversellPrompt(
+    val product: ProductEntity,
+    val targetQty: Double,
+    val shopQty: Int,
+    val warehouseQty: Int,
+)
+
+/** True when selling [targetQty] drives the Shop below zero and the cashier hasn't waved it through. */
+internal fun needsOversellPrompt(isStocked: Boolean, alreadyConfirmed: Boolean, shopQty: Int, targetQty: Double): Boolean {
+    if (!isStocked) return false // services / ad-hoc lines don't track stock
+    if (alreadyConfirmed) return false // asked once per product per sale
+    return shopQty - targetQty < 0
+}
+
+/** The restock line under the shop figure — a shop shortfall reads differently from a stock-out. */
+internal fun warehouseHint(warehouseQty: Int): String =
+    if (warehouseQty > 0) "$warehouseQty in the warehouse — transfer or continue"
+    else "none in the warehouse either"
 
 /**
  * Single recompute path: every cart/basket change rebuilds the exact invoice line set
@@ -190,11 +215,23 @@ class CounterViewModel @Inject constructor(
     }
     fun backToList() { newSale(); local.value = local.value.copy(mode = CheckoutMode.LIST); loadLists() }
 
-    /** On-hand counts for the product tiles (stock line + low-stock badge). */
+    /**
+     * On-hand for the product tiles and the negative-stock warning, split by location:
+     * the Shop is what a counter sale draws down, the Warehouse is the restock hint.
+     */
     private fun refreshStock() = viewModelScope.launch {
-        runCatching { api.fetchStockOnHand() }.onSuccess { rows ->
-            val map = rows.groupBy { it.productId }.mapValues { (_, r) -> r.sumOf { it.qtyOnHand }.toInt() }
-            local.value = local.value.copy(onHand = map)
+        runCatching {
+            val loc = catalog.counterLocations()
+            val rows = api.fetchStockOnHand()
+            // No Shop row means the Warehouse IS the shelf we sell from, and there is no
+            // separate place to transfer from — so it offers no restock hint.
+            val warehouseId = if (loc.shopId != null) loc.warehouseId else null
+            // Locations unresolvable (a cold cache the server wouldn't fill): fall back to
+            // totals rather than reading every shelf as empty and nagging on every tap.
+            val shelf = loc.saleLocationId?.let { qtyAtLocation(rows, it) } ?: qtyEverywhere(rows)
+            shelf to qtyAtLocation(rows, warehouseId)
+        }.onSuccess { (shop, warehouse) ->
+            local.value = local.value.copy(shopQty = shop, warehouseQty = warehouse)
         }
     }
 
@@ -331,7 +368,7 @@ class CounterViewModel @Inject constructor(
 
     fun add(p: ProductEntity) {
         val target = (local.value.cart.firstOrNull { it.product.id == p.id }?.qty ?: 0.0) + 1
-        if (needsOversellPrompt(p, target)) { local.value = local.value.copy(oversell = OversellPrompt(p, target)); return }
+        promptFor(p, target)?.let { local.value = local.value.copy(oversell = it); return }
         mutateCart { cart ->
             val i = cart.indexOfFirst { it.product.id == p.id }
             if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = it[i].qty + 1) }
@@ -341,8 +378,8 @@ class CounterViewModel @Inject constructor(
 
     fun setQty(productId: String, qty: Double) {
         val cur = local.value.cart.firstOrNull { it.product.id == productId }
-        if (cur != null && qty > cur.qty && needsOversellPrompt(cur.product, qty)) {
-            local.value = local.value.copy(oversell = OversellPrompt(cur.product, qty)); return
+        if (cur != null && qty > cur.qty) {
+            promptFor(cur.product, qty)?.let { local.value = local.value.copy(oversell = it); return }
         }
         mutateCart { cart ->
             if (qty <= 0) cart.filterNot { it.product.id == productId }
@@ -350,11 +387,13 @@ class CounterViewModel @Inject constructor(
         }
     }
 
-    /** True when selling [targetQty] would drive stock negative and the cashier hasn't OK'd it yet. */
-    private fun needsOversellPrompt(p: ProductEntity, targetQty: Double): Boolean {
-        if (!p.isStocked) return false // services / ad-hoc lines don't track stock
-        if (local.value.cart.firstOrNull { it.product.id == p.id }?.oversellOk == true) return false
-        return (local.value.onHand[p.id] ?: 0) - targetQty < 0
+    /** The prompt this tap owes the cashier, or null when the Shop can cover it. */
+    private fun promptFor(p: ProductEntity, targetQty: Double): OversellPrompt? {
+        val s = local.value
+        val shop = s.shopQty[p.id] ?: 0
+        val confirmed = s.cart.firstOrNull { it.product.id == p.id }?.oversellOk == true
+        if (!needsOversellPrompt(p.isStocked, confirmed, shop, targetQty)) return null
+        return OversellPrompt(p, targetQty, shop, s.warehouseQty[p.id] ?: 0)
     }
 
     /** "Sell anyway" — apply the held quantity and stop asking for this product this sale. */
