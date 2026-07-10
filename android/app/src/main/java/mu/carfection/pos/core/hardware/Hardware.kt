@@ -91,10 +91,10 @@ object ReceiptText {
             }
             appendLine(rule())
             appendLine(kv("Subtotal", money(d.subtotalCents)))
-            appendLine(kv("VAT ${d.vatRatePct}%", money(d.vatCents)))
             appendLine(kv("Discount", money(d.discountCents)))
         }
         appendLine(kv("TOTAL", money(d.totalCents)))
+        if (!d.isPayment) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents)))
         if (d.onAccount) appendLine(kv("On account", money(d.totalCents)))
         else {
             appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents)))

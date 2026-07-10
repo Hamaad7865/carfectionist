@@ -12,6 +12,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -238,7 +239,9 @@ private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onClick: () -> Uni
         JobCol.DELIVERED -> "Done" to TextMuted
     }
     Box(Modifier.clip(RoundedCornerShape(12.dp)).background(CardTile).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
-        Row {
+        // IntrinsicSize.Min gives the row a resolved height — without it the edge
+        // stripe's fillMaxHeight() collapses to zero and the stripe never shows.
+        Row(Modifier.height(IntrinsicSize.Min)) {
             Box(Modifier.width(3.dp).fillMaxHeight().background(edge))
             Column(Modifier.padding(start = 12.dp, top = 11.dp, end = 11.dp, bottom = 11.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

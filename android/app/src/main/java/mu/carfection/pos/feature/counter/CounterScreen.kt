@@ -1052,13 +1052,13 @@ private fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifier
         // totals
         if (!d.isPayment) {
             SlipRow("Subtotal", rsSlip(d.subtotalCents))
-            SlipRow("VAT ${d.vatRatePct}%", rsSlip(d.vatCents))
             SlipRow("Discount", rsSlip(d.discountCents))
         }
         Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
             Text("TOTAL", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
             Text(rsSlip(d.totalCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
+        if (!d.isPayment) SlipRow("Excl. VAT", rsSlip(d.totalCents - d.vatCents))
         if (d.onAccount) SlipRow("On account", rsSlip(d.totalCents), strong = true)
         else {
             SlipRow("Paid · ${d.payLabel?.lowercase()}", rsSlip(d.paidCents))
