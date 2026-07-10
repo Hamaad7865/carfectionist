@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -86,12 +87,23 @@ class LoginViewModel @Inject constructor(
     init { if (pinApi.configured) loadRoster() }
 
     fun loadRoster() {
-        _state.update { it.copy(loadingRoster = true, rosterError = null) }
+        // only block the panel when there's nothing to show — a re-entry refresh is silent
+        _state.update { it.copy(loadingRoster = it.roster.isEmpty(), rosterError = null) }
         viewModelScope.launch {
             runCatching { pinApi.roster() }
                 .onSuccess { r -> _state.update { it.copy(loadingRoster = false, roster = r) } }
-                .onFailure { _state.update { it.copy(loadingRoster = false, rosterError = "Can't reach the login server. Check the connection and try again.") } }
+                .onFailure { _state.update { it.copy(loadingRoster = false, rosterError = if (it.roster.isEmpty()) "Can't reach the login server. Check the connection and try again." else null) } }
         }
+    }
+
+    /**
+     * The sign-in screen (re)entered composition — start clean for the next operator. This
+     * ViewModel is activity-scoped, so without it a logout brought the previous login's state
+     * back with it: busy=true from the successful submit froze the whole keypad.
+     */
+    fun onShown() {
+        _state.update { it.copy(busy = false, pin = "", selectedId = null, error = null) }
+        if (pinApi.configured) loadRoster()
     }
 
     fun pick(id: String) = _state.update { it.copy(selectedId = id, pin = "", error = null) }
@@ -114,6 +126,10 @@ class LoginViewModel @Inject constructor(
                 val sess = pinApi.pinLogin(appUserId, pin)
                 session.signInWithPin(sess) // flips isLoggedIn -> the shell replaces this screen
                 catalog.refresh() // warm the offline cache for the new operator's tenant
+            }.onSuccess {
+                // Reset for the NEXT operator: this activity-scoped ViewModel survives the
+                // logout, and a lingering busy=true would freeze the keypad on re-login.
+                _state.update { it.copy(busy = false, pin = "", selectedId = null, error = null) }
             }.onFailure { e ->
                 val msg = when {
                     e is PinLoginException && (e.reason.contains("lock", true) || e.lockedUntil != null) ->
@@ -145,6 +161,7 @@ private fun initials(name: String): String {
 @Composable
 fun LoginScreen(viewModel: LoginViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
+    LaunchedEffect(Unit) { viewModel.onShown() } // fresh keypad + roster on every (re)entry
     // Handoff "Switch user" modal: dimmed backdrop, centred 660dp card, roster | keypad.
     Box(Modifier.fillMaxSize().background(ScreenBg)) {
         Box(Modifier.fillMaxSize().background(Color(0x730F1A24)))
@@ -279,7 +296,7 @@ private fun NotConfiguredCard() {
         Text("CARFECTIONIST", color = Accent, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 2.sp)
         Text("PIN login isn't set up on this tablet yet", color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         Text(
-            "Add the web app URL and the shared device key to local.properties (pos.webUrl / pos.deviceKey), then rebuild. The URL must be reachable from this tablet.",
+            "Add the Supabase URL and the shared device key to local.properties (supabase.url / pos.deviceKey), then rebuild.",
             color = TextSecondary, fontFamily = Barlow, fontSize = 13.sp, lineHeight = 19.sp,
         )
     }
