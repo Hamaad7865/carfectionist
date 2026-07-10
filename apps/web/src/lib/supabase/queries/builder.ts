@@ -98,6 +98,7 @@ export interface LoadedDraft {
   docType: "quote" | "invoice";
   status: string;
   number: string | null;
+  issueDate: string | null;
   customerId: string | null;
   revision: number;
   docDiscountKind: "percent" | "amount" | null;
@@ -136,6 +137,7 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     docType: d.doc_type,
     status: d.status,
     number: d.number,
+    issueDate: d.issue_date ?? null,
     customerId: d.customer_id,
     revision: d.revision,
     docDiscountKind: d.discount_kind ?? null,

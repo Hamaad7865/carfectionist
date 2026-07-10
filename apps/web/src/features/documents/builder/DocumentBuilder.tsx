@@ -14,8 +14,9 @@ import type { BuilderContext } from "@/lib/supabase/queries/builder";
 import { reducer, type BuilderState } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
 
-let seq = 0;
-const newKey = () => `l${++seq}`;
+// UUID keys so the builder's line keys can never collide with those minted
+// server-side in state.ts (both previously used an l<N> counter from 0).
+const newKey = () => crypto.randomUUID();
 
 export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial: BuilderState }) {
   const router = useRouter();
@@ -124,7 +125,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       terms: ctx.templateTerms,
       assets: ctx.assets,
       number: state.number,
-      issueDate: readOnly ? new Date().toISOString().slice(0, 10) : null,
+      issueDate: readOnly ? state.issueDate ?? new Date().toISOString().slice(0, 10) : null,
     });
     return renderToStaticMarkup(<DocumentA4 {...props} />);
     // eslint-disable-next-line react-hooks/exhaustive-deps

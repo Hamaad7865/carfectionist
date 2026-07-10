@@ -19,6 +19,7 @@ export interface BuilderState {
   docType: "quote" | "invoice";
   status: string;
   number: string | null;
+  issueDate: string | null; // the stored issue date once issued (for the preview)
   customerId: string | null;
   revision: number;
   lines: BuilderLine[];
@@ -31,10 +32,8 @@ export interface BuilderState {
   saveError: string | null;
 }
 
-let seq = 0;
 export function newKey(): string {
-  seq += 1;
-  return `l${seq}`;
+  return crypto.randomUUID();
 }
 
 export function blankLine(): BuilderLine {

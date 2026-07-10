@@ -42,6 +42,11 @@ const METHOD: Record<string, string> = { cash: "cash", card: "card", juice: "Jui
 const strip = (n: string | null | undefined) => (n ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 const PER = 200;
+// Sources that emit events at TWO timestamps (jobs: created/ready; transfers:
+// dispatched/received; cash: opened/closed) can't be date-bounded on one column
+// without dropping the other event, so fetch them broadly and let the JS date
+// filter trim precisely. They're low-volume (well under this cap for years).
+const LEDGER = 1000;
 const CAP = 300;
 
 export async function getActivity(f: ActivityFilters): Promise<ActivityData> {
@@ -61,9 +66,9 @@ export async function getActivity(f: ActivityFilters): Promise<ActivityData> {
     range("created_at", sb.from("audit_events").select("id, event_type, actor_id, ref_type, ref_id, payload, created_at")).order("created_at", { ascending: false }).limit(PER),
     range("moved_at", sb.from("stock_movements").select("id, qty, note, moved_at, created_by, products(name, unit), stock_locations(name)").eq("ref_type", "adjustment")).order("moved_at", { ascending: false }).limit(PER),
     range("moved_at", sb.from("stock_movements").select("ref_id, created_by").in("ref_type", ["purchase_order", "job_card"])).order("moved_at", { ascending: false }).limit(500),
-    sb.from("stock_transfers").select("id, from_location_id, to_location_id, dispatched_at, dispatched_by, received_at, received_by, created_at").neq("status", "draft").order("created_at", { ascending: false }).limit(PER),
-    sb.from("cash_sessions").select("id, opened_at, opened_by, closed_at, closed_by, variance, device_id").order("opened_at", { ascending: false }).limit(PER),
-    sb.from("jobs").select("id, created_at, created_by, ready_at, completed_by, vehicles(plate, make, model)").order("created_at", { ascending: false }).limit(PER),
+    sb.from("stock_transfers").select("id, from_location_id, to_location_id, dispatched_at, dispatched_by, received_at, received_by, created_at").neq("status", "draft").order("created_at", { ascending: false }).limit(LEDGER),
+    sb.from("cash_sessions").select("id, opened_at, opened_by, closed_at, closed_by, variance, device_id").order("opened_at", { ascending: false }).limit(LEDGER),
+    sb.from("jobs").select("id, created_at, created_by, ready_at, completed_by, vehicles(plate, make, model)").order("created_at", { ascending: false }).limit(LEDGER),
     range("received_at", sb.from("purchase_orders").select("id, reference, received_at, suppliers(name)").not("received_at", "is", null)).order("received_at", { ascending: false }).limit(PER),
     range("created_at", sb.from("certificates").select("id, number, created_at, created_by, customers(name)")).order("created_at", { ascending: false }).limit(PER),
   ]);

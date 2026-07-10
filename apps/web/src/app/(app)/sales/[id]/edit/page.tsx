@@ -13,6 +13,7 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
     docType: draft.docType,
     status: draft.status,
     number: draft.number,
+    issueDate: draft.issueDate,
     customerId: draft.customerId,
     revision: draft.revision,
     lines: draft.lines.map((l) => ({ key: newKey(), ...l })),

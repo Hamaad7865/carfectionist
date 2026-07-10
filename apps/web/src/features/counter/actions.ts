@@ -42,6 +42,11 @@ const schema = z.object({
   // One key per sale attempt (stable across retries) → a replayed submit returns
   // the same invoice + payment instead of creating duplicates.
   idempotencyKey: z.string().optional(),
+}).superRefine((d, ctx) => {
+  // A percent order discount can't exceed 100% (else totals go negative).
+  if (d.orderDiscountKind === "percent" && (d.orderDiscountValue ?? 0) > 100) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Discount cannot exceed 100%", path: ["orderDiscountValue"] });
+  }
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

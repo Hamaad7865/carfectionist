@@ -30,6 +30,12 @@ export const draftDocSchema = z.object({
   origin: z.enum(["standalone", "from_job"]).optional(),
   discountKind: z.enum(["percent", "amount"]).nullable().optional(),
   discountValue: z.number().min(0).optional(), // percent: %, amount: Cents (VAT-inclusive)
+}).superRefine((d, ctx) => {
+  // Order percent discount is bounded like the line-level one — an uncapped value
+  // would drive an issued invoice's totals negative.
+  if (d.discountKind === "percent" && (d.discountValue ?? 0) > 100) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Discount cannot exceed 100%", path: ["discountValue"] });
+  }
 });
 
 export const saveDraftInputSchema = z.object({

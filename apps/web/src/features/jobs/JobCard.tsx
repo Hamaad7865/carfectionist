@@ -72,6 +72,11 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
     }
   }
 
+  // Resync to the server-authoritative elapsed time whenever a fresh job prop
+  // arrives (e.g. router.refresh after Stop) — a backgrounded tab's throttled
+  // interval otherwise leaves the local count too low until a full reload.
+  useEffect(() => setSeconds(job.elapsedSeconds), [job.elapsedSeconds]);
+
   useEffect(() => {
     if (!job.running) return;
     const t = setInterval(() => setSeconds((s) => s + 1), 1000);

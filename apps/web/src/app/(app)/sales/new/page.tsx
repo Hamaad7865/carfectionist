@@ -16,6 +16,7 @@ export default async function NewDocumentPage({
     docType,
     status: "draft",
     number: null,
+    issueDate: null,
     customerId: null,
     revision: 0,
     lines: [],

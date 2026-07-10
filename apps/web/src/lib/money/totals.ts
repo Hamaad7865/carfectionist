@@ -73,7 +73,7 @@ export function computeTotals(lines: TotalsLineInput[], docDiscount?: DocDiscoun
   const active = !!docDiscount && docDiscount.value > 0 && gross > 0;
   const dIncl = !active ? 0
     : docDiscount!.kind === 'percent'
-      ? roundHalfAwayFromZero(gross * (docDiscount!.value / 100))
+      ? Math.min(roundHalfAwayFromZero(gross * (docDiscount!.value / 100)), gross) // never exceed the total
       : Math.min(docDiscount!.value, gross);
 
   // apportion largest-remainder: order by inclusive share desc, then rate asc
