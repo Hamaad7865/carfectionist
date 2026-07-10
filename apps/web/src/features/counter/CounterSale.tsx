@@ -10,6 +10,20 @@ import { ReceiptCard } from "@/components/pdf/ReceiptCard";
 import { counterSaleAction, type CounterResult } from "./actions";
 import { getReceiptDataAction } from "./receipt-action";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
+import {
+  EMPTY_BASKET,
+  addProduct,
+  patchLine as patchLineIn,
+  pickCustomer as pickCustomerIn,
+  setCustomerName,
+  setOrderDiscount,
+  setQty as setQtyIn,
+  settleMessage,
+  settleResolved,
+  withSettleFailure,
+  type Basket,
+  type CartLine,
+} from "./settle";
 
 const KIND_LABEL: Record<string, string> = { service: "Service", consumable: "Consumable", product: "Product" };
 const METHODS = [
@@ -22,17 +36,15 @@ const METHODS = [
 type Method = (typeof METHODS)[number]["key"];
 const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 
-interface CartLine { product: CounterProduct; qty: number; discountKind?: "percent" | "amount"; discountPct?: number; discountAmountCents?: number }
-
 export function CounterSale({ products, customers }: { products: CounterProduct[]; customers: { id: string; name: string }[] }) {
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
-  const [cart, setCart] = useState<CartLine[]>([]);
-  const [orderDiscKind, setOrderDiscKind] = useState<"percent" | "amount" | null>(null);
-  const [orderDiscValue, setOrderDiscValue] = useState(0);
-  const [customer, setCustomer] = useState("");
-  const [customerId, setCustomerId] = useState<string | null>(null);
+  // The cart, its discounts and the customer are one value: everything a settle sends. Once an
+  // attempt reaches issue_document they freeze together, so a retry re-sends the same request.
+  const [basket, setBasket] = useState<Basket>(EMPTY_BASKET);
+  const { lines: cart, orderDiscKind, orderDiscValue, customer, customerId, pending, notice } = basket;
+  const frozen = pending !== null;
   const [method, setMethod] = useState<Method>("cash");
   const [tender, setTender] = useState("");
   const [ref, setRef] = useState("");
@@ -84,19 +96,9 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
     return s && !customerId ? customers.filter((c) => c.name.toLowerCase().includes(s)).slice(0, 6) : [];
   }, [customer, customerId, customers]);
 
-  function add(p: CounterProduct) {
-    setCart((c) => {
-      const i = c.findIndex((l) => l.product.id === p.id);
-      if (i >= 0) { const next = [...c]; next[i] = { ...next[i], qty: next[i].qty + 1 }; return next; }
-      return [...c, { product: p, qty: 1 }];
-    });
-  }
-  function setQty(id: string, qty: number) {
-    setCart((c) => (qty <= 0 ? c.filter((l) => l.product.id !== id) : c.map((l) => (l.product.id === id ? { ...l, qty } : l))));
-  }
-  function patchLine(id: string, patch: Partial<CartLine>) {
-    setCart((c) => c.map((l) => (l.product.id === id ? { ...l, ...patch } : l)));
-  }
+  const add = (p: CounterProduct) => setBasket((b) => addProduct(b, p));
+  const setQty = (id: string, qty: number) => setBasket((b) => setQtyIn(b, id, qty));
+  const patchLine = (id: string, patch: Partial<CartLine>) => setBasket((b) => patchLineIn(b, id, patch));
 
   const tenderCents = parseMoneyInput(tender);
   const changeCents = method === "cash" && tenderCents != null ? tenderCents - totals.totalCents : null;
@@ -108,7 +110,8 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
     if (method === "cash" && tenderCents != null && tenderCents < totals.totalCents) return setError("Tendered is less than the total.");
     // Soft guard: a stocked line that exceeds on-hand will drive stock negative.
     // Warn (and let them proceed) — sales are never hard-blocked on stock.
-    if (!force) {
+    // Skipped while frozen: the invoice already issued, so its stock has already moved.
+    if (!force && !frozen) {
       const negatives = cart
         .filter((l) => l.product.isStocked && l.qty > l.product.shopQty)
         .map((l) => ({ name: l.product.name, shop: l.product.shopQty, warehouse: l.product.warehouseQty, selling: l.qty }));
@@ -127,13 +130,15 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
       idempotencyKey: saleKey,
     });
     setBusy(false);
-    if (r.ok) setDone(r);
-    else setError(r.error);
+    if (r.ok) { setBasket(settleResolved); return setDone(r); }
+    setError(r.error);
+    // A failure past issue_document pins the basket to whatever the server may hold under saleKey.
+    setBasket((b) => withSettleFailure(b, r));
   }
 
   function reset() {
-    setCart([]); setCustomer(""); setCustomerId(null); setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ("");
-    setOrderDiscKind(null); setOrderDiscValue(0); // never carry a discount into the next ticket
+    setBasket(EMPTY_BASKET); // never carry a cart, a discount or a frozen settle into the next ticket
+    setTender(""); setRef(""); setMethod("cash"); setDone(null); setError(null); setQ("");
     newKey();
     router.refresh();
   }
@@ -256,8 +261,9 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           {filtered.map((p) => (
             <button
               key={p.id}
+              disabled={frozen}
               onClick={() => add(p)}
-              className="flex flex-col items-start gap-1 rounded-[12px] border border-line bg-sub p-3 text-left transition hover:border-brand hover:bg-[rgba(43,140,255,0.05)]"
+              className="flex flex-col items-start gap-1 rounded-[12px] border border-line bg-sub p-3 text-left transition hover:border-brand hover:bg-[rgba(43,140,255,0.05)] disabled:opacity-50 disabled:hover:border-line"
             >
               <span className="flex w-full items-center justify-between gap-1">
                 <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
@@ -278,14 +284,16 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
             className={`h-10 w-full rounded-[10px] border bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand ${method === "credit" && !customerId ? "border-amber-ink" : "border-line-2"}`}
             placeholder={method === "credit" ? "Search & pick the customer (required for credit)" : "Customer name (optional)"}
             value={customer}
-            onChange={(e) => { setCustomer(e.target.value); setCustomerId(null); }}
+            readOnly={frozen}
+            onChange={(e) => { const v = e.target.value; setBasket((b) => setCustomerName(b, v)); }}
           />
           {custMatches.length > 0 && (
             <div className="mt-1.5 flex flex-col gap-0.5 rounded-[10px] border border-line bg-card p-1">
               {custMatches.map((cst) => (
                 <button
                   key={cst.id}
-                  onClick={() => { setCustomer(cst.name); setCustomerId(cst.id); }}
+                  disabled={frozen}
+                  onClick={() => setBasket((b) => pickCustomerIn(b, cst.id, cst.name))}
                   className="rounded-[8px] px-2.5 py-2 text-left text-[13px] font-semibold text-body hover:bg-sub"
                 >
                   {cst.name}
@@ -312,16 +320,16 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
                   <div className="num text-[11px] text-faint">{formatMUR(l.product.priceCents)} each</div>
                 </div>
                 <div className="flex items-center gap-1.5">
-                  <button onClick={() => setQty(l.product.id, l.qty - 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body"><Minus size={13} /></button>
+                  <button disabled={frozen} onClick={() => setQty(l.product.id, l.qty - 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body disabled:opacity-50"><Minus size={13} /></button>
                   <span className="num w-6 text-center text-[13px] font-bold text-ink">{l.qty}</span>
-                  <button onClick={() => setQty(l.product.id, l.qty + 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body"><Plus size={13} /></button>
+                  <button disabled={frozen} onClick={() => setQty(l.product.id, l.qty + 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body disabled:opacity-50"><Plus size={13} /></button>
                 </div>
                 <div className="flex items-center rounded-[7px] border border-line-2 bg-sub" title="Line discount (% or Rs off)">
-                  <button onClick={() => patchLine(l.product.id, { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 })} className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint">{l.discountKind === "amount" ? "Rs" : "%"}</button>
-                  <input value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")} onChange={(e) => l.discountKind === "amount" ? patchLine(l.product.id, { discountAmountCents: parseMoneyInput(e.target.value) ?? 0 }) : patchLine(l.product.id, { discountPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })} inputMode="decimal" placeholder="disc" className="h-7 w-10 bg-transparent pr-1 text-right text-[11px] text-body outline-none placeholder:text-faint" />
+                  <button disabled={frozen} onClick={() => patchLine(l.product.id, { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 })} className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint disabled:opacity-50">{l.discountKind === "amount" ? "Rs" : "%"}</button>
+                  <input value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")} readOnly={frozen} onChange={(e) => l.discountKind === "amount" ? patchLine(l.product.id, { discountAmountCents: parseMoneyInput(e.target.value) ?? 0 }) : patchLine(l.product.id, { discountPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })} inputMode="decimal" placeholder="disc" className="h-7 w-10 bg-transparent pr-1 text-right text-[11px] text-body outline-none placeholder:text-faint" />
                 </div>
                 <span className="num w-[84px] text-right text-[13px] font-bold text-ink">{formatMUR(lt.exclCents)}</span>
-                <button onClick={() => setQty(l.product.id, 0)} className="text-faint hover:text-rose"><X size={15} /></button>
+                <button disabled={frozen} onClick={() => setQty(l.product.id, 0)} className="text-faint hover:text-rose disabled:opacity-50 disabled:hover:text-faint"><X size={15} /></button>
               </div>
               );
             })
@@ -332,10 +340,21 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           <div className="mb-2 flex items-center gap-2">
             <span className="flex-1 text-[12.5px] text-muted">Discount (whole sale)</span>
             <div className="flex items-center rounded-[8px] border border-line-2 bg-sub" title="Order discount (% or Rs off the total)">
-              <button onClick={() => { setOrderDiscKind((orderDiscKind ?? "percent") === "amount" ? "percent" : "amount"); setOrderDiscValue(0); }} className="grid h-8 w-7 place-items-center text-[11px] font-bold text-faint">{orderDiscKind === "amount" ? "Rs" : "%"}</button>
+              <button disabled={frozen} onClick={() => setBasket((b) => setOrderDiscount(b, (b.orderDiscKind ?? "percent") === "amount" ? "percent" : "amount", 0))} className="grid h-8 w-7 place-items-center text-[11px] font-bold text-faint">{orderDiscKind === "amount" ? "Rs" : "%"}</button>
               <input
                 value={orderDiscKind === "amount" ? (orderDiscValue ? String(orderDiscValue / 100) : "") : (orderDiscValue || "")}
-                onChange={(e) => (orderDiscKind ?? "percent") === "amount" ? (() => { const c = parseMoneyInput(e.target.value) ?? 0; setOrderDiscKind(c > 0 ? "amount" : null); setOrderDiscValue(c); })() : (() => { const pct = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)); setOrderDiscKind(pct > 0 ? "percent" : null); setOrderDiscValue(pct); })()}
+                readOnly={frozen}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setBasket((b) => {
+                    if ((b.orderDiscKind ?? "percent") === "amount") {
+                      const c = parseMoneyInput(v) ?? 0;
+                      return setOrderDiscount(b, c > 0 ? "amount" : null, c);
+                    }
+                    const pct = Math.min(100, Math.max(0, parseFloat(v) || 0));
+                    return setOrderDiscount(b, pct > 0 ? "percent" : null, pct);
+                  });
+                }}
                 inputMode="decimal"
                 placeholder="0"
                 className="h-8 w-16 bg-transparent px-2 text-right text-[13px] text-body outline-none placeholder:text-faint"
@@ -389,12 +408,22 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
 
           {error && <p className="mt-2 rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
 
+          {pending && (
+            <div className="mt-2 rounded-[10px] border border-[rgba(245,166,35,0.35)] bg-[rgba(245,166,35,0.08)] px-3 py-2.5">
+              <p className="text-[12.5px] font-semibold leading-snug text-amber-ink">{settleMessage(pending)}</p>
+              <button onClick={reset} className="mt-2 h-8 rounded-[9px] border border-[rgba(245,166,35,0.45)] px-3 text-[12px] font-bold text-amber-ink hover:bg-[rgba(245,166,35,0.12)]">
+                Abandon sale
+              </button>
+            </div>
+          )}
+          {notice && <p className="mt-2 text-[11.5px] font-semibold text-amber-ink">{notice}</p>}
+
           <button
             onClick={() => complete()}
             disabled={busy || cart.length === 0}
             className="grad-brand shadow-brand mt-3 flex h-12 w-full items-center justify-center rounded-[12px] text-[15px] font-extrabold text-white disabled:opacity-50"
           >
-            {busy ? "Working…" : method === "credit" ? `Put ${formatMUR(totals.totalCents)} on account` : `Charge ${formatMUR(totals.totalCents)}`}
+            {busy ? "Working…" : frozen ? `Charge ${formatMUR(totals.totalCents)} again` : method === "credit" ? `Put ${formatMUR(totals.totalCents)} on account` : `Charge ${formatMUR(totals.totalCents)}`}
           </button>
         </div>
       </div>

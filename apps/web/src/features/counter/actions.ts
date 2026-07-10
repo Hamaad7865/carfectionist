@@ -7,12 +7,19 @@ import { requireRole } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
 import * as rpc from "@/lib/supabase/rpc";
 import { computeTotals } from "@/lib/money";
+import type { SettlePhase } from "./settle";
 
 const ROLES = ["owner", "manager", "cashier"] as const;
 
+/**
+ * A failure carries `settle` once the attempt reached `issue_document`. Past that point the
+ * server may hold an invoice under `${idempotencyKey}:issue`, and both money RPCs replay purely
+ * on the key — so the caller must freeze the basket and retry the identical request rather than
+ * settle a new one. A failure without `settle` committed nothing that costs money.
+ */
 export type CounterResult =
   | { ok: true; invoiceId: string; number: string | null; totalCents: number; changeCents: number; onAccount: boolean }
-  | { ok: false; error: string };
+  | { ok: false; error: string; settle?: SettlePhase; invoiceNo?: string | null };
 
 const schema = z.object({
   customerId: z.string().optional(),
@@ -134,40 +141,57 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const locArr = (locs ?? []) as any[];
     const shopLocationId = (locArr.find((l) => l.name === "Shop") ?? locArr.find((l) => !l.is_default))?.id ?? null;
-    const issued = await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null);
-    const totalRupees = Number(issued.total_incl);
-
-    let changeCents = 0;
-    if (p.data.method !== "credit") {
-      // Link cash to the open till so the end-of-day cash-up reconciles.
-      let cashSessionId: string | null = null;
-      if (p.data.method === "cash") {
-        const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        cashSessionId = (sess as any)?.id ?? null;
-      }
-
-      const tenderedRupees =
-        p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;
-
-      await rpc.recordPayment(sb, {
-        invoiceId: issued.id,
-        method: p.data.method,
-        amount: totalRupees,
-        tendered: tenderedRupees,
-        externalRef: p.data.method === "cash" ? null : (p.data.externalRef?.trim() || "COUNTER"),
-        cashSessionId,
-        idempotencyKey: key ? `${key}:pay` : null,
-      });
-
-      changeCents = tenderedRupees != null ? Math.max(0, Math.round(tenderedRupees * 100) - totals.totalCents) : 0;
+    // Point of no return: this draws the gapless INV number and fires stock movements. If it
+    // throws we cannot tell a lost request from a lost response, so the invoice may exist under
+    // `${key}:issue` — and a replay would ignore any new draft we sent it.
+    let issued: Awaited<ReturnType<typeof rpc.issueDocument>>;
+    try {
+      issued = await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null);
+    } catch (e) {
+      return { ok: false, error: (e as Error).message, settle: "uncertain" };
     }
-    // credit → no payment recorded; the invoice stays fully outstanding (a receivable).
 
-    revalidatePath("/sales");
-    revalidatePath("/reports");
-    return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: totals.totalCents, changeCents, onAccount: p.data.method === "credit" };
+    // Everything below runs against a real, issued invoice. Any failure here — including a
+    // payment that committed but whose response was lost — leaves the sale unresolved, so it
+    // must be retried as-is rather than re-settled with a different basket.
+    try {
+      const totalRupees = Number(issued.total_incl);
+
+      let changeCents = 0;
+      if (p.data.method !== "credit") {
+        // Link cash to the open till so the end-of-day cash-up reconciles.
+        let cashSessionId: string | null = null;
+        if (p.data.method === "cash") {
+          const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          cashSessionId = (sess as any)?.id ?? null;
+        }
+
+        const tenderedRupees =
+          p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;
+
+        await rpc.recordPayment(sb, {
+          invoiceId: issued.id,
+          method: p.data.method,
+          amount: totalRupees,
+          tendered: tenderedRupees,
+          externalRef: p.data.method === "cash" ? null : (p.data.externalRef?.trim() || "COUNTER"),
+          cashSessionId,
+          idempotencyKey: key ? `${key}:pay` : null,
+        });
+
+        changeCents = tenderedRupees != null ? Math.max(0, Math.round(tenderedRupees * 100) - totals.totalCents) : 0;
+      }
+      // credit → no payment recorded; the invoice stays fully outstanding (a receivable).
+
+      revalidatePath("/sales");
+      revalidatePath("/reports");
+      return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: totals.totalCents, changeCents, onAccount: p.data.method === "credit" };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message, settle: "issued", invoiceNo: issued.number };
+    }
   } catch (e) {
+    // Nothing past save_draft ran: no number drawn, no stock moved. Safe to edit and retry.
     return { ok: false, error: (e as Error).message };
   }
 }

@@ -16,6 +16,7 @@ import mu.carfection.pos.core.network.NewCustomerDto
 import mu.carfection.pos.core.network.PosApi
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.cancellation.CancellationException
 
 enum class DiscountMode { PCT, AMT }
 
@@ -122,10 +123,36 @@ data class SaleResult(
 )
 
 /**
+ * A settle that already reached `issue_document`. The RPC may have committed before the call
+ * failed — a lost response is indistinguishable from a lost request — so an invoice may exist
+ * under this sale's idempotency key.
+ *
+ * Re-sending the IDENTICAL request is safe: the server replays it. Sending a DIFFERENT basket
+ * under the same key is not — `issue_document` and `record_payment` both replay purely on
+ * (tenant_id, key) and ignore their other arguments, so the customer would settle against the
+ * stale document. The caller must freeze the basket until this resolves.
+ */
+sealed class SettleUncertain(cause: Throwable) : Exception(cause.message, cause)
+
+/** `issue_document` failed. Whether the invoice exists is unknown. */
+class SaleIssueUncertain(cause: Throwable) : SettleUncertain(cause)
+
+/** The invoice was issued; `record_payment` failed. Retrying settles [invoiceId], idempotently. */
+class SalePaymentUncertain(
+    val invoiceId: String,
+    val number: String?,
+    cause: Throwable,
+) : SettleUncertain(cause)
+
+/**
  * The counter-sale write path: draft → issue → payment, all through the shared
  * idempotent RPCs. `saleKey` is minted once per sale and reused on retries, so
  * a flaky tap/network can never double-issue or double-charge (server replays
  * return the canonical stored result).
+ *
+ * That replay guarantee holds only while the request stays identical. Once a settle reaches
+ * `issue_document` this throws [SettleUncertain] rather than a bare exception, so the caller
+ * knows the basket is now pinned to whatever the server may hold under `saleKey`.
  */
 @Singleton
 class SaleRepository @Inject constructor(
@@ -177,10 +204,18 @@ class SaleRepository @Inject constructor(
                 })
             }
         }
+        // A draft costs nothing and carries no number: a failure here is safely retryable
+        // with a different basket, so it propagates as an ordinary exception.
         val draft = api.saveDraft(doc, lines)
 
-        // 3) Issue — draws the gapless INV number + fires stock movements.
-        val issued = api.issueDocument(draft.id, "$saleKey:issue")
+        // 3) Issue — draws the gapless INV number + fires stock movements. Point of no return.
+        val issued = try {
+            api.issueDocument(draft.id, "$saleKey:issue")
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw SaleIssueUncertain(e)
+        }
         val totalCents = rupeesToCents(issued.totalIncl) // server total is authoritative
 
         // 4) Payment (skipped for on-account credit).
@@ -188,15 +223,21 @@ class SaleRepository @Inject constructor(
             return SaleResult(issued.id, issued.number, totalCents, 0, onAccount = true)
         }
         val tendered = if (method == PayMethod.CASH) (tenderCents ?: totalCents) else null
-        api.recordPayment(
-            invoiceId = issued.id,
-            method = requireNotNull(method.rpcValue),
-            amountRupees = centsToRupees(totalCents),
-            tenderedRupees = tendered?.let { centsToRupees(it) },
-            externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
-            cashSessionId = if (method == PayMethod.CASH) cashSessionId else null,
-            idempotencyKey = "$saleKey:pay",
-        )
+        try {
+            api.recordPayment(
+                invoiceId = issued.id,
+                method = requireNotNull(method.rpcValue),
+                amountRupees = centsToRupees(totalCents),
+                tenderedRupees = tendered?.let { centsToRupees(it) },
+                externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                cashSessionId = if (method == PayMethod.CASH) cashSessionId else null,
+                idempotencyKey = "$saleKey:pay",
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw SalePaymentUncertain(issued.id, issued.number, e)
+        }
         val change = if (method == PayMethod.CASH && tendered != null) (tendered - totalCents).coerceAtLeast(0) else 0
         return SaleResult(issued.id, issued.number, totalCents, change, onAccount = false)
     }
