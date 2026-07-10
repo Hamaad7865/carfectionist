@@ -2,6 +2,7 @@ package mu.carfection.pos.feature.jobs
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -101,6 +102,8 @@ private fun Modifier.card(radius: Int = 16) = this.background(CardBg, RoundedCor
 fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: JobsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() } // refresh the board on entry
+    // System back closes the work-order drawer before it pops the tab history.
+    BackHandler(enabled = s.activeJobId != null) { viewModel.close() }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {

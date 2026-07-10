@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- System-splash icon: the gold mark inset so it clears the launcher's circular mask. -->
+<inset xmlns:android="http://schemas.android.com/apk/res/android"
+    android:drawable="@drawable/logo_carfectionist"
+    android:inset="22%" />
