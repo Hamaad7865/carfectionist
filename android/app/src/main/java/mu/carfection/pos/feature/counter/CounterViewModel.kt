@@ -222,6 +222,8 @@ class CounterViewModel @Inject constructor(
         refreshTill()
         loadLists()
         refreshStock()
+        // Track the shared session so opening/closing the till updates the chip immediately.
+        viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
     }
 
@@ -427,9 +429,8 @@ class CounterViewModel @Inject constructor(
         }
     }
 
-    fun refreshTill() = viewModelScope.launch {
-        runCatching { till.openSession() }.onSuccess { s -> local.value = local.value.copy(till = s) }
-    }
+    /** Re-reads the device's session; the `till.current` collector in `init` applies it. */
+    fun refreshTill() = viewModelScope.launch { runCatching { till.openSession() } }
 
     // ── cart ──────────────────────────────────────────────────────────────────
     fun setQuery(q: String) { local.value = local.value.copy(query = q) }

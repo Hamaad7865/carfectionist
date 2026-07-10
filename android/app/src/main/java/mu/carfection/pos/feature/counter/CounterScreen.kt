@@ -98,6 +98,7 @@ fun CounterScreen(
 ) {
     val s by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.loadLists() } // refresh outstanding/paid on entry
+    LaunchedEffect(Unit) { viewModel.refreshTill() } // the till may have just been opened
 
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
         // ── top bar (handoff: constant CHECKOUT title, caption swaps by mode) ─

@@ -116,7 +116,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 ) {
                     when (tab) {
                         PosTab.SALE ->
-                            if (showTill) TillScreen(onBack = { showTill = false })
+                            if (showTill) TillScreen(onBack = { showTill = false }, onOpened = { showTill = false })
                             else CounterScreen(onOpenTill = { showTill = true })
                         PosTab.INTAKE -> IntakeScreen()
                         PosTab.QUOTE -> QuoteScreen(onGoIntake = { navigate(PosTab.INTAKE) })

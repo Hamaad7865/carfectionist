@@ -21,6 +21,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -73,9 +74,19 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
     private val _s = MutableStateFlow(TillUiState())
     val state = _s.asStateFlow()
 
-    init { load() }
+    /**
+     * Latched only by the Open-till button — not by `load()` finding an existing session, or
+     * reopening this screen to close an already-open till would bounce straight to checkout.
+     */
+    private val _justOpened = MutableStateFlow(false)
+    val justOpened = _justOpened.asStateFlow()
+    fun consumeJustOpened() { _justOpened.value = false }
 
-    private fun load() = viewModelScope.launch {
+    /**
+     * Re-read on every entry. This ViewModel is activity-scoped, so without it a `justClosed`
+     * summary would still be on screen next time the till is opened from the counter.
+     */
+    fun reload() = viewModelScope.launch {
         _s.value = _s.value.copy(loading = true)
         runCatching { till.openSession() }
             .onSuccess { _s.value = TillUiState(loading = false, session = it) }
@@ -87,7 +98,7 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
         _s.value = _s.value.copy(busy = true, error = null)
         viewModelScope.launch {
             runCatching { till.open(cents) }
-                .onSuccess { _s.value = _s.value.copy(busy = false, session = it) }
+                .onSuccess { _s.value = _s.value.copy(busy = false, session = it); _justOpened.value = true }
                 .onFailure { _s.value = _s.value.copy(busy = false, error = it.message) }
         }
     }
@@ -105,10 +116,18 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
 }
 
 @Composable
-fun TillScreen(onBack: () -> Unit, viewModel: TillViewModel = hiltViewModel()) {
+fun TillScreen(onBack: () -> Unit, onOpened: () -> Unit, viewModel: TillViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
     var floatText by remember { mutableStateOf("") }
     var countText by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) { viewModel.reload() }
+
+    // Opening the till is a step on the way to selling — go straight to the counter.
+    val justOpened by viewModel.justOpened.collectAsState()
+    LaunchedEffect(justOpened) {
+        if (justOpened) { viewModel.consumeJustOpened(); onOpened() }
+    }
 
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
