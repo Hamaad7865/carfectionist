@@ -14,6 +14,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.IntakeHandoff
+import mu.carfection.pos.core.data.IntakeHandoffBus
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.LineInput
@@ -62,6 +64,8 @@ data class QuoteState(
     val createdJobId: String? = null,
     val createdInvoiceRef: String? = null,
     val error: String? = null,
+    // carried from reception: stamped onto the job when this quote is accepted
+    val intake: IntakeHandoff? = null,
 )
 
 val QUOTE_TIMES = listOf("Now", "13:30", "14:30", "15:30", "Tomorrow")
@@ -70,6 +74,7 @@ val QUOTE_TIMES = listOf("Now", "13:30", "14:30", "15:30", "Tomorrow")
 class QuoteViewModel @Inject constructor(
     private val catalog: CatalogRepository,
     private val api: PosApi,
+    private val intakeBus: IntakeHandoffBus,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
     val state = _s.asStateFlow()
@@ -78,6 +83,21 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
         loadQuotes()
         viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
+        // Reception hands over a customer+vehicle (+condition) — open a fresh builder on it.
+        viewModelScope.launch {
+            intakeBus.pending.collect { h -> if (h != null) { intakeBus.consume(); beginFromIntake(h) } }
+        }
+    }
+
+    private fun beginFromIntake(h: IntakeHandoff) = _s.update {
+        it.copy(
+            mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
+            who = h.customerName, vehPlate = h.plate, veh = h.vehLabel,
+            customerId = h.customerId, vehicleId = h.vehicleId,
+            lines = emptyList(), acceptOpen = false, techId = null, time = null,
+            savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
+            intake = h,
+        )
     }
 
     fun loadQuotes() {
@@ -184,7 +204,20 @@ class QuoteViewModel @Inject constructor(
                 val saved = api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s))
                 saved to api.convertQuoteToJob(saved.id, s.techId)
             }.onSuccess { (saved, jobId) ->
-                _s.update { it.copy(busy = false, quoteId = saved.id, status = "accepted", createdJobId = jobId, acceptOpen = false) }
+                // Stamp what reception recorded onto the new job — best-effort; the
+                // job exists either way and the board still opens it.
+                s.intake?.let { h ->
+                    viewModelScope.launch {
+                        if (h.markerCount > 0) runCatching { api.setJobDamageMarkers(jobId, h.markers) }
+                        h.photoPaths.forEach { p ->
+                            runCatching {
+                                val tenant = catalog.tenantId() ?: return@runCatching
+                                api.insertJobPhotoRecord(tenant, jobId, p, "before")
+                            }
+                        }
+                    }
+                }
+                _s.update { it.copy(busy = false, quoteId = saved.id, status = "accepted", createdJobId = jobId, acceptOpen = false, intake = null) }
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
         }
     }

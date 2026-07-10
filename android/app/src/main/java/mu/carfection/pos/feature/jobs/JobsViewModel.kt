@@ -15,6 +15,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.money.centsToRupees
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.network.ChecklistItemDto
@@ -70,36 +71,26 @@ class JobsViewModel @Inject constructor(
     private val api: PosApi,
     private val catalog: CatalogRepository,
     private val outbox: OutboxRepository,
+    private val captures: CaptureBus,
 ) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
 
-    // A capture round-trip can tear down the Compose tree (external camera foregrounded on a
-    // memory-tight tablet), so the pending target lives on this Activity-scoped ViewModel and
-    // the launcher result is applied here. `returnToJobs` nudges the shell back to this screen
-    // afterwards, since the tab state does not survive that teardown.
-    private var pendingPhase: String? = null
-    private var pendingFile: File? = null
-    // StateFlow (not an event): a rebuild after the capture must still see the latched request.
-    private val _returnToJobs = MutableStateFlow(false)
-    val returnToJobs = _returnToJobs.asStateFlow()
-    fun consumeReturnToJobs() { _returnToJobs.value = false }
-
-    fun beginCapture(phase: String, file: File) { pendingPhase = phase; pendingFile = file }
-
-    fun onCaptureResult(ok: Boolean) {
-        val phase = pendingPhase; val file = pendingFile
-        pendingPhase = null; pendingFile = null
-        if (phase == null) return // not one of ours
-        if (ok && file != null && file.exists() && file.length() > 0) addPhoto(phase, file.readBytes())
-        runCatching { file?.delete() }
-        _returnToJobs.value = true
-    }
+    /** The camera round-trip is coordinated by [CaptureBus] — see its docs. */
+    fun beginCapture(phase: String, file: File) = captures.begin("jobs:$phase", file)
 
     init {
         load()
         viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
+        viewModelScope.launch {
+            captures.results.collect { r ->
+                if (r.target.startsWith("jobs:")) {
+                    addPhoto(r.target.substringAfter(':'), r.file.readBytes())
+                    runCatching { r.file.delete() }
+                }
+            }
+        }
     }
 
     // ── certificate issuing ────────────────────────────────────────────────────

@@ -494,16 +494,14 @@ private fun FlowRowPhotos(shots: List<JobPhotoDto>, urls: Map<String, String>) {
     }
 }
 
-/** Create a cache file + FileProvider URI, record it as pending on the ViewModel, fire the camera. */
+/** Create the capture temp file, record it as pending on the ViewModel, fire the camera. */
 private fun launchCapture(
     ctx: android.content.Context,
     phase: String,
     vm: JobsViewModel,
     camera: androidx.activity.result.ActivityResultLauncher<android.net.Uri>,
 ) {
-    val dir = java.io.File(ctx.cacheDir, "job_photos").apply { mkdirs() }
-    val file = java.io.File(dir, "cap-${System.currentTimeMillis()}.jpg")
-    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+    val (file, uri) = mu.carfection.pos.ui.newCaptureFile(ctx)
     vm.beginCapture(phase, file)
     camera.launch(uri)
 }

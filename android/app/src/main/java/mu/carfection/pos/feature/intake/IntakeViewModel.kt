@@ -8,12 +8,20 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.add
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.IntakeHandoff
+import mu.carfection.pos.core.data.IntakeHandoffBus
 import mu.carfection.pos.core.database.CustomerEntity
+import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.network.NewCustomerDto
 import mu.carfection.pos.core.network.NewVehicleDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.VehicleDto
+import java.io.File
 import javax.inject.Inject
 
 enum class DamageType(val label: String, val color: Color, val letter: String) {
@@ -39,21 +47,56 @@ data class IntakeState(
     val nvColour: String = "",
     val markerType: DamageType = DamageType.SCRATCH,
     val markers: List<DamageMarker> = emptyList(),
+    // intake condition photos: storage paths + signed thumbnail URLs
+    val photoPaths: List<String> = emptyList(),
+    val photoUrls: Map<String, String> = emptyMap(),
+    val photoUploading: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
-    val doneJobId: String? = null,
 )
 
 @HiltViewModel
 class IntakeViewModel @Inject constructor(
     private val catalog: CatalogRepository,
     private val api: PosApi,
+    private val captures: CaptureBus,
+    private val handoff: IntakeHandoffBus,
 ) : ViewModel() {
     private val _s = MutableStateFlow(IntakeState())
     val state = _s.asStateFlow()
     private var allCustomers: List<CustomerEntity> = emptyList()
 
-    init { viewModelScope.launch { catalog.customers.collect { allCustomers = it } } }
+    init {
+        viewModelScope.launch { catalog.customers.collect { allCustomers = it } }
+        viewModelScope.launch {
+            captures.results.collect { r ->
+                if (r.target == "intake") { addPhoto(r.file.readBytes()); runCatching { r.file.delete() } }
+            }
+        }
+    }
+
+    // ── condition photos ───────────────────────────────────────────────────────
+    /** The camera round-trip is coordinated by [CaptureBus] — see its docs. */
+    fun beginCapture(file: File) = captures.begin("intake", file)
+
+    private fun addPhoto(bytes: ByteArray) {
+        val vehicle = _s.value.vehicle ?: run { _s.update { it.copy(error = "Pick a vehicle before adding photos") }; return }
+        _s.update { it.copy(photoUploading = true) }
+        viewModelScope.launch {
+            runCatching {
+                val tenant = catalog.tenantId() ?: error("Not synced yet")
+                api.uploadIntakePhoto(tenant, vehicle.id, bytes)
+            }.onSuccess { path ->
+                val url = runCatching { api.signedPhotoUrl(path) }.getOrNull()
+                _s.update {
+                    it.copy(
+                        photoUploading = false, photoPaths = it.photoPaths + path,
+                        photoUrls = if (url != null) it.photoUrls + (path to url) else it.photoUrls,
+                    )
+                }
+            }.onFailure { e -> _s.update { it.copy(photoUploading = false, error = "Couldn't save the photo — ${e.message ?: "try again"}") } }
+        }
+    }
 
     fun setQuery(q: String) {
         val query = q.trim().lowercase()
@@ -114,16 +157,34 @@ class IntakeViewModel @Inject constructor(
     fun removeMarker(i: Int) = _s.update { it.copy(markers = it.markers.filterIndexed { j, _ -> j != i }) }
     fun clearMarkers() = _s.update { it.copy(markers = emptyList()) }
 
-    fun start() {
+    /**
+     * Intake ends at the QUOTATION, not a job (the job is created when the quote is
+     * accepted). Hands the builder the customer + vehicle, condition markers (as the
+     * jobs.damage_markers shape the web reads) and any intake photos, then resets for
+     * the next walk-in. Returns false when nothing is picked yet.
+     */
+    fun startQuotation(): Boolean {
         val st = _s.value
-        val c = st.customer ?: return
-        val v = st.vehicle ?: return
-        _s.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch {
-            runCatching { api.createJob(c.id, v.id, if (st.markers.isEmpty()) null else "Intake: ${st.markers.size} pre-existing damage marks") }
-                .onSuccess { id -> _s.update { it.copy(busy = false, doneJobId = id) } }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+        val c = st.customer ?: return false
+        val v = st.vehicle ?: return false
+        val markersJson = buildJsonArray {
+            st.markers.forEach { m ->
+                add(buildJsonObject {
+                    put("x", m.xFrac); put("y", m.yFrac)
+                    put("type", DamageType.entries.first { it.letter == m.letter }.label.lowercase())
+                })
+            }
         }
+        handoff.publish(
+            IntakeHandoff(
+                customerId = c.id, customerName = c.name,
+                vehicleId = v.id, plate = v.plate,
+                vehLabel = listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" },
+                markers = markersJson, markerCount = st.markers.size, photoPaths = st.photoPaths,
+            ),
+        )
+        _s.value = IntakeState()
+        return true
     }
 
     fun reset() { _s.value = IntakeState() }

@@ -1,8 +1,14 @@
 package mu.carfection.pos.feature.intake
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,13 +38,20 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import mu.carfection.pos.ui.FilledInput
+import mu.carfection.pos.ui.LocalPhotoCapture
+import mu.carfection.pos.ui.newCaptureFile
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentLine
@@ -61,7 +74,7 @@ private fun Modifier.card() = this.background(CardBg, CardShape).border(1.dp, Ha
 private val secLabel = 11.sp
 
 @Composable
-fun IntakeScreen(viewModel: IntakeViewModel = hiltViewModel()) {
+fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
 
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -84,14 +97,15 @@ fun IntakeScreen(viewModel: IntakeViewModel = hiltViewModel()) {
         // footer
         Row(Modifier.fillMaxWidth().card().padding(start = 18.dp, top = 11.dp, end = 12.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(viewModel.summary(s), Modifier.weight(1f), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val ready = s.customer != null && s.vehicle != null && !s.busy
+            val ready = s.customer != null && s.vehicle != null && !s.photoUploading
             Box(
-                Modifier.height(54.dp).background(if (ready) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ready) { viewModel.start() }.padding(horizontal = 30.dp),
+                Modifier.height(54.dp).background(if (ready) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                    .clickable(enabled = ready) { if (viewModel.startQuotation()) onStartQuote() }
+                    .padding(horizontal = 30.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text(if (s.busy) "Starting…" else "Start quotation →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.5.sp, letterSpacing = 0.3.sp, color = if (ready) AccentInk else TextMuted) }
+            ) { Text("Start quotation →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.5.sp, letterSpacing = 0.3.sp, color = if (ready) AccentInk else TextMuted) }
         }
     }
-    s.doneJobId?.let { StartedDialog(it, onNew = viewModel::reset) }
 }
 
 @Composable
@@ -210,8 +224,43 @@ private fun ConditionCard(s: IntakeState, vm: IntakeViewModel, modifier: Modifie
                 Spacer(Modifier.height(12.dp))
                 Text("PHOTOS", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = secLabel, letterSpacing = 1.6.sp, color = TextMuted)
                 Spacer(Modifier.height(8.dp))
-                Box(Modifier.fillMaxWidth().height(58.dp).border(1.5.dp, Color(0x40101A24), RoundedCornerShape(10.dp)).clickable { }, contentAlignment = Alignment.Center) {
-                    Text("＋ ADD", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.5.sp, color = TextSecondary)
+                // camera launcher lives on the Activity (survives the camera round-trip);
+                // this column only starts the capture and renders the thumbnails
+                val ctx = LocalContext.current
+                val launcher = LocalPhotoCapture.current
+                fun fire() {
+                    val l = launcher ?: return
+                    val (file, uri) = newCaptureFile(ctx)
+                    vm.beginCapture(file)
+                    l.launch(uri)
+                }
+                val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted -> if (granted) fire() }
+                if (s.photoPaths.isNotEmpty()) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        s.photoPaths.forEach { p ->
+                            Box(Modifier.size(50.dp).clip(RoundedCornerShape(9.dp)).background(Inset).border(1.dp, Hairline, RoundedCornerShape(9.dp)), contentAlignment = Alignment.Center) {
+                                val url = s.photoUrls[p]
+                                if (url != null) AsyncImage(model = url, contentDescription = "Intake photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                                else Text("…", color = TextMuted, fontSize = 12.sp)
+                            }
+                        }
+                    }
+                    Spacer(Modifier.height(8.dp))
+                }
+                val canAdd = s.vehicle != null && !s.photoUploading
+                Box(
+                    Modifier.fillMaxWidth().height(58.dp).border(1.5.dp, Color(0x40101A24), RoundedCornerShape(10.dp))
+                        .alpha(if (canAdd) 1f else 0.45f)
+                        .clickable(enabled = canAdd) {
+                            if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) fire()
+                            else permission.launch(Manifest.permission.CAMERA)
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (s.photoUploading) "UPLOADING…" else if (s.vehicle == null) "＋ ADD (pick a vehicle)" else "＋ ADD",
+                        fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, letterSpacing = 0.5.sp, color = TextSecondary,
+                    )
                 }
             }
         }
@@ -230,15 +279,4 @@ private fun ConditionCard(s: IntakeState, vm: IntakeViewModel, modifier: Modifie
 }
 @Composable private fun FormInput(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, mono: Boolean = false) {
     FilledInput(value, onChange, placeholder, modifier.fillMaxWidth(), height = 48.dp, radius = 11.dp, bg = CardBg, fontFamily = if (mono) Mono else Barlow, fontSize = if (mono) 14.5.sp else 15.sp)
-}
-
-@Composable
-private fun StartedDialog(jobId: String, onNew: () -> Unit) {
-    androidx.compose.ui.window.Dialog(onDismissRequest = onNew) {
-        Column(Modifier.width(380.dp).card().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Job started", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
-            Text("JOB-${jobId.take(4).uppercase()} created for quotation.", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
-            FillBtn("New intake", Modifier.fillMaxWidth()) { onNew() }
-        }
-    }
 }

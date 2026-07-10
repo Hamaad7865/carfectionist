@@ -202,6 +202,27 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     suspend fun signedPhotoUrl(storagePath: String): String =
         photoBucket.createSignedUrl(storagePath, 60.minutes)
 
+    /**
+     * Intake condition photo — uploaded under the vehicle (there is no job yet); the
+     * returned path is carried through the quote and rowed as a 'before' job photo when
+     * the quote is accepted. Same bucket, same tenant-first RLS path rule.
+     */
+    suspend fun uploadIntakePhoto(tenantId: String, vehicleId: String, bytes: ByteArray): String {
+        val path = "$tenantId/vehicles/$vehicleId/intake-${java.util.UUID.randomUUID()}.jpg"
+        photoBucket.upload(path, bytes) { upsert = false }
+        return path
+    }
+
+    /** Row an already-uploaded photo against a job (used when a quote becomes a job). */
+    suspend fun insertJobPhotoRecord(tenantId: String, jobId: String, storagePath: String, phase: String) {
+        client.postgrest.from("job_photos").insert(NewJobPhotoDto(tenantId, jobId, storagePath, phase))
+    }
+
+    /** Stamp intake damage markers onto the job created from a quote. */
+    suspend fun setJobDamageMarkers(jobId: String, markers: JsonArray) {
+        client.postgrest.from("jobs").update({ set("damage_markers", markers) }) { filter { eq("id", jobId) } }
+    }
+
     /** In progress → ready (complete_job also records any stock consumption). */
     suspend fun markJobReady(jobId: String) {
         client.postgrest.rpc("complete_job", buildJsonObject {

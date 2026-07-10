@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.SessionRepository
+import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.sync.ConnectivityObserver
 import mu.carfection.pos.core.sync.OutboxRepository
 import mu.carfection.pos.feature.counter.CounterScreen
@@ -32,7 +33,6 @@ import mu.carfection.pos.feature.dash.DashScreen
 import androidx.compose.runtime.LaunchedEffect
 import mu.carfection.pos.feature.intake.IntakeScreen
 import mu.carfection.pos.feature.jobs.JobsScreen
-import mu.carfection.pos.feature.jobs.JobsViewModel
 import mu.carfection.pos.feature.login.LoginScreen
 import mu.carfection.pos.feature.quote.QuoteScreen
 import mu.carfection.pos.feature.settings.SettingsScreen
@@ -45,12 +45,17 @@ class RootViewModel @Inject constructor(
     private val session: SessionRepository,
     connectivity: ConnectivityObserver,
     outbox: OutboxRepository,
+    private val captures: CaptureBus,
 ) : ViewModel() {
     val isLoggedIn = session.isLoggedIn
     val staffName: String get() = session.userName
     val staffRole: String get() = session.userRole
     val online = connectivity.online
     val pendingSync = outbox.pending
+
+    /** Tab to snap back to after a camera round-trip ("jobs" | "intake"), latched by CaptureBus. */
+    val captureReturnTo = captures.returnTo
+    fun consumeCaptureReturn() = captures.consumeReturn()
 
     /**
      * The intro plays once per process. It lives here rather than in `rememberSaveable`
@@ -96,12 +101,14 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                     if (showTill) showTill = false
                     else tab = tabStack.removeAt(tabStack.lastIndex)
                 }
-                // After a photo capture (which can tear down + rebuild this tree), the Jobs
-                // ViewModel survives with its open job; snap the shell back to that screen.
-                val jobsVm: JobsViewModel = hiltViewModel()
-                val returnToJobs by jobsVm.returnToJobs.collectAsState()
-                LaunchedEffect(returnToJobs) {
-                    if (returnToJobs) { navigate(PosTab.JOBS); jobsVm.consumeReturnToJobs() }
+                // After a photo capture (which can tear down + rebuild this tree), the
+                // feature's ViewModel survives with its state; snap the shell back to it.
+                val captureReturn by rootViewModel.captureReturnTo.collectAsState()
+                LaunchedEffect(captureReturn) {
+                    when (captureReturn) {
+                        "jobs" -> { navigate(PosTab.JOBS); rootViewModel.consumeCaptureReturn() }
+                        "intake" -> { navigate(PosTab.INTAKE); rootViewModel.consumeCaptureReturn() }
+                    }
                 }
                 val online by rootViewModel.online.collectAsState()
                 val pendingSync by rootViewModel.pendingSync.collectAsState(initial = 0)
@@ -119,7 +126,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                         PosTab.SALE ->
                             if (showTill) TillScreen(onBack = { showTill = false }, onOpened = { showTill = false })
                             else CounterScreen(onOpenTill = { showTill = true })
-                        PosTab.INTAKE -> IntakeScreen()
+                        PosTab.INTAKE -> IntakeScreen(onStartQuote = { navigate(PosTab.QUOTE) })
                         PosTab.QUOTE -> QuoteScreen(onGoIntake = { navigate(PosTab.INTAKE) })
                         PosTab.JOBS -> JobsScreen(onGoIntake = { navigate(PosTab.INTAKE) }, onGoCheckout = { navigate(PosTab.SALE) })
                         PosTab.STOCK -> StockScreen()
