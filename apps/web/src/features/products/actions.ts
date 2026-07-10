@@ -3,10 +3,26 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth/session";
+import { requireRole, type SessionContext } from "@/lib/auth/session";
+import { logAudit } from "@/lib/supabase/audit";
 
 const ROLES = ["owner", "manager"] as const;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
+
+/** Record a manual selling/cost price change (there's no price-history table). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function logPriceChange(sb: any, ctx: SessionContext, id: string, name: string, before: any, sellingTo: number, costTo: number) {
+  if (!before) return;
+  const sFrom = Number(before.selling_price), cFrom = Number(before.cost_price);
+  const sChanged = Math.abs(sFrom - sellingTo) > 0.0001;
+  const cChanged = Math.abs(cFrom - costTo) > 0.0001;
+  if (!sChanged && !cChanged) return;
+  const { data: me } = await sb.from("app_users").select("id").eq("auth_user_id", ctx.userId).maybeSingle();
+  await logAudit(sb, {
+    tenantId: ctx.tenantId, actorId: me?.id ?? null, eventType: "price_changed", refType: "product", refId: id,
+    payload: { name, ...(sChanged ? { sellingFrom: sFrom, sellingTo } : {}), ...(cChanged ? { costFrom: cFrom, costTo } : {}) },
+  });
+}
 
 // Prices may carry thousands separators / spaces from the input (e.g. "32,000").
 const parseNum = (v: string | number) => (typeof v === "number" ? v : parseFloat(String(v).replace(/[,\s]/g, "")));
@@ -65,8 +81,10 @@ export async function saveProductAction(input: z.input<typeof schema>): Promise<
   };
 
   if (p.data.id) {
+    const { data: before } = await sb.from("products").select("selling_price, cost_price").eq("id", p.data.id).maybeSingle();
     const { error } = await sb.from("products").update(row).eq("id", p.data.id);
     if (error) return { ok: false, error: friendly(error.message) };
+    await logPriceChange(sb, ctx, p.data.id, p.data.name, before, p.data.sellingPrice, p.data.costPrice);
     revalidatePath("/products");
     return { ok: true, data: { id: p.data.id } };
   }

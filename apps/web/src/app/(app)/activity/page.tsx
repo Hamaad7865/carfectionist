@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ReceiptText, Banknote, Package, Wallet, Wrench, ShieldCheck, AlertTriangle, Circle, type LucideIcon } from "lucide-react";
+import { ReceiptText, Banknote, Package, Wallet, Wrench, ShieldCheck, AlertTriangle, Circle, LogIn, type LucideIcon } from "lucide-react";
 import { getActivity, ACTIVITY_CATEGORIES, type ActivityTone } from "@/lib/supabase/queries/activity";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { PersonFilter } from "@/features/activity/PersonFilter";
@@ -14,6 +14,7 @@ const TONE: Record<ActivityTone, { icon: LucideIcon; color: string; bg: string }
   admin: { icon: ShieldCheck, color: "#3d4a59", bg: "rgba(15,23,32,0.07)" },
   warn: { icon: AlertTriangle, color: "#d63b50", bg: "rgba(214,59,80,0.1)" },
   neutral: { icon: Circle, color: "#8c96a1", bg: "rgba(15,23,32,0.05)" },
+  auth: { icon: LogIn, color: "#5a6673", bg: "rgba(15,23,32,0.06)" },
 };
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

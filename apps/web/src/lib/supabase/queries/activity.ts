@@ -1,8 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents, formatMUR } from "@/lib/money";
 
-export type ActivityTone = "sale" | "money" | "stock" | "cash" | "job" | "admin" | "warn" | "neutral";
-export type ActivityCategory = "sales" | "payments" | "stock" | "cash" | "jobs" | "admin";
+export type ActivityTone = "sale" | "money" | "stock" | "cash" | "job" | "admin" | "warn" | "neutral" | "auth";
+export type ActivityCategory = "sales" | "payments" | "stock" | "cash" | "jobs" | "admin" | "catalogue" | "auth";
 
 export interface ActivityEvent {
   id: string;
@@ -30,7 +30,9 @@ export const ACTIVITY_CATEGORIES: { key: ActivityCategory; label: string }[] = [
   { key: "stock", label: "Stock" },
   { key: "cash", label: "Cash-up" },
   { key: "jobs", label: "Jobs" },
+  { key: "catalogue", label: "Catalogue" },
   { key: "admin", label: "Staff & admin" },
+  { key: "auth", label: "Sign-ins" },
 ];
 
 const MU = "+04:00";
@@ -51,18 +53,19 @@ export async function getActivity(f: ActivityFilters): Promise<ActivityData> {
     return q;
   };
 
-  const [usersRes, locRes, docRes, payRes, auditRes, adjRes, refMvRes, transRes, cashRes, jobRes, poRes] = await Promise.all([
+  const [usersRes, locRes, docRes, payRes, auditRes, adjRes, refMvRes, transRes, cashRes, jobRes, poRes, certRes] = await Promise.all([
     sb.from("app_users").select("id, display_name"),
     sb.from("stock_locations").select("id, name"),
-    range("issued_at", sb.from("documents").select("id, number, doc_type, total_incl, issued_at, created_by, customers(name)").not("issued_at", "is", null).in("doc_type", ["invoice", "quote"])).order("issued_at", { ascending: false }).limit(PER),
+    range("issued_at", sb.from("documents").select("id, number, doc_type, total_incl, issued_at, created_by, issued_by, customers(name)").not("issued_at", "is", null).in("doc_type", ["invoice", "quote"])).order("issued_at", { ascending: false }).limit(PER),
     range("received_at", sb.from("payments").select("id, amount, method, received_at, received_by, document_id, documents(number)").is("reverses_payment_id", null)).order("received_at", { ascending: false }).limit(PER),
     range("created_at", sb.from("audit_events").select("id, event_type, actor_id, ref_type, ref_id, payload, created_at")).order("created_at", { ascending: false }).limit(PER),
     range("moved_at", sb.from("stock_movements").select("id, qty, note, moved_at, created_by, products(name, unit), stock_locations(name)").eq("ref_type", "adjustment")).order("moved_at", { ascending: false }).limit(PER),
     range("moved_at", sb.from("stock_movements").select("ref_id, created_by").in("ref_type", ["purchase_order", "job_card"])).order("moved_at", { ascending: false }).limit(500),
     sb.from("stock_transfers").select("id, from_location_id, to_location_id, dispatched_at, dispatched_by, received_at, received_by, created_at").neq("status", "draft").order("created_at", { ascending: false }).limit(PER),
     sb.from("cash_sessions").select("id, opened_at, opened_by, closed_at, closed_by, variance, device_id").order("opened_at", { ascending: false }).limit(PER),
-    sb.from("jobs").select("id, created_at, created_by, ready_at, vehicles(plate, make, model)").order("created_at", { ascending: false }).limit(PER),
+    sb.from("jobs").select("id, created_at, created_by, ready_at, completed_by, vehicles(plate, make, model)").order("created_at", { ascending: false }).limit(PER),
     range("received_at", sb.from("purchase_orders").select("id, reference, received_at, suppliers(name)").not("received_at", "is", null)).order("received_at", { ascending: false }).limit(PER),
+    range("created_at", sb.from("certificates").select("id, number, created_at, created_by, customers(name)")).order("created_at", { ascending: false }).limit(PER),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -77,7 +80,7 @@ export async function getActivity(f: ActivityFilters): Promise<ActivityData> {
   for (const d of (docRes.data ?? []) as any[]) {
     const isQuote = d.doc_type === "quote";
     events.push({
-      id: `doc-${d.id}`, at: d.issued_at, actorId: d.created_by, actorName: nm(d.created_by),
+      id: `doc-${d.id}`, at: d.issued_at, actorId: d.issued_by ?? d.created_by, actorName: nm(d.issued_by ?? d.created_by),
       kind: isQuote ? "quote_issued" : "sale_issued", category: "sales",
       title: `${isQuote ? "Quote" : "Invoice"} ${d.number ?? ""} issued`.trim(),
       detail: d.customers?.name ?? "—", amountCents: rupeesToCents(Number(d.total_incl)),
@@ -130,7 +133,7 @@ export async function getActivity(f: ActivityFilters): Promise<ActivityData> {
     const veh = (j.vehicles ? `${j.vehicles.make ?? ""} ${j.vehicles.model ?? ""}`.trim() || j.vehicles.plate : "") || "vehicle";
     events.push({ id: `jbo-${j.id}`, at: j.created_at, actorId: j.created_by, actorName: nm(j.created_by), kind: "job_opened", category: "jobs", title: `Job opened · ${veh}`, detail: j.vehicles?.plate ?? "—", amountCents: null, href: `/jobs/${j.id}`, tone: "job" });
     if (j.ready_at) {
-      const actor = refActor.get(j.id) ?? null;
+      const actor = j.completed_by ?? refActor.get(j.id) ?? null;
       events.push({ id: `jbc-${j.id}`, at: j.ready_at, actorId: actor, actorName: nm(actor), kind: "job_completed", category: "jobs", title: `Job completed · ${veh}`, detail: j.vehicles?.plate ?? "—", amountCents: null, href: `/jobs/${j.id}`, tone: "job" });
     }
   }
@@ -138,6 +141,10 @@ export async function getActivity(f: ActivityFilters): Promise<ActivityData> {
   for (const po of (poRes.data ?? []) as any[]) {
     const actor = refActor.get(po.id) ?? null;
     events.push({ id: `po-${po.id}`, at: po.received_at, actorId: actor, actorName: nm(actor), kind: "po_received", category: "stock", title: `Purchase order received${po.reference ? ` · ${po.reference}` : ""}`, detail: po.suppliers?.name ?? "—", amountCents: null, href: "/purchases?tab=orders", tone: "stock" });
+  }
+
+  for (const ct of (certRes.data ?? []) as any[]) {
+    events.push({ id: `cert-${ct.id}`, at: ct.created_at, actorId: ct.created_by, actorName: nm(ct.created_by), kind: "certificate_issued", category: "sales", title: `Certificate ${ct.number ?? ""} issued`.trim(), detail: ct.customers?.name ?? "—", amountCents: null, href: "/certificates", tone: "sale" });
   }
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -195,6 +202,20 @@ function mapAudit(a: any, nm: (id: string | null) => string): ActivityEvent | nu
       return { ...base, kind: "job_from_doc", category: "jobs", title: "Job created from a document", detail: "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "neutral" };
     case "quote_converted_to_job":
       return { ...base, kind: "quote_to_job", category: "jobs", title: "Quote converted to a job", detail: "—", amountCents: null, href: a.ref_id ? `/sales/${a.ref_id}` : null, tone: "neutral" };
+    case "price_changed": {
+      const parts: string[] = [];
+      if (p.sellingFrom != null && p.sellingTo != null) parts.push(`Selling ${formatMUR(rupeesToCents(Number(p.sellingFrom)))} → ${formatMUR(rupeesToCents(Number(p.sellingTo)))}`);
+      if (p.costFrom != null && p.costTo != null) parts.push(`Cost ${formatMUR(rupeesToCents(Number(p.costFrom)))} → ${formatMUR(rupeesToCents(Number(p.costTo)))}`);
+      return { ...base, kind: "price_changed", category: "catalogue", title: `Price changed${p.name ? ` — ${p.name}` : ""}`, detail: parts.join(" · ") || "—", amountCents: null, href: "/products", tone: "money" };
+    }
+    case "job_started":
+      return { ...base, kind: "job_started", category: "jobs", title: "Job started", detail: "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
+    case "job_delivered":
+      return { ...base, kind: "job_delivered", category: "jobs", title: "Job delivered", detail: "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
+    case "technician_assigned":
+      return { ...base, kind: "technician_assigned", category: "jobs", title: "Technician assigned", detail: p.tech ? String(p.tech) : "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
+    case "signed_in":
+      return { ...base, kind: "signed_in", category: "auth", title: "Signed in", detail: p.device === "pos" ? "POS tablet" : "Web", amountCents: null, href: null, tone: "auth" };
     default: {
       const title = ADMIN_TITLE[a.event_type as string];
       if (!title) return null;

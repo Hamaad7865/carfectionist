@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { logAudit } from "@/lib/supabase/audit";
 
 // The tablet POSTs {appUserId, pin} after a staff member taps their name and
 // enters their PIN. We verify the PIN (with DB lockout), then mint that
@@ -58,6 +59,14 @@ export async function POST(req: Request) {
   const { data: otp, error: oErr } = await anon.auth.verifyOtp({ type: "magiclink", token_hash: tokenHash });
   const session = otp?.session;
   if (oErr || !session) return json({ error: "server_error" }, 500);
+
+  // Record the POS sign-in for the Activity log (best-effort).
+  try {
+    const { data: au } = await admin.from("app_users").select("tenant_id").eq("id", appUserId).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tenantId = (au as any)?.tenant_id;
+    if (tenantId) await logAudit(admin, { tenantId, actorId: appUserId, eventType: "signed_in", refType: "app_user", refId: appUserId, payload: { device: "pos" } });
+  } catch { /* ignore */ }
 
   return json({
     accessToken: session.access_token,

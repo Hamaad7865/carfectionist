@@ -37,6 +37,10 @@ export async function createCertificateAction(input: z.infer<typeof schema>): Pr
   if (p.data.productId && !(await existsInTenant(sb, "products", p.data.productId))) return { ok: false, error: "Unknown treatment." };
 
   const expiresAt = addMonths(p.data.appliedAt, p.data.warrantyMonths);
+  // Stamp who issued the certificate (the column existed but was never written).
+  const { data: me } = await sb.from("app_users").select("id").eq("auth_user_id", ctx.userId).maybeSingle();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const createdBy = (me as any)?.id ?? null;
 
   // App-assigned CERT number; retry on the (tenant, number) unique collision.
   // Order by NUMBER (not applied_at) so a backdated cert can't hide the true max,
@@ -55,6 +59,7 @@ export async function createCertificateAction(input: z.infer<typeof schema>): Pr
     const { error } = await sb.from("certificates").insert({
       tenant_id: ctx.tenantId,
       number,
+      created_by: createdBy,
       customer_id: p.data.customerId,
       vehicle_id: p.data.vehicleId,
       product_id: p.data.productId || null,

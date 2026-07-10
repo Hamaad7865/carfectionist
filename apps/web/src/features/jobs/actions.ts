@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { requireRole } from "@/lib/auth/session";
+import { requireRole, type SessionContext } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
+import { logAudit } from "@/lib/supabase/audit";
 import * as rpc from "@/lib/supabase/rpc";
 
 const ROLES = ["owner", "manager", "cashier", "technician"] as const;
@@ -15,6 +16,11 @@ type Result<T = undefined> = Ok<T> | { ok: false; error: string };
 async function appUserId(sb: any, authUserId: string): Promise<string | null> {
   const { data } = await sb.from("app_users").select("id").eq("auth_user_id", authUserId).maybeSingle();
   return data?.id ?? null;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function jobAudit(sb: any, ctx: SessionContext, eventType: string, jobId: string, payload: Record<string, unknown> = {}) {
+  await logAudit(sb, { tenantId: ctx.tenantId, actorId: await appUserId(sb, ctx.userId), eventType, refType: "job", refId: jobId, payload });
 }
 
 const DEFAULT_CHECKLIST = [
@@ -95,18 +101,25 @@ export async function setJobDepartmentAction(jobId: string, department: string |
 }
 
 export async function assignTechnicianAction(jobId: string, technicianId: string | null): Promise<Result> {
-  await requireRole(...ROLES);
+  const ctx = await requireRole(...ROLES);
   const sb = await createClient();
   if (technicianId && !(await existsInTenant(sb, "app_users", technicianId))) return { ok: false, error: "Unknown technician." };
   const { error } = await sb.from("jobs").update({ technician_id: technicianId }).eq("id", jobId);
   if (error) return { ok: false, error: error.message };
+  let tech = "Unassigned";
+  if (technicianId) {
+    const { data } = await sb.from("app_users").select("display_name").eq("id", technicianId).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tech = (((data as any)?.display_name ?? "") as string).replace(/\s*\(.*\)\s*$/, "").trim() || "a technician";
+  }
+  await jobAudit(sb, ctx, "technician_assigned", jobId, { tech });
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/jobs");
   return { ok: true };
 }
 
 export async function setJobStatusAction(jobId: string, status: "scheduled" | "in_progress" | "ready" | "delivered"): Promise<Result> {
-  await requireRole(...ROLES);
+  const ctx = await requireRole(...ROLES);
   const sb = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const patch: Record<string, any> = { status };
@@ -114,6 +127,8 @@ export async function setJobStatusAction(jobId: string, status: "scheduled" | "i
   if (status === "delivered") patch.delivered_at = new Date().toISOString();
   const { error } = await sb.from("jobs").update(patch).eq("id", jobId);
   if (error) return { ok: false, error: error.message };
+  if (status === "in_progress") await jobAudit(sb, ctx, "job_started", jobId);
+  else if (status === "delivered") await jobAudit(sb, ctx, "job_delivered", jobId);
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/jobs");
   return { ok: true };
