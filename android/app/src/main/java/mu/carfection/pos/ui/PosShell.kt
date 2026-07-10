@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
@@ -84,9 +84,10 @@ fun PosShell(
     onStaffClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
-    // Edge-to-edge (targetSdk 35): inset below the status bar so the clock/battery
-    // never overlap the header wordmark or the staff chip.
-    Column(Modifier.fillMaxSize().background(ScreenBg).windowInsetsPadding(WindowInsets.statusBars)) {
+    // Edge-to-edge (targetSdk 35): inset for BOTH system bars — the status bar so the
+    // clock/battery never overlap the header, and the navigation bar so Samsung's One UI
+    // taskbar (a full-height bottom bar on the real tablet) never covers footer buttons.
+    Column(Modifier.fillMaxSize().background(ScreenBg).windowInsetsPadding(WindowInsets.systemBars)) {
         Header(studioName, staffName, staffRole, online, pendingSync, onStaffClick)
         Row(Modifier.fillMaxSize()) {
             NavRail(active, onSelect)
