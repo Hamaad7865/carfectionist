@@ -75,6 +75,18 @@ async function pinLogin(req: Request): Promise<Response> {
   const session = otp?.session;
   if (oErr || !session) return json({ error: "server_error" }, 500);
 
+  // Record the POS sign-in for the Activity log (best-effort, mirrors the web route).
+  try {
+    const { data: au } = await svc.from("app_users").select("tenant_id").eq("id", appUserId).maybeSingle();
+    const tenantId = (au as { tenant_id?: string } | null)?.tenant_id;
+    if (tenantId) {
+      await svc.from("audit_events").insert({
+        tenant_id: tenantId, actor_id: appUserId, event_type: "signed_in",
+        ref_type: "app_user", ref_id: appUserId, payload: { device: "pos" },
+      });
+    }
+  } catch { /* never let audit failure break the sign-in */ }
+
   return json({
     accessToken: session.access_token,
     refreshToken: session.refresh_token,
