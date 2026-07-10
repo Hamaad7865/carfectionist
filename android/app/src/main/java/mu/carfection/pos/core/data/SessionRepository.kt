@@ -12,9 +12,13 @@ import io.github.jan.supabase.auth.user.UserSession
 import mu.carfection.pos.core.network.PinSessionDto
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -25,6 +29,20 @@ class SessionRepository @Inject constructor(
     private val prefs: DataStore<Preferences>,
 ) {
     private val deviceKey = stringPreferencesKey("device_id")
+    private val opNameKey = stringPreferencesKey("op_name")
+    private val opRoleKey = stringPreferencesKey("op_role")
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    init {
+        // Restore the operator identity persisted at last login, so a process restart shows the
+        // right name/role even when the post-login metadata refresh had failed (importSession keeps
+        // user=null, so currentUser metadata would otherwise be blank → generic "Staff"/"POS").
+        scope.launch {
+            val p = prefs.data.first()
+            if (opName == null) opName = p[opNameKey]
+            if (opRole == null) opRole = p[opRoleKey]
+        }
+    }
 
     /** null = still restoring; true/false = known. */
     val isLoggedIn: Flow<Boolean?> = client.auth.sessionStatus.map { status ->
@@ -70,6 +88,9 @@ class SessionRepository @Inject constructor(
     suspend fun signInWithPin(s: PinSessionDto) {
         opName = s.operator.displayName
         opRole = s.operator.role
+        // Durably remember who signed in — the metadata refresh below can fail on a flaky link and
+        // isn't retried, so this is what a restart falls back to (see the init block).
+        runCatching { prefs.edit { it[opNameKey] = s.operator.displayName; it[opRoleKey] = s.operator.role } }
         val nowSec = System.currentTimeMillis() / 1000
         val expiresIn = ((s.expiresAt ?: (nowSec + 3600)) - nowSec).coerceAtLeast(60)
         client.auth.importSession(
@@ -86,6 +107,7 @@ class SessionRepository @Inject constructor(
 
     suspend fun signOut() {
         opName = null; opRole = null
+        runCatching { prefs.edit { it.remove(opNameKey); it.remove(opRoleKey) } }
         client.auth.signOut()
     }
 
