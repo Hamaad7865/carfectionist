@@ -10,6 +10,7 @@ import {
   Inbox,
   BadgeCheck,
   Settings2,
+  History,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +48,7 @@ export const NAV: NavItem[] = [
   { label: "Accounting & Reports", href: "/reports", icon: BarChart3, roles: ["owner", "manager", "accountant"] },
   { label: "Forms & Enquiries", href: "/enquiries", icon: Inbox, roles: ["owner", "manager"] },
   { label: "Team & Settings", href: "/settings", icon: Settings2, roles: ["owner", "manager"] },
+  { label: "Activity", href: "/activity", icon: History, roles: ["owner"] },
 ];
 
 export function navForRole(role: Role): NavItem[] {
@@ -58,8 +60,9 @@ export function navForRole(role: Role): NavItem[] {
 // Owners are always full-access; Dashboard is always available to everyone.
 export const ALWAYS_ON = ["/dashboard"];
 
-/** The nav sections an owner can toggle per user (everything except Dashboard). */
-export const TOGGLEABLE_MODULES = NAV.filter((n) => !ALWAYS_ON.includes(n.href)).map((n) => ({ href: n.href, label: n.label }));
+/** The nav sections an owner can toggle per user (everything except Dashboard and
+ *  owner-only sections like Activity, which no non-owner can be granted). */
+export const TOGGLEABLE_MODULES = NAV.filter((n) => !ALWAYS_ON.includes(n.href) && n.roles.some((r) => r !== "owner")).map((n) => ({ href: n.href, label: n.label }));
 
 export function defaultModulesForRole(role: Role): string[] {
   return NAV.filter((n) => n.roles.includes(role)).map((n) => n.href);
