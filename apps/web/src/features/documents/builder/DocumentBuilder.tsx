@@ -173,12 +173,12 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   return (
     <div className="flex h-full flex-col bg-app">
       {/* Toolbar */}
-      <div className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-sub px-[22px]">
+      <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-line bg-sub px-4 py-2 md:gap-3 md:px-[22px]">
         <Link href="/sales" className="flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[12.5px] font-semibold text-body">
           <ChevronLeft size={15} /> Back
         </Link>
         <span className="font-display text-[15px] font-extrabold text-ink-strong">Document builder</span>
-        <span className="text-[12px] text-faint">· live preview updates as you build</span>
+        <span className="hidden text-[12px] text-faint lg:inline">· live preview updates as you build</span>
         <span className="num text-[12px] text-muted">{state.number ?? ""}</span>
         {readOnly && <StatusPill status={state.status} />}
         <span className="text-[11px] text-faint">
@@ -221,9 +221,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
 
       <div className={`grid min-h-0 flex-1 grid-cols-1 ${showPreview ? "lg:grid-cols-2" : ""}`}>
         {/* CONTROLS */}
-        <div className="flex flex-col gap-4 overflow-y-auto p-[22px]">
+        <div className="flex flex-col gap-4 overflow-y-auto p-4 md:p-[22px]">
           {/* doc type + bill to */}
-          <div className="grid grid-cols-2 gap-3.5">
+          <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             <div>
               <div className={`${label} mb-2.5`}>Document type</div>
               <div className="flex gap-0 rounded-[11px] border border-line-2 bg-sub p-1">
@@ -333,8 +333,8 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                 {state.lines.map((l) => {
                   const net = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct }).exclCents;
                   return (
-                    <div key={l.key} className="flex items-center gap-2.5 rounded-[11px] border border-line bg-card px-3 py-2.5">
-                      <div className="min-w-0 flex-1">
+                    <div key={l.key} className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-card px-3 py-2.5">
+                      <div className="min-w-0 flex-1 basis-full sm:basis-0">
                         <div className="truncate text-[13px] font-semibold text-ink">{l.title || "—"}</div>
                         {l.productId === null && <span className="text-[8.5px] font-bold tracking-[0.1em] text-[#6a55d6]">AD-HOC</span>}
                       </div>

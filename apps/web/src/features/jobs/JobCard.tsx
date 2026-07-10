@@ -104,7 +104,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const consumeName = (id: string) => refData.consumables.find((p) => p.id === id)?.name ?? id;
 
   return (
-    <div className="mx-auto max-w-3xl p-6">
+    <div className="mx-auto max-w-3xl p-4 sm:p-6">
       <Link href="/jobs" className="text-[13px] font-semibold text-muted hover:text-body">← Jobs board</Link>
 
       <div className="mt-3 flex items-start justify-between gap-4">
@@ -139,7 +139,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
       <div className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[13px] border border-line bg-card px-4 py-3">
         <span className="text-[13px] font-semibold text-body">Assigned to</span>
         <select
-          className={field}
+          className={`${field} w-full sm:w-auto sm:max-w-[220px]`}
           value={job.technicianId ?? ""}
           disabled={readOnly}
           onChange={(e) => run(() => assignTechnicianAction(job.id, e.target.value || null))}
@@ -149,7 +149,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         </select>
         <span className="ml-2 text-[13px] font-semibold text-body">Place of work</span>
         <select
-          className={field}
+          className={`${field} w-full sm:w-auto sm:max-w-[220px]`}
           value={job.department ?? ""}
           disabled={readOnly}
           onChange={(e) => run(() => setJobDepartmentAction(job.id, e.target.value || null))}
@@ -284,7 +284,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
             </div>
           ))}
           <div className="flex gap-2">
-            <select className={`${field} flex-1`} value={cProd} onChange={(e) => setCProd(e.target.value)}>
+            <select className={`${field} min-w-0 flex-1`} value={cProd} onChange={(e) => setCProd(e.target.value)}>
               <option value="">— consumable —</option>
               {refData.consumables.map((p) => <option key={p.id} value={p.id}>{p.name} ({p.unit})</option>)}
             </select>
