@@ -373,7 +373,8 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
               <button
                 key={m.key}
                 onClick={() => setMethod(m.key)}
-                className={`inline-flex h-9 items-center justify-center rounded-[9px] text-[12px] font-bold ${method === m.key ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
+                disabled={frozen}
+                className={`inline-flex h-9 items-center justify-center rounded-[9px] text-[12px] font-bold disabled:cursor-not-allowed disabled:opacity-50 ${method === m.key ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
               >
                 {m.label}
               </button>
@@ -383,10 +384,11 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           {method === "cash" ? (
             <div className="mt-2">
               <input
-                className="h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-right text-[14px] text-ink outline-none focus:border-brand"
+                className="h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-right text-[14px] text-ink outline-none focus:border-brand read-only:opacity-60"
                 placeholder="Cash tendered (Rs)"
                 value={tender}
                 onChange={(e) => setTender(e.target.value)}
+                readOnly={frozen}
                 inputMode="decimal"
               />
               {changeCents != null && changeCents >= 0 && (
@@ -399,10 +401,11 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
             </div>
           ) : (
             <input
-              className="mt-2 h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand"
+              className="mt-2 h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand read-only:opacity-60"
               placeholder="Approval / reference no."
               value={ref}
               onChange={(e) => setRef(e.target.value)}
+              readOnly={frozen}
             />
           )}
 

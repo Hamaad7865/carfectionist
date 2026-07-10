@@ -259,15 +259,24 @@ class SaleRepository @Inject constructor(
     ): SaleResult {
         require(method != PayMethod.CREDIT) { "Choose a payment method." }
         val tendered = if (method == PayMethod.CASH) (tenderCents ?: amountCents) else null
-        api.recordPayment(
-            invoiceId = invoiceId,
-            method = requireNotNull(method.rpcValue),
-            amountRupees = centsToRupees(amountCents),
-            tenderedRupees = tendered?.let { centsToRupees(it) },
-            externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
-            cashSessionId = if (method == PayMethod.CASH) cashSessionId else null,
-            idempotencyKey = "$payKey:collect",
-        )
+        // The invoice already exists; a lost response after record_payment lands is
+        // indistinguishable from a lost request. Surface it as SalePaymentUncertain (like
+        // completeSale) so the caller freezes and the retry replays under "$payKey:collect".
+        try {
+            api.recordPayment(
+                invoiceId = invoiceId,
+                method = requireNotNull(method.rpcValue),
+                amountRupees = centsToRupees(amountCents),
+                tenderedRupees = tendered?.let { centsToRupees(it) },
+                externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                cashSessionId = if (method == PayMethod.CASH) cashSessionId else null,
+                idempotencyKey = "$payKey:collect",
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw SalePaymentUncertain(invoiceId, number, e)
+        }
         val change = if (method == PayMethod.CASH && tendered != null) (tendered - amountCents).coerceAtLeast(0) else 0
         return SaleResult(invoiceId, number, amountCents, change, onAccount = false)
     }

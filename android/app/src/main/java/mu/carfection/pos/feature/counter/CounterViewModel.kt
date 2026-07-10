@@ -226,6 +226,15 @@ class CounterViewModel @Inject constructor(
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
+        // This ViewModel is activity-scoped and outlives a logout; wipe one operator's live cart,
+        // customer and open pad so the next operator can't complete a stale sale under their name.
+        viewModelScope.launch { session.isLoggedIn.collect { if (it == false) resetOnSignOut() } }
+    }
+
+    /** Hard reset on operator switch — unconditional (unlike newSale, which guards a settle). */
+    private fun resetOnSignOut() {
+        saleKey = UUID.randomUUID().toString()
+        local.value = CounterUiState(till = local.value.till)
     }
 
     // ── checkout list: TO COLLECT + PAID TODAY ─────────────────────────────────
@@ -244,7 +253,12 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(mode = CheckoutMode.WALKIN, collect = null)
         refreshStock()
     }
-    fun backToList() { newSale(); local.value = local.value.copy(mode = CheckoutMode.LIST); loadLists() }
+    fun backToList() {
+        // An unresolved settle may hold a real invoice under saleKey; abandoning it would orphan
+        // the invoice with no idempotent path back. Retrying is the only safe exit — refuse.
+        if (frozenBySettle()) return
+        newSale(); local.value = local.value.copy(mode = CheckoutMode.LIST); loadLists()
+    }
 
     /** On-hand counts for the product tiles (stock line + low-stock badge). */
     private fun refreshStock() = viewModelScope.launch {
@@ -375,6 +389,8 @@ class CounterViewModel @Inject constructor(
 
     /** Tap an outstanding invoice → open the pad to collect its balance. */
     fun collectOn(bill: OutstandingInvoiceDto) {
+        // Starting a new collection would rotate saleKey and abandon an in-flight settle.
+        if (frozenBySettle()) return
         saleKey = UUID.randomUUID().toString()
         local.value = local.value.copy(
             collect = bill, padOpen = true, method = PayMethod.CASH,
@@ -422,10 +438,12 @@ class CounterViewModel @Inject constructor(
                         if (s.method == PayMethod.CASH) drawer.kick()
                     }
                 }
-                local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result, receipt = receipt)
+                local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result, receipt = receipt, pendingSettle = null)
                 loadLists()
             } catch (e: Exception) {
-                local.value = local.value.copy(busy = false, error = e.uiMessage("Payment failed — try again."))
+                // A collect that reached record_payment may have committed; freeze exactly like a
+                // walk-in settle so the retry replays under the same key instead of re-charging.
+                local.value = local.value.withSettleFailure(e)
             }
         }
     }
@@ -533,18 +551,27 @@ class CounterViewModel @Inject constructor(
     // ── payment pad ──────────────────────────────────────────────────────────
     fun openPad() {
         if (local.value.cart.isEmpty()) { local.value = local.value.copy(error = "Add at least one product."); return }
-        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", error = settleError())
+        // A pending settle pins method/tender/ref to what the frozen request already sent — the
+        // retry MUST replay identically, so reopening the pad must NOT reset them (the server
+        // ignores a retry's arguments; a reset would print a receipt that lies about the tender).
+        if (local.value.pendingSettle != null) { local.value = local.value.copy(padOpen = true, error = settleError()); return }
+        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", error = null)
     }
-    fun closePad() { local.value = local.value.copy(padOpen = false, collect = null) }
-    fun setMethod(m: PayMethod) { local.value = local.value.copy(method = m, error = settleError()) }
+    fun closePad() {
+        // Keep the settle context (collect + method/tender) so reopening resumes the same retry.
+        if (local.value.pendingSettle != null) { local.value = local.value.copy(padOpen = false); return }
+        local.value = local.value.copy(padOpen = false, collect = null)
+    }
+    fun setMethod(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(method = m, error = settleError()) }
 
     /** An unresolved settle keeps its message: it is the cashier's only instruction for getting out. */
     private fun settleError(): String? = local.value.error.takeIf { local.value.pendingSettle != null }
-    fun setRef(t: String) { local.value = local.value.copy(refText = t) }
-    fun setTenderCents(cents: Long) { local.value = local.value.copy(tenderText = (cents / 100).toString() + if (cents % 100 != 0L) "." + (cents % 100).toString().padStart(2, '0') else "") }
+    fun setRef(t: String) { if (frozenBySettle()) return; local.value = local.value.copy(refText = t) }
+    fun setTenderCents(cents: Long) { if (frozenBySettle()) return; local.value = local.value.copy(tenderText = (cents / 100).toString() + if (cents % 100 != 0L) "." + (cents % 100).toString().padStart(2, '0') else "") }
 
     /** Spec numpad rules: digits append; one '.'; ≤2 decimals; ≤7 integer digits; ⌫ deletes. */
     fun padKey(key: String) {
+        if (frozenBySettle()) return
         val t = local.value.tenderText
         val next = when (key) {
             "⌫" -> t.dropLast(1)
@@ -623,6 +650,8 @@ class CounterViewModel @Inject constructor(
     }
 
     fun newSale() {
+        // Never discard an unresolved settle — it may hold a committed invoice under saleKey.
+        if (local.value.pendingSettle != null) { local.value = local.value.copy(notice = SETTLE_LOCK_NOTICE); return }
         saleKey = UUID.randomUUID().toString()
         val cur = local.value
         local.value = CounterUiState(till = cur.till, mode = cur.mode, bills = cur.bills, paidToday = cur.paidToday)
