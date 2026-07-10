@@ -137,7 +137,9 @@ export async function resetPasswordAction(input: z.input<typeof pwSchema>): Prom
   const p = pwSchema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid password" };
   const admin = createAdminClient();
-  const { data: row } = await admin.from("app_users").select("auth_user_id").eq("id", p.data.id).maybeSingle();
+  // Scope the service-role lookup to the caller's tenant — it bypasses RLS, so without this an
+  // owner could resolve and reset a DIFFERENT business's staff account by passing its id.
+  const { data: row } = await admin.from("app_users").select("auth_user_id").eq("id", p.data.id).eq("tenant_id", ctx.tenantId).maybeSingle();
   const authId = (row as { auth_user_id: string } | null)?.auth_user_id;
   if (!authId) return { ok: false, error: "User not found." };
   const { error } = await admin.auth.admin.updateUserById(authId, { password: p.data.password });
@@ -155,7 +157,9 @@ export async function deleteStaffAction(id: string): Promise<Result> {
   if (id === selfId) return { ok: false, error: "You can’t delete your own account." };
   const name = await nameOf(sb, id); // capture before the row is gone
   const admin = createAdminClient();
-  const { data: row } = await admin.from("app_users").select("auth_user_id").eq("id", id).maybeSingle();
+  // Tenant-scope the service-role lookup — otherwise an owner could delete another business's
+  // staff auth account by passing its id (the admin client bypasses RLS).
+  const { data: row } = await admin.from("app_users").select("auth_user_id").eq("id", id).eq("tenant_id", ctx.tenantId).maybeSingle();
   const authId = (row as { auth_user_id: string } | null)?.auth_user_id;
   if (!authId) return { ok: false, error: "User not found." };
   // Deleting the auth user cascades to app_users, but a created_by reference

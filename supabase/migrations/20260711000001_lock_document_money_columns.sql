@@ -1,0 +1,21 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Close a financial-integrity hole: any tenant member could rewrite an issued
+-- invoice's money columns by hand.
+--
+-- `grant update on all tables in schema public to authenticated` (0001) +
+-- PostgREST exposure let a cashier/technician run, straight from the client:
+--     update documents set status='paid', amount_paid=total_incl where id=…
+-- marking an invoice settled with ZERO rows in the append-only payments ledger,
+-- or flipping status to 'void' — bypassing record_payment's balance/role checks
+-- and void_document's owner-only guard + stock reversal.
+--
+-- No client code updates `documents` directly — every mutation goes through the
+-- money RPCs (issue_document, record_payment, void_document, reverse_payment,
+-- save_draft, convert_quote_*, create_document_from_job), all SECURITY DEFINER,
+-- so they run as the table owner and keep full access. A column-level revoke is
+-- a no-op against a table-level grant, so revoke the table-level UPDATE outright:
+-- direct PostgREST writes lose it, the definer RPCs don't. INSERT/SELECT/DELETE
+-- are untouched (RLS still scopes them to the tenant). Additive, reversible.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+revoke update on public.documents from authenticated;
