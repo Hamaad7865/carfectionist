@@ -1,8 +1,13 @@
 package mu.carfection.pos.feature.jobs
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,17 +32,32 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
+import coil.compose.AsyncImage
+import mu.carfection.pos.core.network.JobPhotoDto
+import mu.carfection.pos.ui.FilledInput
+import mu.carfection.pos.ui.LocalPhotoCapture
 import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.ui.FilledInput
@@ -98,6 +118,7 @@ fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: Jobs
     }
     if (s.certOpen) CertIssueDialog(s, viewModel)
     if (s.invoiceOpen) InvoiceDialog(s, viewModel)
+    if (s.addChecklistOpen) AddChecklistDialog(viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(1800); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
 }
@@ -281,8 +302,8 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 ChecklistCard(j, vm)
                 // before / after
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PhotoColumn("BEFORE", Modifier.weight(1f), showAdd = false, vm)
-                    PhotoColumn("AFTER", Modifier.weight(1f), showAdd = true, vm)
+                    PhotoColumn("BEFORE", "before", Modifier.weight(1f), s, vm)
+                    PhotoColumn("AFTER", "after", Modifier.weight(1f), s, vm)
                 }
             }
             // footer action
@@ -357,34 +378,113 @@ private fun ChecklistCard(j: JobBoardDto, vm: JobsViewModel) {
             }
             Text("$doneN/${j.checklist.size}", fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary)
         }
-        if (j.checklist.isEmpty()) Text("No checklist on this job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+        if (j.checklist.isEmpty()) Text("No checklist yet — add the steps for this job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+        val editable = j.status != "delivered"
         j.checklist.forEachIndexed { i, c ->
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable { vm.toggleChecklist(i) }.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp)).clickable(enabled = editable) { vm.toggleChecklist(i) }.padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
                 Box(Modifier.size(26.dp).background(if (c.done) Accent else Color.Transparent, RoundedCornerShape(8.dp)).border(1.5.dp, if (c.done) Accent else Color(0x4D101A24), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
                     if (c.done) Text("✓", fontFamily = Barlow, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp, color = AccentInk)
                 }
-                Text(c.label, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 14.sp, color = if (c.done) TextMuted else TextPrimary)
+                Text(c.label, Modifier.weight(1f), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 14.sp, color = if (c.done) TextMuted else TextPrimary)
+                if (editable) Box(Modifier.size(28.dp).clip(RoundedCornerShape(8.dp)).clickable { vm.removeChecklistItem(i) }, contentAlignment = Alignment.Center) {
+                    Text("✕", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextMuted)
+                }
+            }
+        }
+        if (editable) Box(
+            Modifier.fillMaxWidth().height(38.dp).dashedRect(Color(0x40101A24), 10.dp).clickable { vm.openAddChecklist() },
+            contentAlignment = Alignment.Center,
+        ) { Text("＋ Add item", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary) }
+    }
+}
+
+@Composable
+private fun AddChecklistDialog(vm: JobsViewModel) {
+    var text by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = vm::closeAddChecklist) {
+        Column(
+            Modifier.width(420.dp).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Add checklist item", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, color = TextPrimary)
+            FilledInput(value = text, onValueChange = { text = it }, placeholder = "e.g. Clay bar & decontaminate", modifier = Modifier.fillMaxWidth(), bg = Inset)
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(Modifier.weight(1f).height(48.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable { vm.closeAddChecklist() }, contentAlignment = Alignment.Center) {
+                    Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary)
+                }
+                val ok = text.isNotBlank()
+                Box(Modifier.weight(1.3f).height(48.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(12.dp)).clickable(enabled = ok) { vm.addChecklistItem(text) }, contentAlignment = Alignment.Center) {
+                    Text("Add", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted)
+                }
             }
         }
     }
 }
 
+/** Dashed rounded outline (Compose has no dashed-border modifier). */
+private fun Modifier.dashedRect(color: Color, radius: Dp, stroke: Dp = 1.5.dp) = this.drawBehind {
+    val sw = stroke.toPx(); val r = radius.toPx()
+    drawRoundRect(color = color, topLeft = Offset(sw / 2, sw / 2), size = Size(size.width - sw, size.height - sw), cornerRadius = CornerRadius(r, r), style = Stroke(width = sw, pathEffect = PathEffect.dashPathEffect(floatArrayOf(sw * 5, sw * 4))))
+}
+
 @Composable
-private fun PhotoColumn(label: String, modifier: Modifier, showAdd: Boolean, vm: JobsViewModel) {
+private fun PhotoColumn(label: String, phase: String, modifier: Modifier, s: JobsState, vm: JobsViewModel) {
+    val ctx = LocalContext.current
+    val shots = s.photos.filter { it.phase == phase }
+    // The camera launcher lives on the Activity (see LocalPhotoCapture) so its result survives
+    // a Compose teardown; the pending target + upload live on the (Activity-scoped) ViewModel.
+    val launcher = LocalPhotoCapture.current
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted && launcher != null) launchCapture(ctx, phase, vm, launcher)
+        else if (!granted) vm.note("Camera permission is needed to add a photo")
+    }
+    fun capture() {
+        val l = launcher ?: return
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            launchCapture(ctx, phase, vm, l)
+        else permission.launch(Manifest.permission.CAMERA)
+    }
+
     Column(modifier, verticalArrangement = Arrangement.spacedBy(7.dp)) {
         SectionLabel(label)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            if (!showAdd) {
-                Box(Modifier.weight(1f).height(56.dp).border(1.5.dp, Color(0x2E101A24), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-                    Text("None", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted)
-                }
-            } else {
-                Box(Modifier.weight(1f).height(56.dp).border(1.5.dp, Color(0x40101A24), RoundedCornerShape(10.dp)).clickable { vm.note("Photo capture is a later milestone") }, contentAlignment = Alignment.Center) {
-                    Text("＋ ADD", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = TextSecondary)
-                }
+        FlowRowPhotos(shots, s.photoUrls)
+        val uploading = s.photoUploading == phase
+        Box(
+            Modifier.fillMaxWidth().height(56.dp).dashedRect(Color(0x40101A24), 10.dp).clickable(enabled = !uploading) { capture() },
+            contentAlignment = Alignment.Center,
+        ) {
+            if (uploading) Text("Uploading…", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted)
+            else Text("＋ ${if (shots.isEmpty()) "Take photo" else "Add another"}", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = TextSecondary)
+        }
+    }
+}
+
+@Composable
+private fun FlowRowPhotos(shots: List<JobPhotoDto>, urls: Map<String, String>) {
+    if (shots.isEmpty()) return
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        shots.forEach { p ->
+            val url = urls[p.id]
+            Box(Modifier.size(72.dp).clip(RoundedCornerShape(10.dp)).background(Inset).border(1.dp, Hairline, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                if (url != null) AsyncImage(model = url, contentDescription = "${p.phase} photo", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                else Text("…", color = TextMuted, fontSize = 13.sp)
             }
         }
     }
+}
+
+/** Create a cache file + FileProvider URI, record it as pending on the ViewModel, fire the camera. */
+private fun launchCapture(
+    ctx: android.content.Context,
+    phase: String,
+    vm: JobsViewModel,
+    camera: androidx.activity.result.ActivityResultLauncher<android.net.Uri>,
+) {
+    val dir = java.io.File(ctx.cacheDir, "job_photos").apply { mkdirs() }
+    val file = java.io.File(dir, "cap-${System.currentTimeMillis()}.jpg")
+    val uri = androidx.core.content.FileProvider.getUriForFile(ctx, "${ctx.packageName}.fileprovider", file)
+    vm.beginCapture(phase, file)
+    camera.launch(uri)
 }
 
 // ── small shared bits ─────────────────────────────────────────────────────────

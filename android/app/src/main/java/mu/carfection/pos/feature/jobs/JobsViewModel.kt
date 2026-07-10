@@ -6,6 +6,7 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import java.io.File
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.add
@@ -18,6 +19,7 @@ import mu.carfection.pos.core.money.centsToRupees
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.network.ChecklistItemDto
 import mu.carfection.pos.core.network.JobBoardDto
+import mu.carfection.pos.core.network.JobPhotoDto
 import mu.carfection.pos.core.network.NewCertificateDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.TechnicianDto
@@ -55,6 +57,12 @@ data class JobsState(
     val invoiceService: String = "",
     val invoiceAmountText: String = "",
     val invoiceBusy: Boolean = false,
+    // checklist add
+    val addChecklistOpen: Boolean = false,
+    // before/after photos for the open job (id → signed thumbnail URL)
+    val photos: List<JobPhotoDto> = emptyList(),
+    val photoUrls: Map<String, String> = emptyMap(),
+    val photoUploading: String? = null, // "before" | "after" while a capture uploads
 )
 
 @HiltViewModel
@@ -65,6 +73,28 @@ class JobsViewModel @Inject constructor(
 ) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
+
+    // A capture round-trip can tear down the Compose tree (external camera foregrounded on a
+    // memory-tight tablet), so the pending target lives on this Activity-scoped ViewModel and
+    // the launcher result is applied here. `returnToJobs` nudges the shell back to this screen
+    // afterwards, since the tab state does not survive that teardown.
+    private var pendingPhase: String? = null
+    private var pendingFile: File? = null
+    // StateFlow (not an event): a rebuild after the capture must still see the latched request.
+    private val _returnToJobs = MutableStateFlow(false)
+    val returnToJobs = _returnToJobs.asStateFlow()
+    fun consumeReturnToJobs() { _returnToJobs.value = false }
+
+    fun beginCapture(phase: String, file: File) { pendingPhase = phase; pendingFile = file }
+
+    fun onCaptureResult(ok: Boolean) {
+        val phase = pendingPhase; val file = pendingFile
+        pendingPhase = null; pendingFile = null
+        if (phase == null) return // not one of ours
+        if (ok && file != null && file.exists() && file.length() > 0) addPhoto(phase, file.readBytes())
+        runCatching { file?.delete() }
+        _returnToJobs.value = true
+    }
 
     init {
         load()
@@ -162,10 +192,62 @@ class JobsViewModel @Inject constructor(
     fun jobsFor(s: JobsState, col: JobCol): List<JobBoardDto> = s.jobs.filter { it.status == col.key }
     fun active(s: JobsState): JobBoardDto? = s.jobs.firstOrNull { it.id == s.activeJobId }
 
-    fun open(id: String) = _s.update { it.copy(activeJobId = id) }
-    fun close() = _s.update { it.copy(activeJobId = null) }
+    fun open(id: String) { _s.update { it.copy(activeJobId = id, photos = emptyList(), photoUrls = emptyMap()) }; loadPhotos(id) }
+    fun close() = _s.update { it.copy(activeJobId = null, photos = emptyList(), photoUrls = emptyMap()) }
     fun clearToast() = _s.update { it.copy(toast = null) }
     fun note(msg: String) = _s.update { it.copy(toast = msg) }
+
+    // ── checklist add ──────────────────────────────────────────────────────────
+    fun openAddChecklist() = _s.update { it.copy(addChecklistOpen = true) }
+    fun closeAddChecklist() = _s.update { it.copy(addChecklistOpen = false) }
+
+    fun addChecklistItem(label: String) {
+        val id = _s.value.activeJobId ?: return
+        val job = _s.value.jobs.firstOrNull { it.id == id } ?: return
+        val text = label.trim()
+        if (text.isBlank()) { _s.update { it.copy(addChecklistOpen = false) }; return }
+        val updated = job.checklist + ChecklistItemDto(text, false)
+        _s.update { st -> st.copy(addChecklistOpen = false, jobs = st.jobs.map { if (it.id == id) it.copy(checklist = updated) else it }) }
+        val json = buildJsonArray { updated.forEach { add(buildJsonObject { put("label", it.label); put("done", it.done) }) } }
+        viewModelScope.launch { outbox.enqueueSetChecklist(id, json, "Checklist +\"${text.take(20)}\"") }
+    }
+
+    fun removeChecklistItem(index: Int) {
+        val id = _s.value.activeJobId ?: return
+        val job = _s.value.jobs.firstOrNull { it.id == id } ?: return
+        val updated = job.checklist.filterIndexed { i, _ -> i != index }
+        _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == id) it.copy(checklist = updated) else it }) }
+        val json = buildJsonArray { updated.forEach { add(buildJsonObject { put("label", it.label); put("done", it.done) }) } }
+        viewModelScope.launch { outbox.enqueueSetChecklist(id, json, "Checklist −1") }
+    }
+
+    // ── before/after photos ─────────────────────────────────────────────────────
+    private fun loadPhotos(jobId: String) = viewModelScope.launch {
+        val list = runCatching { api.fetchJobPhotos(jobId) }.getOrDefault(emptyList())
+        _s.update { it.copy(photos = list) }
+        list.forEach { p ->
+            runCatching { api.signedPhotoUrl(p.storagePath) }.onSuccess { url ->
+                _s.update { st -> st.copy(photoUrls = st.photoUrls + (p.id to url)) }
+            }
+        }
+    }
+
+    /** Called after the camera writes the JPEG; uploads it and records the photo row. */
+    fun addPhoto(phase: String, bytes: ByteArray) {
+        val jobId = _s.value.activeJobId ?: return
+        _s.update { it.copy(photoUploading = phase) }
+        viewModelScope.launch {
+            runCatching {
+                val tenant = catalog.tenantId() ?: error("Not synced yet")
+                api.uploadJobPhoto(tenant, jobId, phase, bytes)
+            }.onSuccess { p ->
+                val url = runCatching { api.signedPhotoUrl(p.storagePath) }.getOrNull()
+                _s.update { st -> st.copy(photoUploading = null, photos = st.photos + p, photoUrls = if (url != null) st.photoUrls + (p.id to url) else st.photoUrls, toast = "${phase.replaceFirstChar { it.uppercase() }} photo added") }
+            }.onFailure { e ->
+                _s.update { it.copy(photoUploading = null, toast = "Couldn't save the photo — ${e.message ?: "try again"}") }
+            }
+        }
+    }
 
     fun assignTech(techId: String) {
         val id = _s.value.activeJobId ?: return

@@ -81,7 +81,10 @@ dependencies {
     implementation(platform(libs.supabase.bom))
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.auth)
+    implementation(libs.supabase.storage)
     implementation(libs.ktor.client.okhttp)
+
+    implementation(libs.coil.compose)
 
     testImplementation("junit:junit:4.13.2")
 }

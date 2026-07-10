@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- Temp files the camera writes into before we upload them to Supabase Storage. -->
+    <cache-path name="job_photos" path="job_photos/" />
+</paths>

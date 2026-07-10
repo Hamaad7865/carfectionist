@@ -3,6 +3,8 @@ package mu.carfection.pos.core.network
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.storage.storage
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
@@ -164,6 +166,30 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     suspend fun setChecklist(jobId: String, checklist: JsonArray) {
         client.postgrest.from("jobs").update({ set("checklist", checklist) }) { filter { eq("id", jobId) } }
     }
+
+    // ── Job photos (before/after) ─────────────────────────────────────────────
+    private val photoBucket get() = client.storage.from("vehicle-photos")
+
+    suspend fun fetchJobPhotos(jobId: String): List<JobPhotoDto> =
+        client.postgrest.from("job_photos")
+            .select(Columns.raw("id, storage_path, phase, caption")) {
+                filter { eq("job_id", jobId) }
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList()
+
+    /** Upload bytes to `<tenant>/jobs/<jobId>/<phase>-<uuid>.jpg`, then record the row. */
+    suspend fun uploadJobPhoto(tenantId: String, jobId: String, phase: String, bytes: ByteArray): JobPhotoDto {
+        val path = "$tenantId/jobs/$jobId/$phase-${java.util.UUID.randomUUID()}.jpg"
+        photoBucket.upload(path, bytes) { upsert = false }
+        return client.postgrest.from("job_photos")
+            .insert(NewJobPhotoDto(tenantId, jobId, path, phase)) { select(Columns.raw("id, storage_path, phase, caption")) }
+            .decodeSingle()
+    }
+
+    /** Short-lived signed URL for the private bucket, so Coil can render the thumbnail. */
+    suspend fun signedPhotoUrl(storagePath: String): String =
+        photoBucket.createSignedUrl(storagePath, 60.minutes)
 
     /** In progress → ready (complete_job also records any stock consumption). */
     suspend fun markJobReady(jobId: String) {

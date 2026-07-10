@@ -8,6 +8,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,8 +23,10 @@ import mu.carfection.pos.core.sync.OutboxRepository
 import mu.carfection.pos.feature.counter.CounterScreen
 import mu.carfection.pos.feature.cert.CertScreen
 import mu.carfection.pos.feature.dash.DashScreen
+import androidx.compose.runtime.LaunchedEffect
 import mu.carfection.pos.feature.intake.IntakeScreen
 import mu.carfection.pos.feature.jobs.JobsScreen
+import mu.carfection.pos.feature.jobs.JobsViewModel
 import mu.carfection.pos.feature.login.LoginScreen
 import mu.carfection.pos.feature.quote.QuoteScreen
 import mu.carfection.pos.feature.stock.StockScreen
@@ -52,8 +55,15 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
         null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
         false -> LoginScreen()
         true -> {
-            var tab by remember { mutableStateOf(PosTab.SALE) }
-            var showTill by remember { mutableStateOf(false) }
+            var tab by rememberSaveable { mutableStateOf(PosTab.SALE) }
+            var showTill by rememberSaveable { mutableStateOf(false) }
+            // After a photo capture (which can tear down + rebuild this tree), the Jobs
+            // ViewModel survives with its open job; snap the shell back to that screen.
+            val jobsVm: JobsViewModel = hiltViewModel()
+            val returnToJobs by jobsVm.returnToJobs.collectAsState()
+            LaunchedEffect(returnToJobs) {
+                if (returnToJobs) { tab = PosTab.JOBS; showTill = false; jobsVm.consumeReturnToJobs() }
+            }
             val online by rootViewModel.online.collectAsState()
             val pendingSync by rootViewModel.pendingSync.collectAsState(initial = 0)
             PosShell(

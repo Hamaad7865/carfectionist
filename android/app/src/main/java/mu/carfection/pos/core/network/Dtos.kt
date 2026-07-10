@@ -97,6 +97,20 @@ data class QuoteRowDto(
 )
 @Serializable data class JobTechDto(@SerialName("display_name") val displayName: String? = null)
 
+@Serializable data class JobPhotoDto(
+    val id: String,
+    @SerialName("storage_path") val storagePath: String,
+    val phase: String, // "before" | "after"
+    val caption: String? = null,
+)
+
+@Serializable data class NewJobPhotoDto(
+    @SerialName("tenant_id") val tenantId: String,
+    @SerialName("job_id") val jobId: String,
+    @SerialName("storage_path") val storagePath: String,
+    val phase: String,
+)
+
 @Serializable
 data class JobBoardDto(
     val id: String,
