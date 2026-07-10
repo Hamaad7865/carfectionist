@@ -37,22 +37,23 @@ private data class PinErrorDto(val error: String? = null, val lockedUntil: Strin
 class PinLoginException(val reason: String, val lockedUntil: String? = null) : Exception(reason)
 
 /**
- * Staff-PIN login against the web app's server-side POS routes. The service-role key that verifies
- * PINs and mints sessions stays on the server — the tablet only ever sees the roster and, on
+ * Staff-PIN login against the pos-auth Supabase Edge Function — the tablet talks only to
+ * <project>.supabase.co, same as every other call it makes. The service-role key that verifies
+ * PINs and mints sessions stays on Supabase's edge — the tablet only ever sees the roster and, on
  * success, a normal Supabase session it imports. Both routes are gated by a shared device key.
  */
 @Singleton
 class PinAuthApi @Inject constructor() {
-    private val base = BuildConfig.POS_WEB_URL.trimEnd('/')
+    private val base = BuildConfig.SUPABASE_URL.trimEnd('/') + "/functions/v1/pos-auth"
     private val deviceKey = BuildConfig.POS_DEVICE_KEY
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    /** False when this tablet hasn't been given the web URL + device key yet. */
-    val configured: Boolean get() = base.isNotBlank() && deviceKey.isNotBlank()
+    /** False when this tablet hasn't been given the Supabase URL + device key yet. */
+    val configured: Boolean get() = BuildConfig.SUPABASE_URL.isNotBlank() && deviceKey.isNotBlank()
 
     /** Active staff who have a PIN set — the name tiles on the login screen. */
     suspend fun roster(): List<RosterEntry> = withContext(Dispatchers.IO) {
-        val (code, text) = request("$base/api/pos/roster", "GET", null)
+        val (code, text) = request("$base/roster", "GET", null)
         if (code != 200) error("roster HTTP $code")
         json.decodeFromString<RosterResponse>(text).roster
     }
@@ -60,7 +61,7 @@ class PinAuthApi @Inject constructor() {
     /** Exchange a name + 4-digit PIN for a real Supabase session. */
     suspend fun pinLogin(appUserId: String, pin: String): PinSessionDto = withContext(Dispatchers.IO) {
         val body = json.encodeToString(mapOf("appUserId" to appUserId, "pin" to pin))
-        val (code, text) = request("$base/api/pos/pin-login", "POST", body)
+        val (code, text) = request("$base/pin-login", "POST", body)
         if (code == 200) return@withContext json.decodeFromString<PinSessionDto>(text)
         val err = runCatching { json.decodeFromString<PinErrorDto>(text) }.getOrNull()
         throw PinLoginException(err?.error ?: "error", err?.lockedUntil)
