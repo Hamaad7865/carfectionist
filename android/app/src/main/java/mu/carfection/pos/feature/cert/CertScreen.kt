@@ -34,8 +34,6 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import mu.carfection.pos.core.network.CertificateDto
-import mu.carfection.pos.ui.theme.Accent
-import mu.carfection.pos.ui.theme.AccentBlue
 import mu.carfection.pos.ui.theme.AccentLine
 import mu.carfection.pos.ui.theme.AccentSoft
 import mu.carfection.pos.ui.theme.Barlow
@@ -54,9 +52,16 @@ import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
+// The certificate is a branded document — it keeps the web card's exact palette
+// (apps/web CertificateCard.tsx: teal #0FBFA6 + blue/purple gradient), independent
+// of the app's blue chrome, so tablet and web certificates look identical.
+private val CertAc = Color(0xFF0FBFA6)
+private val CertAcSoft = Color(0x240FBFA6)   // rgba(15,191,166,.14)
+private val CertAcLine = Color(0x730FBFA6)   // rgba(15,191,166,.45)
+private val CertBlue = Color(0xFF3E8BFF)
 private val Purple = Color(0xFF7C5CE8)
-private val CertGrad = Brush.linearGradient(listOf(Accent, AccentBlue))
-private val CertBorderGrad = Brush.linearGradient(listOf(Accent, AccentBlue, Purple))
+private val CertGrad = Brush.linearGradient(listOf(CertAc, CertBlue))
+private val CertBorderGrad = Brush.linearGradient(listOf(CertAc, CertBlue, Purple))
 private val DFMT = DateTimeFormatter.ofPattern("d MMM yyyy")
 private const val STUDIO = "Carfectionist"
 
@@ -73,7 +78,9 @@ private fun schedule(c: CertificateDto, now: LocalDate): List<Sched> {
     val out = mutableListOf<Sched>()
     var n = 1; var markedDue = false
     while (out.size < 5) {
-        val t = applied.plusMonths(6L * n)
+        // Web parity (CertificateCard.tsx): milestones step in 182.5-DAY increments
+        // from the applied date, not calendar months — dates must match the web card.
+        val t = LocalDate.ofEpochDay(applied.toEpochDay() + Math.floor(n * 182.5).toLong())
         if (!t.isBefore(expires)) break
         val past = !t.isAfter(now)
         val due = !past && !markedDue
@@ -182,15 +189,22 @@ private fun CertificateCard(c: CertificateDto, now: LocalDate, vm: CertViewModel
                     Field("COLOUR", c.vehicles?.colour ?: "—", Modifier.weight(1f))
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-                    Field("PRODUCT APPLIED", c.products?.name ?: "—", Modifier.weight(1f))
-                    Field("APPLIED BY", "${c.appliedBy?.displayName?.replace(Regex("\\s*\\(.*\\)$"), "") ?: "—"} · ${fmt(parseDate(c.appliedAt))}", Modifier.weight(1f))
+                    Field("PRODUCT APPLIED", c.products?.name ?: "Ceramic protection", Modifier.weight(1f))
+                    Field(
+                        "APPLIED BY",
+                        listOfNotNull(
+                            c.appliedBy?.displayName?.replace(Regex("\\s*\\(.*\\)$"), ""),
+                            parseDate(c.appliedAt)?.let { fmt(it) },
+                        ).joinToString(" · ").ifBlank { "—" },
+                        Modifier.weight(1f),
+                    )
                 }
             }
             // warranty box
-            Row(Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(14.dp)).border(1.dp, AccentLine, RoundedCornerShape(14.dp)).padding(horizontal = 17.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().background(CertAcSoft, RoundedCornerShape(14.dp)).border(1.dp, CertAcLine, RoundedCornerShape(14.dp)).padding(horizontal = 17.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("WARRANTY VALID UNTIL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp, color = TextMuted)
-                    Text(fmt(parseDate(c.expiresAt)), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 30.sp, letterSpacing = 1.sp, color = Accent)
+                    Text(fmt(parseDate(c.expiresAt)), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 30.sp, letterSpacing = 1.sp, color = CertAc)
                 }
                 Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text("TERM", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp, color = TextMuted)
@@ -204,8 +218,8 @@ private fun CertificateCard(c: CertificateDto, now: LocalDate, vm: CertViewModel
                 if (sched.isEmpty()) Text("No maintenance milestones within the warranty term.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
                 sched.forEach { m ->
                     Row(Modifier.fillMaxWidth().padding(vertical = 7.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        val dotBg = if (m.past) Success else if (m.due) Accent else Color.Transparent
-                        val dotRing = if (m.past) Success else if (m.due) Accent else Color(0x33101A24)
+                        val dotBg = if (m.past) Success else if (m.due) CertAc else Color.Transparent
+                        val dotRing = if (m.past) Success else if (m.due) CertAc else Color(0x33101A24)
                         val txtC = if (m.past) TextMuted else if (m.due) TextPrimary else TextSecondary
                         Box(Modifier.size(22.dp).background(dotBg, CircleShape).border(1.5.dp, dotRing, CircleShape), contentAlignment = Alignment.Center) {
                             if (m.past) Text("✓", fontFamily = Barlow, fontWeight = FontWeight.ExtraBold, fontSize = 11.sp, color = Color.White)

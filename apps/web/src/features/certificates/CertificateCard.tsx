@@ -57,7 +57,7 @@ export function CertificateCard({ cert, studioName, showPrint = true }: { cert: 
             <div style={{ font: "800 20px var(--font-display, system-ui)", letterSpacing: "1.6px", textTransform: "uppercase", color: "#17202A", lineHeight: 1.1 }}>
               Certificate of ceramic protection
             </div>
-            <div style={{ font: "500 12px system-ui", color: "#8494A3", marginTop: 2 }}>{studioName} · Grand Baie · Mauritius</div>
+            <div style={{ font: "500 12px system-ui", color: "#8494A3", marginTop: 2 }}>{studioName} · Helvetia · Mauritius</div>
           </div>
           <span style={{ font: "600 13px ui-monospace, monospace", color: "#5B6B7A" }}>{cert.number}</span>
         </div>
