@@ -1,12 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
   Production traffic (Supabase, a deployed web app) is HTTPS. The only cleartext we permit is the
-  local dev web server the emulator reaches at 10.0.2.2 / localhost for staff-PIN login.
+  dev web server that serves staff-PIN login: 10.0.2.2/localhost from the emulator, and the dev
+  PC's LAN address for a physical tablet on the same Wi-Fi (interim until the web app is deployed).
 -->
 <network-security-config>
     <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">10.0.2.2</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
+        <domain includeSubdomains="true">192.168.100.204</domain>
     </domain-config>
 </network-security-config>
