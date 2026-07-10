@@ -16,6 +16,7 @@ import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.IntakeHandoff
 import mu.carfection.pos.core.data.IntakeHandoffBus
+import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.money.DocTotals
@@ -68,6 +69,8 @@ data class QuoteState(
     val error: String? = null,
     // carried from reception: stamped onto the job when this quote is accepted
     val intake: IntakeHandoff? = null,
+    // the job this quote is already linked to — when set, the quote is converted (view, don't re-create)
+    val jobId: String? = null,
 )
 
 val QUOTE_TIMES = listOf("Now", "13:30", "14:30", "15:30", "Tomorrow")
@@ -78,6 +81,7 @@ class QuoteViewModel @Inject constructor(
     private val api: PosApi,
     private val intakeBus: IntakeHandoffBus,
     private val session: SessionRepository,
+    private val openJobBus: OpenJobBus,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
     val state = _s.asStateFlow()
@@ -106,7 +110,7 @@ class QuoteViewModel @Inject constructor(
             customerId = h.customerId, vehicleId = h.vehicleId,
             lines = emptyList(), acceptOpen = false, techId = null, time = null,
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
-            intake = h,
+            intake = h, jobId = null,
         )
     }
 
@@ -136,7 +140,8 @@ class QuoteViewModel @Inject constructor(
                 customerId = q.customerId, vehicleId = q.vehicleId,
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
-                lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null,
+                // jobId carries the linked job (set once converted) so the builder shows "View job".
+                lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId,
             )
         }
         viewModelScope.launch {
@@ -176,6 +181,9 @@ class QuoteViewModel @Inject constructor(
     fun closeAccept() = _s.update { it.copy(acceptOpen = false) }
     fun pickTech(id: String) = _s.update { it.copy(techId = id) }
     fun pickTime(t: String) = _s.update { it.copy(time = t) }
+
+    /** Open the job this quote already produced on the Jobs board (a quote maps to one job). */
+    fun viewJob() { _s.value.jobId?.let { openJobBus.request(it) } }
 
     private fun linesJson(s: QuoteState): JsonArray = buildJsonArray {
         s.lines.forEachIndexed { i, l ->
@@ -230,7 +238,7 @@ class QuoteViewModel @Inject constructor(
                         }
                     }
                 }
-                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, acceptOpen = false, intake = null) }
+                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null) }
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

@@ -82,6 +82,7 @@ data class QuoteRowDto(
     @SerialName("vehicle_id") val vehicleId: String? = null,
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
     @SerialName("updated_at") val updatedAt: String? = null,
+    @SerialName("job_id") val jobId: String? = null, // the job this quote was converted into, if any
     val customers: CustomerNameDto? = null,
     val vehicles: VehicleNameDto? = null,
 )

@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.hardware.CaptureBus
@@ -75,6 +76,7 @@ class JobsViewModel @Inject constructor(
     private val outbox: OutboxRepository,
     private val captures: CaptureBus,
     private val session: SessionRepository,
+    private val openJobBus: OpenJobBus,
 ) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
@@ -94,6 +96,11 @@ class JobsViewModel @Inject constructor(
                     runCatching { r.file.delete() }
                 }
             }
+        }
+        // The quote builder's "View job" asks the board to open a specific job (latched, so it
+        // arrives even though this ViewModel is created only when the shell navigates to Jobs).
+        viewModelScope.launch {
+            openJobBus.pending.collect { jobId -> if (jobId != null) { openJobBus.consume(); open(jobId) } }
         }
         // Activity-scoped: close one operator's open work order + half-typed invoice/cert dialogs
         // on sign-out, so the next operator can't issue a stale amount under their own session.

@@ -78,11 +78,11 @@ private fun Modifier.dashedBorder(color: Color, radius: Dp, stroke: Dp = 1.5.dp)
 }
 
 @Composable
-fun QuoteScreen(onGoIntake: () -> Unit, viewModel: QuoteViewModel = hiltViewModel()) {
+fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, viewModel: QuoteViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
     LaunchedEffect(s.mode) { if (s.mode == QuoteMode.LIST) viewModel.loadQuotes() } // refresh list on entry / when returning from builder
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel)
+        if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel, onViewJob)
     }
     s.createdJobId?.let {
         Dialog(onDismissRequest = viewModel::clearToast) {
@@ -165,7 +165,7 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
 
 // ── BUILDER ───────────────────────────────────────────────────────────────────
 @Composable
-private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel) {
+private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJob: () -> Unit) {
     // header
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.size(44.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(12.dp)).clickable { vm.back() }, contentAlignment = Alignment.Center) { Text("←", fontFamily = Barlow, fontSize = 18.sp, color = TextSecondary) }
@@ -266,18 +266,27 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel) {
                     Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
                 }
                 s.error?.let { Text(it, color = Danger, fontSize = 12.sp) }
-                if (!s.acceptOpen) {
-                    Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        OutlineBtn(if (s.busy) "Saving…" else if (s.savedRef != null) "Saved ✓" else "Save draft", Modifier.weight(1f), 52) { if (!s.busy) vm.saveDraft() }
-                        Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
-                            Text("Accept → create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
+                when {
+                    // Already converted: a quote maps to exactly one job, so don't offer to make
+                    // another — just open the one it produced.
+                    s.jobId != null -> {
+                        Box(Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { vm.viewJob(); onViewJob() }, contentAlignment = Alignment.Center) {
+                            Text("View job →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
+                        }
+                        Text("This quote has been accepted — JOB-${s.jobId.take(4).uppercase()} is on the board.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                    }
+                    !s.acceptOpen -> {
+                        Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            OutlineBtn(if (s.busy) "Saving…" else if (s.savedRef != null) "Saved ✓" else "Save draft", Modifier.weight(1f), 52) { if (!s.busy) vm.saveDraft() }
+                            Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
+                                Text("Accept → create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
+                            }
+                        }
+                        Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
+                            Text(if (s.busy) "Working…" else "Bill now — create invoice", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.lines.isNotEmpty()) Accent else TextMuted)
                         }
                     }
-                    Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
-                        Text(if (s.busy) "Working…" else "Bill now — create invoice", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.lines.isNotEmpty()) Accent else TextMuted)
-                    }
-                } else {
-                    AcceptPanel(s, vm)
+                    else -> AcceptPanel(s, vm)
                 }
             }
         }
