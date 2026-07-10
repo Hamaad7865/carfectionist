@@ -164,7 +164,7 @@ export default async function ReportsPage({
                   <span className="font-display text-[14px] font-bold text-ink-strong">Payments received</span>
                   <span className="rounded-lg bg-[rgba(43,140,255,0.1)] px-2.5 py-1 text-[11px] font-bold text-link">{data.payments.length} payments</span>
                 </div>
-                <div className="grid grid-cols-[140px_110px_1fr_120px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+                <div className="grid grid-cols-[140px_110px_1fr_120px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
                   <span>Date</span><span>Document</span><span>Customer</span><span>Method</span><span className="text-right">Amount</span>
                 </div>
                 {data.payments.length === 0 ? (
@@ -269,7 +269,7 @@ export default async function ReportsPage({
 
           {report === "bestsellers" && extra && (
             <div className="max-w-2xl overflow-hidden rounded-[15px] border border-line bg-card">
-              <div className="grid grid-cols-[36px_1fr_90px_130px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+              <div className="grid grid-cols-[36px_1fr_90px_130px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
                 <span>#</span><span>Item</span><span className="text-right">Qty</span><span className="text-right">Revenue</span>
               </div>
               {extra.bestSellers.length === 0 ? (
@@ -297,7 +297,7 @@ export default async function ReportsPage({
 
           {report === "technician" && extra && (
             <div className="max-w-2xl overflow-hidden rounded-[15px] border border-line bg-card">
-              <div className="grid grid-cols-[1fr_80px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+              <div className="grid grid-cols-[1fr_80px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
                 <span>Technician</span><span className="text-right">Jobs</span><span className="text-right">Revenue</span>
               </div>
               {extra.byTechnician.length === 0 ? (
@@ -335,7 +335,7 @@ export default async function ReportsPage({
               </div>
 
               <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-                <div className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+                <div className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
                   <span>Date</span><span>Invoice</span><span>Customer</span><span className="text-right">Gross ex-VAT</span><span className="text-right">Discount</span><span className="text-right">%</span>
                 </div>
                 {discounts.rows.length === 0 ? (
@@ -387,7 +387,7 @@ export default async function ReportsPage({
                       <span className="font-display text-[14px] font-bold text-ink-strong">{statement.data.customerName}</span>
                       <span className="text-[12px] text-muted">{rangeLabel}</span>
                     </div>
-                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
                       <span>Date</span><span>Detail</span><span className="text-right">Debit</span><span className="text-right">Credit</span><span className="text-right">Balance</span>
                     </div>
                     {sp.from && (

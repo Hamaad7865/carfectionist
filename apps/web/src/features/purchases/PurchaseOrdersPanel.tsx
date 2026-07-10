@@ -114,7 +114,7 @@ export function PurchaseOrdersPanel({ data }: { data: POData }) {
 
         {lines.length > 0 && (
           <div className="mb-3 flex flex-col gap-2">
-            <div className="hidden md:grid grid-cols-[1fr_100px_120px_110px_28px] gap-2 px-1 text-[10px] font-bold uppercase tracking-wide text-faint">
+            <div className="hidden md:grid grid-cols-[1fr_100px_120px_110px_28px] gap-2 px-1 text-[10px] font-bold uppercase tracking-wide text-th">
               <span>Product</span><span className="text-right">Qty</span><span className="text-right">Unit cost</span><span className="text-right">Line</span><span />
             </div>
             {lines.map((l) => {
@@ -230,7 +230,7 @@ function POCard({
         <span className="num ml-auto text-[13px] font-extrabold text-ink">{formatMUR(po.totalCents)}</span>
       </div>
 
-      <div className="hidden md:grid grid-cols-[1fr_90px_90px_110px] gap-2 border-b border-line bg-sub px-5 py-2 text-[10px] font-bold uppercase tracking-wide text-faint">
+      <div className="hidden md:grid grid-cols-[1fr_90px_90px_110px] gap-2 border-b border-line bg-sub px-5 py-2 text-[10px] font-bold uppercase tracking-wide text-th">
         <span>Product</span><span className="text-right">Ordered</span><span className="text-right">Received</span><span className="text-right">Receive now</span>
       </div>
       <div className="divide-y divide-line">

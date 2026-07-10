@@ -83,7 +83,7 @@ export function RemindersPanel({ data, today }: { data: RemindersData; today: st
 
       {/* list */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="grid grid-cols-[100px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+        <div className="grid grid-cols-[100px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
           <span>Due</span><span>Customer</span><span>Vehicle · what</span><span>Status</span><span className="text-right">Actions</span>
         </div>
         {data.reminders.length === 0 ? (

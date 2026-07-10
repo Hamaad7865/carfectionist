@@ -55,7 +55,7 @@ export function SuppliersPanel({ suppliers }: { suppliers: SupplierRow[] }) {
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-        <div className="grid grid-cols-[1fr_160px_1fr_44px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+        <div className="grid grid-cols-[1fr_160px_1fr_44px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
           <span>Supplier</span><span>Phone</span><span>Email</span><span />
         </div>
         {suppliers.length === 0 ? (

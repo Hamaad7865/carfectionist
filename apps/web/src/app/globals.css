@@ -19,6 +19,9 @@
   --color-muted: #68737f;
   --color-faint: #8c96a1;
   --color-fainter: #9aa3ad;
+  /* table column headers — sits on --color-band/--color-sub. Dedicated so the
+     faint token can stay light for placeholders/hints. 5.2:1 on band (WCAG AA). */
+  --color-th: #5a6673;
 
   /* brand (blue → purple) */
   --color-brand: #2b8cff;

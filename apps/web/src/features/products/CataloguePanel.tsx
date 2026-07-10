@@ -70,7 +70,7 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
       </div>
 
       <div className="mt-3 overflow-hidden rounded-[14px] border border-line bg-card">
-        <div className={`hidden md:grid ${COLS} gap-2.5 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-faint`}>
+        <div className={`hidden md:grid ${COLS} gap-2.5 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-th`}>
           <span>Product</span>
           <span>Category</span>
           <span className="text-right">Cost</span>

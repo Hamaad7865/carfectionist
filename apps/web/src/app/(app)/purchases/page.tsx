@@ -26,7 +26,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
 
       {tab === "expenses" && data && (
         <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-          <div className="hidden grid-cols-[100px_150px_1fr_100px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint md:grid">
+          <div className="hidden grid-cols-[100px_150px_1fr_100px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th md:grid">
             <span>Date</span>
             <span>Category</span>
             <span>Description</span>

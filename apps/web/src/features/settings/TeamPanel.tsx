@@ -127,7 +127,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
       {rowError && <FormError error={rowError} />}
 
       <div className="overflow-x-auto rounded-[14px] border border-line bg-card">
-        <div className={`grid ${GRID} min-w-[600px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint`}>
+        <div className={`grid ${GRID} min-w-[600px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th`}>
           <span>Member</span><span>Role</span><span>Status</span><span>Tablet PIN</span><span className="text-right"> </span>
         </div>
         {members.map((m) => (

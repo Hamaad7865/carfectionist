@@ -129,7 +129,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
           {/* Lines */}
           <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-            <div className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-faint">
+            <div className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-th">
               <span>Item</span>
               <span className="text-right">Qty</span>
               <span className="text-right">Rate</span>

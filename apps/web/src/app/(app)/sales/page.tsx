@@ -51,7 +51,7 @@ export default async function SalesPage({
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
         <div className={`hidden md:grid ${COLS} gap-3.5 border-b border-line bg-band px-5 py-3`}>
           {["Number", "Customer", "Date", "Method", "Status", "Total"].map((h, i) => (
-            <span key={h} className={`text-[10.5px] font-bold uppercase tracking-[0.1em] text-faint ${i === 5 ? "text-right" : ""}`}>
+            <span key={h} className={`text-[10.5px] font-bold uppercase tracking-[0.1em] text-th ${i === 5 ? "text-right" : ""}`}>
               {h}
             </span>
           ))}

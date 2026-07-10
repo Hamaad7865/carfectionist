@@ -85,7 +85,7 @@ export function CashSessions({ open, recent }: { open: OpenTill | null; recent: 
       {recent.length > 0 && (
         <div className="mt-5 overflow-hidden rounded-[14px] border border-line bg-card">
           <div className="border-b border-line px-5 py-3 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Recent cash-ups</div>
-          <div className="grid grid-cols-[1fr_110px_110px_110px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+          <div className="grid grid-cols-[1fr_110px_110px_110px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
             <span>Opened</span><span className="text-right">Expected</span><span className="text-right">Counted</span><span className="text-right">Variance</span>
           </div>
           {recent.map((s) => (

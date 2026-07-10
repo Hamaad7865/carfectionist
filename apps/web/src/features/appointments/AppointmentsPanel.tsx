@@ -121,7 +121,7 @@ export function AppointmentsPanel({ data }: { data: AppointmentsData }) {
 
       {/* schedule */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="hidden md:grid grid-cols-[140px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+        <div className="hidden md:grid grid-cols-[140px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
           <span>When</span><span>Customer</span><span>Vehicle · service</span><span>Status</span><span className="text-right">Actions</span>
         </div>
         {data.appointments.length === 0 ? (

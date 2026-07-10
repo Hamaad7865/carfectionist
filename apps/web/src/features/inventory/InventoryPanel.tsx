@@ -122,7 +122,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
 
       {/* ledger */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-faint md:grid">
+        <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th md:grid">
           <span>Date</span><span>Product</span><span>Location</span><span>Type</span><span className="text-right">Qty</span><span>Note</span>
         </div>
         {data.movements.length === 0 ? (
