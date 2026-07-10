@@ -84,6 +84,13 @@ object PosIcons {
         moveTo(10f, 9.7f); lineToRelative(1.5f, 1.5f); lineToRelative(2.7f, -3f)
     }
 
+    // three sliders — device/peripheral settings
+    val Settings: ImageVector = strokeIcon("Settings") {
+        moveTo(5f, 3.8f); verticalLineTo(10f); moveTo(5f, 14f); verticalLineTo(20.2f); circle(5f, 12f, 2f)
+        moveTo(12f, 3.8f); verticalLineTo(5.6f); moveTo(12f, 9.6f); verticalLineTo(20.2f); circle(12f, 7.6f, 2f)
+        moveTo(19f, 3.8f); verticalLineTo(13.6f); moveTo(19f, 17.6f); verticalLineTo(20.2f); circle(19f, 15.6f, 2f)
+    }
+
     // gauge (stroke) + centre dot (fill)
     val Today: ImageVector = ImageVector.Builder("Today", 24.dp, 24.dp, 24f, 24f).apply {
         path(stroke = SolidColor(Color.Black), strokeLineWidth = 1.8f, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round) {

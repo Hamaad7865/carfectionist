@@ -67,6 +67,7 @@ enum class PosTab(val label: String, val icon: ImageVector, val title: String, v
     STOCK("Stock", PosIcons.Stock, "Stock", "On-hand per product · quick adjust"),
     CERT("Warranty", PosIcons.Warranty, "Certificates & warranty", "Ceramic certificates + maintenance"),
     DASH("Today", PosIcons.Today, "Today at the studio", "KPIs, turnover, best sellers, technicians"),
+    SETTINGS("Settings", PosIcons.Settings, "Device settings", "Printer · cash drawer · barcode scanner"),
 }
 
 private val Tracked2 = 2.sp

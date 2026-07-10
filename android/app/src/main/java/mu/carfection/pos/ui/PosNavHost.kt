@@ -35,6 +35,7 @@ import mu.carfection.pos.feature.jobs.JobsScreen
 import mu.carfection.pos.feature.jobs.JobsViewModel
 import mu.carfection.pos.feature.login.LoginScreen
 import mu.carfection.pos.feature.quote.QuoteScreen
+import mu.carfection.pos.feature.settings.SettingsScreen
 import mu.carfection.pos.feature.stock.StockScreen
 import mu.carfection.pos.feature.till.TillScreen
 import javax.inject.Inject
@@ -124,7 +125,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                         PosTab.STOCK -> StockScreen()
                         PosTab.CERT -> CertScreen()
                         PosTab.DASH -> DashScreen()
-                        else -> PlaceholderScreen(tab)
+                        PosTab.SETTINGS -> SettingsScreen()
                     }
                 }
             }
