@@ -15,6 +15,7 @@ import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.IntakeHandoff
 import mu.carfection.pos.core.data.IntakeHandoffBus
+import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.CustomerEntity
 import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.network.NewCustomerDto
@@ -62,6 +63,7 @@ class IntakeViewModel @Inject constructor(
     private val api: PosApi,
     private val captures: CaptureBus,
     private val handoff: IntakeHandoffBus,
+    private val session: SessionRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(IntakeState())
     val state = _s.asStateFlow()
@@ -74,6 +76,9 @@ class IntakeViewModel @Inject constructor(
                 if (r.target == "intake") { addPhoto(r.file.readBytes()); runCatching { r.file.delete() } }
             }
         }
+        // Activity-scoped: clear one operator's in-progress intake (customer, vehicle, markers,
+        // photos) on sign-out, so the next operator doesn't start a quote for the wrong customer.
+        viewModelScope.launch { session.isLoggedIn.collect { if (it == false) reset() } }
     }
 
     // ── condition photos ───────────────────────────────────────────────────────

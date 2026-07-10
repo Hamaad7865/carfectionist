@@ -16,6 +16,7 @@ import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.IntakeHandoff
 import mu.carfection.pos.core.data.IntakeHandoffBus
+import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.LineInput
@@ -76,6 +77,7 @@ class QuoteViewModel @Inject constructor(
     private val catalog: CatalogRepository,
     private val api: PosApi,
     private val intakeBus: IntakeHandoffBus,
+    private val session: SessionRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
     val state = _s.asStateFlow()
@@ -87,6 +89,13 @@ class QuoteViewModel @Inject constructor(
         // Reception hands over a customer+vehicle (+condition) — open a fresh builder on it.
         viewModelScope.launch {
             intakeBus.pending.collect { h -> if (h != null) { intakeBus.consume(); beginFromIntake(h) } }
+        }
+        // Activity-scoped: drop one operator's in-progress builder (customer, lines, accept panel)
+        // when they sign out, so the next operator can't issue against a stranger's draft.
+        viewModelScope.launch {
+            session.isLoggedIn.collect {
+                if (it == false) _s.value = QuoteState(products = _s.value.products, technicians = _s.value.technicians)
+            }
         }
     }
 
@@ -125,7 +134,9 @@ class QuoteViewModel @Inject constructor(
                 who = q.customers?.name ?: "—", vehPlate = q.vehicles?.plate,
                 veh = listOfNotNull(q.vehicles?.make, q.vehicles?.model).joinToString(" "),
                 customerId = q.customerId, vehicleId = q.vehicleId,
-                lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null,
+                // Clear any latched reception handoff — it belongs to a different, freshly-started
+                // quote, not this existing one; otherwise its markers/photos land on the wrong job.
+                lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null,
             )
         }
         viewModelScope.launch {

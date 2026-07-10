@@ -14,6 +14,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.money.centsToRupees
@@ -73,6 +74,7 @@ class JobsViewModel @Inject constructor(
     private val catalog: CatalogRepository,
     private val outbox: OutboxRepository,
     private val captures: CaptureBus,
+    private val session: SessionRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
@@ -89,6 +91,20 @@ class JobsViewModel @Inject constructor(
                 if (r.target.startsWith("jobs:")) {
                     addPhoto(r.target.substringAfter(':'), r.file.readBytes())
                     runCatching { r.file.delete() }
+                }
+            }
+        }
+        // Activity-scoped: close one operator's open work order + half-typed invoice/cert dialogs
+        // on sign-out, so the next operator can't issue a stale amount under their own session.
+        viewModelScope.launch {
+            session.isLoggedIn.collect {
+                if (it == false) _s.update { st ->
+                    st.copy(
+                        activeJobId = null, certOpen = false, certProductId = null,
+                        invoiceOpen = false, invoiceService = "", invoiceAmountText = "",
+                        addChecklistOpen = false, photos = emptyList(), photoUrls = emptyMap(),
+                        photoUploading = null, error = null, toast = null,
+                    )
                 }
             }
         }
