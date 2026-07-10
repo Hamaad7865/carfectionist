@@ -1,5 +1,6 @@
 package mu.carfection.pos.feature.counter
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -370,7 +371,7 @@ fun CounterScreen(
     }
     s.done?.let {
         SaleDone(
-            result = it, receipt = s.receiptText,
+            result = it, receipt = s.receipt,
             methodLabel = s.method.label,
             customerLabel = s.customerText.trim().ifBlank { "Walk-in" },
             canVoid = viewModel.canManage,
@@ -808,7 +809,7 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
 @Composable
 private fun SaleDone(
     result: mu.carfection.pos.core.data.SaleResult,
-    receipt: String?,
+    receipt: mu.carfection.pos.core.hardware.ReceiptDoc?,
     methodLabel: String,
     customerLabel: String,
     canVoid: Boolean,
@@ -884,20 +885,148 @@ private fun SaleDone(
                     ) { Text("Start  →", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp) }
                 }
             }
-            // ── right: the slip exactly as it printed (no stamps, plain paper) ─
-            Column(
-                Modifier.weight(0.85f)
-                    .background(Color(0xFFFDFDFB), RoundedCornerShape(6.dp))
-                    .border(1.dp, HairlineColorForPaper, RoundedCornerShape(6.dp))
-                    .padding(18.dp),
-            ) {
-                Text(
-                    receipt ?: "—", color = TextPrimary, fontFamily = Mono, fontSize = 11.sp, lineHeight = 15.5.sp,
-                    modifier = Modifier.heightIn(max = 500.dp).verticalScroll(rememberScrollState()),
+            // ── right: the slip exactly as it printed (styled paper, no stamps) ─
+            Box(Modifier.weight(0.9f), contentAlignment = Alignment.TopCenter) {
+                if (receipt != null) ReceiptPaper(
+                    receipt,
+                    Modifier.width(300.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
                 )
             }
         }
     }
 }
 
-private val HairlineColorForPaper = Color(0x1A0F1A24)
+private val PaperBg = Color(0xFFF7F5EF)          // warm receipt paper
+private val PaperInk = Color(0xFF23201A)         // near-black print
+private val PaperFaint = Color(0xFF8A8578)       // secondary print
+private val PaperRule = Color(0x33231F17)        // dashed separators
+
+/** Money as the slip prints it: "Rs 1,320.00". */
+private fun rsSlip(cents: Long): String {
+    val neg = cents < 0; val a = if (neg) -cents else cents
+    val grouped = (a / 100).toString().reversed().chunked(3).joinToString(",").reversed()
+    return (if (neg) "-" else "") + "Rs $grouped.${(a % 100).toString().padStart(2, '0')}"
+}
+
+/** The on-screen paper slip — styled to the studio's retail receipt (no PAID stamp). */
+@Composable
+private fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifier: Modifier = Modifier) {
+    Column(
+        modifier.background(PaperBg, RoundedCornerShape(4.dp)).border(1.dp, Color(0x1A231F17), RoundedCornerShape(4.dp))
+            .padding(horizontal = 22.dp, vertical = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        // header
+        Text(d.biz.name.uppercase(), color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 0.5.sp, textAlign = TextAlign.Center)
+        d.biz.address?.takeIf { it.isNotBlank() }?.let {
+            Text(it, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 3.dp))
+        }
+        val ids = listOfNotNull(d.biz.brn?.let { "BRN $it" }, d.biz.vatNo?.let { "VAT $it" }).joinToString(" · ")
+        if (ids.isNotBlank()) Text(ids, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
+        d.biz.phone?.takeIf { it.isNotBlank() }?.let { Text(it, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp) }
+
+        DashRule()
+        // meta rows
+        SlipRow("Invoice", d.invoiceNo ?: "—")
+        SlipRow("Date", d.dateTime)
+        SlipRow("Cashier", d.cashier)
+        SlipRow("Customer", d.customer)
+        DashRule()
+        // items
+        if (!d.isPayment && d.lines.isNotEmpty()) {
+            d.lines.forEach { l ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
+                    Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty} ×", color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.width(28.dp))
+                    Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
+                    Text(rsSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp))
+                }
+            }
+            DashRule()
+        }
+        // totals
+        if (!d.isPayment) {
+            SlipRow("Subtotal", rsSlip(d.subtotalCents))
+            SlipRow("VAT ${d.vatRatePct}%", rsSlip(d.vatCents))
+            SlipRow("Discount", rsSlip(d.discountCents))
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
+            Text("TOTAL", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+            Text(rsSlip(d.totalCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        }
+        if (d.onAccount) SlipRow("On account", rsSlip(d.totalCents), strong = true)
+        else {
+            SlipRow("Paid · ${d.payLabel?.lowercase()}", rsSlip(d.paidCents))
+            SlipRow("Change", rsSlip(d.changeCents))
+        }
+        DashRule()
+        Text(d.footer, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp))
+        // barcode of the invoice number
+        d.invoiceNo?.let { no ->
+            Barcode128(no, Modifier.fillMaxWidth().height(44.dp))
+            Text(no, color = PaperInk, fontFamily = Mono, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun SlipRow(label: String, value: String, strong: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
+        Text(label, color = if (strong) PaperInk else PaperFaint, fontFamily = Barlow, fontWeight = if (strong) FontWeight.SemiBold else FontWeight.Medium, fontSize = 11.5.sp, modifier = Modifier.weight(1f))
+        Text(value, color = PaperInk, fontFamily = Mono, fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal, fontSize = 11.sp)
+    }
+}
+
+@Composable
+private fun DashRule() {
+    Canvas(Modifier.fillMaxWidth().height(1.dp).padding(vertical = 0.dp)) {
+        val dash = 5f; val gap = 4f; var x = 0f
+        while (x < size.width) { drawLine(PaperRule, Offset(x, 0f), Offset((x + dash).coerceAtMost(size.width), 0f), 1.5f); x += dash + gap }
+    }
+    Spacer(Modifier.height(7.dp))
+}
+
+/** Real Code128-B barcode of [data], drawn as bars (scannable; matches the till-slip look). */
+@Composable
+private fun Barcode128(data: String, modifier: Modifier = Modifier) {
+    val widths = remember(data) { code128B(data) }
+    Canvas(modifier) {
+        val unit = size.width / widths.sum().toFloat()
+        var x = 0f; var dark = true
+        widths.forEach { w ->
+            val bw = w * unit
+            if (dark) drawRect(PaperInk, Offset(x, 0f), androidx.compose.ui.geometry.Size(bw, size.height))
+            x += bw; dark = !dark
+        }
+    }
+}
+
+/** Code128-B bar/space widths (module counts) for an ASCII string. */
+private fun code128B(input: String): List<Int> {
+    val values = ArrayList<Int>()
+    values += 104 // Start B
+    var sum = 104; var pos = 1
+    input.forEach { c ->
+        val v = (c.code - 32).coerceIn(0, 94)
+        values += v; sum += v * pos; pos++
+    }
+    values += sum % 103 // checksum
+    values += 106 // stop
+    val out = ArrayList<Int>()
+    values.forEach { v -> CODE128_PATTERNS[v].forEach { out += it - '0' } }
+    return out
+}
+
+/** Canonical Code128 module-width patterns, index 0..106 (Start B = 104, Stop = 106). */
+private val CODE128_PATTERNS = listOf(
+    "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
+    "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
+    "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211",
+    "212123", "212321", "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313",
+    "231113", "231311", "112133", "112331", "132131", "113123", "113321", "133121", "313121", "211331",
+    "231131", "213113", "213311", "213131", "311123", "311321", "331121", "312113", "312311", "332111",
+    "314111", "221411", "431111", "111224", "111422", "121124", "121421", "141122", "141221", "112214",
+    "112412", "122114", "122411", "142112", "142211", "241211", "221114", "413111", "241112", "134111",
+    "111242", "121142", "121241", "114212", "124112", "124211", "411212", "421112", "421211", "212141",
+    "214121", "412121", "111143", "111341", "131141", "114113", "114311", "411113", "411311", "113141",
+    "114131", "311141", "411131", "211412", "211214", "211232", "2331112",
+)

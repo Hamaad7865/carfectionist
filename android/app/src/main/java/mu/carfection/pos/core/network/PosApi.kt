@@ -33,7 +33,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchSettings(): BusinessSettingsDto =
         client.postgrest.from("business_settings")
-            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address")) { limit(1) }
+            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone")) { limit(1) }
             .decodeSingle()
 
     suspend fun findCustomerByName(name: String): CustomerDto? =

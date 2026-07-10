@@ -23,12 +23,14 @@ import mu.carfection.pos.core.data.TillRepository
 import mu.carfection.pos.core.database.CustomerEntity
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.hardware.CashDrawer
+import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
 import mu.carfection.pos.core.hardware.ReceiptPrinter
 import mu.carfection.pos.core.hardware.ReceiptText
 import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.computeTotals
+import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.CashSessionDto
@@ -72,7 +74,7 @@ data class CounterUiState(
     val busy: Boolean = false,
     val error: String? = null,
     val done: SaleResult? = null,
-    val receiptText: String? = null, // what just printed — post-sale preview / reprint
+    val receipt: ReceiptDoc? = null, // what just printed — post-sale preview / reprint
     // checkout mode: the TO COLLECT / PAID TODAY list, or a walk-in cart
     val mode: CheckoutMode = CheckoutMode.LIST,
     val bills: List<OutstandingInvoiceDto> = emptyList(),
@@ -246,8 +248,8 @@ class CounterViewModel @Inject constructor(
 
     /** Reprint the slip shown in the post-sale panel. */
     fun reprint() {
-        val text = local.value.receiptText ?: return
-        viewModelScope.launch { runCatching { printer.printReceipt(text) } }
+        val doc = local.value.receipt ?: return
+        viewModelScope.launch { runCatching { printer.printReceipt(ReceiptText.render(doc)) } }
         local.value = local.value.copy(notice = "Receipt sent to the printer")
     }
 
@@ -292,23 +294,27 @@ class CounterViewModel @Inject constructor(
                     cashSessionId = s.till?.id,
                     payKey = saleKey,
                 )
-                val receipt = ReceiptText.forPayment(
+                val receipt = ReceiptDoc(
                     biz = catalog.receiptBiz(),
-                    number = bill.number,
-                    dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")),
-                    amountCents = s.dueCents,
-                    payLabel = s.method.label.uppercase(),
-                    tenderCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
+                    invoiceNo = bill.number,
+                    dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm")),
+                    cashier = session.userName,
+                    customer = bill.customers?.name ?: "Walk-in",
+                    lines = emptyList(),
+                    subtotalCents = s.dueCents, vatRatePct = catalog.vatDefault().toInt(),
+                    vatCents = 0L, discountCents = 0L, totalCents = s.dueCents,
+                    payLabel = s.method.label,
+                    paidCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else s.dueCents,
                     changeCents = s.changeCents,
-                    operator = session.userName,
+                    onAccount = false, isPayment = true,
                 )
                 launch {
                     runCatching {
-                        printer.printReceipt(receipt) // instant payment slip
+                        printer.printReceipt(ReceiptText.render(receipt)) // instant payment slip
                         if (s.method == PayMethod.CASH) drawer.kick()
                     }
                 }
-                local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result, receiptText = receipt)
+                local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result, receipt = receipt)
                 loadLists()
             } catch (e: Exception) {
                 local.value = local.value.copy(busy = false, error = e.message ?: "Payment failed — try again.")
@@ -453,28 +459,37 @@ class CounterViewModel @Inject constructor(
                 )
                 // Sale is committed — printing/drawer are fire-and-forget (can never lose it).
                 // Receipt mirrors the SAVED lines (incl. discount lines) in the studio's slip format.
-                val receipt = ReceiptText.forSale(
+                // Each cart line's undiscounted list price, VAT-inclusive (per line's own rate).
+                fun grossIncl(l: CartLine): Long {
+                    val excl = lineExclCents(l.qty, l.product.sellingPriceCents) // qty × unit, no discount
+                    return excl + Math.round(excl * (l.product.vatRatePct / 100.0))
+                }
+                val itemLines = s.cart.map { ReceiptLine(it.product.name, it.qty, grossIncl(it)) }
+                val subtotalIncl = itemLines.sumOf { it.inclCents } // gross, before discounts
+                val receipt = ReceiptDoc(
                     biz = catalog.receiptBiz(),
-                    number = result.number,
-                    dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")),
-                    lines = s.specs.mapIndexed { i, sp -> ReceiptLine(sp.title, sp.qty, s.totals.lines[i].exclCents + s.totals.lines[i].vatCents) },
+                    invoiceNo = result.number,
+                    dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm")),
+                    cashier = session.userName,
+                    customer = s.customerText.trim().ifBlank { "Walk-in" },
+                    lines = itemLines,
+                    subtotalCents = subtotalIncl,
+                    vatRatePct = catalog.vatDefault().toInt(),
+                    vatCents = s.totals.vatCents,
+                    discountCents = (subtotalIncl - result.totalCents).coerceAtLeast(0), // Subtotal − Discount = Total
                     totalCents = result.totalCents,
-                    exclCents = s.totals.subtotalCents,
-                    vatByRate = s.specs.indices.groupBy { s.specs[it].vatRatePct }
-                        .map { (rate, idxs) -> rate to idxs.sumOf { s.totals.lines[it].vatCents } }.filter { it.second != 0L },
-                    payLabel = if (result.onAccount) null else s.method.label.uppercase(),
+                    payLabel = if (result.onAccount) null else s.method.label,
                     paidCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else result.totalCents,
                     changeCents = result.changeCents,
                     onAccount = result.onAccount,
-                    operator = session.userName,
                 )
                 launch {
                     runCatching {
-                        printer.printReceipt(receipt) // prints the moment the sale completes
+                        printer.printReceipt(ReceiptText.render(receipt)) // prints the moment the sale completes
                         if (s.method == PayMethod.CASH) drawer.kick()
                     }
                 }
-                local.value = local.value.copy(busy = false, padOpen = false, done = result, receiptText = receipt)
+                local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt)
             } catch (e: Exception) {
                 local.value = local.value.copy(busy = false, error = e.message ?: "Sale failed — try again.")
             }

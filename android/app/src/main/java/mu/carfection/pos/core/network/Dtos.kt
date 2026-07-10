@@ -237,6 +237,7 @@ data class BusinessSettingsDto(
     val brn: String? = null,
     @SerialName("vat_number") val vatNumber: String? = null,
     val address: String? = null,
+    val phone: String? = null,
 )
 
 @Serializable

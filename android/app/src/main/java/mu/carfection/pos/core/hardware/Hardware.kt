@@ -26,105 +26,83 @@ interface CashDrawer {
 }
 
 /** Header identity printed on every receipt (from business_settings). */
-data class ReceiptBiz(val name: String, val address: String?, val brn: String?, val vatNo: String?)
+data class ReceiptBiz(
+    val name: String,
+    val address: String?,
+    val brn: String?,
+    val vatNo: String?,
+    val phone: String? = null,
+)
 
-/** One sold line as it prints: title, qty, VAT-INCLUSIVE line total. */
+/** One sold line: title, qty, VAT-inclusive line total. */
 data class ReceiptLine(val title: String, val qty: Double, val inclCents: Long)
 
 /**
- * Plain-text 32-column receipt, formatted like the studio's existing Cashmag
- * till slips (same sections/order) minus the Cashmag/NF525 machine footer.
- * The ESC/POS ReceiptBuilder replaces the transport when the printer lands.
+ * The receipt as a structured document — one source of truth rendered two ways:
+ * the on-screen paper slip (ReceiptPaper composable) and the printer's plain text
+ * (ReceiptText.render). Modelled on the studio's retail till slip.
  */
+data class ReceiptDoc(
+    val biz: ReceiptBiz,
+    val invoiceNo: String?,
+    val dateTime: String, // display, e.g. "10 Jul 2026 15:04"
+    val cashier: String,
+    val customer: String,
+    val lines: List<ReceiptLine>,
+    val subtotalCents: Long, // gross, VAT-inclusive, before discount
+    val vatRatePct: Int,
+    val vatCents: Long,
+    val discountCents: Long, // total discount, VAT-inclusive (>= 0)
+    val totalCents: Long,
+    val payLabel: String?, // "Cash" etc.; null = on account
+    val paidCents: Long,
+    val changeCents: Long,
+    val onAccount: Boolean,
+    val isPayment: Boolean = false, // collect-on-invoice slip (no item table / tax lines)
+) {
+    val footer = "Goods sold are not refundable. Thank you for shopping with us."
+}
+
+/** Renders a [ReceiptDoc] to the 32-column plain text a thermal printer prints. */
 object ReceiptText {
     private const val W = 32
     private fun center(s: String) = " ".repeat(((W - s.length) / 2).coerceAtLeast(0)) + s
     private fun rule() = "-".repeat(W)
+    private fun dec(c: Long): String { val n = c < 0; val a = if (n) -c else c; return (if (n) "-" else "") + "${a / 100}.${(a % 100).toString().padStart(2, '0')}" }
+    private fun money(c: Long) = "Rs " + dec(c)
+    private fun kv(k: String, v: String) = k + v.padStart(W - k.length)
 
-    /** "1320.00" — plain 2dp, no currency prefix (table columns). */
-    private fun dec(cents: Long): String {
-        val neg = cents < 0; val a = if (neg) -cents else cents
-        return (if (neg) "-" else "") + "${a / 100}.${(a % 100).toString().padStart(2, '0')}"
-    }
-
-    private fun rs(cents: Long) = dec(cents) + "Rs"
-
-    fun forSale(
-        biz: ReceiptBiz,
-        number: String?,
-        dateTime: String,
-        lines: List<ReceiptLine>,
-        totalCents: Long,
-        exclCents: Long,
-        vatByRate: List<Pair<Double, Long>>, // rate% -> VAT amount
-        payLabel: String?, // null = on account
-        paidCents: Long?,
-        changeCents: Long,
-        onAccount: Boolean,
-        operator: String,
-    ): String = buildString {
-        appendLine(center(biz.name.uppercase()))
-        biz.address?.takeIf { it.isNotBlank() }?.let { appendLine(center(it)) }
+    fun render(d: ReceiptDoc): String = buildString {
+        appendLine(center(d.biz.name.uppercase()))
+        d.biz.address?.takeIf { it.isNotBlank() }?.let { appendLine(center(it)) }
+        val ids = listOfNotNull(d.biz.brn?.let { "BRN $it" }, d.biz.vatNo?.let { "VAT $it" }).joinToString(" · ")
+        if (ids.isNotBlank()) appendLine(center(ids))
+        d.biz.phone?.takeIf { it.isNotBlank() }?.let { appendLine(center(it)) }
         appendLine(rule())
-        appendLine("VAT INVOICE ${number ?: "(draft)"}")
-        appendLine("Sale - ${biz.name.uppercase()} POS")
-        appendLine(dateTime)
+        appendLine(kv("Invoice", d.invoiceNo ?: "—"))
+        appendLine(kv("Date", d.dateTime))
+        appendLine(kv("Cashier", d.cashier))
+        appendLine(kv("Customer", d.customer))
         appendLine(rule())
-        appendLine("Qty Designation       UP   Total")
-        lines.forEach { l ->
-            val qty = if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString()
-            val up = if (l.qty != 0.0) Math.round(l.inclCents / l.qty) else l.inclCents
-            appendLine(qty.take(3).padEnd(4) + l.title.take(12).padEnd(12) + dec(up).padStart(8) + dec(l.inclCents).padStart(8))
+        if (!d.isPayment) {
+            d.lines.forEach { l ->
+                val qty = if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString()
+                appendLine("$qty x ${l.title}".take(W - 10).padEnd(W - 10) + dec(l.inclCents).padStart(10))
+            }
+            appendLine(rule())
+            appendLine(kv("Subtotal", money(d.subtotalCents)))
+            appendLine(kv("VAT ${d.vatRatePct}%", money(d.vatCents)))
+            appendLine(kv("Discount", money(d.discountCents)))
+        }
+        appendLine(kv("TOTAL", money(d.totalCents)))
+        if (d.onAccount) appendLine(kv("On account", money(d.totalCents)))
+        else {
+            appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents)))
+            appendLine(kv("Change", money(d.changeCents)))
         }
         appendLine(rule())
-        appendLine(center("Total: " + rs(totalCents)))
-        appendLine(center("excl. VAT : " + rs(exclCents)))
-        appendLine(rule())
-        if (payLabel != null) {
-            appendLine("1  $payLabel : ${rs(paidCents ?: totalCents)}")
-            if (changeCents > 0) appendLine("   CHANGE : -${rs(changeCents)}")
-        } else {
-            appendLine("ON ACCOUNT - BALANCE DUE")
-        }
-        appendLine(rule())
-        vatByRate.forEach { (rate, vat) ->
-            appendLine("TAUX NORMAL ${if (rate % 1.0 == 0.0) "${rate.toInt()}.0" else rate.toString()}% : ${rs(vat)}")
-        }
-        appendLine("excl. VAT = ${rs(exclCents)}")
-        appendLine("Incl. tax = ${rs(totalCents)}")
-        appendLine(rule())
-        appendLine(center("Thank you for visiting."))
-        biz.brn?.takeIf { it.isNotBlank() }?.let { appendLine("BRN : $it") }
-        biz.vatNo?.takeIf { it.isNotBlank() }?.let { appendLine("VAT number : ${it.removePrefix("VAT")}") }
-        appendLine("Served by ${operator.uppercase()}")
-        if (onAccount) appendLine(center("*** ON ACCOUNT ***"))
-    }
-
-    /** Collecting on an existing invoice — a short payment slip. */
-    fun forPayment(
-        biz: ReceiptBiz,
-        number: String?,
-        dateTime: String,
-        amountCents: Long,
-        payLabel: String,
-        tenderCents: Long?,
-        changeCents: Long,
-        operator: String,
-    ): String = buildString {
-        appendLine(center(biz.name.uppercase()))
-        biz.address?.takeIf { it.isNotBlank() }?.let { appendLine(center(it)) }
-        appendLine(rule())
-        appendLine("PAYMENT - ${number ?: "invoice"}")
-        appendLine(dateTime)
-        appendLine(rule())
-        appendLine("1  $payLabel : ${rs(tenderCents ?: amountCents)}")
-        appendLine("   Applied : ${rs(amountCents)}")
-        if (changeCents > 0) appendLine("   CHANGE : -${rs(changeCents)}")
-        appendLine(rule())
-        appendLine(center("Thank you for visiting."))
-        biz.brn?.takeIf { it.isNotBlank() }?.let { appendLine("BRN : $it") }
-        biz.vatNo?.takeIf { it.isNotBlank() }?.let { appendLine("VAT number : ${it.removePrefix("VAT")}") }
-        appendLine("Served by ${operator.uppercase()}")
+        appendLine(center("Thank you for shopping with us."))
+        d.invoiceNo?.let { appendLine(center(it)) }
     }
 }
 

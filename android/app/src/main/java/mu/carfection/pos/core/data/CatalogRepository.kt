@@ -35,6 +35,7 @@ class CatalogRepository @Inject constructor(
     private val brnKey = stringPreferencesKey("brn")
     private val vatNoKey = stringPreferencesKey("vat_number")
     private val addressKey = stringPreferencesKey("address")
+    private val phoneKey = stringPreferencesKey("phone")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -51,6 +52,7 @@ class CatalogRepository @Inject constructor(
             address = p[addressKey],
             brn = p[brnKey],
             vatNo = p[vatNoKey],
+            phone = p[phoneKey],
         )
     }
 
@@ -63,6 +65,7 @@ class CatalogRepository @Inject constructor(
             settings.tradingName?.let { n -> it[nameKey] = n }
             settings.brn?.let { v -> it[brnKey] = v }
             settings.vatNumber?.let { v -> it[vatNoKey] = v }
+            settings.phone?.let { v -> it[phoneKey] = v }
             settings.address?.let { v -> it[addressKey] = v }
         }
         val vatDefault = settings.vatRate
