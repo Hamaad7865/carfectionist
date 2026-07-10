@@ -70,6 +70,10 @@ class CatalogRepository @Inject constructor(
         }
         val vatDefault = settings.vatRate
 
+        // Offline-first: an EMPTY fetch is treated as "no update", never "delete everything".
+        // replaceAll → deleteNotIn(emptyList) expands to `NOT IN ()`, which is true for every row
+        // in SQLite and would wipe the whole cache — so a transient empty/RLS-filtered 200 (not an
+        // error, so it isn't caught upstream) must not clear the last-known catalogue.
         val products = api.fetchProducts().map { p ->
             ProductEntity(
                 id = p.id,
@@ -83,9 +87,9 @@ class CatalogRepository @Inject constructor(
                 lowStockThreshold = p.lowStockThreshold,
             )
         }
-        productDao.replaceAll(products)
+        if (products.isNotEmpty()) productDao.replaceAll(products)
 
         val customers = api.fetchCustomers().map { c -> CustomerEntity(c.id, c.name, c.phone) }
-        customerDao.replaceAll(customers)
+        if (customers.isNotEmpty()) customerDao.replaceAll(customers)
     }
 }
