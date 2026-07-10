@@ -27,6 +27,7 @@ import mu.carfection.pos.core.network.TechnicianDto
 import mu.carfection.pos.core.sync.OutboxRepository
 import java.time.Instant
 import java.time.LocalDate
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
 /** The four kanban columns, in order, with the handoff's dot colours. */
@@ -125,7 +126,7 @@ class JobsViewModel @Inject constructor(
                     ),
                 ).number
             }.onSuccess { num -> _s.update { it.copy(certBusy = false, certOpen = false, toast = "Certificate $num issued") } }
-                .onFailure { e -> _s.update { it.copy(certBusy = false, toast = e.message ?: "Couldn't issue the certificate") } }
+                .onFailure { e -> _s.update { it.copy(certBusy = false, toast = e.uiMessage("Couldn’t issue the certificate")) } }
         }
     }
 
@@ -165,7 +166,7 @@ class JobsViewModel @Inject constructor(
                 api.issueDocument(draft.id, "job-inv:${job.id}")
             }.onSuccess { d -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${d.number ?: "Invoice"} created — collect it in Checkout") } }
                 .onFailure { e ->
-                    val msg = if (e.message?.contains("already has", true) == true) "This job already has an invoice — collect it in Checkout" else (e.message ?: "Couldn't create the invoice")
+                    val msg = if (e.message?.contains("already has", true) == true) "This job already has an invoice — collect it in Checkout" else e.uiMessage("Couldn’t create the invoice")
                     _s.update { it.copy(invoiceBusy = false, toast = msg) }
                 }
         }
@@ -176,7 +177,7 @@ class JobsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { api.fetchJobs() }
                 .onSuccess { j -> _s.update { it.copy(loading = false, jobs = j) } }
-                .onFailure { e -> _s.update { it.copy(loading = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 
@@ -235,7 +236,7 @@ class JobsViewModel @Inject constructor(
                 val url = runCatching { api.signedPhotoUrl(p.storagePath) }.getOrNull()
                 _s.update { st -> st.copy(photoUploading = null, photos = st.photos + p, photoUrls = if (url != null) st.photoUrls + (p.id to url) else st.photoUrls, toast = "${phase.replaceFirstChar { it.uppercase() }} photo added") }
             }.onFailure { e ->
-                _s.update { it.copy(photoUploading = null, toast = "Couldn't save the photo — ${e.message ?: "try again"}") }
+                _s.update { it.copy(photoUploading = null, toast = "Couldn’t save the photo — ${e.uiMessage("try again")}") }
             }
         }
     }
@@ -265,7 +266,7 @@ class JobsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { api.startJob(id, Instant.now().toString()) }
                 .onSuccess { _s.update { it.copy(busy = false, toast = "Job started") }; load() }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 
@@ -286,7 +287,7 @@ class JobsViewModel @Inject constructor(
         _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == id) it.copy(pausedAt = at, pausedMs = ms) else it }, toast = note) }
         viewModelScope.launch {
             runCatching { api.setJobPause(id, at, ms) }
-                .onFailure { e -> _s.update { it.copy(error = e.message) }; load() }
+                .onFailure { e -> _s.update { it.copy(error = e.uiMessage()) }; load() }
         }
     }
 
@@ -306,7 +307,7 @@ class JobsViewModel @Inject constructor(
                 api.markJobReady(id)
             }
                 .onSuccess { _s.update { it.copy(busy = false, toast = "Marked ready for collection") }; load() }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 }

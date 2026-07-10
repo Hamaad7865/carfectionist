@@ -59,6 +59,7 @@ import mu.carfection.pos.ui.theme.TextMuted
 import mu.carfection.pos.ui.theme.TextPrimary
 import mu.carfection.pos.ui.theme.TextSecondary
 import mu.carfection.pos.ui.theme.Warning
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
 data class TillUiState(
@@ -90,7 +91,7 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
         _s.value = _s.value.copy(loading = true)
         runCatching { till.openSession() }
             .onSuccess { _s.value = TillUiState(loading = false, session = it) }
-            .onFailure { _s.value = TillUiState(loading = false, error = it.message) }
+            .onFailure { _s.value = TillUiState(loading = false, error = it.uiMessage()) }
     }
 
     fun open(floatText: String) {
@@ -99,7 +100,7 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
         viewModelScope.launch {
             runCatching { till.open(cents) }
                 .onSuccess { _s.value = _s.value.copy(busy = false, session = it); _justOpened.value = true }
-                .onFailure { _s.value = _s.value.copy(busy = false, error = it.message) }
+                .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
         }
     }
 
@@ -110,7 +111,7 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
         viewModelScope.launch {
             runCatching { till.close(id, cents) }
                 .onSuccess { _s.value = TillUiState(loading = false, session = null, justClosed = it) }
-                .onFailure { _s.value = _s.value.copy(busy = false, error = it.message) }
+                .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
         }
     }
 }

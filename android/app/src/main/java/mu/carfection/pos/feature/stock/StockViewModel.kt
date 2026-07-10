@@ -13,6 +13,7 @@ import mu.carfection.pos.core.network.NewStockMovementDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.StockProductDto
 import kotlin.math.roundToInt
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
 // Low-stock rule (shared with the web form + DB check): blank = 10, hard cap 20.
@@ -71,7 +72,7 @@ class StockViewModel @Inject constructor(
                 Quad(products, onHand, loc, tenant)
             }.onSuccess { (products, onHand, loc, tenant) ->
                 _s.update { it.copy(loading = false, products = products, onHand = onHand, locationId = loc, tenant = tenant) }
-            }.onFailure { e -> _s.update { it.copy(loading = false, error = e.message) } }
+            }.onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 
@@ -122,7 +123,7 @@ class StockViewModel @Inject constructor(
             runCatching { api.adjustStock(NewStockMovementDto(tenant, productId, loc, delta.toDouble(), refType = "adjustment", note = note)) }
                 .onFailure { e ->
                     val msg = if (e.message?.contains("row-level security", true) == true) "Stock adjustments need owner or manager access" else "Couldn't save the adjustment — try again"
-                    _s.update { it.copy(error = e.message, toast = msg) }; load()
+                    _s.update { it.copy(error = e.uiMessage(), toast = msg) }; load()
                 }
         }
     }

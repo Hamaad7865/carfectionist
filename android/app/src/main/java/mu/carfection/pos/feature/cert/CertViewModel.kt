@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mu.carfection.pos.core.network.CertificateDto
 import mu.carfection.pos.core.network.PosApi
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
 data class CertState(
@@ -31,7 +32,7 @@ class CertViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
         viewModelScope.launch {
             runCatching { api.fetchCertificates() }
                 .onSuccess { c -> _s.update { it.copy(loading = false, certs = c, activeCertId = it.activeCertId ?: c.firstOrNull()?.id) } }
-                .onFailure { e -> _s.update { it.copy(loading = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 

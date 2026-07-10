@@ -46,6 +46,7 @@ import java.time.LocalDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
 /** Everything the counter screen renders. Totals are always derived, never stored. */
@@ -188,7 +189,7 @@ internal fun CounterUiState.withSettleFailure(e: Throwable): CounterUiState = wh
         error = "Couldn't confirm the sale reached the server. Tap Record payment again to " +
             "finish it — don't change the basket.",
     )
-    else -> copy(busy = false, error = e.message ?: "Sale failed — try again.")
+    else -> copy(busy = false, error = e.uiMessage("Sale failed — try again."))
 }
 
 @HiltViewModel
@@ -340,7 +341,7 @@ class CounterViewModel @Inject constructor(
             runCatching { block() }
                 .onSuccess { local.value = local.value.copy(busy = false, padOpen = false, collect = null, paymentAction = null, done = null, notice = label); loadLists() }
                 .onFailure { e ->
-                    val msg = if (e.message?.contains("privileges", true) == true) "Only an owner or manager can do that" else (e.message ?: "Couldn't complete that — try again")
+                    val msg = if (e.message?.contains("privileges", true) == true) "Only an owner or manager can do that" else e.uiMessage("Couldn’t complete that — try again")
                     local.value = local.value.copy(busy = false, notice = msg)
                 }
         }
@@ -424,7 +425,7 @@ class CounterViewModel @Inject constructor(
                 local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result, receipt = receipt)
                 loadLists()
             } catch (e: Exception) {
-                local.value = local.value.copy(busy = false, error = e.message ?: "Payment failed — try again.")
+                local.value = local.value.copy(busy = false, error = e.uiMessage("Payment failed — try again."))
             }
         }
     }

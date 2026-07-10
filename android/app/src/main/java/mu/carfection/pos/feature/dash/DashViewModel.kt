@@ -19,6 +19,7 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -70,7 +71,7 @@ class DashViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
                     build(today, payments.await().let { it }, open.await(), paid.await(), jobs.await(), techs.await())
                 }
             }.onSuccess { d -> _s.update { it.copy(loading = false, data = d) } }
-                .onFailure { e -> _s.update { it.copy(loading = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 

@@ -22,6 +22,7 @@ import mu.carfection.pos.core.network.NewVehicleDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.VehicleDto
 import java.io.File
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
 enum class DamageType(val label: String, val color: Color, val letter: String) {
@@ -94,7 +95,7 @@ class IntakeViewModel @Inject constructor(
                         photoUrls = if (url != null) it.photoUrls + (path to url) else it.photoUrls,
                     )
                 }
-            }.onFailure { e -> _s.update { it.copy(photoUploading = false, error = "Couldn't save the photo — ${e.message ?: "try again"}") } }
+            }.onFailure { e -> _s.update { it.copy(photoUploading = false, error = "Couldn’t save the photo — ${e.uiMessage("try again")}") } }
         }
     }
 
@@ -119,7 +120,7 @@ class IntakeViewModel @Inject constructor(
             }.onSuccess { c ->
                 _s.update { it.copy(newCustOpen = false, nName = "", nPhone = "") }
                 pickCustomer(CustomerEntity(c.id, c.name, c.phone))
-            }.onFailure { e -> _s.update { it.copy(error = e.message) } }
+            }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
         }
     }
 
@@ -147,7 +148,7 @@ class IntakeViewModel @Inject constructor(
                 api.insertVehicle(NewVehicleDto(tenant, cust.id, plate, st.nvMake.trim().ifBlank { null }, st.nvModel.trim().ifBlank { null }, st.nvColour.trim().ifBlank { null }))
             }.onSuccess { v ->
                 _s.update { it.copy(vehicles = it.vehicles + v, vehicle = v, addVehOpen = false, nvPlate = "", nvMake = "", nvModel = "", nvColour = "") }
-            }.onFailure { e -> _s.update { it.copy(error = if ((e.message ?: "").contains("duplicate", true)) "That plate already exists" else e.message) } }
+            }.onFailure { e -> _s.update { it.copy(error = if ((e.message ?: "").contains("duplicate", true)) "That plate already exists" else e.uiMessage()) } }
         }
     }
 

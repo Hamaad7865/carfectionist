@@ -25,6 +25,7 @@ import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteRowDto
 import mu.carfection.pos.core.network.TechnicianDto
+import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
 enum class QuoteMode { LIST, BUILDER }
@@ -105,7 +106,7 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { api.fetchQuotes() }
                 .onSuccess { q -> _s.update { it.copy(loading = false, quotes = q) } }
-                .onFailure { e -> _s.update { it.copy(loading = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 
@@ -187,7 +188,7 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s)) }
                 .onSuccess { d -> _s.update { it.copy(busy = false, quoteId = d.id, savedRef = d.number ?: "Draft saved") } }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 
@@ -197,13 +198,14 @@ class QuoteViewModel @Inject constructor(
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
-                // Persist the builder's edits first, then convert atomically: the
-                // RPC issues+accepts the quote and spawns the linked job in one txn
-                // (idempotent, and it owns the customer/vehicle guards — no client
-                // vehicle-less pre-check needed; a missing vehicle surfaces its error).
-                val saved = api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s))
-                saved to api.convertQuoteToJob(saved.id, s.techId)
-            }.onSuccess { (saved, jobId) ->
+                // A draft gets the builder's edits persisted first. An issued/accepted
+                // quote is frozen — save_draft refuses "cannot edit an issued document" —
+                // so it converts as-is; the RPC is idempotent and hands back the same job.
+                val quoteId =
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s)).id
+                    else s.quoteId ?: error("This quote hasn't been saved yet")
+                quoteId to api.convertQuoteToJob(quoteId, s.techId)
+            }.onSuccess { (quoteId, jobId) ->
                 // Stamp what reception recorded onto the new job — best-effort; the
                 // job exists either way and the board still opens it.
                 s.intake?.let { h ->
@@ -217,8 +219,8 @@ class QuoteViewModel @Inject constructor(
                         }
                     }
                 }
-                _s.update { it.copy(busy = false, quoteId = saved.id, status = "accepted", createdJobId = jobId, acceptOpen = false, intake = null) }
-            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, acceptOpen = false, intake = null) }
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 
@@ -230,11 +232,14 @@ class QuoteViewModel @Inject constructor(
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
-                val quote = api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s))
-                val draft = api.convertQuoteToInvoice(quote.id)
-                api.issueDocument(draft.id, "quote-inv:${quote.id}")
+                // same freeze rule as accept: only drafts can be re-saved
+                val quoteId =
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s)).id
+                    else s.quoteId ?: error("This quote hasn't been saved yet")
+                val draft = api.convertQuoteToInvoice(quoteId)
+                api.issueDocument(draft.id, "quote-inv:$quoteId")
             }.onSuccess { d -> _s.update { it.copy(busy = false, acceptOpen = false, createdInvoiceRef = d.number ?: "Invoice issued") } }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.message) } }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 
