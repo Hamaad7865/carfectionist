@@ -14,7 +14,9 @@ import mu.carfection.pos.core.data.CartLine
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
+import mu.carfection.pos.core.data.SaleIssueUncertain
 import mu.carfection.pos.core.data.SaleLineSpec
+import mu.carfection.pos.core.data.SalePaymentUncertain
 import mu.carfection.pos.core.data.SaleRepository
 import mu.carfection.pos.core.data.SaleResult
 import mu.carfection.pos.core.data.expandSaleLines
@@ -36,6 +38,8 @@ import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.CashSessionDto
 import mu.carfection.pos.core.network.OutstandingInvoiceDto
 import mu.carfection.pos.core.network.PosApi
+import mu.carfection.pos.core.network.SaleHistoryDto
+import mu.carfection.pos.core.network.SaleHistoryLineDto
 import mu.carfection.pos.core.network.TodayPaymentDto
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -84,6 +88,13 @@ data class CounterUiState(
     val paymentAction: TodayPaymentDto? = null, // a tapped PAID TODAY row → reverse / refund
     val notice: String? = null, // transient corrections feedback
     val oversell: OversellPrompt? = null, // adding this would drive stock negative — confirm first
+    val pendingSettle: PendingSettle? = null, // a settle reached the server — basket is frozen
+    // sales history (past sales + reprint)
+    val historyOpen: Boolean = false,
+    val history: List<SaleHistoryDto> = emptyList(),
+    val historyQuery: String = "",
+    val historyBusy: Boolean = false,
+    val viewDoc: ReceiptDoc? = null, // a past sale's receipt, rebuilt for preview/reprint
 ) {
     /** The amount the pad is settling: an existing invoice's balance, or the cart total. */
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
@@ -125,17 +136,59 @@ enum class CheckoutMode { LIST, WALKIN }
 data class OversellPrompt(val product: ProductEntity, val targetQty: Double)
 
 /**
+ * A settle attempt that reached `issue_document`. An invoice may exist on the server under this
+ * sale's idempotency key, and the client cannot tell. Until it resolves the basket is frozen:
+ * both money RPCs replay purely on the key, so settling a *different* basket under it would
+ * charge the customer for this one. Retrying the identical basket is safe — the server replays.
+ *
+ * [invoiceId] is null when `issue_document` itself failed (the invoice may or may not exist).
+ */
+data class PendingSettle(val invoiceId: String?, val number: String?)
+
+internal const val SETTLE_LOCK_NOTICE = "Finish or cancel this sale before changing the basket."
+
+/**
  * Single recompute path: every cart/basket change rebuilds the exact invoice line set
  * (expandSaleLines) and prices it with the shared money engine — the footer always shows
  * what the server will charge.
  */
 internal fun CounterUiState.withCart(cart: List<CartLine>): CounterUiState {
+    if (pendingSettle != null) return copy(notice = SETTLE_LOCK_NOTICE)
     // Emptying the cart ends the ticket, so the whole-sale discount goes with it. Otherwise a
     // discount typed for one walk-in silently re-prices the next basket built on this screen.
     val s = if (cart.isEmpty() && this.cart.isNotEmpty()) copy(basketMode = DiscountMode.PCT, basketText = "") else this
     val specs = expandSaleLines(cart, s.basketMode, s.basketPct, s.basketAmtCents)
     val totals = computeTotals(specs.map { LineInput(it.qty, it.unitCents, it.discountPct, it.vatRatePct) })
     return s.copy(cart = cart, specs = specs, totals = totals, error = null)
+}
+
+/** The whole-sale discount is part of the basket, so it freezes with it. */
+internal fun CounterUiState.withBasket(mode: DiscountMode, text: String): CounterUiState {
+    if (pendingSettle != null) return copy(notice = SETTLE_LOCK_NOTICE)
+    return copy(basketMode = mode, basketText = text).withCart(cart)
+}
+
+/**
+ * Where a settle died decides whether the cashier may keep editing. Anything before
+ * `issue_document` has committed nothing that costs money, so the basket stays live.
+ */
+internal fun CounterUiState.withSettleFailure(e: Throwable): CounterUiState = when (e) {
+    // Retrying is the safe act: the payment may in fact have committed, and re-sending the same
+    // request replays it. Cancelling instead would hide a settled invoice and re-ring the sale.
+    is SalePaymentUncertain -> copy(
+        busy = false,
+        pendingSettle = PendingSettle(e.invoiceId, e.number),
+        error = "${e.number?.let { "Invoice $it" } ?: "The invoice"} was issued but the payment " +
+            "didn't confirm. Tap Record payment again — retrying can never charge twice. " +
+            "Cancelling leaves it on the server.",
+    )
+    is SaleIssueUncertain -> copy(
+        busy = false,
+        pendingSettle = PendingSettle(null, null),
+        error = "Couldn't confirm the sale reached the server. Tap Record payment again to " +
+            "finish it — don't change the basket.",
+    )
+    else -> copy(busy = false, error = e.message ?: "Sale failed — try again.")
 }
 
 @HiltViewModel
@@ -225,6 +278,58 @@ class CounterViewModel @Inject constructor(
     fun openPaymentAction(p: TodayPaymentDto) { local.value = local.value.copy(paymentAction = p) }
     fun closePaymentAction() { local.value = local.value.copy(paymentAction = null) }
     fun clearNotice() { local.value = local.value.copy(notice = null) }
+
+    // ── sales history: view past sales + reprint their receipts ────────────────
+    fun openHistory() {
+        local.value = local.value.copy(historyOpen = true, historyBusy = true)
+        viewModelScope.launch {
+            val h = runCatching { api.fetchSalesHistory() }.getOrDefault(emptyList())
+            local.value = local.value.copy(history = h, historyBusy = false)
+        }
+    }
+
+    fun closeHistory() { local.value = local.value.copy(historyOpen = false, viewDoc = null, historyQuery = "") }
+    fun setHistoryQuery(q: String) { local.value = local.value.copy(historyQuery = q) }
+    fun closeViewDoc() { local.value = local.value.copy(viewDoc = null) }
+
+    /** Rebuild a past sale's slip from the server's stored lines + payments and show it. */
+    fun viewHistoryReceipt(h: SaleHistoryDto) {
+        viewModelScope.launch {
+            fun incl(l: SaleHistoryLineDto) = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
+            val sorted = h.lines.sortedBy { it.sortOrder }
+            val positives = sorted.filter { incl(it) >= 0 }
+            val pay = h.payments.filter { it.reversesPaymentId == null }.maxByOrNull { it.receivedAt ?: "" }
+            val doc = ReceiptDoc(
+                biz = catalog.receiptBiz(),
+                invoiceNo = h.number,
+                dateTime = runCatching {
+                    java.time.OffsetDateTime.parse(h.issuedAt)
+                        .atZoneSameInstant(ZoneOffset.ofHours(4))
+                        .format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm"))
+                }.getOrDefault(h.issuedAt?.take(10) ?: "—"),
+                cashier = h.creator?.displayName?.replace(Regex("\\s*\\(.*\\)$"), "") ?: "—",
+                customer = h.customers?.name ?: "Walk-in",
+                lines = positives.map { ReceiptLine(it.title, it.qty, incl(it)) },
+                subtotalCents = positives.sumOf { incl(it) },
+                vatRatePct = catalog.vatDefault().toInt(),
+                vatCents = rupeesToCents(h.vatTotal),
+                discountCents = -sorted.filter { incl(it) < 0 }.sumOf { incl(it) },
+                totalCents = rupeesToCents(h.totalIncl),
+                payLabel = pay?.let { p -> PayMethod.entries.firstOrNull { it.rpcValue == p.method }?.label ?: p.method },
+                paidCents = pay?.tendered?.let { rupeesToCents(it) } ?: rupeesToCents(h.amountPaid),
+                changeCents = pay?.changeGiven?.let { rupeesToCents(it) } ?: 0L,
+                onAccount = pay == null,
+            )
+            local.value = local.value.copy(viewDoc = doc)
+        }
+    }
+
+    /** Reprint the previewed past-sale slip. */
+    fun printViewDoc() {
+        val doc = local.value.viewDoc ?: return
+        viewModelScope.launch { runCatching { printer.printReceipt(ReceiptText.render(doc)) } }
+        local.value = local.value.copy(notice = "Receipt sent to the printer")
+    }
 
     private fun correction(label: String, block: suspend () -> Unit) {
         if (local.value.busy) return
@@ -389,31 +494,50 @@ class CounterViewModel @Inject constructor(
 
     // ── basket discount ─────────────────────────────────────────────────────────
     fun setBasketMode(mode: DiscountMode) {
-        local.value = local.value.copy(basketMode = mode, basketText = "")
-        mutateCart { it } // recompute
+        local.value = local.value.withBasket(mode, "")
     }
 
     fun setBasketText(text: String) {
-        local.value = local.value.copy(basketText = text.filter { c -> c.isDigit() || c == '.' })
-        mutateCart { it } // recompute
+        val s = local.value
+        local.value = s.withBasket(s.basketMode, text.filter { c -> c.isDigit() || c == '.' })
     }
 
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {
         val s = local.value
-        local.value = s.withCart(f(s.cart))
+        val next = s.withCart(f(s.cart))
+        // An emptied cart ends the ticket. Mint a fresh idempotency namespace so the next basket
+        // can never replay this one's invoice.
+        if (next.cart.isEmpty() && s.cart.isNotEmpty()) saleKey = UUID.randomUUID().toString()
+        local.value = next
     }
 
     // ── customer ─────────────────────────────────────────────────────────────
-    fun setCustomerText(t: String) { local.value = local.value.copy(customerText = t, customerId = null) }
-    fun pickCustomer(c: CustomerEntity) { local.value = local.value.copy(customerText = c.name, customerId = c.id) }
+    fun setCustomerText(t: String) {
+        if (frozenBySettle()) return
+        local.value = local.value.copy(customerText = t, customerId = null)
+    }
+    fun pickCustomer(c: CustomerEntity) {
+        if (frozenBySettle()) return
+        local.value = local.value.copy(customerText = c.name, customerId = c.id)
+    }
+
+    /** Who the invoice bills is baked into the issued document, so it freezes with the basket. */
+    private fun frozenBySettle(): Boolean {
+        if (local.value.pendingSettle == null) return false
+        local.value = local.value.copy(notice = SETTLE_LOCK_NOTICE)
+        return true
+    }
 
     // ── payment pad ──────────────────────────────────────────────────────────
     fun openPad() {
         if (local.value.cart.isEmpty()) { local.value = local.value.copy(error = "Add at least one product."); return }
-        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", error = null)
+        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", error = settleError())
     }
     fun closePad() { local.value = local.value.copy(padOpen = false, collect = null) }
-    fun setMethod(m: PayMethod) { local.value = local.value.copy(method = m, error = null) }
+    fun setMethod(m: PayMethod) { local.value = local.value.copy(method = m, error = settleError()) }
+
+    /** An unresolved settle keeps its message: it is the cashier's only instruction for getting out. */
+    private fun settleError(): String? = local.value.error.takeIf { local.value.pendingSettle != null }
     fun setRef(t: String) { local.value = local.value.copy(refText = t) }
     fun setTenderCents(cents: Long) { local.value = local.value.copy(tenderText = (cents / 100).toString() + if (cents % 100 != 0L) "." + (cents % 100).toString().padStart(2, '0') else "") }
 
@@ -489,9 +613,9 @@ class CounterViewModel @Inject constructor(
                         if (s.method == PayMethod.CASH) drawer.kick()
                     }
                 }
-                local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt)
+                local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt, pendingSettle = null)
             } catch (e: Exception) {
-                local.value = local.value.copy(busy = false, error = e.message ?: "Sale failed — try again.")
+                local.value = local.value.withSettleFailure(e)
             }
         }
     }

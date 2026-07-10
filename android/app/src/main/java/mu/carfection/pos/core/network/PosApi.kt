@@ -276,6 +276,23 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    /** Past sales with lines + payments — the history list and its reprints. */
+    suspend fun fetchSalesHistory(limit: Long = 60): List<SaleHistoryDto> =
+        client.postgrest.from("documents")
+            .select(
+                Columns.raw(
+                    "id, number, status, issued_at, total_incl, vat_total, amount_paid, " +
+                        "customers(name), creator:app_users!documents_created_by_fkey(display_name), " +
+                        "document_lines(title, qty, line_total_excl, line_vat, sort_order), " +
+                        "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)",
+                ),
+            ) {
+                filter { eq("doc_type", "invoice"); neq("status", "draft") }
+                order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(limit)
+            }
+            .decodeList()
+
     // ── Corrections (owner/manager per the RPCs' require_role) ────────────────
     /** Void an unpaid/issued document (voids stock movements too). */
     suspend fun voidDocument(documentId: String, reason: String) {

@@ -380,6 +380,8 @@ fun CounterScreen(
         )
     }
     s.paymentAction?.let { PaymentActionDialog(it, viewModel) }
+    if (s.historyOpen) HistoryDialog(s, viewModel)
+    s.viewDoc?.let { doc -> ViewReceiptDialog(doc, onPrint = viewModel::printViewDoc, onClose = viewModel::closeViewDoc) }
     s.notice?.let { Notice(it, onGone = viewModel::clearNotice) }
 }
 
@@ -537,7 +539,13 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
             Modifier.weight(0.85f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp))
                 .border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(12.dp),
         ) {
-            Text("PAID TODAY", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("PAID TODAY", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
+                Text(
+                    "History →", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
+                    modifier = Modifier.clickable { vm.openHistory() }.padding(horizontal = 4.dp, vertical = 2.dp),
+                )
+            }
             Spacer(Modifier.height(8.dp))
             if (s.paidToday.isEmpty()) {
                 Text("No payments yet today.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
@@ -802,6 +810,103 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
     ) { Text(label, color = TextSecondary, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+}
+
+// ─── Sales history: past sales + reprint ─────────────────────────────────────
+
+@Composable
+private fun HistoryDialog(s: CounterUiState, vm: CounterViewModel) {
+    Dialog(onDismissRequest = vm::closeHistory, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.width(780.dp).heightIn(max = 640.dp)
+                .background(CardBg, RoundedCornerShape(20.dp)).padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("SALES HISTORY", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.5.sp, color = TextPrimary)
+                Text("tap a sale to view & reprint its receipt", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted, modifier = Modifier.weight(1f))
+                Box(
+                    Modifier.size(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { vm.closeHistory() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕", color = TextSecondary, fontSize = 15.sp) }
+            }
+            Spacer(Modifier.height(12.dp))
+            FilledInput(
+                value = s.historyQuery, onValueChange = vm::setHistoryQuery,
+                placeholder = "Search by invoice number or customer…",
+                modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = Inset, leadingSearch = true,
+            )
+            Spacer(Modifier.height(10.dp))
+            val q = s.historyQuery.trim().lowercase()
+            val rows = s.history.filter {
+                q.isEmpty() || (it.number ?: "").lowercase().contains(q) || (it.customers?.name ?: "").lowercase().contains(q)
+            }
+            when {
+                s.historyBusy -> Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                    Text("Loading…", color = TextMuted, fontFamily = Barlow)
+                }
+                rows.isEmpty() -> Box(Modifier.fillMaxWidth().height(180.dp), contentAlignment = Alignment.Center) {
+                    Text(if (q.isEmpty()) "No sales yet." else "Nothing matches \"$q\".", color = TextMuted, fontFamily = Barlow, fontSize = 13.sp)
+                }
+                else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(rows, key = { it.id }) { h ->
+                        Row(
+                            Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0x0F0F1A24), RoundedCornerShape(12.dp))
+                                .clickable { vm.viewHistoryReceipt(h) }
+                                .padding(horizontal = 13.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp),
+                        ) {
+                            Text(h.number ?: "—", fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary, modifier = Modifier.width(88.dp))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(h.customers?.name ?: "Walk-in", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(historyDate(h.issuedAt), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted)
+                            }
+                            HistoryStatusChip(h.status)
+                            Text(formatMUR(mu.carfection.pos.core.money.rupeesToCents(h.totalIncl)), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun historyDate(iso: String?): String = runCatching {
+    java.time.OffsetDateTime.parse(iso!!)
+        .atZoneSameInstant(java.time.ZoneOffset.ofHours(4))
+        .format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy · HH:mm"))
+}.getOrDefault(iso?.take(10) ?: "—")
+
+@Composable
+private fun HistoryStatusChip(status: String) {
+    val (bg, fg, label) = when (status.lowercase()) {
+        "paid" -> Triple(Color(0x261FA361), Success, "PAID")
+        "partly_paid" -> Triple(Color(0x26C17A00), Warning, "PART-PAID")
+        "voided" -> Triple(Color(0x1AD63A3A), Danger, "VOIDED")
+        else -> Triple(InsetAlt, TextSecondary, "UNPAID")
+    }
+    Box(Modifier.height(24.dp).background(bg, RoundedCornerShape(12.dp)).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+        Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 0.5.sp, color = fg)
+    }
+}
+
+@Composable
+private fun ViewReceiptDialog(doc: mu.carfection.pos.core.hardware.ReceiptDoc, onPrint: () -> Unit, onClose: () -> Unit) {
+    Dialog(onDismissRequest = onClose) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            ReceiptPaper(doc, Modifier.width(310.dp).heightIn(max = 520.dp).verticalScroll(rememberScrollState()))
+            Row(Modifier.width(310.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(48.dp).background(CardBg, RoundedCornerShape(12.dp)).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = onClose),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Close", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                Box(
+                    Modifier.weight(1.4f).height(48.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = onPrint),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Print again", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = AccentInk) }
+            }
+        }
+    }
 }
 
 // ─── Success ─────────────────────────────────────────────────────────────────

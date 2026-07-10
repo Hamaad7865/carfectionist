@@ -129,6 +129,41 @@ data class OutstandingInvoiceDto(
     val vehicles: JobVehicleDto? = null,
 )
 @Serializable data class PaidDocRefDto(val number: String? = null, val customers: JobCustomerDto? = null)
+
+// ── Checkout · sales history (view past sales + reprint) ─────────────────────
+@Serializable
+data class SaleHistoryLineDto(
+    val title: String = "",
+    val qty: FlexDouble = 1.0,
+    @SerialName("line_total_excl") val lineTotalExcl: FlexDouble = 0.0,
+    @SerialName("line_vat") val lineVat: FlexDouble = 0.0,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+)
+
+@Serializable
+data class SaleHistoryPaymentDto(
+    val method: String = "cash",
+    val amount: FlexDouble = 0.0,
+    val tendered: FlexDouble? = null,
+    @SerialName("change_given") val changeGiven: FlexDouble? = null,
+    @SerialName("reverses_payment_id") val reversesPaymentId: String? = null,
+    @SerialName("received_at") val receivedAt: String? = null,
+)
+
+@Serializable
+data class SaleHistoryDto(
+    val id: String,
+    val number: String? = null,
+    val status: String = "issued",
+    @SerialName("issued_at") val issuedAt: String? = null,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("vat_total") val vatTotal: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+    val customers: JobCustomerDto? = null,
+    val creator: JobTechDto? = null,
+    @SerialName("document_lines") val lines: List<SaleHistoryLineDto> = emptyList(),
+    val payments: List<SaleHistoryPaymentDto> = emptyList(),
+)
 @Serializable
 data class TodayPaymentDto(
     val id: String,
