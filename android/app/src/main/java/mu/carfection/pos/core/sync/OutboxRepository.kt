@@ -61,6 +61,29 @@ class OutboxRepository @Inject constructor(
     @Serializable private data class AssignTech(val jobId: String, val technicianId: String)
     @Serializable private data class SetChecklist(val jobId: String, val checklist: JsonArray)
 
+    /** The latest still-queued checklist / technician per job — what the server hasn't caught up to. */
+    data class JobOverlay(val checklist: JsonArray? = null, val technicianId: String? = null)
+
+    /**
+     * A fresh fetchJobs() is behind any writes still in the queue; overlay those so re-entering the
+     * board (or building the next edit) sees the queued state, not the stale server snapshot that
+     * would otherwise revert an already-enqueued change. FIFO order → the last op per field wins.
+     */
+    suspend fun pendingJobOverlays(): Map<String, JobOverlay> {
+        val out = HashMap<String, JobOverlay>()
+        for (op in dao.all()) {
+            when (op.opType) {
+                OP_SET_CHECKLIST -> json.decodeFromString<SetChecklist>(op.payload).let {
+                    out[it.jobId] = (out[it.jobId] ?: JobOverlay()).copy(checklist = it.checklist)
+                }
+                OP_ASSIGN_TECH -> json.decodeFromString<AssignTech>(op.payload).let {
+                    out[it.jobId] = (out[it.jobId] ?: JobOverlay()).copy(technicianId = it.technicianId)
+                }
+            }
+        }
+        return out
+    }
+
     /** Reassign a job's technician. Idempotent — safe to replay after a reconnect. */
     suspend fun enqueueAssignTech(jobId: String, technicianId: String, label: String) =
         enqueue(OP_ASSIGN_TECH, json.encodeToString(AssignTech(jobId, technicianId)), "assign:$jobId", label)

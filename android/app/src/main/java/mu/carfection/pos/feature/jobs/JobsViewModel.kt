@@ -78,6 +78,7 @@ class JobsViewModel @Inject constructor(
 ) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
+    private val checklistJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
 
     /** The camera round-trip is coordinated by [CaptureBus] — see its docs. */
     fun beginCapture(phase: String, file: File) = captures.begin("jobs:$phase", file)
@@ -192,7 +193,20 @@ class JobsViewModel @Inject constructor(
         _s.update { it.copy(loading = true) }
         viewModelScope.launch {
             runCatching { api.fetchJobs() }
-                .onSuccess { j -> _s.update { it.copy(loading = false, jobs = j) } }
+                .onSuccess { j ->
+                    // Overlay writes still sitting in the outbox — otherwise this server snapshot,
+                    // which is behind the queue, would revert a checklist/assign edit the tech just
+                    // made offline (and the next edit would be built on the reverted state).
+                    val overlays = runCatching { outbox.pendingJobOverlays() }.getOrDefault(emptyMap())
+                    val merged = if (overlays.isEmpty()) j else j.map { job ->
+                        val o = overlays[job.id] ?: return@map job
+                        job.copy(
+                            checklist = o.checklist?.let { runCatching { checklistJson.decodeFromString<List<ChecklistItemDto>>(it.toString()) }.getOrNull() } ?: job.checklist,
+                            technicianId = o.technicianId ?: job.technicianId,
+                        )
+                    }
+                    _s.update { it.copy(loading = false, jobs = merged) }
+                }
                 .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
@@ -200,8 +214,10 @@ class JobsViewModel @Inject constructor(
     fun jobsFor(s: JobsState, col: JobCol): List<JobBoardDto> = s.jobs.filter { it.status == col.key }
     fun active(s: JobsState): JobBoardDto? = s.jobs.firstOrNull { it.id == s.activeJobId }
 
-    fun open(id: String) { _s.update { it.copy(activeJobId = id, photos = emptyList(), photoUrls = emptyMap()) }; loadPhotos(id) }
-    fun close() = _s.update { it.copy(activeJobId = null, photos = emptyList(), photoUrls = emptyMap()) }
+    // Clear photoUploading too: it isn't job-scoped, so leaving it set would show a phantom
+    // "Uploading…" (and a disabled capture button) on the next job opened.
+    fun open(id: String) { _s.update { it.copy(activeJobId = id, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null) }; loadPhotos(id) }
+    fun close() = _s.update { it.copy(activeJobId = null, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null) }
     fun clearToast() = _s.update { it.copy(toast = null) }
     fun note(msg: String) = _s.update { it.copy(toast = msg) }
 
@@ -250,9 +266,14 @@ class JobsViewModel @Inject constructor(
                 api.uploadJobPhoto(tenant, jobId, phase, bytes)
             }.onSuccess { p ->
                 val url = runCatching { api.signedPhotoUrl(p.storagePath) }.getOrNull()
-                _s.update { st -> st.copy(photoUploading = null, photos = st.photos + p, photoUrls = if (url != null) st.photoUrls + (p.id to url) else st.photoUrls, toast = "${phase.replaceFirstChar { it.uppercase() }} photo added") }
+                // The row is correctly tagged to jobId server-side; only reflect it in the on-screen
+                // gallery if that job is still open (the user may have switched during the upload).
+                _s.update { st ->
+                    if (st.activeJobId != jobId) st
+                    else st.copy(photoUploading = null, photos = st.photos + p, photoUrls = if (url != null) st.photoUrls + (p.id to url) else st.photoUrls, toast = "${phase.replaceFirstChar { it.uppercase() }} photo added")
+                }
             }.onFailure { e ->
-                _s.update { it.copy(photoUploading = null, toast = "Couldn’t save the photo — ${e.uiMessage("try again")}") }
+                _s.update { st -> if (st.activeJobId != jobId) st else st.copy(photoUploading = null, toast = "Couldn’t save the photo — ${e.uiMessage("try again")}") }
             }
         }
     }
