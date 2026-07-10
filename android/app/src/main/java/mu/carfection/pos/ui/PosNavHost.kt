@@ -7,13 +7,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.toMutableStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -66,6 +59,39 @@ class RootViewModel @Inject constructor(
     val splashShown = _splashShown.asStateFlow()
     fun markSplashShown() { _splashShown.value = true }
 
+    // ── navigation ──────────────────────────────────────────────────────────
+    // Held here, not in rememberSaveable, for the same reason as splashShown: the camera
+    // round-trip tears the Compose tree down without restoring saved state, which was wiping the
+    // tab back-stack (leaving Back to drop to Checkout instead of retracing the real history).
+    private val _tab = MutableStateFlow(PosTab.SALE)
+    val tab = _tab.asStateFlow()
+    private val _showTill = MutableStateFlow(false)
+    val showTill = _showTill.asStateFlow()
+    private val backStack = ArrayDeque<PosTab>()
+    private val _backDepth = MutableStateFlow(0)
+    val backDepth = _backDepth.asStateFlow()
+
+    fun navigate(next: PosTab) {
+        if (next != _tab.value) {
+            backStack.addLast(_tab.value)
+            if (backStack.size > 24) backStack.removeFirst()
+            _backDepth.value = backStack.size
+            _tab.value = next
+        }
+        _showTill.value = false
+    }
+    fun setShowTill(v: Boolean) { _showTill.value = v }
+    fun back() {
+        if (_showTill.value) { _showTill.value = false; return }
+        if (backStack.isNotEmpty()) { _tab.value = backStack.removeLast(); _backDepth.value = backStack.size }
+    }
+    private fun resetNav() { backStack.clear(); _backDepth.value = 0; _tab.value = PosTab.SALE; _showTill.value = false }
+
+    init {
+        // Start the next operator at a clean Checkout, not the previous one's tab/history.
+        viewModelScope.launch { session.isLoggedIn.collect { if (it == false) resetNav() } }
+    }
+
     fun signOut() { viewModelScope.launch { session.signOut() } }
 }
 
@@ -79,42 +105,24 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
             null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             false -> LoginScreen()
             true -> {
-                var tab by rememberSaveable { mutableStateOf(PosTab.SALE) }
-                var showTill by rememberSaveable { mutableStateOf(false) }
-                // Where the user came from, so system back retraces screens instead of
-                // dropping to Checkout. Saveable across teardown; capped, oldest dropped.
-                val tabStack = rememberSaveable(
-                    saver = listSaver(
-                        save = { it.map(PosTab::name) },
-                        restore = { saved -> saved.map(PosTab::valueOf).toMutableStateList() },
-                    ),
-                ) { mutableStateListOf<PosTab>() }
-                fun navigate(next: PosTab) {
-                    if (next != tab) {
-                        tabStack.add(tab)
-                        if (tabStack.size > 24) tabStack.removeAt(0)
-                        tab = next
-                    }
-                    showTill = false
-                }
-                BackHandler(enabled = showTill || tabStack.isNotEmpty()) {
-                    if (showTill) showTill = false
-                    else tab = tabStack.removeAt(tabStack.lastIndex)
-                }
-                // After a photo capture (which can tear down + rebuild this tree), the
-                // feature's ViewModel survives with its state; snap the shell back to it.
+                val tab by rootViewModel.tab.collectAsState()
+                val showTill by rootViewModel.showTill.collectAsState()
+                val backDepth by rootViewModel.backDepth.collectAsState()
+                BackHandler(enabled = showTill || backDepth > 0) { rootViewModel.back() }
+                // After a photo capture (which can tear down + rebuild this tree), the feature's
+                // ViewModel — and now the nav state on RootViewModel — survive; snap back to it.
                 val captureReturn by rootViewModel.captureReturnTo.collectAsState()
                 LaunchedEffect(captureReturn) {
                     when (captureReturn) {
-                        "jobs" -> { navigate(PosTab.JOBS); rootViewModel.consumeCaptureReturn() }
-                        "intake" -> { navigate(PosTab.INTAKE); rootViewModel.consumeCaptureReturn() }
+                        "jobs" -> { rootViewModel.navigate(PosTab.JOBS); rootViewModel.consumeCaptureReturn() }
+                        "intake" -> { rootViewModel.navigate(PosTab.INTAKE); rootViewModel.consumeCaptureReturn() }
                     }
                 }
                 val online by rootViewModel.online.collectAsState()
                 val pendingSync by rootViewModel.pendingSync.collectAsState(initial = 0)
                 PosShell(
                     active = tab,
-                    onSelect = ::navigate,
+                    onSelect = rootViewModel::navigate,
                     studioName = "Carfectionist",
                     staffName = rootViewModel.staffName,
                     staffRole = rootViewModel.staffRole,
@@ -124,11 +132,11 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 ) {
                     when (tab) {
                         PosTab.SALE ->
-                            if (showTill) TillScreen(onBack = { showTill = false }, onOpened = { showTill = false })
-                            else CounterScreen(onOpenTill = { showTill = true })
-                        PosTab.INTAKE -> IntakeScreen(onStartQuote = { navigate(PosTab.QUOTE) })
-                        PosTab.QUOTE -> QuoteScreen(onGoIntake = { navigate(PosTab.INTAKE) })
-                        PosTab.JOBS -> JobsScreen(onGoIntake = { navigate(PosTab.INTAKE) }, onGoCheckout = { navigate(PosTab.SALE) })
+                            if (showTill) TillScreen(onBack = { rootViewModel.setShowTill(false) }, onOpened = { rootViewModel.setShowTill(false) })
+                            else CounterScreen(onOpenTill = { rootViewModel.setShowTill(true) })
+                        PosTab.INTAKE -> IntakeScreen(onStartQuote = { rootViewModel.navigate(PosTab.QUOTE) })
+                        PosTab.QUOTE -> QuoteScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) })
+                        PosTab.JOBS -> JobsScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) })
                         PosTab.STOCK -> StockScreen()
                         PosTab.CERT -> CertScreen()
                         PosTab.DASH -> DashScreen()
