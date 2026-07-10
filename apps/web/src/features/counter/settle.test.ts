@@ -104,6 +104,21 @@ describe("a settle that reached issue_document freezes the basket", () => {
     expect(frozen.customerId).toBe(before.customerId);
   });
 
+  /** A retry that fails before the server answers must not blank the invoice we already know. */
+  it("keeps the issued invoice number when a retry fails without one", () => {
+    const issued = withSettleFailure(cartA(), paymentLost); // phase 'issued', INV-0007
+    const afterRetry = withSettleFailure(issued, issueLost); // retry dies early: 'uncertain', no number
+
+    expect(afterRetry.pending).toEqual({ phase: "issued", invoiceNo: "INV-0007" });
+  });
+
+  it("upgrades uncertain → issued once a number is known", () => {
+    const uncertain = withSettleFailure(cartA(), issueLost);
+    const upgraded = withSettleFailure(uncertain, paymentLost);
+
+    expect(upgraded.pending).toEqual({ phase: "issued", invoiceNo: "INV-0007" });
+  });
+
   /** The reported bug: cart B must never be built on top of cart A's issued invoice. */
   it("makes the reported mischarge unreachable", () => {
     const cartB = setOrderDiscount(

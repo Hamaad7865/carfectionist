@@ -134,7 +134,13 @@ export function withSettleFailure(
   r: { settle?: SettlePhase; invoiceNo?: string | null },
 ): Basket {
   if (!r.settle) return b;
-  return { ...b, pending: { phase: r.settle, invoiceNo: r.invoiceNo ?? null } };
+  const prev = b.pending;
+  // Never downgrade what we already know: once a settle is at phase 'issued' with an invoice
+  // number, a later retry that fails before the server answers (settle 'uncertain', no number)
+  // must keep the phase and the number the cashier was shown — not blank it back to 'uncertain'.
+  const phase: SettlePhase = prev?.phase === "issued" ? "issued" : r.settle;
+  const invoiceNo = r.invoiceNo ?? prev?.invoiceNo ?? null;
+  return { ...b, pending: { phase, invoiceNo } };
 }
 
 /** A settle that came back `ok` resolved the invoice, so the basket thaws. */
