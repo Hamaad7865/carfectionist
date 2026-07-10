@@ -93,7 +93,7 @@ export default async function SalesPage({
         )}
 
         <div className="flex items-center justify-between gap-2 bg-band px-4 py-3 sm:px-5">
-          <span className="text-[12px] font-semibold text-muted">
+          <span className="text-[12px] font-semibold text-th">
             {count} document{count === 1 ? "" : "s"}
             {rows.length < count ? ` (showing ${rows.length})` : ""}
           </span>

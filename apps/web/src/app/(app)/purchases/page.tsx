@@ -61,7 +61,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
             ))
           )}
           <div className="flex justify-between bg-band px-5 py-3.5">
-            <span className="text-[12.5px] font-bold text-muted">Total expenses (incl. VAT)</span>
+            <span className="text-[12.5px] font-bold text-th">Total expenses (incl. VAT)</span>
             <span className="num text-[14px] font-extrabold text-rose">{formatMUR(data.expenseTotalCents)}</span>
           </div>
         </div>

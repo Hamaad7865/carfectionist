@@ -8,7 +8,9 @@
   --color-app: #eef2f6;
   --color-card: #ffffff;
   --color-sub: #f6f8fb;
-  --color-band: #eff3f7;
+  /* banded strips: table header rows, totals footers, selected rows. Must read
+     as a distinct band against --color-card (#fff), not blend into it. */
+  --color-band: #e2e8ef;
   --color-line: rgba(15, 23, 32, 0.08);
   --color-line-2: rgba(15, 23, 32, 0.12);
 
