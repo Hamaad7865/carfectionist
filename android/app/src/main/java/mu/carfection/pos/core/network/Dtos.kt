@@ -254,6 +254,7 @@ data class StockProductDto(
     val id: String,
     val name: String,
     val category: String? = null,
+    val barcode: String? = null,
     @SerialName("selling_price") val sellingPrice: FlexDouble = 0.0,
     @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
 )

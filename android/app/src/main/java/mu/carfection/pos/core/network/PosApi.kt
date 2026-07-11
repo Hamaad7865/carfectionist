@@ -121,7 +121,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Stock ─────────────────────────────────────────────────────────────────────
     suspend fun fetchStockProducts(): List<StockProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, category, selling_price, low_stock_threshold")) {
+            .select(Columns.raw("id, name, category, barcode, selling_price, low_stock_threshold")) {
                 filter { eq("is_active", true); eq("is_stocked", true) }
                 order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }

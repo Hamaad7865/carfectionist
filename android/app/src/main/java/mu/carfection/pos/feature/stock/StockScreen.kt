@@ -36,6 +36,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentLine
@@ -68,6 +69,11 @@ fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
                 Text("⚠ $low low-stock item${if (low > 1) "s" else ""}", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Warning)
             }
         }
+        FilledInput(
+            value = s.query, onValueChange = viewModel::setQuery,
+            placeholder = "Search products or scan a barcode…",
+            modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
+        )
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             viewModel.tabs(s).forEach { t ->
                 val on = t == s.tab

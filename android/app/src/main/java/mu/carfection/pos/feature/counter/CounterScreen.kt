@@ -408,8 +408,10 @@ private fun ModeToggle(mode: DiscountMode, h: Dp = 34.dp, onPick: (DiscountMode)
 
 /**
  * Handoff product tile: name · stock line · price, with a round top-right badge.
- * Badge shows the in-cart count (accent) once tapped; otherwise the remaining
- * stock when it's low (< 10 — warning, red at zero) so the cashier sees scarcity.
+ * Badge shows the in-cart count (accent) once tapped — but flips to the red
+ * shortfall (e.g. "−3") the moment the cart would oversell, so ringing up an
+ * out-of-stock item is never quietly blue. Untapped: the true on-hand when low
+ * (warning), red at zero or below (negatives shown as-is, matching the Stock tab).
  */
 @Composable
 private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCartQty: Int?, onHand: Int?, onAdd: () -> Unit) {
@@ -431,11 +433,14 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
             Text(meta, color = metaC, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, maxLines = 1)
             Text(formatMUR(p.sellingPriceCents), color = TextSecondary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
         }
-        val ohBadge = (onHand ?: 0).coerceAtLeast(0)
+        val ohRaw = onHand ?: 0
+        val short = if (p.isStocked && inCartQty != null) ohRaw - inCartQty else 0
         val badge: Pair<String, Color>? = when {
+            inCartQty != null && inCartQty > 0 && short < 0 -> "−${-short}" to Danger
             inCartQty != null && inCartQty > 0 -> inCartQty.toString() to Accent
-            p.isStocked && ohBadge == 0 -> "0" to Danger
-            p.isStocked && ohBadge < p.effectiveLowStock -> ohBadge.toString() to Warning
+            p.isStocked && ohRaw < 0 -> "−${-ohRaw}" to Danger
+            p.isStocked && ohRaw == 0 -> "0" to Danger
+            p.isStocked && ohRaw < p.effectiveLowStock -> ohRaw.toString() to Warning
             else -> null
         }
         badge?.let { (txt, bg) ->

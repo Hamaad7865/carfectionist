@@ -42,6 +42,7 @@ data class StockState(
     val products: List<StockProductDto> = emptyList(),
     val onHand: Map<String, Int> = emptyMap(),
     val tab: String = "All",
+    val query: String = "",
     val tenant: String? = null,
     val locationId: String? = null,
     val adj: AdjustState? = null,
@@ -82,11 +83,21 @@ class StockViewModel @Inject constructor(
         listOf("All") + s.products.mapNotNull { it.category?.ifBlank { null } }.distinct().sorted()
 
     fun setTab(t: String) = _s.update { it.copy(tab = t) }
+    fun setQuery(q: String) = _s.update { it.copy(query = q) }
 
-    fun items(s: StockState): List<StockItem> =
-        s.products.filter { s.tab == "All" || it.category == s.tab }.map {
-            StockItem(it.id, it.name, it.category ?: "—", rupeesToCents(it.sellingPrice), s.onHand[it.id] ?: 0, (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD))
-        }
+    fun items(s: StockState): List<StockItem> {
+        val q = s.query.trim()
+        return s.products
+            .filter { s.tab == "All" || it.category == s.tab }
+            .filter {
+                q.isEmpty() || it.name.contains(q, ignoreCase = true) ||
+                    it.category?.contains(q, ignoreCase = true) == true ||
+                    it.barcode?.contains(q) == true // scanner types into the field too
+            }
+            .map {
+                StockItem(it.id, it.name, it.category ?: "—", rupeesToCents(it.sellingPrice), s.onHand[it.id] ?: 0, (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD))
+            }
+    }
 
     fun lowCount(s: StockState): Int =
         s.products.count { (s.onHand[it.id] ?: 0) < (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD) }
