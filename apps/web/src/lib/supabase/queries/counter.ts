@@ -21,7 +21,7 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
     fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, vat_rate, barcode, is_stocked").eq("is_active", true).order("category").order("name")),
     sb.from("business_settings").select("vat_rate").limit(1).maybeSingle(),
     fetchAllRows(() => sb.from("customers").select("id, name").order("name")),
-    fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), "product_id"),
+    fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     sb.from("stock_locations").select("id, name, is_default"),
   ]);
 

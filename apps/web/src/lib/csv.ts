@@ -6,7 +6,9 @@ export interface CsvColumn {
 }
 
 function esc(v: unknown): string {
-  const s = v == null ? "" : String(v);
+  let s = v == null ? "" : String(v);
+  // Neutralize spreadsheet formula injection (leading = + - @ is evaluated).
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r;]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

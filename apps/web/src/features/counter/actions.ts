@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
+import { resolveShopLocationId } from "@/lib/supabase/locations";
 import * as rpc from "@/lib/supabase/rpc";
 import { computeTotals } from "@/lib/money";
 import type { SettlePhase } from "./settle";
@@ -142,10 +143,7 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     const key = p.data.idempotencyKey?.trim() || null;
     // Counter sales draw stock from the Shop (walk-in front), not the Warehouse
     // default; fall back to the tenant default if no Shop location exists.
-    const { data: locs } = await sb.from("stock_locations").select("id, name, is_default");
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const locArr = (locs ?? []) as any[];
-    const shopLocationId = (locArr.find((l) => l.name === "Shop") ?? locArr.find((l) => !l.is_default))?.id ?? null;
+    const shopLocationId = await resolveShopLocationId(sb);
     // Point of no return: this draws the gapless INV number and fires stock movements. If it
     // throws we cannot tell a lost request from a lost response, so the invoice may exist under
     // `${key}:issue` — and a replay would ignore any new draft we sent it.

@@ -8,10 +8,16 @@
 const PAGE = 1000;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function fetchAllRows<T = any>(make: () => any, orderCol = "id"): Promise<T[]> {
+export async function fetchAllRows<T = any>(make: () => any, orderCol: string | string[] = "id"): Promise<T[]> {
+  // Order by a UNIQUE key so paging is stable — a non-unique column (e.g.
+  // stock_on_hand.product_id, one row per location) risks skipped/duplicated
+  // rows across page boundaries. Pass a compound key for such views.
+  const cols = Array.isArray(orderCol) ? orderCol : [orderCol];
   const out: T[] = [];
   for (let offset = 0; ; offset += PAGE) {
-    const { data, error } = await make().order(orderCol, { ascending: true }).range(offset, offset + PAGE - 1);
+    let q = make();
+    for (const c of cols) q = q.order(c, { ascending: true });
+    const { data, error } = await q.range(offset, offset + PAGE - 1);
     if (error) throw new Error(error.message);
     const rows = (data ?? []) as T[];
     out.push(...rows);

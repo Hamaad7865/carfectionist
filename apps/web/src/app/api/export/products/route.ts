@@ -12,7 +12,7 @@ export async function GET() {
   const sb = await createClient();
   const [prodData, ohData, locRes] = await Promise.all([
     fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, cost_price, vat_rate, low_stock_threshold, is_active").order("name")),
-    fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), "product_id"),
+    fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     sb.from("stock_locations").select("id, name, is_default").order("is_default", { ascending: false }),
   ]);
 

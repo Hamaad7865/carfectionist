@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
+import { muDate } from "@/lib/mu-date";
 
 export interface DashboardData {
   invoicedCents: number;
@@ -74,7 +75,7 @@ export async function getDashboard(): Promise<DashboardData> {
       status: d.status,
       totalCents: rupeesToCents(Number(d.total_incl)),
       customer: d.customers?.name ?? null,
-      date: (d.created_at as string).slice(0, 10),
+      date: muDate(d.created_at as string),
     })),
     bestServices,
   };

@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { rupeesToCents, formatMUR } from "@/lib/money";
+import { muToday, muNow } from "@/lib/mu-date";
 
 export interface NotifItem {
   key: string;
@@ -14,7 +15,7 @@ export interface NotifItem {
  *  source is isolated — one failing query never breaks the shell. */
 export async function getNotifications(): Promise<NotifItem[]> {
   const sb = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = muToday(); // Mauritius calendar day, not UTC
   const items: NotifItem[] = [];
 
   // 1. Outstanding invoices (money owed)
@@ -57,7 +58,7 @@ export async function getNotifications(): Promise<NotifItem[]> {
     if (shopId) {
       const [prods, oh] = await Promise.all([
         fetchAllRows(() => sb.from("products").select("id, low_stock_threshold").eq("is_stocked", true).eq("is_active", true).not("low_stock_threshold", "is", null)),
-        fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), "product_id"),
+        fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
       ]);
       const shopQty = new Map<string, number>();
       const totalQty = new Map<string, number>();
@@ -80,7 +81,8 @@ export async function getNotifications(): Promise<NotifItem[]> {
 
 /** Mauritius fiscal years (1 Jul – 30 Jun), current + the previous two. */
 export function fiscalYears(now = new Date()): { label: string; from: string; to: string }[] {
-  const startYear = now.getMonth() >= 6 ? now.getFullYear() : now.getFullYear() - 1;
+  const mu = muNow(now.getTime()); // read month/year in Mauritius local time
+  const startYear = mu.getUTCMonth() >= 6 ? mu.getUTCFullYear() : mu.getUTCFullYear() - 1;
   return [0, 1, 2].map((i) => {
     const s = startYear - i;
     return { label: `FY ${s}–${String(s + 1).slice(2)}`, from: `${s}-07-01`, to: `${s + 1}-06-30` };

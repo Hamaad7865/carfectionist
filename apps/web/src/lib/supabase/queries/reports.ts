@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { muDate, muDateTime } from "@/lib/mu-date";
 
 export interface PaymentReportRow {
   id: string;
@@ -22,7 +23,8 @@ export interface ReportsData {
 }
 
 function daysBetween(iso: string, now: number): number {
-  const t = Date.parse(iso);
+  // issue_date is a plain date; anchor it to Mauritius midnight for correct age buckets.
+  const t = Date.parse(iso.length === 10 ? `${iso}T00:00:00+04:00` : iso);
   return Number.isNaN(t) ? 0 : Math.floor((now - t) / 86_400_000);
 }
 
@@ -80,7 +82,7 @@ export async function getReportsData(from?: string, to?: string, method?: string
   const payments: PaymentReportRow[] = ((payRes.data ?? []) as any[])
     .map((p) => ({
       id: p.id,
-      date: (p.received_at as string).slice(0, 16).replace("T", " "),
+      date: muDateTime(p.received_at as string),
       number: p.documents?.number ?? null,
       customer: p.documents?.customers?.name ?? null,
       method: p.method,
@@ -142,6 +144,25 @@ export async function getReportsData(from?: string, to?: string, method?: string
   };
 }
 
+/** Uncapped payments list for CSV export — the getReportsData display list is
+ *  capped at 500, which would silently truncate a busy export. Reversal mirrors
+ *  kept so the export nets like the on-screen total. */
+export async function getCollectedPayments(from?: string, to?: string, method?: string): Promise<PaymentReportRow[]> {
+  const sb = await createClient();
+  const make = () => {
+    let q = sb.from("payments").select("id, method, amount, received_at, documents(number, customers(name))");
+    if (from) q = q.gte("received_at", dayStart(from));
+    if (to) q = q.lte("received_at", dayEnd(to));
+    if (method && PAYMENT_METHODS.includes(method)) q = q.eq("method", method);
+    return q;
+  };
+  const all = await fetchAllRows(make);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return (all as any[])
+    .map((p) => ({ id: p.id, date: muDateTime(p.received_at), number: p.documents?.number ?? null, customer: p.documents?.customers?.name ?? null, method: p.method, amountCents: rupeesToCents(Number(p.amount)) }))
+    .sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
 // ── P&L · best-sellers · revenue by technician ───────────────────────────────
 export interface ExtraReports {
   pnl: { revenueCents: number; cogsCents: number; grossCents: number; expensesCents: number; netCents: number };
@@ -189,9 +210,17 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
     if (to) q = q.lte("documents.issue_date", to);
     return q;
   };
+  // Credit-note lines net down best-sellers (returns), matching how revenue and
+  // technician figures already subtract credit notes.
+  const makeCnLineQ = () => {
+    let q = sb.from("document_lines").select("title, qty, line_total_excl, documents!inner(doc_type, status, issue_date)").eq("documents.doc_type", "credit_note").eq("documents.status", "issued");
+    if (from) q = q.gte("documents.issue_date", from);
+    if (to) q = q.lte("documents.issue_date", to);
+    return q;
+  };
 
-  const [invoicesRaw, creditNotesRaw, expRows, mvRows, lineRows, voidRows] = await Promise.all([
-    fetchAllRows(makeInvQ), fetchAllRows(makeCnQ), fetchAllRows(makeExpQ), fetchAllRows(makeMvQ), fetchAllRows(makeLineQ), fetchAllRows(makeVoidQ),
+  const [invoicesRaw, creditNotesRaw, expRows, mvRows, lineRows, cnLineRows, voidRows] = await Promise.all([
+    fetchAllRows(makeInvQ), fetchAllRows(makeCnQ), fetchAllRows(makeExpQ), fetchAllRows(makeMvQ), fetchAllRows(makeLineQ), fetchAllRows(makeCnLineQ), fetchAllRows(makeVoidQ),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -219,8 +248,16 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
     cur.revenueCents += rupeesToCents(Number(l.line_total_excl));
     bs.set(key, cur);
   }
+  for (const l of cnLineRows as any[]) {
+    const key = (l.title as string) || "—";
+    const cur = bs.get(key) ?? { qty: 0, revenueCents: 0 };
+    cur.qty -= Number(l.qty);
+    cur.revenueCents -= rupeesToCents(Number(l.line_total_excl));
+    bs.set(key, cur);
+  }
   const bestSellers = [...bs.entries()]
     .map(([name, v]) => ({ name, qty: v.qty, revenueCents: v.revenueCents }))
+    .filter((x) => x.revenueCents > 0) // drop fully-refunded / net-zero items
     .sort((a, b) => b.revenueCents - a.revenueCents)
     .slice(0, 12);
 
@@ -398,7 +435,7 @@ export async function getCustomerStatement(customerId: string, from?: string, to
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of (payRes.data ?? []) as any[]) {
-    evs.push({ date: (p.received_at as string).slice(0, 10), kind: "payment", ref: p.documents?.number ?? null, detail: `Payment · ${STMT_METHOD[p.method] ?? p.method}`, debit: 0, credit: rupeesToCents(Number(p.amount)), seq: 2 });
+    evs.push({ date: muDate(p.received_at as string), kind: "payment", ref: p.documents?.number ?? null, detail: `Payment · ${STMT_METHOD[p.method] ?? p.method}`, debit: 0, credit: rupeesToCents(Number(p.amount)), seq: 2 });
   }
   // by date, then debits (invoices) before credits on the same day
   evs.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.seq - b.seq));

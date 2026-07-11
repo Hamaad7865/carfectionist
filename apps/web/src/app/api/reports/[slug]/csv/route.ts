@@ -1,9 +1,12 @@
-import { getReportsData, getExtraReports, getDiscountsReport } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports, getDiscountsReport, getCollectedPayments } from "@/lib/supabase/queries/reports";
 import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { getSessionContext } from "@/lib/auth/session";
 
 function cell(v: string | number): string {
-  const s = String(v);
+  let s = String(v);
+  // Neutralize spreadsheet formula injection (a cell starting with = + - @ is
+  // evaluated by Excel/Sheets). Prefix with a leading apostrophe (OWASP).
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 function toCsv(rows: (string | number)[][]): string {
@@ -27,8 +30,8 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
 
   switch (slug) {
     case "collected": {
-      const d = await getReportsData(from, to, m);
-      rows = [["Date", "Document", "Customer", "Method", "Amount (Rs)"], ...d.payments.map((p) => [p.date, p.number ?? "", p.customer ?? "", p.method, rs(p.amountCents)])];
+      const pays = await getCollectedPayments(from, to, m); // uncapped, unlike the display list
+      rows = [["Date", "Document", "Customer", "Method", "Amount (Rs)"], ...pays.map((p) => [p.date, p.number ?? "", p.customer ?? "", p.method, rs(p.amountCents)])];
       name = "payments";
       break;
     }

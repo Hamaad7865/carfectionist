@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { resolveShopLocationId } from "@/lib/supabase/locations";
 import * as rpc from "@/lib/supabase/rpc";
 import { saveDraftInputSchema, toRpcDoc, toRpcLines, type SaveDraftInput } from "./payload";
 
@@ -123,7 +124,10 @@ export async function createCreditNoteAction(invoiceId: string, restock: boolean
   await requireRole("owner", "manager");
   const sb = await createClient();
   try {
-    const cn = await rpc.createCreditNote(sb, invoiceId, restock);
+    // Restocked units return to the Shop — the same on-hand the counter sale drew
+    // from — matching the Android POS refund path (PosApi.issueCreditNote).
+    const location = restock ? await resolveShopLocationId(sb) : null;
+    const cn = await rpc.createCreditNote(sb, invoiceId, restock, location);
     revalidatePath("/sales");
     revalidatePath(`/sales/${invoiceId}`);
     return { ok: true, data: cn };

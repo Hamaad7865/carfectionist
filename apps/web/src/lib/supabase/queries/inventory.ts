@@ -37,7 +37,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryRo
 
   const [prodData, ohData, locRes] = await Promise.all([
     fetchAllRows(makeProdQ), // paged past the 1000-row cap
-    fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), "product_id"),
+    fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     sb.from("stock_locations").select("id, name, is_default"),
   ]);
 
