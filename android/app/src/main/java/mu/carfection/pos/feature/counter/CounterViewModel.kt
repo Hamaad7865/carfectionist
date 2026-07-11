@@ -53,6 +53,7 @@ import javax.inject.Inject
 data class CounterUiState(
     val query: String = "",
     val tab: String = "All", // category filter
+    val catQuery: String = "", // narrows the category rail (189 accessories ≠ browsable)
     val categories: List<String> = listOf("All"),
     val catCounts: Map<String, Int> = emptyMap(), // category → product count (rail scanning aid)
     val railOpen: Boolean = true, // category rail expanded / collapsed to a slim strip
@@ -207,7 +208,10 @@ class CounterViewModel @Inject constructor(
 
     val state: StateFlow<CounterUiState> =
         combine(local, catalog.products, catalog.customers) { s, products, customers ->
+            // "All" always survives the rail search, so there is always a way back out.
+            val catQ = s.catQuery.trim()
             val cats = listOf("All") + products.mapNotNull { it.category }.distinct().sorted()
+                .filter { catQ.isEmpty() || it.contains(catQ, ignoreCase = true) }
             val counts = products.mapNotNull { it.category }.groupingBy { it }.eachCount() + ("All" to products.size)
             val q = s.query.trim().lowercase()
             val filtered = products
@@ -269,6 +273,7 @@ class CounterViewModel @Inject constructor(
     }
 
     fun setTab(t: String) { local.value = local.value.copy(tab = t) }
+    fun setCatQuery(q: String) { local.value = local.value.copy(catQuery = q) }
     fun toggleRail() { local.value = local.value.copy(railOpen = !local.value.railOpen) }
 
     // ── ad-hoc line (typed name + price; saves with product_id = null) ─────────

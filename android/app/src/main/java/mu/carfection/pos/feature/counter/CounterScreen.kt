@@ -123,7 +123,7 @@ fun CounterScreen(
         else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // ── vertical category rail (collapsible; scrolls independently) ──────
             if (s.railOpen) Column(
-                Modifier.width(150.dp).fillMaxHeight()
+                Modifier.width(190.dp).fillMaxHeight()
                     .background(CardBg, RoundedCornerShape(14.dp))
                     .border(1.dp, Hairline, RoundedCornerShape(14.dp)),
             ) {
@@ -134,6 +134,12 @@ fun CounterScreen(
                     Text("CATEGORIES", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp, modifier = Modifier.weight(1f))
                     Text("«", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                 }
+                FilledInput(
+                    value = s.catQuery, onValueChange = viewModel::setCatQuery,
+                    placeholder = "Search…",
+                    modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                    height = 38.dp, bg = InsetAlt, fontSize = 13.sp, leadingSearch = true,
+                )
                 LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
                     items(s.categories, key = { it }) { c ->
                         val on = c == s.tab
@@ -210,9 +216,9 @@ fun CounterScreen(
                 ) { Text("✕ Cancel counter sale", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp) }
             }
 
-            // ── right (58fr): the bill — header · lines · totals ──────────────
+            // ── right (54fr): the bill — header · lines · totals ──────────────
             Column(
-                Modifier.weight(58f).fillMaxHeight()
+                Modifier.weight(54f).fillMaxHeight()
                     .background(CardBg, RoundedCornerShape(16.dp))
                     .border(1.dp, Hairline, RoundedCornerShape(16.dp)),
             ) {
