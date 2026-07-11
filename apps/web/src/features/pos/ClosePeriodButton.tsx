@@ -6,13 +6,7 @@ import { CalendarCheck } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { FormError } from "@/components/ui/form";
 import { closePeriodAction } from "./actions";
-
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-
-export function monthLabel(period: string): string {
-  const [y, m] = period.split("-");
-  return `${MONTHS[Number(m) - 1]} ${y}`;
-}
+import { monthLabel } from "./month-label";
 
 /** Owner-only monthly close: snapshots the month's totals + logs the event. */
 export function ClosePeriodButton({ period }: { period: string }) {

@@ -2,7 +2,8 @@ import { Store, Download } from "lucide-react";
 import { getPosOverview } from "@/lib/supabase/queries/pos-devices";
 import { getSessionContext } from "@/lib/auth/session";
 import { DeviceCard } from "@/features/pos/DeviceCards";
-import { ClosePeriodButton, monthLabel } from "@/features/pos/ClosePeriodButton";
+import { ClosePeriodButton } from "@/features/pos/ClosePeriodButton";
+import { monthLabel } from "@/features/pos/month-label";
 import { formatMUR } from "@/lib/money";
 import { muDate } from "@/lib/mu-date";
 
