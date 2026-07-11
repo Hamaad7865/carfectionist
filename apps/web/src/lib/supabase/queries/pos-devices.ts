@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
-import { muNow, muDateTime } from "@/lib/mu-date";
+import { muNow, muDateTime, muToday } from "@/lib/mu-date";
 
 // ─── Point of Sale module queries ────────────────────────────────────────────
 // A "device" is a registered tablet (devices table, self-registered via the
@@ -227,23 +227,65 @@ export interface TraceEvent {
   detail: string | null;
 }
 
+/** A money movement leaving the till — Cashmag's "cash outflows". */
+export interface OutflowRow {
+  key: string;
+  atIso: string;
+  at: string; // MU display
+  byName: string | null;
+  method: string;
+  amountCents: number; // negative
+  type: string;    // "Bank deposit" | "Payment reversed"
+  comment: string; // "Automatic bank deposit" | invoice number
+}
+
+/** The Cash Flow tab, driven entirely by date pickers (owner's Cashmag spec):
+ *  History = the till closure(s) saved on the reference date; Cash movements =
+ *  inflows/outflows over a from–to period. */
+export interface CashflowData {
+  refDate: string; // yyyy-mm-dd (MU)
+  closures: DeviceSession[];
+  from: string;
+  to: string;
+  inflows: SessionMovement[];
+  outflows: OutflowRow[];
+}
+
 export interface DeviceDashboard {
   device: PosDevice;
-  sessions: DeviceSession[]; // newest first, incl. open
+  sessions: DeviceSession[]; // newest first, incl. open (General tab)
   trace: TraceEvent[];
   todayCents: { method: string; cents: number }[]; // takings today (MU) by method
+  cashflow: CashflowData;
 }
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
 
-export async function getDeviceDashboard(code: string): Promise<DeviceDashboard | null> {
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+/** MU calendar day → [start, end) as epoch ms (Mauritius is UTC+04, no DST). */
+const muDayStart = (d: string) => Date.parse(`${d}T00:00:00+04:00`);
+const muDayEnd = (d: string) => muDayStart(d) + 24 * 3600_000;
+
+export async function getDeviceDashboard(
+  code: string,
+  opts?: { ref?: string; from?: string; to?: string },
+): Promise<DeviceDashboard | null> {
   const sb = await createClient();
   const overview = await getPosOverview();
   const device = overview.devices.find((d) => d.code === code);
   if (!device) return null;
 
+  // Cash Flow is driven entirely by date pickers (owner's Cashmag spec):
+  // reference date for the closure history, from–to period for movements.
+  const today = muToday();
+  const refDate = opts?.ref && DATE_RE.test(opts.ref) ? opts.ref : today;
+  let from = opts?.from && DATE_RE.test(opts.from) ? opts.from : (opts?.to && DATE_RE.test(opts.to) ? opts.to : today);
+  let to = opts?.to && DATE_RE.test(opts.to) ? opts.to : from;
+  if (to < from) [from, to] = [to, from];
+
   const [sessRes, usersRes, auditRes] = await Promise.all([
-    sb.from("cash_sessions").select("*").eq("device_id", code).order("opened_at", { ascending: false }).limit(20),
+    // ALL of this device's sessions (≈1/day) — the pickers can reach any date.
+    sb.from("cash_sessions").select("*").eq("device_id", code).order("opened_at", { ascending: false }).limit(400),
     sb.from("app_users").select("id, display_name"),
     sb
       .from("audit_events")
@@ -254,35 +296,56 @@ export async function getDeviceDashboard(code: string): Promise<DeviceDashboard 
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sessions = (sessRes.data ?? []) as any[];
+  const allSessions = (sessRes.data ?? []) as any[];
+  const sessions = allSessions.slice(0, 20); // General tab window
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nameById = new Map(((usersRes.data ?? []) as any[]).map((u) => [u.id, u.display_name as string]));
-  const sessionIds = sessions.map((s) => s.id);
 
-  // Every payment in this device's sessions (all methods — card/Juice/bank are
-  // linked since the PoS module shipped; older sales show cash only).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let payRows: any[] = [];
-  if (sessionIds.length > 0) {
-    const { data } = await sb
-      .from("payments")
-      .select("id, cash_session_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value)")
-      .in("cash_session_id", sessionIds)
-      .order("received_at", { ascending: false })
-      .limit(400);
+  const fromMs = muDayStart(from);
+  const endMs = muDayEnd(to);
+  const refMs = muDayStart(refDate);
+  const refEndMs = muDayEnd(refDate);
+  // Sessions that could hold payments inside the period (opened before its end,
+  // not closed before its start), plus the reference date's closures.
+  const rangeSessions = allSessions.filter(
+    (s) => Date.parse(s.opened_at) < endMs && (!s.closed_at || Date.parse(s.closed_at) >= fromMs),
+  );
+  const closureSessions = allSessions.filter(
+    (s) => s.closed_at && Date.parse(s.closed_at) >= refMs && Date.parse(s.closed_at) < refEndMs,
+  );
+
+  const PAY_COLS = "id, cash_session_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value)";
+  const fetchPays = async (ids: string[]) => {
+    if (ids.length === 0) return [];
+    const { data } = await sb.from("payments").select(PAY_COLS).in("cash_session_id", ids).order("received_at", { ascending: false }).limit(600);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    payRows = (data ?? []) as any[];
-  }
+    return (data ?? []) as any[];
+  };
+  // One fetch per distinct window: recent (General + traceability) and the
+  // union of period + reference sessions (Cash Flow). Deposits need a closed
+  // session's FULL payment set, so the Cash Flow fetch is not date-filtered.
+  const flowIds = [...new Set([...rangeSessions, ...closureSessions].map((s) => s.id))];
+  const [payRows, flowPays] = await Promise.all([
+    fetchPays(sessions.map((s) => s.id)),
+    fetchPays(flowIds),
+  ]);
 
-  const paysBySession = new Map<string, typeof payRows>();
-  for (const p of payRows) {
-    const arr = paysBySession.get(p.cash_session_id) ?? [];
-    arr.push(p);
-    paysBySession.set(p.cash_session_id, arr);
-  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const groupBySession = (rows: any[]) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const m = new Map<string, any[]>();
+    for (const p of rows) {
+      const arr = m.get(p.cash_session_id) ?? [];
+      arr.push(p);
+      m.set(p.cash_session_id, arr);
+    }
+    return m;
+  };
+  const paysBySession = groupBySession(payRows);
+  const flowBySession = groupBySession(flowPays);
 
-  const deviceSessions: DeviceSession[] = sessions.map((s) => {
-    const pays = paysBySession.get(s.id) ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const buildSession = (s: any, pays: any[]): DeviceSession => {
     let cash = 0;
     const nonCashMap = new Map<string, number>();
     const movements: SessionMovement[] = pays.map((p) => {
@@ -316,7 +379,67 @@ export async function getDeviceDashboard(code: string): Promise<DeviceDashboard 
       nonCash: [...nonCashMap.entries()].map(([method, cents]) => ({ method, cents })),
       movements,
     };
-  });
+  };
+
+  const deviceSessions: DeviceSession[] = sessions.map((s) => buildSession(s, paysBySession.get(s.id) ?? []));
+
+  // ── Cash Flow (date-driven) ────────────────────────────────────────────────
+  const closures: DeviceSession[] = closureSessions.map((s) => buildSession(s, flowBySession.get(s.id) ?? []));
+
+  const inRange = (iso: string) => {
+    const t = Date.parse(iso);
+    return t >= fromMs && t < endMs;
+  };
+  const inflows: SessionMovement[] = flowPays
+    .filter((p) => Number(p.amount) > 0 && inRange(p.received_at))
+    .map((p) => ({
+      id: p.id,
+      at: muDateTime(p.received_at),
+      method: p.method,
+      amountCents: rupeesToCents(Number(p.amount)),
+      number: p.documents?.number ?? null,
+      byName: nameById.get(p.received_by) ?? null,
+      isReversal: false,
+    }));
+
+  const outflows: OutflowRow[] = flowPays
+    .filter((p) => Number(p.amount) < 0 && inRange(p.received_at))
+    .map((p) => ({
+      key: `r${p.id}`,
+      atIso: p.received_at,
+      at: muDateTime(p.received_at),
+      byName: nameById.get(p.received_by) ?? null,
+      method: p.method,
+      amountCents: rupeesToCents(Number(p.amount)),
+      type: "Payment reversed",
+      comment: p.documents?.number ?? "",
+    }));
+  // Cashmag books each closure's non-cash takings out of the register as
+  // automatic bank deposits — synthesize the same rows at closing time.
+  for (const s of rangeSessions) {
+    if (!s.closed_at || !inRange(s.closed_at)) continue;
+    const net = new Map<string, number>();
+    for (const p of flowBySession.get(s.id) ?? []) {
+      if (p.method === "cash") continue;
+      net.set(p.method, (net.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
+    }
+    for (const [method, cents] of net) {
+      if (cents <= 0) continue;
+      outflows.push({
+        key: `d${s.id}:${method}`,
+        atIso: s.closed_at,
+        at: muDateTime(s.closed_at),
+        byName: nameById.get(s.closed_by) ?? null,
+        method,
+        amountCents: -cents,
+        type: "Bank deposit",
+        comment: "Automatic bank deposit",
+      });
+    }
+  }
+  outflows.sort((a, b) => (a.atIso < b.atIso ? 1 : -1));
+
+  const cashflow: CashflowData = { refDate, closures, from, to, inflows, outflows };
 
   // ── Traceability feed ──────────────────────────────────────────────────────
   const trace: TraceEvent[] = [];
@@ -425,5 +548,6 @@ export async function getDeviceDashboard(code: string): Promise<DeviceDashboard 
     sessions: deviceSessions,
     trace: trace.slice(0, 150),
     todayCents: [...todayMap.entries()].map(([method, cents]) => ({ method, cents })),
+    cashflow,
   };
 }

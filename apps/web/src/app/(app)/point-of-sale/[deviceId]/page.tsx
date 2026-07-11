@@ -6,8 +6,10 @@ import {
 } from "lucide-react";
 import { getDeviceDashboard } from "@/lib/supabase/queries/pos-devices";
 import { DeviceSettings } from "@/features/pos/DeviceSettings";
+import { RefDatePicker } from "@/features/pos/RefDatePicker";
+import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { formatMUR } from "@/lib/money";
-import { muDateTime } from "@/lib/mu-date";
+import { muDateTime, muToday } from "@/lib/mu-date";
 
 const TABS = [
   { key: "general", label: "General" },
@@ -38,19 +40,20 @@ export default async function DeviceDashboardPage({
   searchParams,
 }: {
   params: Promise<{ deviceId: string }>;
-  searchParams: Promise<{ tab?: string; s?: string }>;
+  searchParams: Promise<{ tab?: string; ref?: string; from?: string; to?: string }>;
 }) {
   const { deviceId } = await params;
   const sp = await searchParams;
   const code = decodeURIComponent(deviceId);
-  const data = await getDeviceDashboard(code);
+  const data = await getDeviceDashboard(code, { ref: sp.ref, from: sp.from, to: sp.to });
   if (!data) notFound();
 
   const tab = TABS.some((t) => t.key === sp.tab) ? sp.tab! : "general";
-  const { device, sessions, trace, todayCents } = data;
+  const { device, sessions, trace, todayCents, cashflow } = data;
   const Icon = device.isBackOffice ? Monitor : TabletSmartphone;
-  const selectedSession = sessions.find((s) => s.id === sp.s) ?? sessions[0] ?? null;
   const todayTotal = todayCents.reduce((s, m) => s + m.cents, 0);
+  const inflowTotal = cashflow.inflows.reduce((s, m) => s + m.amountCents, 0);
+  const outflowTotal = cashflow.outflows.reduce((s, m) => s + m.amountCents, 0);
 
   return (
     <div className="p-4 sm:p-6">
@@ -84,10 +87,16 @@ export default async function DeviceDashboardPage({
         <div className="mt-5 flex gap-1.5 overflow-x-auto border-b border-line pb-px">
           {TABS.map((t) => {
             const on = tab === t.key;
+            // Cash Flow is date-picker-driven — seed today so the pickers arrive filled.
+            const today = muToday();
+            const href =
+              t.key === "cashflow"
+                ? `/point-of-sale/${encodeURIComponent(code)}?tab=cashflow&ref=${today}&from=${today}&to=${today}`
+                : `/point-of-sale/${encodeURIComponent(code)}?tab=${t.key}`;
             return (
               <Link
                 key={t.key}
-                href={`/point-of-sale/${encodeURIComponent(code)}?tab=${t.key}`}
+                href={href}
                 className={`whitespace-nowrap rounded-t-[10px] border-b-2 px-4 py-2.5 text-[12.5px] font-bold uppercase tracking-[0.08em] ${
                   on ? "border-brand bg-[rgba(43,140,255,0.06)] text-link" : "border-transparent text-muted hover:text-body"
                 }`}
@@ -154,75 +163,123 @@ export default async function DeviceDashboardPage({
           {/* ── SETTINGS ── */}
           {tab === "settings" && <DeviceSettings device={device} />}
 
-          {/* ── CASH FLOW ── */}
+          {/* ── CASH FLOW — everything driven by the date pickers (Cashmag spec) ── */}
           {tab === "cashflow" && (
             <div className="flex flex-col gap-4">
-              {sessions.length === 0 ? (
-                <div className="rounded-[14px] border border-dashed border-line-2 p-10 text-center text-[13px] text-faint">No till sessions on this device yet.</div>
-              ) : (
-                <>
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="mr-1 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Session</span>
-                    {sessions.slice(0, 8).map((s) => {
-                      const on = selectedSession?.id === s.id;
-                      return (
-                        <Link
-                          key={s.id}
-                          href={`/point-of-sale/${encodeURIComponent(code)}?tab=cashflow&s=${s.id}`}
-                          className={`num inline-flex h-8 items-center rounded-lg border px-3 text-[12px] font-semibold ${on ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted hover:text-body"}`}
-                        >
-                          {muDateTime(s.openedAt).slice(0, 10)}{s.status === "open" ? " · open" : ""}
-                        </Link>
-                      );
-                    })}
+              {/* History: the closure snapshot saved at each till close */}
+              <div className="rounded-[15px] border border-line bg-card p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-display text-[15px] font-bold text-ink-strong">History</div>
+                    <p className="mt-0.5 text-[12px] text-muted">Cash flow information is saved at each till closure.</p>
                   </div>
+                  <RefDatePicker value={cashflow.refDate} />
+                </div>
 
-                  {selectedSession && (
-                    <>
-                      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                        <div className="rounded-[13px] border border-line bg-card p-4"><div className="text-[11px] font-semibold text-muted">Opening float</div><div className="num mt-1.5 text-[17px] font-extrabold text-ink">{formatMUR(selectedSession.openingFloatCents)}</div></div>
-                        <div className="rounded-[13px] border border-line bg-card p-4"><div className="text-[11px] font-semibold text-muted">Cash in</div><div className="num mt-1.5 text-[17px] font-extrabold text-ink">{formatMUR(selectedSession.cashCents)}</div></div>
-                        <div className="rounded-[13px] border border-line bg-card p-4"><div className="text-[11px] font-semibold text-muted">{selectedSession.status === "open" ? "Expected now" : "Counted at close"}</div><div className="num mt-1.5 text-[17px] font-extrabold text-ink">{formatMUR(selectedSession.status === "open" ? selectedSession.expectedCents : (selectedSession.countedCents ?? 0))}</div></div>
-                        <div className="rounded-[13px] border border-line bg-card p-4">
+                {cashflow.closures.length === 0 ? (
+                  <div className="mt-4 rounded-[12px] border border-dashed border-line-2 px-4 py-8 text-center text-[12.5px] text-faint">
+                    No till closure on this date.
+                  </div>
+                ) : (
+                  cashflow.closures.map((s) => (
+                    <div key={s.id} className="mt-4 border-t border-line pt-4">
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px]">
+                        <span className="num font-bold text-ink">{muDateTime(s.closedAt!)}</span>
+                        {s.closedByName && <span className="text-muted">closed by {s.closedByName}</span>}
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        <div className="rounded-[13px] bg-sub p-4"><div className="text-[11px] font-semibold text-muted">Opening float</div><div className="num mt-1.5 text-[16px] font-extrabold text-ink">{formatMUR(s.openingFloatCents)}</div></div>
+                        <div className="rounded-[13px] bg-sub p-4"><div className="text-[11px] font-semibold text-muted">Cash in</div><div className="num mt-1.5 text-[16px] font-extrabold text-ink">{formatMUR(s.cashCents)}</div></div>
+                        <div className="rounded-[13px] bg-sub p-4"><div className="text-[11px] font-semibold text-muted">Counted at close</div><div className="num mt-1.5 text-[16px] font-extrabold text-ink">{formatMUR(s.countedCents ?? 0)}</div></div>
+                        <div className="rounded-[13px] bg-sub p-4">
                           <div className="text-[11px] font-semibold text-muted">Variance</div>
-                          <div className={`num mt-1.5 text-[17px] font-extrabold ${selectedSession.varianceCents == null ? "text-faint" : selectedSession.varianceCents === 0 ? "text-mint" : selectedSession.varianceCents < 0 ? "text-rose" : "text-amber-ink"}`}>
-                            {selectedSession.varianceCents == null ? "—" : formatMUR(selectedSession.varianceCents)}
-                          </div>
+                          <div className={`num mt-1.5 text-[16px] font-extrabold ${(s.varianceCents ?? 0) === 0 ? "text-mint" : (s.varianceCents ?? 0) < 0 ? "text-rose" : "text-amber-ink"}`}>{formatMUR(s.varianceCents ?? 0)}</div>
                         </div>
                       </div>
-
-                      {selectedSession.nonCash.length > 0 && (
-                        <div className="rounded-[13px] border border-[rgba(43,140,255,0.2)] bg-[rgba(43,140,255,0.05)] px-4 py-3 text-[12.5px] text-body">
+                      {s.nonCash.length > 0 && (
+                        <div className="mt-3 rounded-[12px] border border-[rgba(43,140,255,0.2)] bg-[rgba(43,140,255,0.05)] px-4 py-2.5 text-[12.5px] text-body">
                           <span className="font-bold text-link">Not in the drawer:</span>{" "}
-                          {selectedSession.nonCash.map((n) => `${METHOD_LABEL[n.method] ?? n.method} ${formatMUR(n.cents)} straight to the bank`).join(" · ")}
+                          {s.nonCash.map((n) => `${METHOD_LABEL[n.method] ?? n.method} ${formatMUR(n.cents)} straight to the bank`).join(" · ")}
                         </div>
                       )}
+                    </div>
+                  ))
+                )}
+              </div>
 
-                      <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-                        <div className="flex items-center justify-between border-b border-line px-5 py-3">
-                          <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Movements</span>
-                          <span className="text-[11px] text-faint">{selectedSession.movements.length} payment{selectedSession.movements.length === 1 ? "" : "s"}</span>
+              {/* Cash movements over a period */}
+              <div className="rounded-[15px] border border-line bg-card p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <div className="font-display text-[15px] font-bold text-ink-strong">Cash movements</div>
+                    <p className="mt-0.5 text-[12px] text-muted">Every payment in and out of this till over the period.</p>
+                  </div>
+                  <DateRangeFilter label={false} />
+                </div>
+
+                {/* Inflows */}
+                <div className="mt-4 overflow-hidden rounded-[13px] border border-line">
+                  <div className="flex items-center justify-between border-b border-line bg-band px-4 py-2.5">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-th">Cash inflows</span>
+                    <span className="num text-[12px] font-bold text-mint">{formatMUR(inflowTotal)}</span>
+                  </div>
+                  <div className="hidden grid-cols-[150px_1fr_110px_100px_120px] gap-3 border-b border-line bg-sub px-4 py-2 text-[10px] font-bold uppercase tracking-[0.1em] text-faint md:grid">
+                    <span>Date</span><span>User</span><span>Method</span><span>Ref</span><span className="text-right">Amount</span>
+                  </div>
+                  {cashflow.inflows.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-[12.5px] text-faint">No data for this period.</div>
+                  ) : (
+                    cashflow.inflows.map((m) => (
+                      <div key={m.id} className="border-b border-line px-4 py-2.5 last:border-b-0">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] md:hidden">
+                          <span className="num text-muted">{m.at}</span>
+                          <span className="rounded-[5px] bg-sub px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
+                          <span className="num ml-auto font-bold text-ink">{formatMUR(m.amountCents)}</span>
                         </div>
-                        {selectedSession.movements.length === 0 ? (
-                          <div className="px-5 py-10 text-center text-[12.5px] text-faint">No payments in this session.</div>
-                        ) : (
-                          selectedSession.movements.map((m) => (
-                            <div key={m.id} className="flex flex-wrap items-center gap-x-3 gap-y-0.5 border-b border-line px-5 py-2.5 text-[12.5px] last:border-b-0">
-                              <span className="num text-muted">{m.at.slice(11)}</span>
-                              <span className={`rounded-[5px] px-1.5 py-0.5 text-[10px] font-bold uppercase ${m.isReversal ? "bg-[rgba(214,59,80,0.1)] text-rose" : "bg-sub text-muted"}`}>
-                                {m.isReversal ? "Reversal" : METHOD_LABEL[m.method] ?? m.method}
-                              </span>
-                              {m.number && <span className="num font-bold text-link">{m.number}</span>}
-                              {m.byName && <span className="text-muted">{m.byName}</span>}
-                              <span className={`num ml-auto font-bold ${m.amountCents < 0 ? "text-rose" : "text-ink"}`}>{formatMUR(m.amountCents)}</span>
-                            </div>
-                          ))
-                        )}
+                        <div className="hidden grid-cols-[150px_1fr_110px_100px_120px] items-center gap-3 text-[12.5px] md:grid">
+                          <span className="num text-muted">{m.at}</span>
+                          <span className="truncate text-body">{m.byName ?? "—"}</span>
+                          <span className="text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
+                          <span className="num font-bold text-link">{m.number ?? "—"}</span>
+                          <span className="num text-right font-bold text-ink">{formatMUR(m.amountCents)}</span>
+                        </div>
                       </div>
-                    </>
+                    ))
                   )}
-                </>
-              )}
+                </div>
+
+                {/* Outflows */}
+                <div className="mt-4 overflow-hidden rounded-[13px] border border-line">
+                  <div className="flex items-center justify-between border-b border-line bg-band px-4 py-2.5">
+                    <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-th">Cash outflows</span>
+                    <span className="num text-[12px] font-bold text-rose">{formatMUR(outflowTotal)}</span>
+                  </div>
+                  <div className="hidden grid-cols-[150px_1fr_110px_120px_130px_1fr] gap-3 border-b border-line bg-sub px-4 py-2 text-[10px] font-bold uppercase tracking-[0.1em] text-faint md:grid">
+                    <span>Date</span><span>User</span><span>Method</span><span className="text-right">Amount</span><span>Type</span><span>Comment</span>
+                  </div>
+                  {cashflow.outflows.length === 0 ? (
+                    <div className="px-4 py-8 text-center text-[12.5px] text-faint">No data for this period.</div>
+                  ) : (
+                    cashflow.outflows.map((m) => (
+                      <div key={m.key} className="border-b border-line px-4 py-2.5 last:border-b-0">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] md:hidden">
+                          <span className="num text-muted">{m.at}</span>
+                          <span className="rounded-[5px] bg-[rgba(214,59,80,0.08)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose">{METHOD_LABEL[m.method] ?? m.method}</span>
+                          <span className="num ml-auto font-bold text-rose">{formatMUR(m.amountCents)}</span>
+                        </div>
+                        <div className="hidden grid-cols-[150px_1fr_110px_120px_130px_1fr] items-center gap-3 text-[12.5px] md:grid">
+                          <span className="num text-muted">{m.at}</span>
+                          <span className="truncate text-body">{m.byName ?? "—"}</span>
+                          <span className="text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
+                          <span className="num text-right font-bold text-rose">{formatMUR(m.amountCents)}</span>
+                          <span className="text-muted">{m.type}</span>
+                          <span className="num truncate text-muted">{m.comment || "—"}</span>
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
