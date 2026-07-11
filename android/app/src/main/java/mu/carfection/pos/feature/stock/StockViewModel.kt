@@ -43,6 +43,7 @@ data class StockState(
     val onHand: Map<String, Int> = emptyMap(),
     val tab: String = "All",
     val query: String = "",
+    val catQuery: String = "", // narrows the category chip row (same idea as the checkout rail)
     val tenant: String? = null,
     val locationId: String? = null,
     val adj: AdjustState? = null,
@@ -79,11 +80,16 @@ class StockViewModel @Inject constructor(
 
     private data class Quad(val products: List<StockProductDto>, val onHand: Map<String, Int>, val loc: String?, val tenant: String?)
 
-    fun tabs(s: StockState): List<String> =
-        listOf("All") + s.products.mapNotNull { it.category?.ifBlank { null } }.distinct().sorted()
+    // "All" always survives the chip search, so there is always a way back out.
+    fun tabs(s: StockState): List<String> {
+        val q = s.catQuery.trim()
+        return listOf("All") + s.products.mapNotNull { it.category?.ifBlank { null } }.distinct().sorted()
+            .filter { q.isEmpty() || it.contains(q, ignoreCase = true) }
+    }
 
     fun setTab(t: String) = _s.update { it.copy(tab = t) }
     fun setQuery(q: String) = _s.update { it.copy(query = q) }
+    fun setCatQuery(q: String) = _s.update { it.copy(catQuery = q) }
 
     fun items(s: StockState): List<StockItem> {
         val q = s.query.trim()

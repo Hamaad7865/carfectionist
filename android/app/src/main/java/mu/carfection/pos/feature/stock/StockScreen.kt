@@ -74,11 +74,18 @@ fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
             placeholder = "Search products or scan a barcode…",
             modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
         )
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            viewModel.tabs(s).forEach { t ->
-                val on = t == s.tab
-                Box(Modifier.height(38.dp).background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(19.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Color(0x1F101A24), RoundedCornerShape(19.dp)).clickable { viewModel.setTab(t) }.padding(horizontal = 15.dp), contentAlignment = Alignment.Center) {
-                    Text(t, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextSecondary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            FilledInput(
+                value = s.catQuery, onValueChange = viewModel::setCatQuery,
+                placeholder = "Categories…",
+                modifier = Modifier.width(190.dp), height = 38.dp, bg = CardBg, fontSize = 13.sp, leadingSearch = true,
+            )
+            Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                viewModel.tabs(s).forEach { t ->
+                    val on = t == s.tab
+                    Box(Modifier.height(38.dp).background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(19.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Color(0x1F101A24), RoundedCornerShape(19.dp)).clickable { viewModel.setTab(t) }.padding(horizontal = 15.dp), contentAlignment = Alignment.Center) {
+                        Text(t, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextSecondary)
+                    }
                 }
             }
         }
