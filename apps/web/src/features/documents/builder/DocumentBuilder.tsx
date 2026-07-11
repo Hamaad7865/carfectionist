@@ -9,6 +9,7 @@ import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput } from "@/
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
+import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
 import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext } from "@/lib/supabase/queries/builder";
 import { reducer, type BuilderState } from "./state";
@@ -185,6 +186,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
         <span className="text-[11px] text-faint">
           {state.save === "saving" ? "Saving…" : state.save === "saved" ? "Saved" : ""}
         </span>
+        {!readOnly && state.docId && <DeleteDraftButton documentId={state.docId} docType={state.docType} />}
         <div className="flex-1" />
         <button
           onClick={() => setShowPreview((v) => !v)}

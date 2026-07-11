@@ -151,6 +151,27 @@ export async function voidDocumentAction(id: string, reason: string): Promise<Ac
   }
 }
 
+export async function deleteDraftAction(id: string): Promise<ActionResult<{ id: string }>> {
+  await requireRole(...WRITE_ROLES);
+  const sb = await createClient();
+  try {
+    // Draft-only, by design: the doc_delete RLS policy already restricts this to
+    // draft documents (owner/manager/cashier, own tenant), and a draft has no
+    // number, payments or stock movements — its lines cascade on delete. The
+    // explicit status filter turns an issued/already-gone row into a clean 0-row
+    // result rather than a silent no-op.
+    const { data, error } = await sb.from("documents").delete().eq("id", id).eq("status", "draft").select("id");
+    if (error) return { ok: false, error: error.message };
+    if (!data || data.length === 0) {
+      return { ok: false, error: "This document can no longer be deleted — it may have been issued or already removed." };
+    }
+    revalidatePath("/sales");
+    return { ok: true, data: { id } };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function duplicateDocumentAction(id: string): Promise<ActionResult<rpc.DocumentRow>> {
   await requireRole(...WRITE_ROLES);
   const sb = await createClient();
