@@ -57,17 +57,22 @@ export interface TeamMember {
 }
 
 export async function getTeam(): Promise<TeamMember[]> {
-  const sb = await createClient();
   const session = await getSessionContext();
+  if (!session) return [];
+  // pin_hash is client-revoked (brute-force hardening), so read the roster with
+  // the service role (server-only — only a boolean leaves) scoped to this tenant.
+  const admin = createAdminClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: users } = await (sb.from("app_users") as any).select("id, auth_user_id, role, display_name, is_active, pin_hash, modules").order("display_name");
+  const { data: users } = await (admin.from("app_users") as any)
+    .select("id, auth_user_id, role, display_name, is_active, pin_hash, modules")
+    .eq("tenant_id", session.tenantId)
+    .order("display_name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = (users ?? []) as any[];
 
-  // Emails live in auth.users — look them up (service role) only for this tenant's members.
+  // Emails live in auth.users — look them up (service role) too.
   const emailById = new Map<string, string>();
   try {
-    const admin = createAdminClient();
     const { data: authList } = await admin.auth.admin.listUsers({ page: 1, perPage: 200 });
     for (const u of authList?.users ?? []) if (u.email) emailById.set(u.id, u.email);
   } catch {
