@@ -209,8 +209,11 @@ class SaleRepository @Inject constructor(
         val draft = api.saveDraft(doc, lines)
 
         // 3) Issue — draws the gapless INV number + fires stock movements. Point of no return.
+        // Counter sales move the Shop's on-hand (walk-in front), never the Warehouse default.
+        // Resolved before the point of no return, so a failed lookup is safely retryable.
+        val shopLocationId = api.fetchShopLocationId()
         val issued = try {
-            api.issueDocument(draft.id, "$saleKey:issue")
+            api.issueDocument(draft.id, "$saleKey:issue", shopLocationId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -67,7 +67,7 @@ class StockViewModel @Inject constructor(
                 val products = api.fetchStockProducts()
                 val onHand = api.fetchStockOnHand().groupBy { it.productId }
                     .mapValues { (_, rows) -> rows.sumOf { it.qtyOnHand }.roundToInt() }
-                val loc = api.fetchDefaultLocationId()
+                val loc = api.fetchShopLocationId()
                 val tenant = catalog.tenantId()
                 Quad(products, onHand, loc, tenant)
             }.onSuccess { (products, onHand, loc, tenant) ->

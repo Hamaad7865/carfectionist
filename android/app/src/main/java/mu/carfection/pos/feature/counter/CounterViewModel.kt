@@ -380,12 +380,12 @@ class CounterViewModel @Inject constructor(
         val r = local.value.done ?: return
         newSale() // clear the finished cart first; the sale itself is already committed
         if (r.onAccount) correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, "Voided at POS") }
-        else correction("Refunded — credit note issued for ${r.number ?: "the sale"}") { api.issueCreditNote(r.invoiceId, restock = true) }
+        else correction("Refunded — credit note issued for ${r.number ?: "the sale"}") { api.issueCreditNote(r.invoiceId, restock = true, stockLocationId = api.fetchShopLocationId()) }
     }
 
     fun voidInvoice(bill: OutstandingInvoiceDto) = correction("${bill.number ?: "Invoice"} voided") { api.voidDocument(bill.id, "Voided at POS") }
     fun reverseThisPayment(p: TodayPaymentDto) = correction("Payment reversed") { api.reversePayment(p.id, "Reversed at POS") }
-    fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") { api.issueCreditNote(p.documentId, restock = true) }
+    fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") { api.issueCreditNote(p.documentId, restock = true, stockLocationId = api.fetchShopLocationId()) }
 
     /** Tap an outstanding invoice → open the pad to collect its balance. */
     fun collectOn(bill: OutstandingInvoiceDto) {

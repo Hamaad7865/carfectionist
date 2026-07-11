@@ -132,11 +132,21 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .select(Columns.raw("product_id, qty_on_hand"))
             .decodeList()
 
-    suspend fun fetchDefaultLocationId(): String? =
-        client.postgrest.from("stock_locations")
-            .select(Columns.raw("id")) { filter { eq("is_default", true) }; limit(1) }
+    /**
+     * The Shop (walk-in front) location id — the single resolver the counter write
+     * path AND the shop-floor stock screen share, so every client moves the SAME
+     * on-hand. Prefer the location named 'Shop', else the first non-default location,
+     * else the tenant default (Warehouse) as a last resort. Mirrors the web resolver
+     * in apps/web/src/features/counter/actions.ts.
+     */
+    suspend fun fetchShopLocationId(): String? {
+        val locs = client.postgrest.from("stock_locations")
+            .select(Columns.raw("id, name, is_default"))
             .decodeList<StockLocationDto>()
-            .firstOrNull()?.id
+        return (locs.firstOrNull { it.name == "Shop" }
+            ?: locs.firstOrNull { !it.isDefault }
+            ?: locs.firstOrNull { it.isDefault })?.id
+    }
 
     /** Insert a signed adjustment movement (sm_insert RLS: adjustment + owner/manager). */
     suspend fun adjustStock(row: NewStockMovementDto) {
@@ -296,11 +306,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_expected_rev", JsonNull)
         }).decodeAs()
 
-    /** Assigns the gapless INV number + fires sale stock movements. Idempotent. */
-    suspend fun issueDocument(documentId: String, idempotencyKey: String): DocumentDto =
+    /**
+     * Assigns the gapless INV number + fires sale stock movements. Idempotent.
+     * [stockLocationId] is the location the sale debits — counter sales pass the Shop;
+     * null lets the RPC coalesce to the tenant default (Warehouse), which is what the
+     * workshop quote→invoice / job→invoice paths want.
+     */
+    suspend fun issueDocument(documentId: String, idempotencyKey: String, stockLocationId: String? = null): DocumentDto =
         client.postgrest.rpc("issue_document", buildJsonObject {
             put("p_document_id", documentId)
-            put("p_stock_location_id", JsonNull)
+            if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
             put("p_idempotency_key", idempotencyKey)
         }).decodeAs()
 
@@ -378,10 +393,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         })
     }
 
-    /** Full-reversal credit note against a paid/issued invoice (optional restock). */
-    suspend fun issueCreditNote(invoiceId: String, restock: Boolean) {
+    /**
+     * Full-reversal credit note against a paid/issued invoice (optional restock).
+     * [stockLocationId] is where restocked units land — counter refunds pass the Shop so
+     * they return to the same on-hand the sale drew from; null falls back to the tenant default.
+     */
+    suspend fun issueCreditNote(invoiceId: String, restock: Boolean, stockLocationId: String? = null) {
         client.postgrest.rpc("create_and_issue_credit_note", buildJsonObject {
-            put("p_invoice_id", invoiceId); put("p_stock_location_id", JsonNull); put("p_restock", restock)
+            put("p_invoice_id", invoiceId)
+            if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
+            put("p_restock", restock)
         })
     }
 
