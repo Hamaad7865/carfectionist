@@ -23,7 +23,7 @@ function deviceOk(req: Request): boolean {
 export async function POST(req: Request) {
   if (!deviceOk(req)) return json({ error: "unauthorized" }, 401);
 
-  let body: { appUserId?: unknown; pin?: unknown };
+  let body: { appUserId?: unknown; pin?: unknown; deviceCode?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -31,6 +31,8 @@ export async function POST(req: Request) {
   }
   const appUserId = String(body?.appUserId ?? "");
   const pin = String(body?.pin ?? "");
+  // Optional device code (TAB-xxxx) — stamps the sign-in for per-device traceability.
+  const deviceCode = typeof body?.deviceCode === "string" && /^[\w-]{1,64}$/.test(body.deviceCode) ? body.deviceCode : null;
   if (!/^[0-9a-f-]{36}$/i.test(appUserId) || !/^[0-9]{4}$/.test(pin)) return json({ error: "bad_request" }, 400);
 
   const admin = createAdminClient();
@@ -65,7 +67,7 @@ export async function POST(req: Request) {
     const { data: au } = await admin.from("app_users").select("tenant_id").eq("id", appUserId).maybeSingle();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tenantId = (au as any)?.tenant_id;
-    if (tenantId) await logAudit(admin, { tenantId, actorId: appUserId, eventType: "signed_in", refType: "app_user", refId: appUserId, payload: { device: "pos" } });
+    if (tenantId) await logAudit(admin, { tenantId, actorId: appUserId, eventType: "signed_in", refType: "app_user", refId: appUserId, payload: { device: "pos" }, deviceId: deviceCode });
   } catch { /* ignore */ }
 
   return json({

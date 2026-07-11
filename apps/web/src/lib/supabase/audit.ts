@@ -9,6 +9,9 @@ export interface AuditInput {
   refType?: string | null;
   refId?: string | null;
   payload?: Record<string, unknown>;
+  /** Device the event happened on (device_code / 'back-office') — feeds the
+   *  per-device Traceability tab in the Point of Sale module. */
+  deviceId?: string | null;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -21,6 +24,7 @@ export async function logAudit(sb: any, ev: AuditInput): Promise<void> {
       ref_type: ev.refType ?? null,
       ref_id: ev.refId ?? null,
       payload: ev.payload ?? {},
+      device_id: ev.deviceId ?? null,
     });
   } catch {
     /* never let audit failure surface to the user */

@@ -1,6 +1,8 @@
 import { getReportsData, getExtraReports, getDiscountsReport, getCollectedPayments } from "@/lib/supabase/queries/reports";
 import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { getSessionContext } from "@/lib/auth/session";
+import { createClient } from "@/lib/supabase/server";
+import { logAudit } from "@/lib/supabase/audit";
 
 function cell(v: string | number): string {
   let s = String(v);
@@ -90,6 +92,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     default:
       return new Response("Unknown report", { status: 404 });
   }
+
+  // Traceability: data leaving the system is an event (Cashmag: "EXPORTATION
+  // DE DONNÉES"). Best-effort — the export itself must never fail on it.
+  try {
+    const sb = await createClient();
+    const { data: au } = await sb.from("app_users").select("id").eq("auth_user_id", session.userId).maybeSingle();
+    await logAudit(sb, {
+      tenantId: session.tenantId,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      actorId: ((au as any)?.id as string) ?? null,
+      eventType: "data_export",
+      payload: { report: slug, from: from ?? null, to: to ?? null },
+      deviceId: "back-office",
+    });
+  } catch { /* ignore */ }
 
   return new Response(toCsv(rows), {
     headers: {

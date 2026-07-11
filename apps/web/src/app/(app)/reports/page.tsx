@@ -1,9 +1,7 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
 import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport } from "@/lib/supabase/queries/reports";
-import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
-import { CashSessions } from "@/features/cash/CashSessions";
 import { StatementPicker } from "@/features/reports/StatementPicker";
 import { formatMUR } from "@/lib/money";
 
@@ -19,7 +17,8 @@ const REPORTS = [
   { key: "discounts", label: "Discounts given" },
   { key: "receivables", label: "Aged receivables" },
   { key: "statement", label: "Customer statement" },
-  { key: "cash", label: "End-of-day cash-up" },
+  // End-of-day cash-up moved to the Point of Sale module (tills live with
+  // their devices now); the /api/reports/cash/csv export remains.
 ];
 const EXTRA = ["pnl", "bestsellers", "technician"];
 
@@ -39,7 +38,6 @@ export default async function ReportsPage({
   const report = REPORTS.some((x) => x.key === sp.r) ? sp.r! : "collected";
   const method = ["cash", "card", "juice", "bank_transfer"].includes(sp.m ?? "") ? sp.m : undefined;
   const data = await getReportsData(sp.from, sp.to, method);
-  const cash = report === "cash" ? await getCashSessions() : null;
   const extra = EXTRA.includes(report) ? await getExtraReports(sp.from, sp.to) : null;
   const discounts = report === "discounts" ? await getDiscountsReport(sp.from, sp.to) : null;
   const statement =
@@ -229,8 +227,6 @@ export default async function ReportsPage({
               })}
             </div>
           )}
-
-          {report === "cash" && cash && <CashSessions open={cash.open} recent={cash.recent} />}
 
           {report === "pnl" && extra && (
             <div className="max-w-xl">

@@ -208,3 +208,24 @@ export const receiveTransfer = (sb: Client, id: string, lines: { line_id: string
 
 export const receivePurchaseOrder = (sb: Client, id: string, location: string | null, lines: { line_id: string; qty: number }[]) =>
   callRpc<{ id: string }>(sb, "receive_purchase_order", { p_id: id, p_location: location, p_lines: lines });
+
+// ── Point of Sale module (migration 20260711000004) ──────────────────────────
+export interface DeviceRow {
+  id: string;
+  device_code: string;
+  display_name: string | null;
+  model: string | null;
+  app_version: string | null;
+  is_active: boolean;
+  first_seen: string;
+  last_seen: string;
+}
+
+export const renameDevice = (sb: Client, deviceId: string, name: string) =>
+  callRpc<DeviceRow>(sb, "rename_device", { p_device_id: deviceId, p_name: name });
+
+export const setDeviceActive = (sb: Client, deviceId: string, active: boolean) =>
+  callRpc<DeviceRow>(sb, "set_device_active", { p_device_id: deviceId, p_active: active });
+
+export const closePeriod = (sb: Client, period: string) =>
+  callRpc<{ id: string; period: string; totals: unknown }>(sb, "close_period", { p_period: period });

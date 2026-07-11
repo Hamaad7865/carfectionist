@@ -162,13 +162,13 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
 
       let changeCents = 0;
       if (p.data.method !== "credit") {
-        // Link cash to the open till so the end-of-day cash-up reconciles.
-        let cashSessionId: string | null = null;
-        if (p.data.method === "cash") {
-          const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          cashSessionId = (sess as any)?.id ?? null;
-        }
+        // Link EVERY payment to the open till session — cash so the end-of-day
+        // cash-up reconciles, card/Juice/bank so the sale is traceable to a
+        // device (Point of Sale module). Drawer math is untouched:
+        // close_cash_session only sums method='cash'.
+        const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cashSessionId: string | null = (sess as any)?.id ?? null;
 
         const tenderedRupees =
           p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;

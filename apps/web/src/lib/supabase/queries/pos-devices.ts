@@ -1,0 +1,429 @@
+import { createClient } from "@/lib/supabase/server";
+import { rupeesToCents } from "@/lib/money";
+import { muNow, muDateTime } from "@/lib/mu-date";
+
+// ─── Point of Sale module queries ────────────────────────────────────────────
+// A "device" is a registered tablet (devices table, self-registered via the
+// register_device RPC) plus the synthesized 'back-office' entry — the web app
+// itself, which opens tills as device_id 'back-office' but never registers.
+// Till state hangs off cash_sessions.device_id (free text = device_code).
+
+const ONLINE_WINDOW_MS = 10 * 60_000; // heartbeat every ~4 min while foregrounded
+
+export interface DeviceTill {
+  sessionId: string;
+  openedAt: string;
+  openedByName: string | null;
+  openingFloatCents: number;
+  cashCollectedCents: number;
+  expectedCents: number;
+}
+
+export interface PosDevice {
+  id: string | null; // null for synthesized entries (back-office / unregistered)
+  code: string;
+  name: string;
+  model: string | null;
+  appVersion: string | null;
+  isActive: boolean;
+  isBackOffice: boolean;
+  online: boolean;
+  firstSeen: string | null;
+  lastSeen: string | null;
+  till: DeviceTill | null;
+}
+
+export interface RecentCashup {
+  id: string;
+  deviceCode: string;
+  openedAt: string;
+  closedAt: string | null;
+  expectedCents: number;
+  countedCents: number;
+  varianceCents: number;
+}
+
+export interface PeriodStrip {
+  lastClosed: string | null; // 'YYYY-MM'
+  closable: string | null;   // the previous MU month, if it exists in data and isn't closed
+}
+
+export interface PosOverview {
+  tradingName: string;
+  deviceCount: number; // active registered tablets
+  devices: PosDevice[];
+  recent: RecentCashup[];
+  periods: PeriodStrip;
+}
+
+/** Previous Mauritius calendar month as 'YYYY-MM' (the month that can be closed). */
+function previousMuMonth(): string {
+  const mu = muNow();
+  const y = mu.getUTCFullYear();
+  const m = mu.getUTCMonth(); // 0-based current month → previous month = m-1
+  const prev = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1));
+  return `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+export async function getPosOverview(): Promise<PosOverview> {
+  const sb = await createClient();
+  const [bsRes, devRes, sessRes, usersRes, closesRes] = await Promise.all([
+    sb.from("business_settings").select("trading_name").limit(1).maybeSingle(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sb.from("devices" as any) as any).select("*").order("first_seen", { ascending: true }),
+    sb.from("cash_sessions").select("*").order("opened_at", { ascending: false }).limit(40),
+    sb.from("app_users").select("id, display_name"),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (sb.from("period_closes" as any) as any).select("period").order("period", { ascending: false }).limit(1),
+  ]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deviceRows = (devRes.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sessions = (sessRes.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nameById = new Map(((usersRes.data ?? []) as any[]).map((u) => [u.id, u.display_name as string]));
+
+  const openByDevice = new Map<string, DeviceTill>();
+  const openIds: string[] = [];
+  for (const s of sessions) {
+    if (s.status !== "open") continue;
+    openIds.push(s.id);
+    openByDevice.set(s.device_id, {
+      sessionId: s.id,
+      openedAt: s.opened_at,
+      openedByName: nameById.get(s.opened_by) ?? null,
+      openingFloatCents: rupeesToCents(Number(s.opening_float)),
+      cashCollectedCents: 0, // filled below
+      expectedCents: rupeesToCents(Number(s.opening_float)),
+    });
+  }
+
+  if (openIds.length > 0) {
+    const { data: pays } = await sb
+      .from("payments")
+      .select("cash_session_id, amount")
+      .in("cash_session_id", openIds)
+      .eq("method", "cash");
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const p of (pays ?? []) as any[]) {
+      for (const till of openByDevice.values()) {
+        if (till.sessionId === p.cash_session_id) {
+          till.cashCollectedCents += rupeesToCents(Number(p.amount));
+          till.expectedCents = till.openingFloatCents + till.cashCollectedCents;
+        }
+      }
+    }
+  }
+
+  const now = Date.now();
+  const devices: PosDevice[] = deviceRows.map((d) => ({
+    id: d.id,
+    code: d.device_code,
+    name: d.display_name || d.device_code,
+    model: d.model ?? null,
+    appVersion: d.app_version ?? null,
+    isActive: !!d.is_active,
+    isBackOffice: false,
+    online: now - Date.parse(d.last_seen) < ONLINE_WINDOW_MS,
+    firstSeen: d.first_seen,
+    lastSeen: d.last_seen,
+    till: openByDevice.get(d.device_code) ?? null,
+  }));
+
+  // The web back office is always present, first in the list.
+  devices.unshift({
+    id: null,
+    code: "back-office",
+    name: "Back office (web)",
+    model: null,
+    appVersion: null,
+    isActive: true,
+    isBackOffice: true,
+    online: true,
+    firstSeen: null,
+    lastSeen: null,
+    till: openByDevice.get("back-office") ?? null,
+  });
+
+  // A till opened by a tablet that never registered (pre-registry APK) must
+  // still be visible — synthesize an entry from its session.
+  const known = new Set(devices.map((d) => d.code));
+  for (const [code, till] of openByDevice) {
+    if (!known.has(code)) {
+      devices.push({
+        id: null, code, name: code, model: null, appVersion: null,
+        isActive: true, isBackOffice: false, online: false,
+        firstSeen: null, lastSeen: null, till,
+      });
+    }
+  }
+
+  const recent: RecentCashup[] = sessions
+    .filter((s) => s.status === "closed")
+    .slice(0, 12)
+    .map((s) => ({
+      id: s.id,
+      deviceCode: s.device_id,
+      openedAt: s.opened_at,
+      closedAt: s.closed_at,
+      expectedCents: rupeesToCents(Number(s.expected_cash ?? 0)),
+      countedCents: rupeesToCents(Number(s.closing_count ?? 0)),
+      varianceCents: rupeesToCents(Number(s.variance ?? 0)),
+    }));
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lastClosed = ((closesRes.data ?? []) as any[])[0]?.period ?? null;
+  const prev = previousMuMonth();
+  const periods: PeriodStrip = {
+    lastClosed,
+    closable: lastClosed != null && lastClosed >= prev ? null : prev,
+  };
+
+  return {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tradingName: ((bsRes.data as any)?.trading_name as string) ?? "Carfectionist",
+    deviceCount: deviceRows.filter((d) => d.is_active).length,
+    devices,
+    recent,
+    periods,
+  };
+}
+
+// ─── Per-device dashboard ────────────────────────────────────────────────────
+
+export interface SessionMovement {
+  id: string;
+  at: string; // MU "yyyy-mm-dd HH:MM"
+  method: string;
+  amountCents: number;
+  number: string | null;
+  byName: string | null;
+  isReversal: boolean;
+}
+
+export interface DeviceSession {
+  id: string;
+  status: string;
+  openedAt: string;
+  closedAt: string | null;
+  openedByName: string | null;
+  closedByName: string | null;
+  openingFloatCents: number;
+  expectedCents: number; // stored for closed; live for open
+  countedCents: number | null;
+  varianceCents: number | null;
+  cashCents: number;       // cash payments in the session (live)
+  nonCash: { method: string; cents: number }[]; // "to bank" at close, Cashmag-style
+  movements: SessionMovement[];
+}
+
+export interface TraceEvent {
+  key: string;
+  at: string;    // ISO for sorting
+  atLabel: string; // MU display
+  kind: string;  // terminal_started | version | operator | till_open | till_close | payment | discount | receipt | export | period | device_state
+  title: string;
+  detail: string | null;
+}
+
+export interface DeviceDashboard {
+  device: PosDevice;
+  sessions: DeviceSession[]; // newest first, incl. open
+  trace: TraceEvent[];
+  todayCents: { method: string; cents: number }[]; // takings today (MU) by method
+}
+
+const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
+
+export async function getDeviceDashboard(code: string): Promise<DeviceDashboard | null> {
+  const sb = await createClient();
+  const overview = await getPosOverview();
+  const device = overview.devices.find((d) => d.code === code);
+  if (!device) return null;
+
+  const [sessRes, usersRes, auditRes] = await Promise.all([
+    sb.from("cash_sessions").select("*").eq("device_id", code).order("opened_at", { ascending: false }).limit(20),
+    sb.from("app_users").select("id, display_name"),
+    sb
+      .from("audit_events")
+      .select("id, event_type, payload, created_at, actor_id")
+      .eq("device_id", code)
+      .order("created_at", { ascending: false })
+      .limit(120),
+  ]);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sessions = (sessRes.data ?? []) as any[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const nameById = new Map(((usersRes.data ?? []) as any[]).map((u) => [u.id, u.display_name as string]));
+  const sessionIds = sessions.map((s) => s.id);
+
+  // Every payment in this device's sessions (all methods — card/Juice/bank are
+  // linked since the PoS module shipped; older sales show cash only).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let payRows: any[] = [];
+  if (sessionIds.length > 0) {
+    const { data } = await sb
+      .from("payments")
+      .select("id, cash_session_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value)")
+      .in("cash_session_id", sessionIds)
+      .order("received_at", { ascending: false })
+      .limit(400);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    payRows = (data ?? []) as any[];
+  }
+
+  const paysBySession = new Map<string, typeof payRows>();
+  for (const p of payRows) {
+    const arr = paysBySession.get(p.cash_session_id) ?? [];
+    arr.push(p);
+    paysBySession.set(p.cash_session_id, arr);
+  }
+
+  const deviceSessions: DeviceSession[] = sessions.map((s) => {
+    const pays = paysBySession.get(s.id) ?? [];
+    let cash = 0;
+    const nonCashMap = new Map<string, number>();
+    const movements: SessionMovement[] = pays.map((p) => {
+      const cents = rupeesToCents(Number(p.amount));
+      if (p.method === "cash") cash += cents;
+      else nonCashMap.set(p.method, (nonCashMap.get(p.method) ?? 0) + cents);
+      return {
+        id: p.id,
+        at: muDateTime(p.received_at),
+        method: p.method,
+        amountCents: cents,
+        number: p.documents?.number ?? null,
+        byName: nameById.get(p.received_by) ?? null,
+        isReversal: p.reverses_payment_id != null,
+      };
+    });
+    const floatCents = rupeesToCents(Number(s.opening_float));
+    const isOpen = s.status === "open";
+    return {
+      id: s.id,
+      status: s.status,
+      openedAt: s.opened_at,
+      closedAt: s.closed_at,
+      openedByName: nameById.get(s.opened_by) ?? null,
+      closedByName: nameById.get(s.closed_by) ?? null,
+      openingFloatCents: floatCents,
+      expectedCents: isOpen ? floatCents + cash : rupeesToCents(Number(s.expected_cash ?? 0)),
+      countedCents: isOpen ? null : rupeesToCents(Number(s.closing_count ?? 0)),
+      varianceCents: isOpen ? null : rupeesToCents(Number(s.variance ?? 0)),
+      cashCents: cash,
+      nonCash: [...nonCashMap.entries()].map(([method, cents]) => ({ method, cents })),
+      movements,
+    };
+  });
+
+  // ── Traceability feed ──────────────────────────────────────────────────────
+  const trace: TraceEvent[] = [];
+  const push = (key: string, at: string, kind: string, title: string, detail: string | null) =>
+    trace.push({ key, at, atLabel: muDateTime(at), kind, title, detail });
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const a of (auditRes.data ?? []) as any[]) {
+    const pl = a.payload ?? {};
+    switch (a.event_type) {
+      case "terminal_started":
+        push(`a${a.id}`, a.created_at, "terminal_started", "Terminal started",
+          [pl.model, pl.app_version ? `v${pl.app_version}` : null].filter(Boolean).join(" · ") || null);
+        break;
+      case "app_version_changed":
+        push(`a${a.id}`, a.created_at, "version", "App version changed", `${pl.from ?? "—"} → ${pl.to ?? "—"}`);
+        break;
+      case "signed_in":
+        push(`a${a.id}`, a.created_at, "operator", "Operator", nameById.get(a.actor_id) ?? "Staff sign-in");
+        break;
+      case "device_enabled":
+      case "device_disabled":
+        push(`a${a.id}`, a.created_at, "device_state",
+          a.event_type === "device_enabled" ? "Device enabled" : "Device disabled",
+          nameById.get(a.actor_id) ?? null);
+        break;
+      case "receipt_printed":
+        push(`a${a.id}`, a.created_at, "receipt", "Receipt printed", pl.number ?? null);
+        break;
+      case "receipt_skipped":
+        push(`a${a.id}`, a.created_at, "receipt", "Sale without printed receipt", pl.number ?? null);
+        break;
+      case "data_export":
+        push(`a${a.id}`, a.created_at, "export", "Data export", pl.report ?? null);
+        break;
+      case "period_closed":
+        push(`a${a.id}`, a.created_at, "period", "Period closed", pl.period ?? null);
+        break;
+      default:
+        push(`a${a.id}`, a.created_at, "event", a.event_type.replaceAll("_", " "), null);
+    }
+  }
+
+  for (const s of deviceSessions) {
+    push(`so${s.id}`, s.openedAt, "till_open", "Till opened",
+      `Float ${(s.openingFloatCents / 100).toLocaleString("en-US")}${s.openedByName ? ` · ${s.openedByName}` : ""}`);
+    if (s.closedAt) {
+      const nonCashTxt = s.nonCash.map((n) => `${METHOD_LABEL[n.method] ?? n.method} ${(n.cents / 100).toLocaleString("en-US")} to bank`).join(" · ");
+      push(`sc${s.id}`, s.closedAt, "till_close", "Cash register closing",
+        [`Variance ${((s.varianceCents ?? 0) / 100).toLocaleString("en-US")}`, nonCashTxt].filter(Boolean).join(" · "));
+    }
+  }
+
+  for (const p of payRows) {
+    const cents = rupeesToCents(Number(p.amount));
+    push(`p${p.id}`, p.received_at, "payment",
+      p.reverses_payment_id ? "Payment reversed" : `Payment · ${METHOD_LABEL[p.method] ?? p.method}`,
+      [`Rs ${(cents / 100).toLocaleString("en-US")}`, p.documents?.number, nameById.get(p.received_by)].filter(Boolean).join(" · "));
+  }
+
+  // Discounts on invoices settled in these sessions (order-level via the
+  // document row that rode along with the payment; line-level fetched below).
+  const docIds = [...new Set(payRows.map((p) => p.documents?.id).filter(Boolean))] as string[];
+  if (docIds.length > 0) {
+    const { data: lines } = await sb
+      .from("document_lines")
+      .select("document_id, title, discount_pct, discount_kind, discount_amount")
+      .in("document_id", docIds);
+    const discountedDocs = new Map<string, string[]>(); // docId -> line titles
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const l of (lines ?? []) as any[]) {
+      const has = l.discount_kind === "amount" ? Number(l.discount_amount) > 0 : Number(l.discount_pct) > 0;
+      if (!has) continue;
+      const arr = discountedDocs.get(l.document_id) ?? [];
+      const label = l.discount_kind === "amount" ? `Rs ${Number(l.discount_amount)} off ${l.title}` : `${Number(l.discount_pct)}% ${l.title}`;
+      arr.push(label);
+      discountedDocs.set(l.document_id, arr);
+    }
+    for (const p of payRows) {
+      const d = p.documents;
+      if (!d?.id || p.reverses_payment_id) continue;
+      const parts: string[] = [];
+      if (d.discount_kind && Number(d.discount_value) > 0) {
+        parts.push(d.discount_kind === "percent" ? `${Number(d.discount_value)}% whole sale` : `Rs ${Number(d.discount_value)} whole sale`);
+      }
+      parts.push(...(discountedDocs.get(d.id) ?? []));
+      if (parts.length > 0) {
+        push(`d${p.id}`, p.received_at, "discount", "Discount", [d.number, ...parts].filter(Boolean).join(" · "));
+      }
+    }
+  }
+
+  trace.sort((a, b) => (a.at < b.at ? 1 : -1));
+
+  // Today's takings by method (MU day) across this device's sessions.
+  const muMidnight = new Date(muNow().toISOString().slice(0, 10) + "T00:00:00+04:00").getTime();
+  const todayMap = new Map<string, number>();
+  for (const p of payRows) {
+    if (Date.parse(p.received_at) >= muMidnight) {
+      todayMap.set(p.method, (todayMap.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
+    }
+  }
+
+  return {
+    device,
+    sessions: deviceSessions,
+    trace: trace.slice(0, 150),
+    todayCents: [...todayMap.entries()].map(([method, cents]) => ({ method, cents })),
+  };
+}

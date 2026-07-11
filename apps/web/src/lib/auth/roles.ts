@@ -11,6 +11,7 @@ import {
   BadgeCheck,
   Settings2,
   History,
+  MonitorSmartphone,
   type LucideIcon,
 } from "lucide-react";
 
@@ -43,6 +44,7 @@ export const NAV: NavItem[] = [
   { label: "Contacts", href: "/contacts", icon: Users, roles: ["owner", "manager", "cashier", "accountant"] },
   { label: "Sales & Invoices", href: "/sales", icon: ReceiptText, roles: ["owner", "manager", "cashier", "accountant"] },
   { label: "Products & Inventory", href: "/products", icon: Package, roles: ["owner", "manager", "cashier"] },
+  { label: "Point of Sale", href: "/point-of-sale", icon: MonitorSmartphone, roles: ["owner", "manager"] },
   { label: "Certificates", href: "/certificates", icon: BadgeCheck, roles: ["owner", "manager", "cashier", "technician"] },
   { label: "Purchases & Expenses", href: "/purchases", icon: Truck, roles: ["owner", "manager", "accountant"] },
   { label: "Accounting & Reports", href: "/reports", icon: BarChart3, roles: ["owner", "manager", "accountant"] },

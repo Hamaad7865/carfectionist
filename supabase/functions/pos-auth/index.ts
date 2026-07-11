@@ -42,7 +42,7 @@ async function roster(): Promise<Response> {
 }
 
 async function pinLogin(req: Request): Promise<Response> {
-  let body: { appUserId?: unknown; pin?: unknown };
+  let body: { appUserId?: unknown; pin?: unknown; deviceCode?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -50,6 +50,8 @@ async function pinLogin(req: Request): Promise<Response> {
   }
   const appUserId = String(body?.appUserId ?? "");
   const pin = String(body?.pin ?? "");
+  // Optional device code (TAB-xxxx) — stamps the sign-in for per-device traceability.
+  const deviceCode = typeof body?.deviceCode === "string" && /^[\w-]{1,64}$/.test(body.deviceCode) ? body.deviceCode : null;
   if (!/^[0-9a-f-]{36}$/i.test(appUserId) || !/^[0-9]{4}$/.test(pin)) return json({ error: "bad_request" }, 400);
 
   const svc = admin();
@@ -83,6 +85,7 @@ async function pinLogin(req: Request): Promise<Response> {
       await svc.from("audit_events").insert({
         tenant_id: tenantId, actor_id: appUserId, event_type: "signed_in",
         ref_type: "app_user", ref_id: appUserId, payload: { device: "pos" },
+        device_id: deviceCode,
       });
     }
   } catch { /* never let audit failure break the sign-in */ }
