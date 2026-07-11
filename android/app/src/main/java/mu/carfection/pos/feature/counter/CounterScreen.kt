@@ -416,7 +416,10 @@ private fun ModeToggle(mode: DiscountMode, h: Dp = 34.dp, onPick: (DiscountMode)
 @Composable
 private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCartQty: Int?, onHand: Int?, onAdd: () -> Unit) {
     Box(Modifier.background(Tile, RoundedCornerShape(13.dp)).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onAdd)) {
-        Column(Modifier.fillMaxWidth().height(92.dp).padding(horizontal = 13.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        // 112dp fits the worst case — a 2-line name + stock line + price (with their
+        // natural line heights) — without clipping; the Spacer absorbs the slack on
+        // 1-line names so those tiles read the same as before.
+        Column(Modifier.fillMaxWidth().height(112.dp).padding(horizontal = 13.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(
                 p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
                 maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp),
