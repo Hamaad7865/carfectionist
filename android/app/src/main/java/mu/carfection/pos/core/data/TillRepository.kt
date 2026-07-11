@@ -28,4 +28,8 @@ class TillRepository @Inject constructor(
 
     suspend fun close(sessionId: String, closingCountCents: Long): CashSessionDto =
         api.closeCashSession(sessionId, centsToRupees(closingCountCents)).also { _current.value = null }
+
+    /** Petty cash out of the open till — the server audits it and shrinks the expected drawer cash. */
+    suspend fun cashOut(sessionId: String, amountCents: Long, reason: String) =
+        api.recordTillCashOut(sessionId, centsToRupees(amountCents), reason, java.util.UUID.randomUUID().toString())
 }

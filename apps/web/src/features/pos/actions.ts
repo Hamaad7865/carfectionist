@@ -55,6 +55,28 @@ export async function setDeviceActiveAction(input: z.infer<typeof activeSchema>)
   return { ok: true };
 }
 
+// Petty cash out of an open till (Cashmag's "Autre" outflow rows). The RPC
+// enforces the real rules: open session, positive amount, reason, ≤ drawer.
+const cashOutSchema = z.object({
+  sessionId: z.string(),
+  amountCents: z.number().int().positive(),
+  reason: z.string().trim().min(1).max(200),
+  idempotencyKey: z.string().nullable().optional(),
+});
+export async function tillCashOutAction(input: z.infer<typeof cashOutSchema>): Promise<Result> {
+  await requireRole("owner", "manager");
+  const p = cashOutSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Enter an amount and a reason." };
+  const sb = await createClient();
+  try {
+    await rpc.recordTillCashOut(sb, p.data.sessionId, p.data.amountCents / 100, p.data.reason, p.data.idempotencyKey ?? null);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  revalidatePath("/point-of-sale");
+  return { ok: true };
+}
+
 const periodSchema = z.object({ period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) });
 export async function closePeriodAction(input: z.infer<typeof periodSchema>): Promise<Result> {
   await requireRole("owner"); // RPC enforces owner again

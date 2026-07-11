@@ -229,3 +229,19 @@ export const setDeviceActive = (sb: Client, deviceId: string, active: boolean) =
 
 export const closePeriod = (sb: Client, period: string) =>
   callRpc<{ id: string; period: string; totals: unknown }>(sb, "close_period", { p_period: period });
+
+export interface TillMovementRow {
+  id: string;
+  cash_session_id: string;
+  amount: string; // negative = cash out
+  reason: string;
+  created_at: string;
+}
+
+export const recordTillCashOut = (sb: Client, sessionId: string, amount: number, reason: string, idempotencyKey: string | null = null) =>
+  callRpc<TillMovementRow>(sb, "record_till_cash_out", {
+    p_session_id: sessionId,
+    p_amount: amount,
+    p_reason: reason,
+    p_idempotency_key: idempotencyKey,
+  });

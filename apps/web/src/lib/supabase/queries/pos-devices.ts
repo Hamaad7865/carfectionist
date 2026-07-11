@@ -16,6 +16,7 @@ export interface DeviceTill {
   openedByName: string | null;
   openingFloatCents: number;
   cashCollectedCents: number;
+  cashOutCents: number; // net till movements (petty cash), ≤ 0
   expectedCents: number;
 }
 
@@ -95,24 +96,32 @@ export async function getPosOverview(): Promise<PosOverview> {
       openedByName: nameById.get(s.opened_by) ?? null,
       openingFloatCents: rupeesToCents(Number(s.opening_float)),
       cashCollectedCents: 0, // filled below
+      cashOutCents: 0,
       expectedCents: rupeesToCents(Number(s.opening_float)),
     });
   }
 
   if (openIds.length > 0) {
-    const { data: pays } = await sb
-      .from("payments")
-      .select("cash_session_id, amount")
-      .in("cash_session_id", openIds)
-      .eq("method", "cash");
+    const [{ data: pays }, movesRes] = await Promise.all([
+      sb.from("payments").select("cash_session_id, amount").in("cash_session_id", openIds).eq("method", "cash"),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (sb.from("till_movements" as any) as any).select("cash_session_id, amount").in("cash_session_id", openIds),
+    ]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const p of (pays ?? []) as any[]) {
       for (const till of openByDevice.values()) {
-        if (till.sessionId === p.cash_session_id) {
-          till.cashCollectedCents += rupeesToCents(Number(p.amount));
-          till.expectedCents = till.openingFloatCents + till.cashCollectedCents;
-        }
+        if (till.sessionId === p.cash_session_id) till.cashCollectedCents += rupeesToCents(Number(p.amount));
       }
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const m of ((movesRes.data ?? []) as any[])) {
+      for (const till of openByDevice.values()) {
+        if (till.sessionId === m.cash_session_id) till.cashOutCents += rupeesToCents(Number(m.amount));
+      }
+    }
+    // Drawer truth: float + cash payments + petty movements (negative).
+    for (const till of openByDevice.values()) {
+      till.expectedCents = till.openingFloatCents + till.cashCollectedCents + till.cashOutCents;
     }
   }
 
@@ -214,6 +223,7 @@ export interface DeviceSession {
   countedCents: number | null;
   varianceCents: number | null;
   cashCents: number;       // cash payments in the session (live)
+  cashOutCents: number;    // net petty-cash movements (≤ 0)
   nonCash: { method: string; cents: number }[]; // "to bank" at close, Cashmag-style
   movements: SessionMovement[];
 }
@@ -325,10 +335,21 @@ export async function getDeviceDashboard(
   // union of period + reference sessions (Cash Flow). Deposits need a closed
   // session's FULL payment set, so the Cash Flow fetch is not date-filtered.
   const flowIds = [...new Set([...rangeSessions, ...closureSessions].map((s) => s.id))];
-  const [payRows, flowPays] = await Promise.all([
+  const allWindowIds = [...new Set([...sessions.map((s) => s.id), ...flowIds])];
+  const [payRows, flowPays, movesRes] = await Promise.all([
     fetchPays(sessions.map((s) => s.id)),
     fetchPays(flowIds),
+    // Petty-cash movements for every session in view (tiny table).
+    allWindowIds.length === 0
+      ? Promise.resolve({ data: [] })
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      : (sb.from("till_movements" as any) as any)
+          .select("id, cash_session_id, amount, reason, created_by, created_at")
+          .in("cash_session_id", allWindowIds)
+          .order("created_at", { ascending: false }),
   ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const moveRows = ((movesRes as any).data ?? []) as any[];
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groupBySession = (rows: any[]) => {
@@ -343,6 +364,7 @@ export async function getDeviceDashboard(
   };
   const paysBySession = groupBySession(payRows);
   const flowBySession = groupBySession(flowPays);
+  const movesBySession = groupBySession(moveRows);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const buildSession = (s: any, pays: any[]): DeviceSession => {
@@ -362,6 +384,7 @@ export async function getDeviceDashboard(
         isReversal: p.reverses_payment_id != null,
       };
     });
+    const cashOut = (movesBySession.get(s.id) ?? []).reduce((t, m) => t + rupeesToCents(Number(m.amount)), 0);
     const floatCents = rupeesToCents(Number(s.opening_float));
     const isOpen = s.status === "open";
     return {
@@ -372,10 +395,12 @@ export async function getDeviceDashboard(
       openedByName: nameById.get(s.opened_by) ?? null,
       closedByName: nameById.get(s.closed_by) ?? null,
       openingFloatCents: floatCents,
-      expectedCents: isOpen ? floatCents + cash : rupeesToCents(Number(s.expected_cash ?? 0)),
+      // Drawer truth: float + cash payments + petty movements (negative).
+      expectedCents: isOpen ? floatCents + cash + cashOut : rupeesToCents(Number(s.expected_cash ?? 0)),
       countedCents: isOpen ? null : rupeesToCents(Number(s.closing_count ?? 0)),
       varianceCents: isOpen ? null : rupeesToCents(Number(s.variance ?? 0)),
       cashCents: cash,
+      cashOutCents: cashOut,
       nonCash: [...nonCashMap.entries()].map(([method, cents]) => ({ method, cents })),
       movements,
     };
@@ -414,6 +439,22 @@ export async function getDeviceDashboard(
       type: "Payment reversed",
       comment: p.documents?.number ?? "",
     }));
+  // Manual petty-cash outs (Cashmag's type "Autre" rows, made at the till).
+  const flowIdSet = new Set(flowIds);
+  for (const m of moveRows) {
+    if (!flowIdSet.has(m.cash_session_id)) continue;
+    if (!inRange(m.created_at) || Number(m.amount) >= 0) continue;
+    outflows.push({
+      key: `m${m.id}`,
+      atIso: m.created_at,
+      at: muDateTime(m.created_at),
+      byName: nameById.get(m.created_by) ?? null,
+      method: "cash",
+      amountCents: rupeesToCents(Number(m.amount)),
+      type: "Petty cash",
+      comment: m.reason ?? "",
+    });
+  }
   // Cashmag books each closure's non-cash takings out of the register as
   // automatic bank deposits — synthesize the same rows at closing time.
   for (const s of rangeSessions) {
@@ -465,6 +506,10 @@ export async function getDeviceDashboard(
         push(`a${a.id}`, a.created_at, "device_state",
           a.event_type === "device_enabled" ? "Device enabled" : "Device disabled",
           nameById.get(a.actor_id) ?? null);
+        break;
+      case "till_cash_out":
+        push(`a${a.id}`, a.created_at, "cash_out", "Petty cash out",
+          [pl.amount != null ? `Rs ${Number(pl.amount).toLocaleString("en-US")}` : null, pl.reason].filter(Boolean).join(" · ") || null);
         break;
       case "receipt_printed":
         push(`a${a.id}`, a.created_at, "receipt", "Receipt printed", pl.number ?? null);

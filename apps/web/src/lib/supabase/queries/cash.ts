@@ -30,9 +30,15 @@ export async function getCashSessions(): Promise<{ open: OpenTill | null; recent
 
   let open: OpenTill | null = null;
   if (openRow) {
-    const { data: pays } = await sb.from("payments").select("amount").eq("cash_session_id", openRow.id).eq("method", "cash");
+    const [{ data: pays }, movesRes] = await Promise.all([
+      sb.from("payments").select("amount").eq("cash_session_id", openRow.id).eq("method", "cash"),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (sb.from("till_movements" as any) as any).select("amount").eq("cash_session_id", openRow.id),
+    ]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const cash = ((pays ?? []) as any[]).reduce((s, p) => s + rupeesToCents(Number(p.amount)), 0);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const moves = ((movesRes.data ?? []) as any[]).reduce((s, m) => s + rupeesToCents(Number(m.amount)), 0);
     const floatCents = rupeesToCents(Number(openRow.opening_float));
     open = {
       id: openRow.id,
@@ -40,7 +46,8 @@ export async function getCashSessions(): Promise<{ open: OpenTill | null; recent
       openingFloatCents: floatCents,
       openedAt: openRow.opened_at,
       cashCollectedCents: cash,
-      expectedCents: floatCents + cash,
+      // Drawer truth: float + cash payments + petty movements (negative).
+      expectedCents: floatCents + cash + moves,
     };
   }
 

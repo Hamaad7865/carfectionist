@@ -68,6 +68,8 @@ data class TillUiState(
     val busy: Boolean = false,
     val error: String? = null,
     val justClosed: CashSessionDto? = null,
+    val notice: String? = null,          // e.g. "Cash out recorded"
+    val cashOutDone: Int = 0,            // bumps so the screen clears its fields
 )
 
 @HiltViewModel
@@ -111,6 +113,28 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
         viewModelScope.launch {
             runCatching { till.close(id, cents) }
                 .onSuccess { _s.value = TillUiState(loading = false, session = null, justClosed = it) }
+                .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
+        }
+    }
+
+    /** Petty cash out (Cashmag "Autre"): amount + reason; the server caps it at the drawer. */
+    fun cashOut(amountText: String, reason: String) {
+        val id = _s.value.session?.id ?: return
+        val cents = parseMoneyToCents(amountText) ?: 0
+        if (cents <= 0 || reason.isBlank()) {
+            _s.value = _s.value.copy(error = "Enter the amount and what the cash was for")
+            return
+        }
+        _s.value = _s.value.copy(busy = true, error = null, notice = null)
+        viewModelScope.launch {
+            runCatching { till.cashOut(id, cents, reason.trim()) }
+                .onSuccess {
+                    _s.value = _s.value.copy(
+                        busy = false,
+                        notice = "Cash out recorded — ${formatMUR(cents)} for “${reason.trim()}”",
+                        cashOutDone = _s.value.cashOutDone + 1,
+                    )
+                }
                 .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
         }
     }
@@ -165,10 +189,25 @@ fun TillScreen(onBack: () -> Unit, onOpened: () -> Unit, viewModel: TillViewMode
                 }
                 else -> {
                     val sess = s.session!!
+                    var outAmount by remember { mutableStateOf("") }
+                    var outReason by remember { mutableStateOf("") }
+                    // A recorded cash-out clears its own fields for the next one.
+                    LaunchedEffect(s.cashOutDone) { if (s.cashOutDone > 0) { outAmount = ""; outReason = "" } }
                     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Text("Till is OPEN", color = Success, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
                         Field2("Opening float", formatMUR((sess.openingFloat * 100).toLong()))
                         sess.openedAt?.let { Field2("Opened", it.take(16).replace("T", " ")) }
+
+                        Spacer(Modifier.height(4.dp))
+                        Text("PETTY CASH OUT", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                        Text("Take cash from the drawer for a small purchase — it comes off the expected count.", color = TextSecondary, fontSize = 13.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            OutlinedTextField(outAmount, { outAmount = it }, label = { Text("Amount (Rs)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.width(150.dp))
+                            OutlinedTextField(outReason, { outReason = it }, label = { Text("What for") }, singleLine = true, modifier = Modifier.weight(1f))
+                        }
+                        s.notice?.let { Text(it, color = Success, fontSize = 13.sp) }
+                        MinorButton(if (s.busy) "Working…" else "Take cash out", enabled = !s.busy) { viewModel.cashOut(outAmount, outReason) }
+
                         Spacer(Modifier.height(4.dp))
                         Text("Close the till by counting the cash drawer:", color = TextSecondary, fontSize = 13.sp)
                         OutlinedTextField(countText, { countText = it }, label = { Text("Counted cash (Rs)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
@@ -196,4 +235,15 @@ private fun BigButton(text: String, enabled: Boolean, onClick: () -> Unit) {
         Modifier.fillMaxWidth().height(52.dp).background(if (enabled) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) { Text(text, color = if (enabled) AccentInk else TextMuted, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
+}
+
+/** Secondary action — quieter than the accent CTA so "Close till" stays the headline. */
+@Composable
+private fun MinorButton(text: String, enabled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.fillMaxWidth().height(44.dp).background(InsetAlt, RoundedCornerShape(11.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(11.dp))
+            .clickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, color = if (enabled) TextPrimary else TextMuted, fontSize = 14.sp, fontWeight = FontWeight.Bold) }
 }

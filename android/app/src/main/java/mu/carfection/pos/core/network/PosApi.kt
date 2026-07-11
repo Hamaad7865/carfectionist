@@ -170,6 +170,20 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         })
     }
 
+    /**
+     * Petty cash out of the open till (Cashmag's "Autre" rows). The RPC enforces
+     * the rules — open session, positive amount, reason, never more than the
+     * drawer holds — and audits it with the device stamp. Idempotent.
+     */
+    suspend fun recordTillCashOut(sessionId: String, amountRupees: Double, reason: String, idempotencyKey: String) {
+        client.postgrest.rpc("record_till_cash_out", buildJsonObject {
+            put("p_session_id", sessionId)
+            put("p_amount", amountRupees)
+            put("p_reason", reason)
+            put("p_idempotency_key", idempotencyKey)
+        })
+    }
+
     /** Best-effort traceability event (ai_insert RLS: any tenant member may insert). */
     suspend fun insertAuditEvent(tenantId: String, eventType: String, deviceId: String?, payload: JsonObject) {
         client.postgrest.from("audit_events").insert(buildJsonObject {

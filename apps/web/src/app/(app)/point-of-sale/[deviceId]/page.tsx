@@ -2,10 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   Power, UserRound, Download, Wallet, CalendarCheck, BadgePercent,
-  ReceiptText, FileDown, CircleDot, Coins, Ban, Monitor, TabletSmartphone,
+  ReceiptText, FileDown, CircleDot, Coins, Ban, Banknote, Monitor, TabletSmartphone,
 } from "lucide-react";
 import { getDeviceDashboard } from "@/lib/supabase/queries/pos-devices";
 import { DeviceSettings } from "@/features/pos/DeviceSettings";
+import { CashOutButton } from "@/features/pos/CashOutButton";
 import { RefDatePicker } from "@/features/pos/RefDatePicker";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { formatMUR } from "@/lib/money";
@@ -33,6 +34,7 @@ const KIND_ICON: Record<string, typeof CircleDot> = {
   export: FileDown,
   period: CalendarCheck,
   device_state: Ban,
+  cash_out: Banknote,
 };
 
 export default async function DeviceDashboardPage({
@@ -189,17 +191,30 @@ export default async function DeviceDashboardPage({
                       </div>
                       <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                         <div className="rounded-[13px] bg-sub p-4"><div className="text-[11px] font-semibold text-muted">Opening float</div><div className="num mt-1.5 text-[16px] font-extrabold text-ink">{formatMUR(s.openingFloatCents)}</div></div>
-                        <div className="rounded-[13px] bg-sub p-4"><div className="text-[11px] font-semibold text-muted">Cash in</div><div className="num mt-1.5 text-[16px] font-extrabold text-ink">{formatMUR(s.cashCents)}</div></div>
+                        <div className="rounded-[13px] bg-sub p-4">
+                          <div className="text-[11px] font-semibold text-muted">Cash in{s.cashOutCents !== 0 ? " / out" : ""}</div>
+                          <div className="num mt-1.5 text-[16px] font-extrabold text-ink">
+                            {formatMUR(s.cashCents)}
+                            {s.cashOutCents !== 0 && <span className="text-rose"> {formatMUR(s.cashOutCents)}</span>}
+                          </div>
+                        </div>
                         <div className="rounded-[13px] bg-sub p-4"><div className="text-[11px] font-semibold text-muted">Counted at close</div><div className="num mt-1.5 text-[16px] font-extrabold text-ink">{formatMUR(s.countedCents ?? 0)}</div></div>
                         <div className="rounded-[13px] bg-sub p-4">
                           <div className="text-[11px] font-semibold text-muted">Variance</div>
                           <div className={`num mt-1.5 text-[16px] font-extrabold ${(s.varianceCents ?? 0) === 0 ? "text-mint" : (s.varianceCents ?? 0) < 0 ? "text-rose" : "text-amber-ink"}`}>{formatMUR(s.varianceCents ?? 0)}</div>
                         </div>
                       </div>
-                      {s.nonCash.length > 0 && (
+                      {(s.nonCash.length > 0 || s.cashOutCents !== 0) && (
                         <div className="mt-3 rounded-[12px] border border-[rgba(43,140,255,0.2)] bg-[rgba(43,140,255,0.05)] px-4 py-2.5 text-[12.5px] text-body">
-                          <span className="font-bold text-link">Not in the drawer:</span>{" "}
-                          {s.nonCash.map((n) => `${METHOD_LABEL[n.method] ?? n.method} ${formatMUR(n.cents)} straight to the bank`).join(" · ")}
+                          {s.nonCash.length > 0 && (
+                            <>
+                              <span className="font-bold text-link">Not in the drawer:</span>{" "}
+                              {s.nonCash.map((n) => `${METHOD_LABEL[n.method] ?? n.method} ${formatMUR(n.cents)} straight to the bank`).join(" · ")}
+                            </>
+                          )}
+                          {s.cashOutCents !== 0 && (
+                            <span>{s.nonCash.length > 0 ? " · " : ""}<span className="font-bold text-rose">Petty cash out</span> {formatMUR(s.cashOutCents)}</span>
+                          )}
                         </div>
                       )}
                     </div>
@@ -214,7 +229,10 @@ export default async function DeviceDashboardPage({
                     <div className="font-display text-[15px] font-bold text-ink-strong">Cash movements</div>
                     <p className="mt-0.5 text-[12px] text-muted">Every payment in and out of this till over the period.</p>
                   </div>
-                  <DateRangeFilter label={false} />
+                  <div className="flex flex-wrap items-center gap-2.5">
+                    {device.till && <CashOutButton sessionId={device.till.sessionId} expectedCents={device.till.expectedCents} />}
+                    <DateRangeFilter label={false} />
+                  </div>
                 </div>
 
                 {/* Inflows */}
