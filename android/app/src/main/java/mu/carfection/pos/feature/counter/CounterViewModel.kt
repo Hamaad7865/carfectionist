@@ -391,7 +391,8 @@ class CounterViewModel @Inject constructor(
     }
 
     fun voidInvoice(bill: OutstandingInvoiceDto) = correction("${bill.number ?: "Invoice"} voided") { api.voidDocument(bill.id, "Voided at POS") }
-    fun reverseThisPayment(p: TodayPaymentDto) = correction("Payment reversed") { api.reversePayment(p.id, "Reversed at POS") }
+    /** Reason is REQUIRED — the owner reads it in Activity/Traceability/Cash Flow. */
+    fun reverseThisPayment(p: TodayPaymentDto, reason: String) = correction("Payment reversed") { api.reversePayment(p.id, reason) }
     fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") { api.issueCreditNote(p.documentId, restock = true, stockLocationId = api.fetchShopLocationId()) }
 
     /** Tap an outstanding invoice → open the pad to collect its balance. */

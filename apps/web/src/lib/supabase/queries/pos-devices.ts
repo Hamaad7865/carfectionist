@@ -207,6 +207,7 @@ export interface SessionMovement {
   method: string;
   amountCents: number;
   number: string | null;
+  docId: string | null; // → /sales/[id]
   byName: string | null;
   isReversal: boolean;
 }
@@ -232,9 +233,10 @@ export interface TraceEvent {
   key: string;
   at: string;    // ISO for sorting
   atLabel: string; // MU display
-  kind: string;  // terminal_started | version | operator | till_open | till_close | payment | discount | receipt | export | period | device_state
+  kind: string;  // terminal_started | version | operator | till_open | till_close | payment | discount | receipt | export | period | device_state | cash_out
   title: string;
   detail: string | null;
+  href: string | null; // → /sales/[id] when the event concerns a document
 }
 
 /** A money movement leaving the till — Cashmag's "cash outflows". */
@@ -245,8 +247,9 @@ export interface OutflowRow {
   byName: string | null;
   method: string;
   amountCents: number; // negative
-  type: string;    // "Bank deposit" | "Payment reversed"
-  comment: string; // "Automatic bank deposit" | invoice number
+  type: string;    // "Bank deposit" | "Payment reversed" | "Petty cash"
+  comment: string; // "Automatic bank deposit" | invoice number | reason
+  docId: string | null; // → /sales/[id] for reversals
 }
 
 /** The Cash Flow tab, driven entirely by date pickers (owner's Cashmag spec):
@@ -293,16 +296,26 @@ export async function getDeviceDashboard(
   let to = opts?.to && DATE_RE.test(opts.to) ? opts.to : from;
   if (to < from) [from, to] = [to, from];
 
+  // Traceability follows the same period pickers: with ?from/?to present the
+  // feed is the chosen window; without them it's simply the most recent events.
+  const rangeGiven = !!((opts?.from && DATE_RE.test(opts.from)) || (opts?.to && DATE_RE.test(opts.to)));
+  let auditQ = sb
+    .from("audit_events")
+    .select("id, event_type, payload, created_at, actor_id")
+    .eq("device_id", code)
+    .order("created_at", { ascending: false })
+    .limit(rangeGiven ? 300 : 120);
+  if (rangeGiven) {
+    auditQ = auditQ
+      .gte("created_at", new Date(muDayStart(from)).toISOString())
+      .lt("created_at", new Date(muDayEnd(to)).toISOString());
+  }
+
   const [sessRes, usersRes, auditRes] = await Promise.all([
     // ALL of this device's sessions (≈1/day) — the pickers can reach any date.
     sb.from("cash_sessions").select("*").eq("device_id", code).order("opened_at", { ascending: false }).limit(400),
     sb.from("app_users").select("id, display_name"),
-    sb
-      .from("audit_events")
-      .select("id, event_type, payload, created_at, actor_id")
-      .eq("device_id", code)
-      .order("created_at", { ascending: false })
-      .limit(120),
+    auditQ,
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -380,6 +393,7 @@ export async function getDeviceDashboard(
         method: p.method,
         amountCents: cents,
         number: p.documents?.number ?? null,
+        docId: p.documents?.id ?? null,
         byName: nameById.get(p.received_by) ?? null,
         isReversal: p.reverses_payment_id != null,
       };
@@ -423,6 +437,7 @@ export async function getDeviceDashboard(
       method: p.method,
       amountCents: rupeesToCents(Number(p.amount)),
       number: p.documents?.number ?? null,
+      docId: p.documents?.id ?? null,
       byName: nameById.get(p.received_by) ?? null,
       isReversal: false,
     }));
@@ -438,6 +453,7 @@ export async function getDeviceDashboard(
       amountCents: rupeesToCents(Number(p.amount)),
       type: "Payment reversed",
       comment: p.documents?.number ?? "",
+      docId: p.documents?.id ?? null,
     }));
   // Manual petty-cash outs (Cashmag's type "Autre" rows, made at the till).
   const flowIdSet = new Set(flowIds);
@@ -453,6 +469,7 @@ export async function getDeviceDashboard(
       amountCents: rupeesToCents(Number(m.amount)),
       type: "Petty cash",
       comment: m.reason ?? "",
+      docId: null,
     });
   }
   // Cashmag books each closure's non-cash takings out of the register as
@@ -475,6 +492,7 @@ export async function getDeviceDashboard(
         amountCents: -cents,
         type: "Bank deposit",
         comment: "Automatic bank deposit",
+        docId: null,
       });
     }
   }
@@ -483,9 +501,21 @@ export async function getDeviceDashboard(
   const cashflow: CashflowData = { refDate, closures, from, to, inflows, outflows };
 
   // ── Traceability feed ──────────────────────────────────────────────────────
+  // With ?from/?to the feed covers exactly that window (owner: "track what a
+  // user did on the date he chooses"); without them, the recent window.
   const trace: TraceEvent[] = [];
-  const push = (key: string, at: string, kind: string, title: string, detail: string | null) =>
-    trace.push({ key, at, atLabel: muDateTime(at), kind, title, detail });
+  const push = (key: string, at: string, kind: string, title: string, detail: string | null, href: string | null = null) =>
+    trace.push({ key, at, atLabel: muDateTime(at), kind, title, detail, href });
+
+  // Sales referenced only by number (receipt events) still get a link when the
+  // number appears among the fetched payments' documents.
+  const tracePays = rangeGiven ? flowPays.filter((p) => inRange(p.received_at)) : payRows;
+  const idByNumber = new Map<string, string>();
+  for (const p of [...payRows, ...flowPays]) {
+    if (p.documents?.number && p.documents?.id) idByNumber.set(p.documents.number, p.documents.id);
+  }
+  const saleHref = (docId?: string | null, number?: string | null) =>
+    docId ? `/sales/${docId}` : number && idByNumber.has(number) ? `/sales/${idByNumber.get(number)}` : null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const a of (auditRes.data ?? []) as any[]) {
@@ -511,11 +541,20 @@ export async function getDeviceDashboard(
         push(`a${a.id}`, a.created_at, "cash_out", "Petty cash out",
           [pl.amount != null ? `Rs ${Number(pl.amount).toLocaleString("en-US")}` : null, pl.reason].filter(Boolean).join(" · ") || null);
         break;
+      case "payment_reversed":
+        // The reason is REQUIRED at the source — surface it front and centre.
+        push(`a${a.id}`, a.created_at, "payment", "Payment reversed",
+          [pl.amount != null ? `Rs ${Number(pl.amount).toLocaleString("en-US")}` : null,
+           METHOD_LABEL[pl.method as string] ?? pl.method,
+           pl.reason ? `“${pl.reason}”` : null,
+           nameById.get(a.actor_id)].filter(Boolean).join(" · ") || null,
+          saleHref(pl.document_id));
+        break;
       case "receipt_printed":
-        push(`a${a.id}`, a.created_at, "receipt", "Receipt printed", pl.number ?? null);
+        push(`a${a.id}`, a.created_at, "receipt", "Receipt printed", pl.number ?? null, saleHref(null, pl.number));
         break;
       case "receipt_skipped":
-        push(`a${a.id}`, a.created_at, "receipt", "Sale without printed receipt", pl.number ?? null);
+        push(`a${a.id}`, a.created_at, "receipt", "Sale without printed receipt", pl.number ?? null, saleHref(null, pl.number));
         break;
       case "data_export":
         push(`a${a.id}`, a.created_at, "export", "Data export", pl.report ?? null);
@@ -528,26 +567,41 @@ export async function getDeviceDashboard(
     }
   }
 
-  for (const s of deviceSessions) {
-    push(`so${s.id}`, s.openedAt, "till_open", "Till opened",
-      `Float ${(s.openingFloatCents / 100).toLocaleString("en-US")}${s.openedByName ? ` · ${s.openedByName}` : ""}`);
-    if (s.closedAt) {
-      const nonCashTxt = s.nonCash.map((n) => `${METHOD_LABEL[n.method] ?? n.method} ${(n.cents / 100).toLocaleString("en-US")} to bank`).join(" · ");
-      push(`sc${s.id}`, s.closedAt, "till_close", "Cash register closing",
-        [`Variance ${((s.varianceCents ?? 0) / 100).toLocaleString("en-US")}`, nonCashTxt].filter(Boolean).join(" · "));
+  // Till events from raw session rows so the range can reach ANY date, not just
+  // the recent-20 window (names/figures resolved the same way either path).
+  const sessForTrace = rangeGiven
+    ? rangeSessions.filter((s) => inRange(s.opened_at) || (s.closed_at && inRange(s.closed_at)))
+    : sessions;
+  for (const s of sessForTrace) {
+    const pays = (rangeGiven ? flowBySession : paysBySession).get(s.id) ?? [];
+    if (!rangeGiven || inRange(s.opened_at)) {
+      push(`so${s.id}`, s.opened_at, "till_open", "Till opened",
+        `Float ${(rupeesToCents(Number(s.opening_float)) / 100).toLocaleString("en-US")}${nameById.get(s.opened_by) ? ` · ${nameById.get(s.opened_by)}` : ""}`);
+    }
+    if (s.closed_at && (!rangeGiven || inRange(s.closed_at))) {
+      const net = new Map<string, number>();
+      for (const p of pays) {
+        if (p.method === "cash") continue;
+        net.set(p.method, (net.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
+      }
+      const nonCashTxt = [...net.entries()].filter(([, c]) => c > 0)
+        .map(([m, c]) => `${METHOD_LABEL[m] ?? m} ${(c / 100).toLocaleString("en-US")} to bank`).join(" · ");
+      push(`sc${s.id}`, s.closed_at, "till_close", "Cash register closing",
+        [`Variance ${(rupeesToCents(Number(s.variance ?? 0)) / 100).toLocaleString("en-US")}`, nonCashTxt].filter(Boolean).join(" · "));
     }
   }
 
-  for (const p of payRows) {
+  for (const p of tracePays) {
     const cents = rupeesToCents(Number(p.amount));
     push(`p${p.id}`, p.received_at, "payment",
       p.reverses_payment_id ? "Payment reversed" : `Payment · ${METHOD_LABEL[p.method] ?? p.method}`,
-      [`Rs ${(cents / 100).toLocaleString("en-US")}`, p.documents?.number, nameById.get(p.received_by)].filter(Boolean).join(" · "));
+      [`Rs ${(cents / 100).toLocaleString("en-US")}`, p.documents?.number, nameById.get(p.received_by)].filter(Boolean).join(" · "),
+      saleHref(p.documents?.id));
   }
 
   // Discounts on invoices settled in these sessions (order-level via the
   // document row that rode along with the payment; line-level fetched below).
-  const docIds = [...new Set(payRows.map((p) => p.documents?.id).filter(Boolean))] as string[];
+  const docIds = [...new Set(tracePays.map((p) => p.documents?.id).filter(Boolean))] as string[];
   if (docIds.length > 0) {
     const { data: lines } = await sb
       .from("document_lines")
@@ -563,7 +617,7 @@ export async function getDeviceDashboard(
       arr.push(label);
       discountedDocs.set(l.document_id, arr);
     }
-    for (const p of payRows) {
+    for (const p of tracePays) {
       const d = p.documents;
       if (!d?.id || p.reverses_payment_id) continue;
       const parts: string[] = [];
@@ -572,7 +626,7 @@ export async function getDeviceDashboard(
       }
       parts.push(...(discountedDocs.get(d.id) ?? []));
       if (parts.length > 0) {
-        push(`d${p.id}`, p.received_at, "discount", "Discount", [d.number, ...parts].filter(Boolean).join(" · "));
+        push(`d${p.id}`, p.received_at, "discount", "Discount", [d.number, ...parts].filter(Boolean).join(" · "), saleHref(d.id));
       }
     }
   }

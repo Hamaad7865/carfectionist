@@ -89,12 +89,15 @@ export default async function DeviceDashboardPage({
         <div className="mt-5 flex gap-1.5 overflow-x-auto border-b border-line pb-px">
           {TABS.map((t) => {
             const on = tab === t.key;
-            // Cash Flow is date-picker-driven — seed today so the pickers arrive filled.
+            // Cash Flow AND Traceability are date-picker-driven — seed today so
+            // the pickers arrive filled (Cashmag defaults to today–today).
             const today = muToday();
             const href =
               t.key === "cashflow"
                 ? `/point-of-sale/${encodeURIComponent(code)}?tab=cashflow&ref=${today}&from=${today}&to=${today}`
-                : `/point-of-sale/${encodeURIComponent(code)}?tab=${t.key}`;
+                : t.key === "trace"
+                  ? `/point-of-sale/${encodeURIComponent(code)}?tab=trace&from=${today}&to=${today}`
+                  : `/point-of-sale/${encodeURIComponent(code)}?tab=${t.key}`;
             return (
               <Link
                 key={t.key}
@@ -258,7 +261,11 @@ export default async function DeviceDashboardPage({
                           <span className="num text-muted">{m.at}</span>
                           <span className="truncate text-body">{m.byName ?? "—"}</span>
                           <span className="text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
-                          <span className="num font-bold text-link">{m.number ?? "—"}</span>
+                          {m.docId ? (
+                            <Link href={`/sales/${m.docId}`} className="num font-bold text-link hover:underline">{m.number ?? "—"}</Link>
+                          ) : (
+                            <span className="num font-bold text-link">{m.number ?? "—"}</span>
+                          )}
                           <span className="num text-right font-bold text-ink">{formatMUR(m.amountCents)}</span>
                         </div>
                       </div>
@@ -291,7 +298,11 @@ export default async function DeviceDashboardPage({
                           <span className="text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
                           <span className="num text-right font-bold text-rose">{formatMUR(m.amountCents)}</span>
                           <span className="text-muted">{m.type}</span>
-                          <span className="num truncate text-muted">{m.comment || "—"}</span>
+                          {m.docId ? (
+                            <Link href={`/sales/${m.docId}`} className="num truncate font-bold text-link hover:underline">{m.comment || "—"}</Link>
+                          ) : (
+                            <span className="num truncate text-muted">{m.comment || "—"}</span>
+                          )}
                         </div>
                       </div>
                     ))
@@ -301,12 +312,18 @@ export default async function DeviceDashboardPage({
             </div>
           )}
 
-          {/* ── TRACEABILITY ── */}
+          {/* ── TRACEABILITY — date-driven, refs clickable ── */}
           {tab === "trace" && (
             <div className="max-w-3xl">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                <span className="text-[12px] text-muted">
+                  Everything this device did in the period — operators, tills, sales, discounts, receipts, corrections.
+                </span>
+                <DateRangeFilter label={false} />
+              </div>
               {trace.length === 0 ? (
                 <div className="rounded-[14px] border border-dashed border-line-2 p-10 text-center text-[13px] text-faint">
-                  Nothing recorded yet — events appear as the device trades.
+                  Nothing recorded in this period.
                 </div>
               ) : (
                 <div className="flex flex-col">
@@ -323,10 +340,18 @@ export default async function DeviceDashboardPage({
                         </div>
                         <div className="min-w-0 flex-1 pt-1">
                           <div className="flex flex-wrap items-baseline gap-x-2.5">
-                            <span className="text-[12.5px] font-bold uppercase tracking-[0.06em] text-ink">{e.title}</span>
+                            {e.href ? (
+                              <Link href={e.href} className="text-[12.5px] font-bold uppercase tracking-[0.06em] text-link hover:underline">{e.title}</Link>
+                            ) : (
+                              <span className="text-[12.5px] font-bold uppercase tracking-[0.06em] text-ink">{e.title}</span>
+                            )}
                             <span className="num text-[11px] text-faint">{e.atLabel}</span>
                           </div>
-                          {e.detail && <div className="mt-0.5 text-[12.5px] text-muted">{e.detail}</div>}
+                          {e.detail && (
+                            <div className="mt-0.5 text-[12.5px] text-muted">
+                              {e.href ? <Link href={e.href} className="hover:underline">{e.detail}</Link> : e.detail}
+                            </div>
+                          )}
                         </div>
                       </div>
                     );
