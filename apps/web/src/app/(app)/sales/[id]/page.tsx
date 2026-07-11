@@ -92,7 +92,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               {doc.jobId ? (
                 <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job →</Link>
               ) : (
-                <StartJobButton documentId={doc.id} />
+                <StartJobButton documentId={doc.id} quote={doc.docType === "quote"} />
               )}
             </div>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">

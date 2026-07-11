@@ -132,6 +132,11 @@ export const createIntakeQuote = (sb: Client, a: CreateIntakeQuoteArgs) =>
 export const createJobFromDocument = (sb: Client, documentId: string) =>
   callRpc<{ id: string }>(sb, "create_job_from_document", { p_document_id: documentId });
 
+/** Accept a quote → issue+accept it and spawn the linked job in one txn.
+ *  Idempotent: a re-click returns the same job (same RPC the Android POS uses). */
+export const convertQuoteToJob = (sb: Client, quoteId: string) =>
+  callRpc<{ id: string }>(sb, "convert_quote_to_job", { p_quote_id: quoteId, p_technician_id: null, p_scheduled_at: null });
+
 export interface ImportReport {
   inserted: number;
   updated: number;

@@ -59,7 +59,15 @@ export async function createJobFromDocumentAction(documentId: string): Promise<R
   await requireRole("owner", "manager", "cashier");
   const sb = await createClient();
   try {
-    const job = await rpc.createJobFromDocument(sb, documentId);
+    // A quote is ACCEPTED into its job — issued (gapless number), flipped to
+    // 'accepted', linked both ways, idempotent — via the same RPC the Android
+    // POS uses. Non-quote documents keep the plain job-from-document path.
+    const { data: doc } = await sb.from("documents").select("doc_type").eq("id", documentId).maybeSingle();
+    if (!doc) return { ok: false, error: "Document not found." };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const job = (doc as any).doc_type === "quote"
+      ? await rpc.convertQuoteToJob(sb, documentId)
+      : await rpc.createJobFromDocument(sb, documentId);
     revalidatePath("/jobs");
     revalidatePath(`/sales/${documentId}`);
     return { ok: true, data: { jobId: job.id } };

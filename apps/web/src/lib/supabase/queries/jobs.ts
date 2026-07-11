@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { departmentLabel } from "@/lib/departments";
 import { signVehiclePhotos } from "@/lib/supabase/storage";
+import { jobClock } from "@/features/jobs/clock";
 import type { Marker } from "@/features/intake/damage";
 
 export const JOB_COLUMNS = [
@@ -22,6 +23,7 @@ export interface JobCardSummary {
   technicianInitials: string | null;
   department: string | null;
   running: boolean;
+  paused: boolean;
 }
 
 function initials(name: string | null): string | null {
@@ -40,7 +42,7 @@ function nameById(rows: any[], id: string | null, field = "display_name"): strin
 export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> {
   const sb = await createClient();
   const [jobsRes, custRes, vehRes, usersRes, timerRes] = await Promise.all([
-    sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at").order("created_at", { ascending: false }),
+    sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, paused_at, paused_ms").order("created_at", { ascending: false }),
     sb.from("customers").select("id, name"),
     sb.from("vehicles").select("id, make, model, plate"),
     sb.from("app_users").select("id, display_name"),
@@ -56,10 +58,17 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
 
   const board: Record<string, JobCardSummary[]> = {};
   for (const c of JOB_COLUMNS) board[c.status] = [];
+  const now = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const j of (jobsRes.data ?? []) as any[]) {
     const v = vehicles.find((x) => x.id === j.vehicle_id);
     const tech = nameById(users, j.technician_id);
+    // The POS clock (started_at/paused) is authoritative when present; a job the
+    // web only ever drove via timer rows falls back to its open-timer state.
+    const clock = jobClock(
+      { status: j.status, startedAt: j.started_at, readyAt: j.ready_at, deliveredAt: j.delivered_at, pausedAt: j.paused_at, pausedMs: j.paused_ms },
+      now,
+    );
     const card: JobCardSummary = {
       id: j.id,
       status: j.status,
@@ -70,7 +79,8 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
       technician: tech ? tech.replace(/\s*\(.*\)\s*$/, "").trim() : null,
       technicianInitials: initials(tech),
       department: departmentLabel(j.department),
-      running: running.has(j.id),
+      running: clock ? clock.running : running.has(j.id),
+      paused: clock?.paused ?? false,
     };
     (board[j.status] ?? (board[j.status] = [])).push(card);
   }
@@ -107,6 +117,7 @@ export interface JobDetail {
   photos: JobPhoto[];
   elapsedSeconds: number;
   running: boolean;
+  paused: boolean;
   documents: JobDocument[];
 }
 
@@ -145,6 +156,14 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
     if (!t.stopped_at) running = true;
     if (!Number.isNaN(start)) elapsed += Math.max(0, Math.floor((end - start) / 1000));
   }
+  // The POS clock (started_at → ready, minus pauses) overrides the legacy
+  // timer-row sum whenever the job has been started — one clock on both apps.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jr: any = job;
+  const clock = jobClock(
+    { status: jr.status, startedAt: jr.started_at, readyAt: jr.ready_at, deliveredAt: jr.delivered_at, pausedAt: jr.paused_at, pausedMs: jr.paused_ms },
+    now,
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const documents: JobDocument[] = ((docRes.data ?? []) as any[]).map((d) => {
@@ -181,8 +200,9 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       checklist: Array.isArray(j.checklist) ? j.checklist : [],
       damageMarkers: Array.isArray(j.damage_markers) ? j.damage_markers : [],
       photos,
-      elapsedSeconds: elapsed,
-      running,
+      elapsedSeconds: clock?.elapsedSeconds ?? elapsed,
+      running: clock?.running ?? running,
+      paused: clock?.paused ?? false,
       documents,
     },
     ref: {

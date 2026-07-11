@@ -38,6 +38,7 @@ export default async function JobsPage() {
                     <div className="flex items-center justify-between">
                       <span className="num text-[11px] font-bold text-link">JOB-{j.id.slice(0, 4).toUpperCase()}</span>
                       {j.running && <span className="flex items-center gap-1.5 text-[11px] font-bold text-mint"><span className="size-1.5 rounded-full bg-mint" />running</span>}
+                      {j.paused && <span className="flex items-center gap-1.5 text-[11px] font-bold text-amber-ink"><span className="size-1.5 rounded-full bg-[#ff9f1a]" />paused</span>}
                     </div>
                     <div className="mt-2 text-[14px] font-bold leading-tight text-ink-strong">{j.vehicle ?? "—"}</div>
                     <div className="num text-[12px] text-muted">{j.plate ?? ""}</div>

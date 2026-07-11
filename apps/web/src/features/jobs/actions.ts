@@ -155,6 +155,34 @@ export async function toggleTimerAction(jobId: string): Promise<Result> {
   return { ok: true };
 }
 
+/**
+ * Pause when running, resume when paused — same bookkeeping as the POS:
+ * pausing stamps paused_at; resuming clears it with the finished pause folded
+ * into paused_ms. Only a job in progress has a clock to pause.
+ */
+export async function toggleJobPauseAction(jobId: string): Promise<Result> {
+  const ctx = await requireRole(...ROLES);
+  const sb = await createClient();
+  const { data } = await sb.from("jobs").select("status, paused_at, paused_ms").eq("id", jobId).maybeSingle();
+  if (!data) return { ok: false, error: "Unknown job." };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const j: any = data;
+  if (j.status !== "in_progress") return { ok: false, error: "Only a job in progress can be paused." };
+
+  const now = Date.now();
+  const pausing = j.paused_at == null;
+  const since = pausing ? NaN : Date.parse(j.paused_at);
+  const patch = pausing
+    ? { paused_at: new Date(now).toISOString() }
+    : { paused_at: null, paused_ms: (j.paused_ms ?? 0) + (Number.isNaN(since) ? 0 : Math.max(0, now - since)) };
+  const { error } = await sb.from("jobs").update(patch).eq("id", jobId);
+  if (error) return { ok: false, error: error.message };
+  await jobAudit(sb, ctx, pausing ? "timer_paused" : "timer_resumed", jobId);
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/jobs");
+  return { ok: true };
+}
+
 export async function updateChecklistAction(jobId: string, checklist: { label: string; done: boolean }[]): Promise<Result> {
   await requireRole(...ROLES);
   const sb = await createClient();
@@ -178,6 +206,16 @@ export async function completeJobAction(input: z.infer<typeof completeSchema>): 
   const { data: open } = await sb.from("job_timers").select("id").eq("job_id", p.data.jobId).is("stopped_at", null).maybeSingle();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   if (open) await sb.from("job_timers").update({ stopped_at: new Date().toISOString() }).eq("id", (open as any).id);
+  // A job completed while paused keeps its clock stopped at the pause, not at
+  // collection — fold the open pause first (mirrors the POS's markReady).
+  const { data: pj } = await sb.from("jobs").select("paused_at, paused_ms").eq("id", p.data.jobId).maybeSingle();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pjj: any = pj;
+  if (pjj?.paused_at) {
+    const since = Date.parse(pjj.paused_at);
+    const folded = (pjj.paused_ms ?? 0) + (Number.isNaN(since) ? 0 : Math.max(0, Date.now() - since));
+    await sb.from("jobs").update({ paused_at: null, paused_ms: folded }).eq("id", p.data.jobId);
+  }
   try {
     await rpc.completeJob(sb, p.data.jobId, p.data.consumptions.map((c) => ({ product_id: c.productId, qty: c.qty })));
   } catch (e) {

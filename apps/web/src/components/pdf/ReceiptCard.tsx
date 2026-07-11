@@ -17,9 +17,6 @@ const RED = "#c8452f";
 export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngle?: number }) {
   const bc = code128B(r.barcodeValue);
   const BH = 32;
-  // Label the VAT row with the actual rate(s) — never assume 15%.
-  const rates = [...new Set(r.vatGroups.map((g) => g.rate))];
-  const vatLabel = rates.length === 1 ? `VAT ${rates[0] % 1 === 0 ? rates[0] : rates[0].toFixed(1)}% (incl.)` : "VAT (incl.)";
   const row = (label: string, value: string, opts?: { strong?: boolean; muted?: boolean; color?: string }): React.ReactNode => (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", margin: "3px 0", fontSize: opts?.strong ? 12 : 11 }}>
       <span style={{ color: opts?.muted ? MUTED : INK, fontWeight: opts?.strong ? 700 : 400 }}>{label}</span>
@@ -87,10 +84,9 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
 
       {dash}
 
-      {/* Totals */}
+      {/* Totals — no VAT row; the ex-VAT figure sits under the total (matches the POS slip) */}
       <div>
         {row("Subtotal", formatMUR(r.subtotalInclCents), { muted: true })}
-        {row(vatLabel, formatMUR(r.vatCents), { muted: true })}
         {r.discountInclCents > 0 && row("Discount", `−${formatMUR(r.discountInclCents)}`, { muted: true, color: "#b8791b" })}
       </div>
 
@@ -98,6 +94,7 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
 
       <div>
         {row("TOTAL", formatMUR(r.totalCents), { strong: true })}
+        {row("Excl. VAT", formatMUR(r.totalCents - r.vatCents), { muted: true })}
         {!r.voided && r.isInvoice && (
           r.payments.length > 1
             ? r.payments.map((pmt, i) => <div key={i}>{row(`Paid · ${pmt.method.toLowerCase()}`, formatMUR(pmt.amountCents), { muted: true })}</div>)

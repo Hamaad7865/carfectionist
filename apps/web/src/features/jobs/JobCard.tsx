@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Play, Square, Plus, Check, Trash2, FileText, FilePlus2 } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, FileText, FilePlus2 } from "lucide-react";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 import type { JobDetail, JobRefData } from "@/lib/supabase/queries/jobs";
@@ -14,6 +14,7 @@ import { markerMeta } from "@/features/intake/damage";
 import { addJobPhotoAction } from "@/features/intake/actions";
 import {
   toggleTimerAction,
+  toggleJobPauseAction,
   assignTechnicianAction,
   setJobDepartmentAction,
   updateChecklistAction,
@@ -73,9 +74,13 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   }
 
   // Resync to the server-authoritative elapsed time whenever a fresh job prop
-  // arrives (e.g. router.refresh after Stop) — a backgrounded tab's throttled
+  // arrives (e.g. router.refresh after Pause) — a backgrounded tab's throttled
   // interval otherwise leaves the local count too low until a full reload.
-  useEffect(() => setSeconds(job.elapsedSeconds), [job.elapsedSeconds]);
+  const [serverSeconds, setServerSeconds] = useState(job.elapsedSeconds);
+  if (job.elapsedSeconds !== serverSeconds) {
+    setServerSeconds(job.elapsedSeconds);
+    setSeconds(job.elapsedSeconds);
+  }
 
   useEffect(() => {
     if (!job.running) return;
@@ -123,19 +128,33 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
 
       {error && <p className="mt-3 rounded-[10px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[13px] text-rose">{error}</p>}
 
-      {/* timer */}
+      {/* timer — the POS clock: Start → (Pause/Resume)* → Complete stops it */}
       <div className="mt-5 flex items-center gap-4 rounded-[15px] border border-line bg-card p-4">
         <div className="flex-1">
           <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-faint">Time on job</div>
-          <div className="num mt-1 text-[32px] font-extrabold text-ink-strong">{fmt(seconds)}</div>
+          <div className="mt-1 flex items-center gap-3">
+            <div className="num text-[32px] font-extrabold text-ink-strong">{fmt(seconds)}</div>
+            {job.paused && (
+              <span className="rounded-full bg-[rgba(255,159,26,0.14)] px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-ink">Paused</span>
+            )}
+          </div>
         </div>
-        {!readOnly && (
+        {!readOnly && job.status === "scheduled" && (
           <button
             onClick={() => run(() => toggleTimerAction(job.id))}
             disabled={busy}
-            className={`flex h-[52px] items-center gap-2 rounded-[13px] px-5 text-[14px] font-bold ${job.running ? "bg-[rgba(214,59,80,0.12)] text-rose" : "grad-brand shadow-brand text-white"}`}
+            className="grad-brand shadow-brand flex h-[52px] items-center gap-2 rounded-[13px] px-5 text-[14px] font-bold text-white"
           >
-            {job.running ? <><Square size={17} /> Stop</> : <><Play size={17} /> Start</>}
+            <Play size={17} /> Start
+          </button>
+        )}
+        {!readOnly && job.status === "in_progress" && (
+          <button
+            onClick={() => run(() => toggleJobPauseAction(job.id))}
+            disabled={busy}
+            className={`flex h-[52px] items-center gap-2 rounded-[13px] px-5 text-[14px] font-bold ${job.paused ? "grad-brand shadow-brand text-white" : "bg-[rgba(255,159,26,0.14)] text-amber-ink"}`}
+          >
+            {job.paused ? <><Play size={17} /> Resume</> : <><Pause size={17} /> Pause</>}
           </button>
         )}
       </div>
