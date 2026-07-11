@@ -71,11 +71,12 @@ try {
   check("variance 0 (card excluded)", closed.rows[0].variance, "0.00");
 
   console.log("▸ close_period");
+  const now = await c.query("select to_char(now() at time zone 'Indian/Mauritius', 'YYYY-MM') p");
   try {
-    const now = await c.query("select to_char(now() at time zone 'Indian/Mauritius', 'YYYY-MM') p");
+    await c.query("savepoint sp0");
     await c.query("select public.close_period($1)", [now.rows[0].p]);
     check("current month rejected", "allowed", "rejected");
-  } catch { check("current month rejected", "rejected", "rejected"); }
+  } catch { await c.query("rollback to savepoint sp0"); check("current month rejected", "rejected", "rejected"); }
   const prev = await c.query("select to_char((now() at time zone 'Indian/Mauritius')::date - interval '1 month', 'YYYY-MM') p");
   const period = prev.rows[0].p;
   const cp = await c.query("select period, totals from public.close_period($1)", [period]);
