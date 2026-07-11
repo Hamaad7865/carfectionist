@@ -60,6 +60,98 @@ fun computeTotals(lines: List<LineInput>): DocTotals {
     return DocTotals(lineTotals, subtotal, vat, subtotal + vat)
 }
 
+// ── Document totals with the discount module's semantics (quote builder) ──────
+// Mirrors document_lines' generated columns + app.discounted_vat_groups():
+// Rs discounts are VAT-INCLUSIVE (staff think in inclusive prices); the ledger
+// stores ex-VAT, so an amount comes off as amount/(1+rate/100). The order
+// discount is apportioned across VAT-rate groups by inclusive share with the
+// largest group absorbing the rounding remainder — exactly the DB's algorithm,
+// so the footer always shows what the server will store.
+
+/** One builder line as the DB will price it. */
+data class DocLineIn(
+    val qty: Double,
+    val unitCents: Long,
+    val discountKind: String, // "percent" | "amount"
+    val discountPct: Double,
+    val discountAmtInclCents: Long, // VAT-inclusive Rs off
+    val vatRatePct: Double,
+)
+
+data class DocDiscountTotals(
+    val lineExclCents: List<Long>,
+    val orderDiscountInclCents: Long, // what the order discount actually takes off (incl)
+    val subtotalCents: Long,
+    val vatCents: Long,
+    val totalCents: Long,
+)
+
+private fun vatFactor(ratePct: Double): BigDecimal =
+    BigDecimal.ONE.add(BigDecimal.valueOf(ratePct).movePointLeft(2))
+
+fun computeDocTotals(
+    lines: List<DocLineIn>,
+    orderKind: String?, // null | "percent" | "amount"
+    orderPct: Double,
+    orderAmtInclCents: Long,
+): DocDiscountTotals {
+    // line_total_excl / line_vat — identical CASE to the generated columns.
+    val excl = lines.map { l ->
+        val gross = BigDecimal.valueOf(l.qty).multiply(BigDecimal.valueOf(l.unitCents))
+        val e =
+            if (l.discountKind == "amount")
+                gross.subtract(BigDecimal.valueOf(l.discountAmtInclCents).divide(vatFactor(l.vatRatePct), 10, RoundingMode.HALF_UP))
+                    .max(BigDecimal.ZERO)
+            else
+                gross.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(l.discountPct).movePointLeft(2)))
+        e.toCents()
+    }
+    val vat = lines.mapIndexed { i, l ->
+        BigDecimal.valueOf(excl[i]).multiply(BigDecimal.valueOf(l.vatRatePct).movePointLeft(2)).toCents()
+    }
+
+    // Per-VAT-rate groups (base, vat, incl) — the discounted_vat_groups input.
+    data class Group(val rate: Double, val base0: Long, val vat0: Long) { val incl get() = base0 + vat0 }
+    val groups = lines.indices.groupBy { lines[it].vatRatePct }
+        .map { (rate, idx) -> Group(rate, idx.sumOf { excl[it] }, idx.sumOf { vat[it] }) }
+    val gross = groups.sumOf { it.incl }
+
+    val dIncl = when {
+        orderKind == null || gross <= 0 -> 0L
+        orderKind == "percent" ->
+            if (orderPct <= 0.0) 0L
+            else BigDecimal.valueOf(gross).multiply(BigDecimal.valueOf(orderPct).movePointLeft(2)).toCents()
+        else -> orderAmtInclCents.coerceIn(0L, gross)
+    }
+    if (dIncl == 0L) {
+        val sub = groups.sumOf { it.base0 }
+        val v = groups.sumOf { it.vat0 }
+        return DocDiscountTotals(excl, 0L, sub, v, sub + v)
+    }
+
+    // d_raw = round(d_incl × incl_g / gross); the largest-incl group (tie → lower
+    // rate, matching ORDER BY incl DESC, rate) absorbs the rounding remainder.
+    val dRaw = groups.map { g ->
+        BigDecimal.valueOf(dIncl).multiply(BigDecimal.valueOf(g.incl))
+            .divide(BigDecimal.valueOf(gross), 0, RoundingMode.HALF_UP).longValueExact()
+    }
+    val topIdx = groups.indices.sortedWith(compareByDescending<Int> { groups[it].incl }.thenBy { groups[it].rate }).first()
+    var sub = 0L
+    var vatSum = 0L
+    groups.forEachIndexed { i, g ->
+        val dG = dRaw[i] + if (i == topIdx) dIncl - dRaw.sum() else 0L
+        val net = g.incl - dG
+        val base = BigDecimal.valueOf(net).divide(vatFactor(g.rate), 0, RoundingMode.HALF_UP).longValueExact()
+        sub += base
+        vatSum += net - base
+    }
+    return DocDiscountTotals(excl, dIncl, sub, vatSum, sub + vatSum)
+}
+
+/** Cents → a plain editable text ("6886.96") for price/discount input fields. */
+fun centsToPlainText(cents: Long): String =
+    BigDecimal.valueOf(cents).movePointLeft(2).toPlainString()
+
 /** "Rs 32,000.00" — manual formatting for fiscal string determinism (no locale drift). */
 fun formatMUR(cents: Long): String {
     val neg = cents < 0

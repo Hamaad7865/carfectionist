@@ -61,6 +61,8 @@ data class QuoteLineDto(
     val qty: FlexDouble = 1.0,
     @SerialName("unit_price") val unitPrice: FlexDouble = 0.0,
     @SerialName("discount_pct") val discountPct: FlexDouble = 0.0,
+    @SerialName("discount_kind") val discountKind: String = "percent",
+    @SerialName("discount_amount") val discountAmount: FlexDouble = 0.0, // Rs, VAT-inclusive
     @SerialName("vat_rate") val vatRate: FlexDouble = 15.0,
 )
 
@@ -83,6 +85,8 @@ data class QuoteRowDto(
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
     @SerialName("updated_at") val updatedAt: String? = null,
     @SerialName("job_id") val jobId: String? = null, // the job this quote was converted into, if any
+    @SerialName("discount_kind") val discountKind: String? = null, // order-level: percent | amount | null
+    @SerialName("discount_value") val discountValue: FlexDouble = 0.0, // % 0..100, or Rs (VAT-inclusive)
     val customers: CustomerNameDto? = null,
     val vehicles: VehicleNameDto? = null,
 )

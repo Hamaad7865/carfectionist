@@ -67,7 +67,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, customers(name), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, customers(name), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(30)
@@ -76,7 +76,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchQuoteLines(quoteId: String): List<QuoteLineDto> =
         client.postgrest.from("document_lines")
-            .select(Columns.raw("product_id, title, description, qty, unit_price, discount_pct, vat_rate")) {
+            .select(Columns.raw("product_id, title, description, qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate")) {
                 filter { eq("document_id", quoteId) }
                 order("sort_order", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }
@@ -248,13 +248,24 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     /** Save the quote as a draft document (save_draft RPC). p_lines carry rupee prices. */
-    suspend fun saveQuoteDraft(existingId: String?, customerId: String, vehicleId: String?, lines: JsonArray): SavedDoc {
+    suspend fun saveQuoteDraft(
+        existingId: String?,
+        customerId: String,
+        vehicleId: String?,
+        lines: JsonArray,
+        discountKind: String? = null, // order-level: "percent" | "amount" | null (none)
+        discountValue: Double = 0.0, // % 0..100, or Rs (VAT-inclusive)
+    ): SavedDoc {
         val doc = buildJsonObject {
             if (existingId != null) put("id", existingId)
             put("doc_type", "quote")
             put("customer_id", customerId)
             if (vehicleId != null) put("vehicle_id", vehicleId) else put("vehicle_id", JsonNull)
             put("origin", "standalone")
+            // Keys always present: the builder is authoritative for the order discount
+            // (save_draft preserves them only when the keys are absent).
+            if (discountKind != null) put("discount_kind", discountKind) else put("discount_kind", JsonNull)
+            put("discount_value", discountValue)
         }
         return client.postgrest.rpc("save_draft", buildJsonObject {
             put("p_doc", doc); put("p_lines", lines); put("p_expected_rev", JsonNull)

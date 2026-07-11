@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
+import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.ui.FilledInput
 import androidx.compose.ui.text.font.FontWeight
@@ -178,8 +179,13 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
     }
 
     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // LEFT 53 — tabs + product grid
+        // LEFT 53 — search + tabs + product grid
         Column(Modifier.weight(53f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            FilledInput(
+                value = s.query, onValueChange = vm::setQuery,
+                placeholder = "Search products or scan a barcode…",
+                modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
+            )
             Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 vm.tabs(s).forEach { t ->
                     val sel = t == s.tab
@@ -225,28 +231,60 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     }
                 }
                 s.lines.forEachIndexed { i, l ->
-                    val lineTotal = vm.totals(s).lines.getOrNull(i)?.exclCents ?: 0L
+                    val lineTotal = vm.totals(s).lineExclCents.getOrNull(i) ?: 0L
+                    val discNote = when {
+                        l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
+                        l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
+                        else -> ""
+                    }
                     Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Color(0xFFF1F4F7), RoundedCornerShape(12.dp)).border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))) {
                         Row(Modifier.fillMaxWidth().clickable { vm.toggleLine(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("×${l.qty}" + if (l.discountPct > 0) "  ·  −${l.discountPct}%" else "", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                                Text("×${l.qty}$discNote", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
                             }
                             Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
                         }
-                        if (l.expanded) Row(Modifier.fillMaxWidth().padding(start = 13.dp, end = 13.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StepBtn("−") { vm.setQty(i, l.qty - 1) }
-                            Text(l.qty.toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1)
-                            StepBtn("+") { vm.setQty(i, l.qty + 1) }
-                            Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
-                            listOf(0, 5, 10, 15, 20).forEach { d ->
-                                val on = l.discountPct == d
-                                Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { vm.setDiscount(i, d) }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-                                    Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
+                        if (l.expanded) Column(Modifier.fillMaxWidth().padding(start = 13.dp, end = 13.dp, bottom = 11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            // qty · unit price · remove
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StepBtn("−") { vm.setQty(i, l.qty - 1) }
+                                Text(l.qty.toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1)
+                                StepBtn("+") { vm.setQty(i, l.qty + 1) }
+                                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
+                                Text("Rs", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextMuted)
+                                FilledInput(
+                                    value = l.priceText, onValueChange = { vm.setPrice(i, it) },
+                                    placeholder = "0.00", modifier = Modifier.weight(1f), height = 40.dp,
+                                    radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
+                                )
+                                Box(Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp)).clickable { vm.removeLine(i) }, contentAlignment = Alignment.Center) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
+                            }
+                            // discount: % presets or a typed Rs amount (VAT-inclusive, like the DB)
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
+                                    val on = l.discountMode == m
+                                    Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { vm.setLineDiscMode(i, m) }.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
+                                        Text(lb, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
+                                    }
+                                }
+                                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
+                                if (l.discountMode == DiscountMode.PCT) {
+                                    listOf(0, 5, 10, 15, 20).forEach { d ->
+                                        val on = l.discountPct == d
+                                        Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { vm.setDiscount(i, d) }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+                                            Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
+                                        }
+                                    }
+                                    Spacer(Modifier.weight(1f))
+                                } else {
+                                    FilledInput(
+                                        value = l.discountAmtText, onValueChange = { vm.setLineDiscAmt(i, it) },
+                                        placeholder = "Rs off (incl. VAT)", modifier = Modifier.weight(1f), height = 40.dp,
+                                        radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
+                                    )
                                 }
                             }
-                            Spacer(Modifier.weight(1f))
-                            Box(Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp)).clickable { vm.removeLine(i) }, contentAlignment = Alignment.Center) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
                         }
                     }
                 }
@@ -256,9 +294,26 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val t = vm.totals(s)
                 val gross = vm.grossCents(s)
-                val disc = gross - t.subtotalCents
+                val lineDisc = gross - t.lineExclCents.sum()
                 TotalLine("Subtotal", formatMUR(gross), TextSecondary)
-                if (disc > 0) TotalLine("Line discounts", "−" + formatMUR(disc), Success)
+                if (lineDisc > 0) TotalLine("Line discounts", "−" + formatMUR(lineDisc), Success)
+                // basket (order-level) discount — % of the total, or Rs off (VAT-inclusive)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Text("Basket discount", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary)
+                    listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
+                        val on = s.basketMode == m
+                        Box(Modifier.height(30.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(8.dp)).border(1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(8.dp)).clickable { vm.setBasketMode(m) }.padding(horizontal = 9.dp), contentAlignment = Alignment.Center) {
+                            Text(lb, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = if (on) Accent else TextSecondary)
+                        }
+                    }
+                    FilledInput(
+                        value = s.basketText, onValueChange = vm::setBasketText,
+                        placeholder = "0", modifier = Modifier.width(90.dp), height = 30.dp,
+                        radius = 8.dp, bg = InsetAlt, fontFamily = Mono, fontSize = 12.5.sp,
+                    )
+                    Spacer(Modifier.weight(1f))
+                    if (t.orderDiscountInclCents > 0) Text("−" + formatMUR(t.orderDiscountInclCents), fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = Success)
+                }
                 TotalLine("VAT 15%", formatMUR(t.vatCents), TextSecondary)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
                     Text("TOTAL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp, color = TextPrimary)

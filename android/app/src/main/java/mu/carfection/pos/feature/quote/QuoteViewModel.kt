@@ -14,15 +14,18 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.IntakeHandoff
 import mu.carfection.pos.core.data.IntakeHandoffBus
 import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.ProductEntity
-import mu.carfection.pos.core.money.DocTotals
-import mu.carfection.pos.core.money.LineInput
+import mu.carfection.pos.core.money.DocDiscountTotals
+import mu.carfection.pos.core.money.DocLineIn
+import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.centsToRupees
-import mu.carfection.pos.core.money.computeTotals
+import mu.carfection.pos.core.money.computeDocTotals
+import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteRowDto
@@ -35,12 +38,21 @@ enum class QuoteMode { LIST, BUILDER }
 data class QuoteLine(
     val productId: String?,
     val title: String,
-    val unitCents: Long,
+    val priceText: String, // unit price (Rs, excl VAT) — editable raw input
     val vatRate: Double,
     val qty: Int = 1,
+    val discountMode: DiscountMode = DiscountMode.PCT,
     val discountPct: Int = 0,
+    val discountAmtText: String = "", // Rs off, VAT-inclusive (matches the DB's semantics)
     val expanded: Boolean = false,
-)
+) {
+    val unitCents: Long get() = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
+    val discountAmtCents: Long get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceAtLeast(0)
+}
+
+/** A line at a given price in cents — keeps the constructor call sites readable. */
+fun quoteLine(productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1): QuoteLine =
+    QuoteLine(productId, title, centsToPlainText(unitCents), vatRate, qty)
 
 data class QuoteState(
     val loading: Boolean = true,
@@ -55,8 +67,12 @@ data class QuoteState(
     val customerId: String? = null,
     val vehicleId: String? = null,
     val tab: String = "All",
+    val query: String = "", // product search (name or scanned barcode)
     val products: List<ProductEntity> = emptyList(),
     val lines: List<QuoteLine> = emptyList(),
+    // basket (order-level) discount — % of the inclusive total, or Rs off (VAT-inclusive)
+    val basketMode: DiscountMode = DiscountMode.PCT,
+    val basketText: String = "",
     val technicians: List<TechnicianDto> = emptyList(),
     val acceptOpen: Boolean = false,
     val techId: String? = null,
@@ -109,6 +125,7 @@ class QuoteViewModel @Inject constructor(
             who = h.customerName, vehPlate = h.plate, veh = h.vehLabel,
             customerId = h.customerId, vehicleId = h.vehicleId,
             lines = emptyList(), acceptOpen = false, techId = null, time = null,
+            basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
         )
@@ -126,10 +143,15 @@ class QuoteViewModel @Inject constructor(
     fun tabs(s: QuoteState): List<String> =
         listOf("All") + s.products.map { it.kind.replaceFirstChar { c -> c.uppercase() } }.distinct()
 
-    fun filteredProducts(s: QuoteState): List<ProductEntity> =
-        if (s.tab == "All") s.products else s.products.filter { it.kind.equals(s.tab, true) }
+    fun filteredProducts(s: QuoteState): List<ProductEntity> {
+        val q = s.query.trim()
+        return s.products
+            .filter { s.tab == "All" || it.kind.equals(s.tab, true) }
+            .filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.barcode?.contains(q) == true }
+    }
 
     fun setTab(t: String) = _s.update { it.copy(tab = t) }
+    fun setQuery(q: String) = _s.update { it.copy(query = q) }
 
     fun openQuote(q: QuoteRowDto) {
         _s.update {
@@ -138,15 +160,33 @@ class QuoteViewModel @Inject constructor(
                 who = q.customers?.name ?: "—", vehPlate = q.vehicles?.plate,
                 veh = listOfNotNull(q.vehicles?.make, q.vehicles?.model).joinToString(" "),
                 customerId = q.customerId, vehicleId = q.vehicleId,
+                // The saved order discount comes back into the basket controls.
+                basketMode = if (q.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
+                basketText = when {
+                    q.discountKind == "amount" && q.discountValue > 0 -> centsToPlainText(rupeesToCents(q.discountValue))
+                    q.discountKind == "percent" && q.discountValue > 0 -> q.discountValue.toInt().toString()
+                    else -> ""
+                },
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
-                lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId,
+                lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
             )
         }
         viewModelScope.launch {
             runCatching { api.fetchQuoteLines(q.id) }.onSuccess { ls ->
-                _s.update { st -> st.copy(lines = ls.map { QuoteLine(it.productId, it.title, rupeesToCents(it.unitPrice), it.vatRate, it.qty.toInt().coerceAtLeast(1), it.discountPct.toInt()) }) }
+                _s.update { st ->
+                    st.copy(lines = ls.map {
+                        QuoteLine(
+                            productId = it.productId, title = it.title,
+                            priceText = centsToPlainText(rupeesToCents(it.unitPrice)),
+                            vatRate = it.vatRate, qty = it.qty.toInt().coerceAtLeast(1),
+                            discountMode = if (it.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
+                            discountPct = it.discountPct.toInt(),
+                            discountAmtText = if (it.discountKind == "amount" && it.discountAmount > 0) centsToPlainText(rupeesToCents(it.discountAmount)) else "",
+                        )
+                    })
+                }
             }
         }
     }
@@ -156,7 +196,7 @@ class QuoteViewModel @Inject constructor(
     fun addProduct(p: ProductEntity) = _s.update { st ->
         val i = st.lines.indexOfFirst { it.productId == p.id }
         val lines = if (i >= 0) st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
-        else st.lines + QuoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct)
+        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct)
         st.copy(lines = lines)
     }
 
@@ -164,7 +204,7 @@ class QuoteViewModel @Inject constructor(
     fun closeAdhoc() = _s.update { it.copy(adhocOpen = false) }
     fun addAdhoc(name: String, priceCents: Long, vatRate: Double = 15.0) = _s.update { st ->
         if (name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
-        else st.copy(adhocOpen = false, lines = st.lines + QuoteLine(null, name.trim(), priceCents, vatRate))
+        else st.copy(adhocOpen = false, lines = st.lines + quoteLine(null, name.trim(), priceCents, vatRate))
     }
 
     /** Gross (pre-discount) subtotal in cents, for the "Subtotal" display row. */
@@ -175,7 +215,41 @@ class QuoteViewModel @Inject constructor(
     fun setDiscount(i: Int, d: Int) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountPct = d) else l }) }
     fun removeLine(i: Int) = _s.update { st -> st.copy(lines = st.lines.filterIndexed { j, _ -> j != i }) }
 
-    fun totals(s: QuoteState): DocTotals = computeTotals(s.lines.map { LineInput(it.qty.toDouble(), it.unitCents, it.discountPct.toDouble(), it.vatRate) })
+    // ── price + Rs-discount editing (raw text lives on the line; cents derived) ──
+    private fun moneyText(t: String) = t.filter { it.isDigit() || it == '.' }
+    fun setPrice(i: Int, t: String) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(priceText = moneyText(t)) else l }) }
+    fun setLineDiscMode(i: Int, m: DiscountMode) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountMode = m) else l }) }
+    fun setLineDiscAmt(i: Int, t: String) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountAmtText = moneyText(t)) else l }) }
+
+    // ── basket (order-level) discount ────────────────────────────────────────────
+    fun setBasketMode(m: DiscountMode) = _s.update { it.copy(basketMode = m, basketText = "") }
+    fun setBasketText(t: String) = _s.update { it.copy(basketText = if (it.basketMode == DiscountMode.PCT) t.filter { c -> c.isDigit() } else moneyText(t)) }
+
+    private fun basketPct(s: QuoteState): Int = if (s.basketMode == DiscountMode.PCT) (s.basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
+    private fun basketAmtCents(s: QuoteState): Long = if (s.basketMode == DiscountMode.AMT) (parseMoneyToCents(s.basketText) ?: 0L).coerceAtLeast(0) else 0
+    private fun docDiscountKind(s: QuoteState): String? = when {
+        s.basketMode == DiscountMode.AMT && basketAmtCents(s) > 0 -> "amount"
+        s.basketMode == DiscountMode.PCT && basketPct(s) > 0 -> "percent"
+        else -> null
+    }
+    private fun docDiscountValue(s: QuoteState): Double = when (docDiscountKind(s)) {
+        "percent" -> basketPct(s).toDouble()
+        "amount" -> centsToRupees(basketAmtCents(s))
+        else -> 0.0
+    }
+
+    fun totals(s: QuoteState): DocDiscountTotals = computeDocTotals(
+        s.lines.map {
+            DocLineIn(
+                qty = it.qty.toDouble(), unitCents = it.unitCents,
+                discountKind = if (it.discountMode == DiscountMode.AMT) "amount" else "percent",
+                discountPct = it.discountPct.toDouble(),
+                discountAmtInclCents = if (it.discountMode == DiscountMode.AMT) it.discountAmtCents else 0L,
+                vatRatePct = it.vatRate,
+            )
+        },
+        orderKind = docDiscountKind(s), orderPct = basketPct(s).toDouble(), orderAmtInclCents = basketAmtCents(s),
+    )
 
     fun openAccept() = _s.update { it.copy(acceptOpen = true) }
     fun closeAccept() = _s.update { it.copy(acceptOpen = false) }
@@ -193,7 +267,9 @@ class QuoteViewModel @Inject constructor(
                 put("description", JsonNull)
                 put("qty", l.qty)
                 put("unit_price", centsToRupees(l.unitCents))
-                put("discount_pct", l.discountPct)
+                put("discount_pct", if (l.discountMode == DiscountMode.PCT) l.discountPct else 0)
+                put("discount_kind", if (l.discountMode == DiscountMode.AMT) "amount" else "percent")
+                put("discount_amount", if (l.discountMode == DiscountMode.AMT) centsToRupees(l.discountAmtCents) else 0.0)
                 put("vat_rate", l.vatRate)
                 put("sort_order", i)
             })
@@ -205,7 +281,7 @@ class QuoteViewModel @Inject constructor(
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s)) }
+            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)) }
                 .onSuccess { d -> _s.update { it.copy(busy = false, quoteId = d.id, savedRef = d.number ?: "Draft saved") } }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
@@ -221,7 +297,7 @@ class QuoteViewModel @Inject constructor(
                 // quote is frozen — save_draft refuses "cannot edit an issued document" —
                 // so it converts as-is; the RPC is idempotent and hands back the same job.
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s)).id
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 quoteId to api.convertQuoteToJob(quoteId, s.techId)
             }.onSuccess { (quoteId, jobId) ->
@@ -253,7 +329,7 @@ class QuoteViewModel @Inject constructor(
             runCatching {
                 // same freeze rule as accept: only drafts can be re-saved
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s)).id
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val draft = api.convertQuoteToInvoice(quoteId)
                 api.issueDocument(draft.id, "quote-inv:$quoteId")
