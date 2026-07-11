@@ -1,8 +1,18 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 
-export interface ReceiptLine { qty: number; title: string; unitInclCents: number; totalInclCents: number; }
+export interface ReceiptLine {
+  qty: number;
+  title: string;
+  unitInclCents: number;
+  totalInclCents: number;
+  unitExclCents: number;  // HT — the A4 ticket shows both HT and TTC
+  totalExclCents: number;
+  vatRate: number;
+}
 export interface ReceiptVatGroup { rate: number; baseCents: number; vatCents: number; inclCents: number; }
+/** One règlement row on the A4 ticket (reversals appear as negative rows). */
+export interface ReceiptPaymentDetail { at: string; method: string; amountCents: number; isReversal: boolean; }
 
 export interface ReceiptData {
   studioName: string;
@@ -31,6 +41,7 @@ export interface ReceiptData {
   paid: boolean;
   vatGroups: ReceiptVatGroup[];
   payments: { method: string; amountCents: number }[];
+  paymentDetail: ReceiptPaymentDetail[];
   footerNote: string;
   barcodeValue: string;
   codeLabel: string;
@@ -74,8 +85,17 @@ export async function getReceipt(id: string): Promise<ReceiptData | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rLines: ReceiptLine[] = ((lines ?? []) as any[]).map((l) => {
     const qty = Number(l.qty);
-    const incl = rupeesToCents(Number(l.line_total_excl)) + rupeesToCents(Number(l.line_vat));
-    return { qty, title: l.title, unitInclCents: qty ? Math.round(incl / qty) : incl, totalInclCents: incl };
+    const excl = rupeesToCents(Number(l.line_total_excl));
+    const incl = excl + rupeesToCents(Number(l.line_vat));
+    return {
+      qty,
+      title: l.title,
+      unitInclCents: qty ? Math.round(incl / qty) : incl,
+      totalInclCents: incl,
+      unitExclCents: qty ? Math.round(excl / qty) : excl,
+      totalExclCents: excl,
+      vatRate: Number(l.vat_rate ?? 15),
+    };
   });
 
   const subtotalCents = rupeesToCents(Number(d.subtotal_excl));
@@ -124,6 +144,15 @@ export async function getReceipt(id: string): Promise<ReceiptData | null> {
     }
   }
   const payments = [...payMap.entries()].filter(([, c]) => c > 0).map(([m, c]) => ({ method: METHOD_UPPER[m] ?? m.toUpperCase(), amountCents: c }));
+  const paymentDetail: ReceiptPaymentDetail[] = payRows.map((pmt) => {
+    const at = muDate(pmt.received_at);
+    return {
+      at: at ? `${p2(at.getUTCDate())}/${p2(at.getUTCMonth() + 1)}/${at.getUTCFullYear()}` : "",
+      method: METHOD_UPPER[pmt.method] ?? String(pmt.method).toUpperCase(),
+      amountCents: rupeesToCents(Number(pmt.amount)),
+      isReversal: pmt.reverses_payment_id != null,
+    };
+  });
   const paidCents = [...payMap.values()].reduce((s, c) => s + Math.max(0, c), 0);
   const topMethod = [...payMap.entries()].filter(([, c]) => c > 0).sort((a, b) => b[1] - a[1])[0]?.[0];
   const methodLabel = topMethod ? (METHOD_LABEL[topMethod] ?? topMethod) : "";
@@ -164,6 +193,7 @@ export async function getReceipt(id: string): Promise<ReceiptData | null> {
     paid,
     vatGroups,
     payments,
+    paymentDetail,
     footerNote: (b.receipt_footer_text && String(b.receipt_footer_text).trim()) || DEFAULT_FOOTER,
     barcodeValue,
     codeLabel,

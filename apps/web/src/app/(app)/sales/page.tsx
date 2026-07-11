@@ -2,12 +2,18 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { Plus, ChevronRight, Store } from "lucide-react";
 import { listDocuments } from "@/lib/supabase/queries/documents";
+import { getTickets } from "@/lib/supabase/queries/tickets";
+import { getReceipt } from "@/lib/supabase/queries/receipt";
 import { DocumentsFilterBar } from "@/features/documents/DocumentsFilterBar";
+import { TicketPopup } from "@/features/tickets/TicketPopup";
+import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
+import { muToday } from "@/lib/mu-date";
 
 const rs = (v: string) => formatMUR(Math.round(Number(v) * 100));
 const COLS = "grid-cols-[120px_1fr_90px_90px_120px_130px_36px]";
+const TCOLS = "grid-cols-[130px_110px_100px_70px_70px_130px_130px_36px]";
 
 export default async function SalesPage({
   searchParams,
@@ -16,18 +22,42 @@ export default async function SalesPage({
 }) {
   const sp = await searchParams;
   const pick = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
-  const { rows, count, totalCents } = await listDocuments({
-    type: pick("type"),
-    status: pick("status"),
-    from: pick("from"),
-    to: pick("to"),
-    customer: pick("customer"),
-  });
+  const view = pick("view") === "tickets" ? "tickets" : "documents";
+  const today = muToday();
+
+  const docsData =
+    view === "documents"
+      ? await listDocuments({
+          type: pick("type"),
+          status: pick("status"),
+          from: pick("from"),
+          to: pick("to"),
+          customer: pick("customer"),
+        })
+      : null;
+  const ticketsData = view === "tickets" ? await getTickets(pick("from"), pick("to")) : null;
+  const ticketId = view === "tickets" ? pick("t") : undefined;
+  const popup = ticketId ? await getReceipt(ticketId) : null;
+  const rows = docsData?.rows ?? [];
+  const count = docsData?.count ?? 0;
+  const totalCents = docsData?.totalCents ?? 0;
+  const tq = (extra: Record<string, string | undefined>) => {
+    const p = new URLSearchParams({ view: "tickets" });
+    for (const [k, v] of Object.entries({ from: pick("from"), to: pick("to"), ...extra })) if (v) p.set(k, v);
+    return `/sales?${p.toString()}`;
+  };
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <h2 className="font-display text-[19px] font-extrabold text-ink-strong sm:text-[20px]">Quotes &amp; Invoices</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="font-display text-[19px] font-extrabold text-ink-strong sm:text-[20px]">Quotes &amp; Invoices</h2>
+          {/* View switch — Tickets is the Cashmag-style invoice history */}
+          <div className="flex rounded-[10px] border border-line-2 bg-sub p-0.5">
+            <Link href="/sales" className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "documents" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Documents</Link>
+            <Link href={`/sales?view=tickets&from=${today}&to=${today}`} className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "tickets" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Tickets</Link>
+          </div>
+        </div>
         <div className="flex items-center gap-2">
           <Link
             href="/sales/counter"
@@ -44,10 +74,87 @@ export default async function SalesPage({
         </div>
       </div>
 
+      {view === "documents" && (
       <Suspense fallback={null}>
         <DocumentsFilterBar />
       </Suspense>
+      )}
 
+      {/* ── TICKETS (Cashmag invoice history) ── */}
+      {view === "tickets" && ticketsData && (
+        <>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">Period</span>
+            <Suspense fallback={null}>
+              <DateRangeFilter label={false} />
+            </Suspense>
+            <div className="flex-1" />
+            <span className="text-[12.5px] text-muted">
+              {ticketsData.count} ticket{ticketsData.count === 1 ? "" : "s"} ·{" "}
+              <span className="num font-bold text-body">{formatMUR(ticketsData.totalExclCents)}</span> excl ·{" "}
+              <span className="num font-bold text-ink-strong">{formatMUR(ticketsData.totalInclCents)}</span> incl
+            </span>
+          </div>
+
+          <div className="overflow-hidden rounded-[14px] border border-line bg-card">
+            <div className={`hidden md:grid ${TCOLS} gap-3 border-b border-line bg-band px-5 py-3`}>
+              {["Reference", "Order / Booking", "Date", "Hour", "Service", "Total excl tax", "Total"].map((h, i) => (
+                <span key={h} className={`text-[10.5px] font-bold uppercase tracking-[0.1em] text-th ${i >= 5 ? "text-right" : ""}`}>{h}</span>
+              ))}
+              <span />
+            </div>
+            {ticketsData.rows.length === 0 ? (
+              <div className="px-5 py-16 text-center text-[13px] text-faint">No tickets in this period.</div>
+            ) : (
+              ticketsData.rows.map((r) => (
+                <Link key={r.id} href={tq({ t: r.id })} scroll={false} className="block border-b border-line hover:bg-sub">
+                  {/* Mobile card */}
+                  <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="num text-[13px] font-bold" style={{ color: r.docType === "credit_note" ? "#d63b50" : "#1e6fe0" }}>{r.number ?? "—"}</span>
+                        {r.cancelLabel && <span className="rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">{r.cancelLabel}</span>}
+                      </div>
+                      <div className="mt-0.5 text-[11.5px] text-muted">{r.date} · {r.hour} · {r.serviceCount} line{r.serviceCount === 1 ? "" : "s"}</div>
+                    </div>
+                    <span className={`num shrink-0 text-[14px] font-bold ${r.inclCents < 0 ? "text-rose" : "text-ink-strong"}`}>{formatMUR(r.inclCents)}</span>
+                  </div>
+                  {/* Desktop grid */}
+                  <div className={`hidden md:grid ${TCOLS} items-center gap-3 px-5 py-3`}>
+                    <span>
+                      <span className="num block text-[12.5px] font-bold" style={{ color: r.docType === "credit_note" ? "#d63b50" : "#1e6fe0" }}>{r.number ?? "—"}</span>
+                      {r.cancelLabel && <span className="mt-0.5 inline-block rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose">{r.cancelLabel}</span>}
+                    </span>
+                    {r.jobId ? (
+                      <span className="text-[12px] font-semibold text-link">Job →</span>
+                    ) : (
+                      <span className="text-[12px] text-faint">—</span>
+                    )}
+                    <span className="num text-[12px] text-muted">{r.date}</span>
+                    <span className="num text-[12px] text-muted">{r.hour}</span>
+                    <span className="num text-[12px] text-muted">{r.serviceCount}</span>
+                    <span className={`num text-right text-[12.5px] ${r.exclCents < 0 ? "font-bold text-rose" : "text-body"}`}>{formatMUR(r.exclCents)}</span>
+                    <span className={`num text-right text-[13px] font-bold ${r.inclCents < 0 ? "text-rose" : "text-ink-strong"}`}>{formatMUR(r.inclCents)}</span>
+                    <span className="flex justify-end text-faint"><ChevronRight size={16} /></span>
+                  </div>
+                </Link>
+              ))
+            )}
+            <div className="flex items-center justify-end gap-4 bg-band px-4 py-3 text-[13px] font-bold text-body sm:px-5">
+              <span>Excl <span className="num text-ink-strong">{formatMUR(ticketsData.totalExclCents)}</span></span>
+              <span>Total <span className="num text-ink-strong">{formatMUR(ticketsData.totalInclCents)}</span></span>
+            </div>
+          </div>
+
+          {popup && ticketId && (
+            <Suspense fallback={null}>
+              <TicketPopup r={popup} docId={ticketId} />
+            </Suspense>
+          )}
+        </>
+      )}
+
+      {view === "documents" && (
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
         <div className={`hidden md:grid ${COLS} gap-3.5 border-b border-line bg-band px-5 py-3`}>
           {["Number", "Customer", "Date", "Method", "Status", "Total"].map((h, i) => (
@@ -102,6 +209,7 @@ export default async function SalesPage({
           </span>
         </div>
       </div>
+      )}
     </div>
   );
 }
