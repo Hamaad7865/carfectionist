@@ -35,6 +35,8 @@ import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import mu.carfection.pos.core.network.CashSessionDto
 import mu.carfection.pos.core.network.OutstandingInvoiceDto
 import mu.carfection.pos.core.network.PosApi
@@ -438,10 +440,11 @@ class CounterViewModel @Inject constructor(
                     onAccount = false, isPayment = true,
                 )
                 launch {
-                    runCatching {
+                    val printed = runCatching {
                         printer.printReceipt(ReceiptText.render(receipt)) // instant payment slip
-                        if (s.method == PayMethod.CASH) drawer.kick()
-                    }
+                    }.isSuccess
+                    if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
+                    logReceiptOutcome(bill.number, printed)
                 }
                 local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result, receipt = receipt, pendingSettle = null)
                 loadLists()
@@ -642,10 +645,11 @@ class CounterViewModel @Inject constructor(
                     onAccount = result.onAccount,
                 )
                 launch {
-                    runCatching {
+                    val printed = runCatching {
                         printer.printReceipt(ReceiptText.render(receipt)) // prints the moment the sale completes
-                        if (s.method == PayMethod.CASH) drawer.kick()
-                    }
+                    }.isSuccess
+                    if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
+                    logReceiptOutcome(result.number, printed)
                 }
                 local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt, pendingSettle = null)
             } catch (e: Exception) {
@@ -664,4 +668,23 @@ class CounterViewModel @Inject constructor(
     }
 
     fun signOut() = viewModelScope.launch { session.signOut() }
+
+    /**
+     * Traceability: record whether the customer walked away with a printed slip
+     * (Cashmag's "non édition d'une note"). Fire-and-forget — a sale must never
+     * fail on its audit trail.
+     */
+    private fun logReceiptOutcome(number: String?, printed: Boolean) {
+        viewModelScope.launch {
+            runCatching {
+                val tenant = catalog.tenantId() ?: return@launch
+                api.insertAuditEvent(
+                    tenantId = tenant,
+                    eventType = if (printed) "receipt_printed" else "receipt_skipped",
+                    deviceId = session.deviceId(),
+                    payload = buildJsonObject { if (number != null) put("number", number) },
+                )
+            }
+        }
+    }
 }

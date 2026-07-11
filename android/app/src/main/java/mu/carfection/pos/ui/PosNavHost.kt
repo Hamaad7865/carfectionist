@@ -13,10 +13,15 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import android.os.Build
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import mu.carfection.pos.BuildConfig
 import mu.carfection.pos.core.data.SessionRepository
+import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.sync.ConnectivityObserver
 import mu.carfection.pos.core.sync.OutboxRepository
@@ -39,6 +44,7 @@ class RootViewModel @Inject constructor(
     connectivity: ConnectivityObserver,
     outbox: OutboxRepository,
     private val captures: CaptureBus,
+    private val api: PosApi,
 ) : ViewModel() {
     val isLoggedIn = session.isLoggedIn
     val staffName: String get() = session.userName
@@ -90,7 +96,30 @@ class RootViewModel @Inject constructor(
     init {
         // Start the next operator at a clean Checkout, not the previous one's tab/history.
         viewModelScope.launch { session.isLoggedIn.collect { if (it == false) resetNav() } }
+
+        // Device registry (Point of Sale module): announce this terminal once per
+        // process, then heartbeat while signed in so the web's online dot stays
+        // honest. collectLatest cancels the heartbeat loop the moment the operator
+        // signs out; a re-login inside the same process is a heartbeat, not a new
+        // "terminal started" (operator switches are recorded by pin-login itself).
+        viewModelScope.launch {
+            var announced = false
+            session.isLoggedIn.collectLatest { logged ->
+                if (logged == true) {
+                    runCatching {
+                        api.registerDevice(session.deviceId(), Build.MODEL, BuildConfig.VERSION_NAME, heartbeat = announced)
+                    }
+                    announced = true
+                    while (true) {
+                        delay(HEARTBEAT_MS)
+                        runCatching { api.registerDevice(session.deviceId(), null, null, heartbeat = true) }
+                    }
+                }
+            }
+        }
     }
+
+    private companion object { const val HEARTBEAT_MS = 4 * 60_000L }
 
     fun signOut() { viewModelScope.launch { session.signOut() } }
 }

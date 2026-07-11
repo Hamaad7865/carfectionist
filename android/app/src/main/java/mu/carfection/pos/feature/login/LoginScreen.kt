@@ -123,7 +123,7 @@ class LoginViewModel @Inject constructor(
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
-                val sess = pinApi.pinLogin(appUserId, pin)
+                val sess = pinApi.pinLogin(appUserId, pin, session.deviceId())
                 session.signInWithPin(sess) // flips isLoggedIn -> the shell replaces this screen
                 catalog.refresh() // warm the offline cache for the new operator's tenant
             }.onSuccess {

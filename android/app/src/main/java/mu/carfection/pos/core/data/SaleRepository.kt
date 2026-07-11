@@ -233,7 +233,10 @@ class SaleRepository @Inject constructor(
                 amountRupees = centsToRupees(totalCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
                 externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
-                cashSessionId = if (method == PayMethod.CASH) cashSessionId else null,
+                // ALL methods link to the till session — cash reconciles the drawer,
+                // card/Juice/bank make the sale traceable to this device (PoS module).
+                // close_cash_session sums cash only, so the drawer math is untouched.
+                cashSessionId = cashSessionId,
                 idempotencyKey = "$saleKey:pay",
             )
         } catch (e: CancellationException) {
@@ -272,7 +275,8 @@ class SaleRepository @Inject constructor(
                 amountRupees = centsToRupees(amountCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
                 externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
-                cashSessionId = if (method == PayMethod.CASH) cashSessionId else null,
+                // ALL methods link to the till session (see completeSale) — device traceability.
+                cashSessionId = cashSessionId,
                 idempotencyKey = "$payKey:collect",
             )
         } catch (e: CancellationException) {

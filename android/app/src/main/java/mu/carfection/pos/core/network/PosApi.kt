@@ -7,6 +7,7 @@ import io.github.jan.supabase.storage.storage
 import kotlin.time.Duration.Companion.minutes
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
@@ -151,6 +152,32 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     /** Insert a signed adjustment movement (sm_insert RLS: adjustment + owner/manager). */
     suspend fun adjustStock(row: NewStockMovementDto) {
         client.postgrest.from("stock_movements").insert(row)
+    }
+
+    // ── Point of Sale device registry ────────────────────────────────────────────
+    /**
+     * Self-register this tablet (devices table). Launch → heartbeat=false, which
+     * audits "terminal started" (+ "version changed" when the APK was updated);
+     * the periodic foreground ping passes heartbeat=true and only touches
+     * last_seen — that freshness drives the module's online dot.
+     */
+    suspend fun registerDevice(code: String, model: String?, version: String?, heartbeat: Boolean) {
+        client.postgrest.rpc("register_device", buildJsonObject {
+            put("p_code", code)
+            if (model != null) put("p_model", model) else put("p_model", JsonNull)
+            if (version != null) put("p_version", version) else put("p_version", JsonNull)
+            put("p_heartbeat", heartbeat)
+        })
+    }
+
+    /** Best-effort traceability event (ai_insert RLS: any tenant member may insert). */
+    suspend fun insertAuditEvent(tenantId: String, eventType: String, deviceId: String?, payload: JsonObject) {
+        client.postgrest.from("audit_events").insert(buildJsonObject {
+            put("tenant_id", tenantId)
+            put("event_type", eventType)
+            if (deviceId != null) put("device_id", deviceId) else put("device_id", JsonNull)
+            put("payload", payload)
+        })
     }
 
     // ── Jobs board ──────────────────────────────────────────────────────────────

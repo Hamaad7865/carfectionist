@@ -58,9 +58,14 @@ class PinAuthApi @Inject constructor() {
         json.decodeFromString<RosterResponse>(text).roster
     }
 
-    /** Exchange a name + 4-digit PIN for a real Supabase session. */
-    suspend fun pinLogin(appUserId: String, pin: String): PinSessionDto = withContext(Dispatchers.IO) {
-        val body = json.encodeToString(mapOf("appUserId" to appUserId, "pin" to pin))
+    /** Exchange a name + 4-digit PIN for a real Supabase session. [deviceCode] stamps
+     *  the sign-in audit event for the Point of Sale module's per-device traceability. */
+    suspend fun pinLogin(appUserId: String, pin: String, deviceCode: String? = null): PinSessionDto = withContext(Dispatchers.IO) {
+        val body = json.encodeToString(buildMap {
+            put("appUserId", appUserId)
+            put("pin", pin)
+            if (deviceCode != null) put("deviceCode", deviceCode)
+        })
         val (code, text) = request("$base/pin-login", "POST", body)
         if (code == 200) return@withContext json.decodeFromString<PinSessionDto>(text)
         val err = runCatching { json.decodeFromString<PinErrorDto>(text) }.getOrNull()
