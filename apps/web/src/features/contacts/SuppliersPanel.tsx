@@ -63,9 +63,9 @@ export function SuppliersPanel({ suppliers }: { suppliers: SupplierRow[] }) {
         ) : (
           suppliers.map((s) => (
             <div key={s.id} className="grid grid-cols-[1fr_160px_1fr_44px] items-center gap-3 border-b border-line px-5 py-3.5 text-[13px]">
-              <span className="font-bold text-body">{s.name}</span>
+              <span className="min-w-0 truncate font-bold text-body" title={s.name}>{s.name}</span>
               <span className="num text-muted">{s.phone ?? "—"}</span>
-              <span className="truncate text-muted">{s.email ?? "—"}</span>
+              <span className="min-w-0 truncate text-muted">{s.email ?? "—"}</span>
               <button onClick={() => launch(s)} className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-body"><Pencil size={14} /></button>
             </div>
           ))

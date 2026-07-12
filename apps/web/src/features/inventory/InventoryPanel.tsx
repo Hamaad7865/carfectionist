@@ -84,7 +84,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
                       onClick={() => { setProductId(p.id); setQuery(p.name); setOpen(false); }}
                       className="flex w-full items-center justify-between gap-2 rounded-[8px] px-2.5 py-2 text-left hover:bg-sub"
                     >
-                      <span className="truncate text-[13px] font-semibold text-body">{p.name}</span>
+                      <span className="min-w-0 truncate text-[13px] font-semibold text-body">{p.name}</span>
                       {p.unit && <span className="shrink-0 text-[11px] text-faint">{p.unit}</span>}
                     </button>
                   ))}

@@ -105,16 +105,18 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
                   <div className="num text-[10.5px] font-semibold text-mint">{r.marginPct}%</div>
                 </div>
               </div>
-              {/* Desktop grid */}
+              {/* Desktop grid — min-w-0 everywhere a 1fr cell truncates: a grid
+                  track's min width is its CONTENT width, and the imported names
+                  are long enough to shove the money columns into each other. */}
               <div className={`hidden md:grid ${COLS} items-center gap-2.5 px-5 py-3`}>
-                <span className="flex items-center gap-2 text-[13px] font-semibold text-body">
-                  <span className="truncate">{r.name}</span>
+                <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-body">
+                  <span className="min-w-0 truncate" title={r.name}>{r.name}</span>
                   {r.barcode && <Barcode size={13} className="shrink-0 text-faint" />}
-                  {r.low && <span className="rounded-[5px] bg-[rgba(245,166,35,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-amber-ink">LOW</span>}
-                  {!r.isActive && <span className="rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-faint">ARCHIVED</span>}
+                  {r.low && <span className="shrink-0 rounded-[5px] bg-[rgba(245,166,35,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-amber-ink">LOW</span>}
+                  {!r.isActive && <span className="shrink-0 rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-faint">ARCHIVED</span>}
                 </span>
-                <span className="truncate">
-                  {r.category ? <span className="rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 text-[10.5px] font-semibold text-link">{r.category}</span> : <span className="text-[11px] text-faint">—</span>}
+                <span className="min-w-0 truncate">
+                  {r.category ? <span className="rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 text-[10.5px] font-semibold text-link" title={r.category}>{r.category}</span> : <span className="text-[11px] text-faint">—</span>}
                 </span>
                 <span className="num text-right text-[12px] text-muted">{formatMUR(r.costCents)}</span>
                 <span className="num text-right text-[12px] font-semibold text-body">{formatMUR(sellOf(r))}</span>
