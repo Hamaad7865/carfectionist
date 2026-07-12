@@ -3,7 +3,7 @@ import { code128B } from "./barcode";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 
 /** Card-style receipt matching the studio's POS mockup (cream paper, torn edges,
- *  header, meta, items, totals, PAID stamp, scannable barcode) driven entirely
+ *  header, meta, items, totals, VOID stamp, scannable barcode) driven entirely
  *  by our own document data. Inline-styled + self-contained so it renders the
  *  same on screen, in print, and in the counter "Sale complete" panel. */
 
@@ -11,7 +11,6 @@ const INK = "#37352f";
 const MUTED = "#95907f";
 const FAINT = "#b7b1a1";
 const RULE = "#dcd5c6";
-const GREEN = "#2f9e6f";
 const RED = "#c8452f";
 
 export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngle?: number }) {
@@ -41,10 +40,11 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
         }
       `}</style>
 
-      {/* Status stamp */}
-      {(r.paid || r.voided) && (
-        <div style={{ position: "absolute", top: 92, right: 20, transform: `rotate(${stampAngle}deg)`, border: `2.5px solid ${r.voided ? RED : GREEN}`, color: r.voided ? RED : GREEN, borderRadius: 6, padding: "3px 10px", fontSize: 17, fontWeight: 800, letterSpacing: 2, opacity: 0.82, boxShadow: `inset 0 0 0 1px ${r.voided ? RED : GREEN}` }}>
-          {r.voided ? "VOID" : "PAID"}
+      {/* Status stamp — VOID only. The PAID stamp was dropped on the owner's
+          request (2026-07-12); payment state still reads from the Paid rows. */}
+      {r.voided && (
+        <div style={{ position: "absolute", top: 92, right: 20, transform: `rotate(${stampAngle}deg)`, border: `2.5px solid ${RED}`, color: RED, borderRadius: 6, padding: "3px 10px", fontSize: 17, fontWeight: 800, letterSpacing: 2, opacity: 0.82, boxShadow: `inset 0 0 0 1px ${RED}` }}>
+          VOID
         </div>
       )}
 
