@@ -269,6 +269,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         client.postgrest.from("job_photos").insert(NewJobPhotoDto(tenantId, jobId, storagePath, phase))
     }
 
+    /**
+     * Client acceptance signature (PNG drawn on the tablet) — same private bucket
+     * and tenant-first path rule as photos; the path is stamped onto the quote by
+     * convert_quote_to_job in the acceptance transaction.
+     */
+    suspend fun uploadSignature(tenantId: String, bytes: ByteArray): String {
+        val path = "$tenantId/signatures/sig-${java.util.UUID.randomUUID()}.png"
+        photoBucket.upload(path, bytes) { upsert = false }
+        return path
+    }
+
     /** Stamp intake damage markers onto the job created from a quote. */
     suspend fun setJobDamageMarkers(jobId: String, markers: JsonArray) {
         client.postgrest.from("jobs").update({ set("damage_markers", markers) }) { filter { eq("id", jobId) } }
@@ -340,12 +351,26 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * Accept a quote → issue+accept it and spawn the linked job in one txn
      * (convert_quote_to_job RPC). Idempotent: a re-tap returns the same job, so
      * a draft can't be accepted twice. The RPC owns the customer/vehicle guards.
+     * [signaturePath]/[signedName] carry the client's acceptance signature —
+     * stamped onto the quote in the same transaction (server adds the timestamp).
      */
-    suspend fun convertQuoteToJob(quoteId: String, technicianId: String? = null, scheduledAt: String? = null): String =
+    suspend fun convertQuoteToJob(
+        quoteId: String,
+        technicianId: String? = null,
+        scheduledAt: String? = null,
+        signaturePath: String? = null,
+        signedName: String? = null,
+    ): String =
         client.postgrest.rpc("convert_quote_to_job", buildJsonObject {
             put("p_quote_id", quoteId)
             if (technicianId != null) put("p_technician_id", technicianId) else put("p_technician_id", JsonNull)
             if (scheduledAt != null) put("p_scheduled_at", scheduledAt) else put("p_scheduled_at", JsonNull)
+            if (signaturePath != null) {
+                put("p_signature", buildJsonObject {
+                    put("path", signaturePath)
+                    if (signedName != null) put("name", signedName)
+                })
+            } else put("p_signature", JsonNull)
         }).decodeAs<JobRow>().id
 
     // ── Writes — the shared RPCs (all invariants live server-side) ───────────

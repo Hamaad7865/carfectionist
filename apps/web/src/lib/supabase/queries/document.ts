@@ -42,6 +42,8 @@ export interface DocumentDetail {
   creditedByNumber: string | null;
   jobId: string | null;
   intake: DocIntake | null;
+  /** Client signature captured on the tablet when the quote was accepted. */
+  acceptedSignature: { url: string; name: string | null; at: string | null } | null;
   lines: { title: string; description: string | null; qty: number; rateCents: number; amountCents: number }[];
   payments: PaymentView[];
 }
@@ -85,6 +87,14 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     };
   }
 
+  // Acceptance signature (drawn on the tablet; stamped by convert_quote_to_job).
+  let acceptedSignature: DocumentDetail["acceptedSignature"] = null;
+  if (d.accepted_signature?.path) {
+    const signed = await signVehiclePhotos(sb, [d.accepted_signature.path]);
+    const url = signed[d.accepted_signature.path];
+    if (url) acceptedSignature = { url, name: d.accepted_signature.name ?? null, at: d.accepted_signature.at ?? null };
+  }
+
   const totalCents = rupeesToCents(Number(d.total_incl));
   const paidCents = rupeesToCents(Number(d.amount_paid));
   const subtotalCents = rupeesToCents(Number(d.subtotal_excl));
@@ -117,6 +127,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     creditedByNumber,
     jobId: d.job_id ?? null,
     intake,
+    acceptedSignature,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,

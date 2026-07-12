@@ -287,19 +287,25 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
-    fun create() {
+    /** [signaturePng] is the client's acceptance signature drawn on the pad — required by the UI. */
+    fun create(signaturePng: ByteArray?) {
         val s = _s.value
         val cid = s.customerId ?: return
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
+                // The signature uploads first — if it can't be stored, nothing is accepted.
+                val sigPath = signaturePng?.let {
+                    val tenant = catalog.tenantId() ?: error("Not synced — pull the catalogue first")
+                    api.uploadSignature(tenant, it)
+                }
                 // A draft gets the builder's edits persisted first. An issued/accepted
                 // quote is frozen — save_draft refuses "cannot edit an issued document" —
                 // so it converts as-is; the RPC is idempotent and hands back the same job.
                 val quoteId =
                     if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
-                quoteId to api.convertQuoteToJob(quoteId, s.techId)
+                quoteId to api.convertQuoteToJob(quoteId, s.techId, signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
             }.onSuccess { (quoteId, jobId) ->
                 // Stamp what reception recorded onto the new job — best-effort; the
                 // job exists either way and the board still opens it.

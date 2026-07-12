@@ -1,8 +1,10 @@
 package mu.carfection.pos.feature.quote
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +31,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -40,8 +43,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.ui.FilledInput
@@ -350,6 +359,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
 
 @Composable
 private fun AcceptPanel(s: QuoteState, vm: QuoteViewModel) {
+    // Client signature strokes, in pad-local pixels. Pure UI state until "Create
+    // job" renders them to a PNG; discarded when the panel closes.
+    val strokes = remember { mutableStateListOf<List<Offset>>() }
+    var padSize by remember { mutableStateOf(IntSize.Zero) }
+    val strokePx = with(LocalDensity.current) { 4.dp.toPx() }
+    val signed = strokes.any { it.size > 1 }
     Column(Modifier.padding(top = 7.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         MiniLabel("ASSIGN TECHNICIAN")
         if (s.technicians.isEmpty()) Text("No active technicians — assign later from the job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
@@ -371,13 +386,83 @@ private fun AcceptPanel(s: QuoteState, vm: QuoteViewModel) {
                 }
             }
         }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            MiniLabel("CLIENT SIGNATURE")
+            Spacer(Modifier.weight(1f))
+            if (signed) Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { strokes.clear() }.padding(horizontal = 4.dp))
+        }
+        Box(
+            Modifier.fillMaxWidth().height(110.dp)
+                .background(Color.White, RoundedCornerShape(12.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+                .onSizeChanged { padSize = it }
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { pos -> strokes.add(listOf(pos)) },
+                        onDrag = { change, _ ->
+                            change.consume()
+                            if (strokes.isNotEmpty()) strokes[strokes.lastIndex] = strokes.last() + change.position
+                        },
+                    )
+                },
+        ) {
+            if (!signed) Text(
+                "Client signs here to accept this quotation",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted,
+                modifier = Modifier.align(Alignment.Center),
+            )
+            Canvas(Modifier.fillMaxSize()) {
+                strokes.forEach { pts ->
+                    if (pts.size > 1) {
+                        val path = androidx.compose.ui.graphics.Path().apply {
+                            moveTo(pts[0].x, pts[0].y)
+                            for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+                        }
+                        drawPath(path, Color(0xFF101A24), style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                    }
+                }
+            }
+        }
         Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeAccept() }
-            Box(Modifier.weight(1.6f).height(52.dp).background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp)).clickable(enabled = !s.busy) { vm.create() }, contentAlignment = Alignment.Center) {
-                Text(if (s.busy) "Creating…" else "Create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.busy) TextMuted else AccentInk)
+            Box(Modifier.weight(1.6f).height(52.dp).background(if (s.busy || !signed) InsetAlt else Accent, RoundedCornerShape(13.dp)).clickable(enabled = !s.busy && signed) {
+                vm.create(strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx))
+            }, contentAlignment = Alignment.Center) {
+                Text(
+                    if (s.busy) "Creating…" else if (!signed) "Sign to create job" else "Create job",
+                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                    color = if (s.busy || !signed) TextMuted else AccentInk,
+                )
             }
         }
     }
+}
+
+/** Render the signature strokes to a white-background PNG at the pad's own pixel size. */
+private fun strokesToPng(strokes: List<List<Offset>>, w: Int, h: Int, strokePx: Float): ByteArray {
+    val bmp = android.graphics.Bitmap.createBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bmp)
+    canvas.drawColor(android.graphics.Color.WHITE)
+    val paint = android.graphics.Paint().apply {
+        color = android.graphics.Color.rgb(16, 26, 36)
+        strokeWidth = strokePx
+        style = android.graphics.Paint.Style.STROKE
+        strokeCap = android.graphics.Paint.Cap.ROUND
+        strokeJoin = android.graphics.Paint.Join.ROUND
+        isAntiAlias = true
+    }
+    strokes.forEach { pts ->
+        if (pts.size > 1) {
+            val p = android.graphics.Path()
+            p.moveTo(pts[0].x, pts[0].y)
+            for (i in 1 until pts.size) p.lineTo(pts[i].x, pts[i].y)
+            canvas.drawPath(p, paint)
+        }
+    }
+    val out = java.io.ByteArrayOutputStream()
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+    bmp.recycle()
+    return out.toByteArray()
 }
 
 // ── shared bits (local to quote) ──────────────────────────────────────────────

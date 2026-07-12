@@ -77,6 +77,17 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           </div>
         )}
 
+        {doc.acceptedSignature && (
+          <div className="mt-4 flex items-center gap-4 rounded-[13px] border border-[rgba(13,167,124,0.25)] bg-[rgba(13,167,124,0.05)] px-4 py-3">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={doc.acceptedSignature.url} alt="Client signature" className="h-16 rounded-[8px] border border-line bg-white object-contain" />
+            <div className="text-[12.5px] text-body">
+              <div className="font-semibold text-ink">Accepted — signed by the client{doc.acceptedSignature.name ? ` (${doc.acceptedSignature.name})` : ""}</div>
+              {doc.acceptedSignature.at && <div className="text-muted">{new Date(doc.acceptedSignature.at).toLocaleString("en-GB", { timeZone: "Indian/Mauritius", dateStyle: "medium", timeStyle: "short" })}</div>}
+            </div>
+          </div>
+        )}
+
         {doc.docType === "credit_note" && doc.sourceId && (
           <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
             <FileMinus size={15} className="text-pink" />
