@@ -250,7 +250,12 @@ class CounterViewModel @Inject constructor(
             val start = LocalDate.now(ZoneOffset.ofHours(4)).atStartOfDay(ZoneOffset.ofHours(4))
                 .toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
             val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
-            val paid = runCatching { api.fetchTodayPayments(start) }.getOrDefault(emptyList())
+            val paidRaw = runCatching { api.fetchTodayPayments(start) }.getOrDefault(emptyList())
+            // PAID TODAY = money that actually stands. A mistake + its reversal
+            // cancel out and BOTH disappear (the trail stays in History and the
+            // back office), so a re-collected sale shows exactly once.
+            val reversedIds = paidRaw.mapNotNull { it.reversesPaymentId }.toSet()
+            val paid = paidRaw.filter { it.reversesPaymentId == null && it.id !in reversedIds }
             local.value = local.value.copy(bills = bills, paidToday = paid, listBusy = false)
         }
     }

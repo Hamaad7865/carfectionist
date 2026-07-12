@@ -429,12 +429,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     /** Payments received since [sinceIso] with their doc + customer — the "PAID TODAY" list. */
+    /** Includes reversal mirrors (negative rows) — the caller collapses
+     *  reversed pairs so PAID TODAY only shows money that actually stands. */
     suspend fun fetchTodayPayments(sinceIso: String): List<TodayPaymentDto> =
         client.postgrest.from("payments")
             .select(Columns.raw("id, method, amount, document_id, reverses_payment_id, documents(number, customers(name))")) {
-                filter { gte("received_at", sinceIso); gt("amount", 0) }
+                filter { gte("received_at", sinceIso) }
                 order("received_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                limit(30)
+                limit(60)
             }
             .decodeList()
 

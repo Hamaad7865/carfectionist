@@ -566,42 +566,22 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
             Spacer(Modifier.height(8.dp))
             if (s.paidToday.isEmpty()) {
                 Text("No payments yet today.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
-            } else {
-                // Rows that HAVE been undone — the mirror rows point back at them.
-                val reversedIds = s.paidToday.mapNotNull { it.reversesPaymentId }.toSet()
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    items(s.paidToday) { p ->
-                        val isReversalRow = p.reversesPaymentId != null
-                        val wasReversed = p.id in reversedIds
-                        Row(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
-                                .clickable(enabled = vm.canManage) { vm.openPaymentAction(p) }
-                                .padding(vertical = 6.dp, horizontal = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(
-                                if (isReversalRow) Icons.Default.Close else Icons.Default.Check, null,
-                                tint = if (isReversalRow) Danger else if (wasReversed) TextMuted else Success,
-                                modifier = Modifier.size(16.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(p.documents?.number ?: "—", color = TextMuted, fontFamily = Mono, fontSize = 11.sp)
-                            Spacer(Modifier.width(8.dp))
-                            Text(p.documents?.customers?.name ?: "—", color = if (wasReversed) TextMuted else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                            if (isReversalRow || wasReversed) {
-                                Text(
-                                    if (isReversalRow) "REVERSAL" else "REVERSED",
-                                    color = Danger, fontSize = 9.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp,
-                                    modifier = Modifier.background(Danger.copy(alpha = 0.12f), RoundedCornerShape(5.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
-                                )
-                                Spacer(Modifier.width(6.dp))
-                            }
-                            Text(
-                                formatMUR((p.amount * 100).toLong()),
-                                color = if (isReversalRow) Danger else if (wasReversed) TextMuted else TextPrimary,
-                                fontFamily = Mono, fontSize = 12.5.sp, fontWeight = FontWeight.Bold,
-                            )
-                        }
+            } else LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // Reversed pairs are collapsed away upstream (loadLists) — every
+                // row here is money that actually stands.
+                items(s.paidToday) { p ->
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
+                            .clickable(enabled = vm.canManage) { vm.openPaymentAction(p) }
+                            .padding(vertical = 6.dp, horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Default.Check, null, tint = Success, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(p.documents?.number ?: "—", color = TextMuted, fontFamily = Mono, fontSize = 11.sp)
+                        Spacer(Modifier.width(8.dp))
+                        Text(p.documents?.customers?.name ?: "—", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(formatMUR((p.amount * 100).toLong()), color = TextPrimary, fontFamily = Mono, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
