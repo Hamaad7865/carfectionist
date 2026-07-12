@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { methodLabelFor } from "@/lib/method-label";
 
 export interface DocFilters {
   type?: string;
@@ -22,8 +23,6 @@ export interface DocListRow {
   methodLabel: string;
   hasDiscount: boolean;
 }
-
-const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank" };
 
 export interface DocList {
   rows: DocListRow[]; // display slice (capped)
@@ -52,7 +51,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   const listQ = applyFilters(
     sb
       .from("documents")
-      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, discount_kind, discount_value, payments(method), ${rel}`)
+      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, discount_kind, discount_value, payments(method, amount), ${rel}`)
       .order("created_at", { ascending: false })
       .limit(200),
   );
@@ -65,10 +64,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rows = ((listRes.data ?? []) as any[]).map((d) => {
-    const methods: string[] = Array.from(
-      new Set(((d.payments ?? []) as { method: string; amount?: number }[]).map((p) => p.method)),
-    );
-    const methodLabel = methods.length === 0 ? "—" : methods.length > 1 ? "Split" : (METHOD_LABEL[methods[0]] ?? methods[0]);
+    const methodLabel = methodLabelFor((d.payments ?? []) as { method: string; amount?: number | string }[]);
     return {
       id: d.id,
       doc_type: d.doc_type,
