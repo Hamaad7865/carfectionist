@@ -139,7 +139,8 @@ export default async function DeviceDashboardPage({
                     </>
                   )}
                 </div>
-                <div className="rounded-[15px] border border-line bg-card p-5">
+                {/* min-w-0: the truncating one-liner below must not stretch the grid track */}
+                <div className="min-w-0 rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[12px] font-semibold text-muted">Last activity</div>
                   <div className="num mt-2 text-[15px] font-bold text-ink">{trace[0]?.atLabel ?? "—"}</div>
                   <div className="mt-1 truncate text-[11px] text-faint">{trace[0] ? `${trace[0].title}${trace[0].detail ? ` — ${trace[0].detail}` : ""}` : "No events recorded yet"}</div>
@@ -263,7 +264,7 @@ export default async function DeviceDashboardPage({
                         </div>
                         <div className="hidden grid-cols-[150px_1fr_110px_100px_120px] items-center gap-3 text-[12.5px] md:grid">
                           <span className="num text-muted">{m.at}</span>
-                          <span className={`truncate ${m.wasReversed ? "text-faint" : "text-body"}`}>{m.byName ?? "—"}</span>
+                          <span className={`min-w-0 truncate ${m.wasReversed ? "text-faint" : "text-body"}`}>{m.byName ?? "—"}</span>
                           <span className="flex items-center gap-1.5 text-muted">
                             {METHOD_LABEL[m.method] ?? m.method}
                             {m.wasReversed && <span className="rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose">Reversed</span>}
@@ -301,14 +302,14 @@ export default async function DeviceDashboardPage({
                         </div>
                         <div className="hidden grid-cols-[150px_1fr_110px_120px_130px_1fr] items-center gap-3 text-[12.5px] md:grid">
                           <span className="num text-muted">{m.at}</span>
-                          <span className={`truncate ${m.cancelled ? "text-faint" : "text-body"}`}>{m.byName ?? "—"}</span>
+                          <span className={`min-w-0 truncate ${m.cancelled ? "text-faint" : "text-body"}`}>{m.byName ?? "—"}</span>
                           <span className={m.cancelled ? "text-faint" : "text-muted"}>{METHOD_LABEL[m.method] ?? m.method}</span>
                           <span className={`num text-right font-bold ${m.cancelled ? "text-faint line-through" : "text-rose"}`}>{formatMUR(m.amountCents)}</span>
                           <span className={m.cancelled ? "text-faint" : "text-muted"}>{m.type}</span>
                           {m.docId ? (
-                            <Link href={`/sales/${m.docId}`} className={`num truncate font-bold hover:underline ${m.cancelled ? "text-faint" : "text-link"}`}>{m.comment || "—"}</Link>
+                            <Link href={`/sales/${m.docId}`} title={m.comment} className={`num min-w-0 truncate font-bold hover:underline ${m.cancelled ? "text-faint" : "text-link"}`}>{m.comment || "—"}</Link>
                           ) : (
-                            <span className={`num truncate ${m.cancelled ? "text-faint" : "text-muted"}`}>{m.comment || "—"}</span>
+                            <span title={m.comment} className={`num min-w-0 truncate ${m.cancelled ? "text-faint" : "text-muted"}`}>{m.comment || "—"}</span>
                           )}
                         </div>
                       </div>
@@ -355,7 +356,8 @@ export default async function DeviceDashboardPage({
                             <span className="num text-[11px] text-faint">{e.atLabel}</span>
                           </div>
                           {e.detail && (
-                            <div className="mt-0.5 text-[12.5px] text-muted">
+                            // break-words: long unbroken tokens (emails, refs) must wrap, not overflow
+                            <div className="mt-0.5 break-words text-[12.5px] text-muted">
                               {e.href ? <Link href={e.href} className="hover:underline">{e.detail}</Link> : e.detail}
                             </div>
                           )}
