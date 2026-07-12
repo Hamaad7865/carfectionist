@@ -209,7 +209,8 @@ export interface SessionMovement {
   number: string | null;
   docId: string | null; // → /sales/[id]
   byName: string | null;
-  isReversal: boolean;
+  isReversal: boolean;   // this row IS the negative mirror
+  wasReversed: boolean;  // this row was later undone — display muted, never hidden (ledger integrity)
 }
 
 export interface DeviceSession {
@@ -383,6 +384,7 @@ export async function getDeviceDashboard(
   const buildSession = (s: any, pays: any[]): DeviceSession => {
     let cash = 0;
     const nonCashMap = new Map<string, number>();
+    const undone = new Set(pays.map((p) => p.reverses_payment_id).filter(Boolean));
     const movements: SessionMovement[] = pays.map((p) => {
       const cents = rupeesToCents(Number(p.amount));
       if (p.method === "cash") cash += cents;
@@ -396,6 +398,7 @@ export async function getDeviceDashboard(
         docId: p.documents?.id ?? null,
         byName: nameById.get(p.received_by) ?? null,
         isReversal: p.reverses_payment_id != null,
+        wasReversed: undone.has(p.id),
       };
     });
     const cashOut = (movesBySession.get(s.id) ?? []).reduce((t, m) => t + rupeesToCents(Number(m.amount)), 0);
@@ -429,6 +432,23 @@ export async function getDeviceDashboard(
     const t = Date.parse(iso);
     return t >= fromMs && t < endMs;
   };
+  // A ledger never hides a movement — a mistake and its reversal BOTH stay (the
+  // totals reconcile because of them). The original is flagged so the pair reads
+  // as a correction, and the reversal row carries the operator's required reason.
+  const undoneInFlow = new Set(flowPays.map((p) => p.reverses_payment_id).filter(Boolean));
+  const reasonByOriginal = new Map<string, string>();
+  if (undoneInFlow.size > 0) {
+    const { data: revAudits } = await sb
+      .from("audit_events")
+      .select("ref_id, payload")
+      .eq("event_type", "payment_reversed")
+      .in("ref_id", [...undoneInFlow] as string[]);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const a of (revAudits ?? []) as any[]) {
+      if (a.ref_id && a.payload?.reason) reasonByOriginal.set(a.ref_id, a.payload.reason);
+    }
+  }
+
   const inflows: SessionMovement[] = flowPays
     .filter((p) => Number(p.amount) > 0 && inRange(p.received_at))
     .map((p) => ({
@@ -440,6 +460,7 @@ export async function getDeviceDashboard(
       docId: p.documents?.id ?? null,
       byName: nameById.get(p.received_by) ?? null,
       isReversal: false,
+      wasReversed: undoneInFlow.has(p.id),
     }));
 
   const outflows: OutflowRow[] = flowPays
@@ -452,7 +473,9 @@ export async function getDeviceDashboard(
       method: p.method,
       amountCents: rupeesToCents(Number(p.amount)),
       type: "Payment reversed",
-      comment: p.documents?.number ?? "",
+      comment: [p.documents?.number, p.reverses_payment_id && reasonByOriginal.get(p.reverses_payment_id) ? `“${reasonByOriginal.get(p.reverses_payment_id)}”` : null]
+        .filter(Boolean)
+        .join(" · "),
       docId: p.documents?.id ?? null,
     }));
   // Manual petty-cash outs (Cashmag's type "Autre" rows, made at the till).
