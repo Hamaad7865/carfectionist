@@ -176,7 +176,11 @@ class IntakeViewModel @Inject constructor(
         val markersJson = buildJsonArray {
             st.markers.forEach { m ->
                 add(buildJsonObject {
-                    put("x", m.xFrac); put("y", m.yFrac)
+                    // The shared Marker shape is PERCENT (0–100, 1dp) of the 260:520
+                    // diagram — the web renders `left: x%`. The pad captures fractions,
+                    // so scale at this seam.
+                    put("x", kotlin.math.round(m.xFrac * 1000.0) / 10.0)
+                    put("y", kotlin.math.round(m.yFrac * 1000.0) / 10.0)
                     put("type", DamageType.entries.first { it.letter == m.letter }.label.lowercase())
                 })
             }

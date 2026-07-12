@@ -56,6 +56,11 @@ export function CarDiagram({
 
       {markers.map((m, i) => {
         const meta = markerMeta(m.type);
+        // Tablet rows saved before 2026-07-12 stored fractions (0–1). A web tap can
+        // never produce x/y ≤ 1.5 (the edge guard rejects them), so scale on sight.
+        const frac = m.x <= 1.5 && m.y <= 1.5;
+        const mx = frac ? m.x * 100 : m.x;
+        const my = frac ? m.y * 100 : m.y;
         return (
           <button
             key={i}
@@ -64,8 +69,8 @@ export function CarDiagram({
             title={editable ? "Tap to remove" : meta.label}
             style={{
               position: "absolute",
-              left: `${m.x}%`,
-              top: `${m.y}%`,
+              left: `${mx}%`,
+              top: `${my}%`,
               transform: "translate(-50%, -50%)",
               width: 26,
               height: 26,
