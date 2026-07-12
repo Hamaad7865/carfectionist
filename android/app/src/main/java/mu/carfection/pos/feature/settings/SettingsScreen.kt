@@ -92,18 +92,24 @@ class SettingsViewModel @Inject constructor(
 
     fun testPrint() = viewModelScope.launch {
         val c = _s.value.cfg
-        printer.printReceipt(testSlip(c))
-        _s.update {
-            it.copy(
-                toast = if (c.printerLink == PrinterLink.NONE) "Printed to the device log — no printer linked yet"
-                else "Test receipt sent to the printer",
-            )
-        }
+        runCatching { printer.printReceipt(testSlip(c)) }
+            .onSuccess {
+                _s.update {
+                    it.copy(
+                        toast = if (c.printerLink == PrinterLink.NONE) "Printed to the device log — no printer linked yet"
+                        else "Test receipt sent to the printer",
+                    )
+                }
+            }
+            .onFailure { e ->
+                _s.update { it.copy(toast = "Couldn't reach the printer at ${c.printerIp}:${c.printerPort} — ${e.message ?: "check the connection"}") }
+            }
     }
 
     fun testKick() = viewModelScope.launch {
-        drawer.kick()
-        _s.update { it.copy(toast = "Drawer kick sent") }
+        runCatching { drawer.kick() }
+            .onSuccess { _s.update { it.copy(toast = "Drawer kick sent") } }
+            .onFailure { e -> _s.update { it.copy(toast = "Couldn't reach the printer — ${e.message ?: "check the connection"}") } }
     }
 
     fun clearToast() = _s.update { it.copy(toast = null) }

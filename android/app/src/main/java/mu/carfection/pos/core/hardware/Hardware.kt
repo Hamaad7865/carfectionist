@@ -5,6 +5,9 @@ import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -106,23 +109,68 @@ object ReceiptText {
     }
 }
 
+// ─── Real ESC/POS transport (NETWORK link — raw TCP, port 9100) ───────────────
+// BLUETOOTH/USB still log until their transports land; NONE logs by design.
+// Failures throw IOException: the sale flow wraps print in runCatching (the sale
+// committed first, and a failed print now honestly audits receipt_skipped), and
+// the Settings test button surfaces the error as a toast.
+
+/** ESC @ init + ASCII-sanitised body + feed + partial cut. */
+internal fun escPosReceipt(text: String): ByteArray {
+    val sanitised = buildString(text.length) {
+        text.forEach { ch ->
+            append(
+                when {
+                    ch == '\n' || ch.code in 32..126 -> ch
+                    ch == '·' || ch == '—' || ch == '–' -> '-'
+                    ch == '’' || ch == '‘' -> '\''
+                    else -> '?'
+                },
+            )
+        }
+    }
+    return byteArrayOf(0x1B, 0x40) + // ESC @ initialise
+        sanitised.toByteArray(Charsets.US_ASCII) +
+        byteArrayOf(0x0A, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x42, 0x00) // feed ×4 + GS V 66 0 cut
+}
+
+private suspend fun sendRaw(host: String, port: Int, bytes: ByteArray) =
+    withContext(Dispatchers.IO) {
+        java.net.Socket().use { s ->
+            s.connect(java.net.InetSocketAddress(host, port), 3_000)
+            s.soTimeout = 3_000
+            s.getOutputStream().run { write(bytes); flush() }
+        }
+    }
+
 @Singleton
-class LogPrinter @Inject constructor() : ReceiptPrinter {
+class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) : ReceiptPrinter {
     override suspend fun printReceipt(text: String) {
-        Log.i("POS-Printer", "\n$text")
+        val c = settings.config.first()
+        if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank()) {
+            sendRaw(c.printerIp, c.printerPort, escPosReceipt(text))
+        } else {
+            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — logging only)\n$text")
+        }
     }
 }
 
 @Singleton
-class LogDrawer @Inject constructor() : CashDrawer {
+class EscPosDrawer @Inject constructor(private val settings: HardwareSettings) : CashDrawer {
     override suspend fun kick() {
-        Log.i("POS-Drawer", "kick! (ESC p once the printer is wired)")
+        val c = settings.config.first()
+        if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() && c.drawerKickEnabled) {
+            // ESC p 0 25ms 250ms — the standard drawer-port pulse through the printer.
+            sendRaw(c.printerIp, c.printerPort, byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte()))
+        } else {
+            Log.i("POS-Drawer", "kick (${c.printerLink.name.lowercase()} — logging only)")
+        }
     }
 }
 
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class HardwareModule {
-    @Binds abstract fun printer(impl: LogPrinter): ReceiptPrinter
-    @Binds abstract fun drawer(impl: LogDrawer): CashDrawer
+    @Binds abstract fun printer(impl: EscPosPrinter): ReceiptPrinter
+    @Binds abstract fun drawer(impl: EscPosDrawer): CashDrawer
 }
