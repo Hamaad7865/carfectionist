@@ -28,7 +28,6 @@ import mu.carfection.pos.core.hardware.CashDrawer
 import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
 import mu.carfection.pos.core.hardware.ReceiptPrinter
-import mu.carfection.pos.core.hardware.ReceiptText
 import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.computeTotals
@@ -356,7 +355,7 @@ class CounterViewModel @Inject constructor(
     /** Reprint the previewed past-sale slip. */
     fun printViewDoc() {
         val doc = local.value.viewDoc ?: return
-        viewModelScope.launch { runCatching { printer.printReceipt(ReceiptText.render(doc)) } }
+        viewModelScope.launch { runCatching { printer.printDoc(doc) } }
         local.value = local.value.copy(notice = "Receipt sent to the printer")
     }
 
@@ -383,7 +382,7 @@ class CounterViewModel @Inject constructor(
     /** Reprint the slip shown in the post-sale panel. */
     fun reprint() {
         val doc = local.value.receipt ?: return
-        viewModelScope.launch { runCatching { printer.printReceipt(ReceiptText.render(doc)) } }
+        viewModelScope.launch { runCatching { printer.printDoc(doc) } }
         local.value = local.value.copy(notice = "Receipt sent to the printer")
     }
 
@@ -447,7 +446,7 @@ class CounterViewModel @Inject constructor(
                 )
                 launch {
                     val printed = runCatching {
-                        printer.printReceipt(ReceiptText.render(receipt)) // instant payment slip
+                        printer.printDoc(receipt) // instant payment slip
                     }.isSuccess
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
                     logReceiptOutcome(bill.number, printed)
@@ -652,7 +651,7 @@ class CounterViewModel @Inject constructor(
                 )
                 launch {
                     val printed = runCatching {
-                        printer.printReceipt(ReceiptText.render(receipt)) // prints the moment the sale completes
+                        printer.printDoc(receipt) // prints the moment the sale completes
                     }.isSuccess
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
                     logReceiptOutcome(result.number, printed)

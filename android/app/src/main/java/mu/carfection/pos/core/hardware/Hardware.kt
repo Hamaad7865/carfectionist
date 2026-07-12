@@ -21,6 +21,9 @@ import javax.inject.Singleton
  */
 interface ReceiptPrinter {
     suspend fun printReceipt(text: String)
+
+    /** Print a structured receipt at the configured paper width, with the Code128 barcode. */
+    suspend fun printDoc(doc: ReceiptDoc)
 }
 
 interface CashDrawer {
@@ -66,46 +69,68 @@ data class ReceiptDoc(
     val footer = "Goods sold are not refundable. Thank you for shopping with us."
 }
 
-/** Renders a [ReceiptDoc] to the 32-column plain text a thermal printer prints. */
+/**
+ * Renders a [ReceiptDoc] to the plain text a thermal printer prints — mirroring
+ * the on-screen slip: Rs amounts with thousands grouping, full item names, the
+ * real two-line footer. [w] is the paper's column count (32 = 58mm, 48 = 80mm)
+ * so the print fills — and centres on — the actual paper. The barcode + number
+ * are appended by the printer transport (they aren't text).
+ */
 object ReceiptText {
-    private const val W = 32
-    private fun center(s: String) = " ".repeat(((W - s.length) / 2).coerceAtLeast(0)) + s
-    private fun rule() = "-".repeat(W)
-    private fun dec(c: Long): String { val n = c < 0; val a = if (n) -c else c; return (if (n) "-" else "") + "${a / 100}.${(a % 100).toString().padStart(2, '0')}" }
+    private fun center(s: String, w: Int) = " ".repeat(((w - s.length) / 2).coerceAtLeast(0)) + s
+    private fun rule(w: Int) = "-".repeat(w)
+    private fun dec(c: Long): String {
+        val n = c < 0
+        val a = if (n) -c else c
+        val whole = (a / 100).toString().reversed().chunked(3).joinToString(",").reversed()
+        return (if (n) "-" else "") + whole + "." + (a % 100).toString().padStart(2, '0')
+    }
     private fun money(c: Long) = "Rs " + dec(c)
-    private fun kv(k: String, v: String) = k + v.padStart(W - k.length)
+    private fun kv(k: String, v: String, w: Int) = k + v.padStart(w - k.length)
+    private fun wrap(s: String, w: Int): List<String> {
+        val out = mutableListOf<String>()
+        var line = StringBuilder()
+        s.split(" ").forEach { word ->
+            if (line.isEmpty()) line.append(word)
+            else if (line.length + 1 + word.length <= w) line.append(' ').append(word)
+            else { out += line.toString(); line = StringBuilder(word) }
+        }
+        if (line.isNotEmpty()) out += line.toString()
+        return out
+    }
 
-    fun render(d: ReceiptDoc): String = buildString {
-        appendLine(center(d.biz.name.uppercase()))
-        d.biz.address?.takeIf { it.isNotBlank() }?.let { appendLine(center(it)) }
+    fun render(d: ReceiptDoc, w: Int = 32): String = buildString {
+        appendLine(center(d.biz.name.uppercase(), w))
+        d.biz.address?.takeIf { it.isNotBlank() }?.let { appendLine(center(it, w)) }
         val ids = listOfNotNull(d.biz.brn?.let { "BRN $it" }, d.biz.vatNo?.let { "VAT $it" }).joinToString(" · ")
-        if (ids.isNotBlank()) appendLine(center(ids))
-        d.biz.phone?.takeIf { it.isNotBlank() }?.let { appendLine(center(it)) }
-        appendLine(rule())
-        appendLine(kv("Invoice", d.invoiceNo ?: "—"))
-        appendLine(kv("Date", d.dateTime))
-        appendLine(kv("Cashier", d.cashier))
-        appendLine(kv("Customer", d.customer))
-        appendLine(rule())
+        if (ids.isNotBlank()) appendLine(center(ids, w))
+        d.biz.phone?.takeIf { it.isNotBlank() }?.let { appendLine(center(it, w)) }
+        appendLine(rule(w))
+        appendLine(kv("Invoice", d.invoiceNo ?: "—", w))
+        appendLine(kv("Date", d.dateTime, w))
+        appendLine(kv("Cashier", d.cashier, w))
+        appendLine(kv("Customer", d.customer, w))
+        appendLine(rule(w))
         if (!d.isPayment) {
             d.lines.forEach { l ->
                 val qty = if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString()
-                appendLine("$qty x ${l.title}".take(W - 10).padEnd(W - 10) + dec(l.inclCents).padStart(10))
+                val amt = money(l.inclCents)
+                val nameW = w - amt.length - 1
+                appendLine("$qty x ${l.title}".take(nameW).padEnd(nameW) + " " + amt)
             }
-            appendLine(rule())
-            appendLine(kv("Subtotal", money(d.subtotalCents)))
-            appendLine(kv("Discount", money(d.discountCents)))
+            appendLine(rule(w))
+            appendLine(kv("Subtotal", money(d.subtotalCents), w))
+            appendLine(kv("Discount", money(d.discountCents), w))
         }
-        appendLine(kv("TOTAL", money(d.totalCents)))
-        if (!d.isPayment) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents)))
-        if (d.onAccount) appendLine(kv("On account", money(d.totalCents)))
+        appendLine(kv("TOTAL", money(d.totalCents), w))
+        if (!d.isPayment) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents), w))
+        if (d.onAccount) appendLine(kv("On account", money(d.totalCents), w))
         else {
-            appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents)))
-            appendLine(kv("Change", money(d.changeCents)))
+            appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents), w))
+            appendLine(kv("Change", money(d.changeCents), w))
         }
-        appendLine(rule())
-        appendLine(center("Thank you for shopping with us."))
-        d.invoiceNo?.let { appendLine(center(it)) }
+        appendLine(rule(w))
+        wrap(d.footer, w).forEach { appendLine(center(it, w)) }
     }
 }
 
@@ -115,23 +140,40 @@ object ReceiptText {
 // committed first, and a failed print now honestly audits receipt_skipped), and
 // the Settings test button surfaces the error as a toast.
 
-/** ESC @ init + ASCII-sanitised body + feed + partial cut. */
-internal fun escPosReceipt(text: String): ByteArray {
-    val sanitised = buildString(text.length) {
-        text.forEach { ch ->
-            append(
-                when {
-                    ch == '\n' || ch.code in 32..126 -> ch
-                    ch == '·' || ch == '—' || ch == '–' -> '-'
-                    ch == '’' || ch == '‘' -> '\''
-                    else -> '?'
-                },
-            )
-        }
+/** Text → printer bytes on codepage 437 (the ESC/POS default — has a real '·'). */
+internal fun cp437Bytes(text: String): ByteArray {
+    val out = java.io.ByteArrayOutputStream(text.length)
+    text.forEach { ch ->
+        out.write(
+            when {
+                ch == '\n' -> 0x0A
+                ch.code in 32..126 -> ch.code
+                ch == '·' -> 0xFA // CP437 middle dot
+                ch == '—' || ch == '–' -> '-'.code
+                ch == '’' || ch == '‘' -> '\''.code
+                else -> '?'.code
+            },
+        )
     }
-    return byteArrayOf(0x1B, 0x40) + // ESC @ initialise
-        sanitised.toByteArray(Charsets.US_ASCII) +
-        byteArrayOf(0x0A, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x42, 0x00) // feed ×4 + GS V 66 0 cut
+    return out.toByteArray()
+}
+
+private val ESC_INIT = byteArrayOf(0x1B, 0x40, 0x1B, 0x74, 0x00) // ESC @ + select CP437
+private val FEED_CUT = byteArrayOf(0x0A, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x42, 0x00) // feed ×4 + GS V 66 0
+
+/** ESC @ init + CP437 body + feed + partial cut (plain-text jobs, e.g. the test slip). */
+internal fun escPosReceipt(text: String): ByteArray = ESC_INIT + cp437Bytes(text) + FEED_CUT
+
+/** Centred Code128 barcode with the number printed beneath — mirrors the on-screen slip. */
+internal fun escPosBarcode(value: String): ByteArray {
+    val data = byteArrayOf(0x7B, 0x42) + value.toByteArray(Charsets.US_ASCII) // {B → code set B
+    return byteArrayOf(0x0A, 0x1B, 0x61, 0x01) + // LF + centre align
+        byteArrayOf(0x1D, 0x68, 60) +            // GS h — barcode height (dots)
+        byteArrayOf(0x1D, 0x77, 0x02) +          // GS w — module width
+        byteArrayOf(0x1D, 0x48, 0x00) +          // GS H — no HRI (we print the number ourselves)
+        byteArrayOf(0x1D, 0x6B, 0x49, data.size.toByte()) + data + // GS k 73 (CODE128)
+        cp437Bytes("\n$value\n") +
+        byteArrayOf(0x1B, 0x61, 0x00)            // back to left align
 }
 
 private suspend fun sendRaw(host: String, port: Int, bytes: ByteArray) =
@@ -151,6 +193,20 @@ class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) 
             sendRaw(c.printerIp, c.printerPort, escPosReceipt(text))
         } else {
             Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — logging only)\n$text")
+        }
+    }
+
+    override suspend fun printDoc(doc: ReceiptDoc) {
+        val c = settings.config.first()
+        val w = if (c.paperWidthMm == 58) 32 else 48
+        val body = ReceiptText.render(doc, w)
+        if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank()) {
+            val bytes = ESC_INIT + cp437Bytes(body) +
+                (doc.invoiceNo?.let { escPosBarcode(it) } ?: ByteArray(0)) +
+                FEED_CUT
+            sendRaw(c.printerIp, c.printerPort, bytes)
+        } else {
+            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — logging only)\n$body")
         }
     }
 }
