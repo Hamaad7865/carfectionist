@@ -73,7 +73,10 @@ data class TillUiState(
 )
 
 @HiltViewModel
-class TillViewModel @Inject constructor(private val till: TillRepository) : ViewModel() {
+class TillViewModel @Inject constructor(
+    private val till: TillRepository,
+    private val zReport: mu.carfection.pos.core.data.TillZReport,
+) : ViewModel() {
     private val _s = MutableStateFlow(TillUiState())
     val state = _s.asStateFlow()
 
@@ -112,7 +115,17 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
         _s.value = _s.value.copy(busy = true, error = null)
         viewModelScope.launch {
             runCatching { till.close(id, cents) }
-                .onSuccess { _s.value = TillUiState(loading = false, session = null, justClosed = it) }
+                .onSuccess { closed ->
+                    _s.value = TillUiState(loading = false, session = null, justClosed = closed)
+                    // Cashmag parity: the "Clôture de période" slip prints the moment the
+                    // till closes. Fire-and-forget — the close itself has committed.
+                    launch {
+                        val printed = runCatching { zReport.printFor(closed) }.isSuccess
+                        _s.value = _s.value.copy(
+                            notice = if (printed) "Period-close report printed" else "Till closed — report couldn't reach the printer",
+                        )
+                    }
+                }
                 .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
         }
     }
@@ -141,7 +154,14 @@ class TillViewModel @Inject constructor(private val till: TillRepository) : View
 }
 
 @Composable
-fun TillScreen(onBack: () -> Unit, onOpened: () -> Unit, viewModel: TillViewModel = hiltViewModel()) {
+fun TillScreen(
+    onBack: () -> Unit,
+    onOpened: () -> Unit,
+    // Owner-mandated gate: no back arrow, with a banner saying why the operator is here.
+    forced: Boolean = false,
+    forcedBanner: String? = null,
+    viewModel: TillViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsState()
     var floatText by remember { mutableStateOf("") }
     var countText by remember { mutableStateOf("") }
@@ -156,9 +176,17 @@ fun TillScreen(onBack: () -> Unit, onOpened: () -> Unit, viewModel: TillViewMode
 
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(20.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clickable(onClick = onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = TextSecondary) }
-            Spacer(Modifier.width(12.dp))
+            if (!forced) {
+                Box(Modifier.clickable(onClick = onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = TextSecondary) }
+                Spacer(Modifier.width(12.dp))
+            }
             Text("Cash till", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
+        }
+        if (forced && forcedBanner != null) {
+            Spacer(Modifier.height(12.dp))
+            Box(
+                Modifier.fillMaxWidth().background(Color(0x24C17A00), RoundedCornerShape(12.dp)).padding(horizontal = 16.dp, vertical = 12.dp),
+            ) { Text(forcedBanner, color = Warning, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold) }
         }
         Spacer(Modifier.height(20.dp))
 
@@ -176,6 +204,11 @@ fun TillScreen(onBack: () -> Unit, onOpened: () -> Unit, viewModel: TillViewMode
                         Field2("Counted", formatMUR(((c.closingCount ?: 0.0) * 100).toLong()))
                         val varianceCents = ((c.variance ?: 0.0) * 100).toLong()
                         Field2("Variance", formatMUR(varianceCents), if (varianceCents == 0L) Success else Warning)
+                        s.notice?.let { Text(it, color = TextSecondary, fontSize = 13.sp) }
+                        if (forced) {
+                            Spacer(Modifier.height(4.dp))
+                            BigButton("Continue — open today's till", enabled = true) { viewModel.reload() }
+                        }
                     }
                 }
                 s.session == null -> {

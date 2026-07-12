@@ -319,6 +319,33 @@ data class PaymentDto(
     @SerialName("change_given") val changeGiven: FlexDouble? = null,
 )
 
+// ── Till Z-report (Clôture de période) — payments + docs + lines + category ──
+@Serializable data class ZProductDto(val category: String? = null)
+@Serializable data class ZLineDto(
+    val qty: FlexDouble = 1.0,
+    @SerialName("line_total_excl") val lineTotalExcl: FlexDouble = 0.0,
+    @SerialName("line_vat") val lineVat: FlexDouble = 0.0,
+    val products: ZProductDto? = null,
+)
+@Serializable data class ZDocDto(
+    val id: String,
+    val number: String? = null,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("vat_total") val vatTotal: FlexDouble = 0.0,
+    @SerialName("subtotal_excl") val subtotalExcl: FlexDouble = 0.0,
+    @SerialName("document_lines") val lines: List<ZLineDto> = emptyList(),
+)
+@Serializable data class ZPaymentDto(
+    val id: String,
+    val method: String,
+    val amount: FlexDouble = 0.0,
+    @SerialName("change_given") val changeGiven: FlexDouble? = null,
+    @SerialName("reverses_payment_id") val reversesPaymentId: String? = null,
+    @SerialName("received_by") val receivedBy: String? = null,
+    val documents: ZDocDto? = null,
+)
+@Serializable data class UserNameDto(val id: String, @SerialName("display_name") val displayName: String)
+
 @Serializable
 data class CashSessionDto(
     val id: String,

@@ -38,6 +38,9 @@ import mu.carfection.pos.feature.stock.StockScreen
 import mu.carfection.pos.feature.till.TillScreen
 import javax.inject.Inject
 
+/** Why the operator is locked on the till screen (owner-mandated discipline). */
+enum class TillGate { NONE, OPEN_REQUIRED, STALE_CLOSE_REQUIRED }
+
 @HiltViewModel
 class RootViewModel @Inject constructor(
     private val session: SessionRepository,
@@ -45,6 +48,7 @@ class RootViewModel @Inject constructor(
     outbox: OutboxRepository,
     private val captures: CaptureBus,
     private val api: PosApi,
+    private val tillRepo: mu.carfection.pos.core.data.TillRepository,
 ) : ViewModel() {
     val isLoggedIn = session.isLoggedIn
     val staffName: String get() = session.userName
@@ -93,9 +97,38 @@ class RootViewModel @Inject constructor(
     }
     private fun resetNav() { backStack.clear(); _backDepth.value = 0; _tab.value = PosTab.SALE; _showTill.value = false }
 
+    // ── till discipline (owner requirement) ──────────────────────────────────
+    // A non-owner can't reach the app until the till is open, and a till left
+    // open from a previous day must be counted + closed before today starts.
+    val till = tillRepo.current
+    private val _tillLoaded = MutableStateFlow(false)
+    val tillLoaded = _tillLoaded.asStateFlow()
+
+    fun tillGate(till: mu.carfection.pos.core.network.CashSessionDto?, loaded: Boolean): TillGate {
+        if (!loaded || session.userRole.equals("owner", true)) return TillGate.NONE
+        if (till == null) return TillGate.OPEN_REQUIRED
+        val mu = java.time.ZoneId.of("Indian/Mauritius")
+        val openedDay = till.openedAt?.let {
+            runCatching { java.time.OffsetDateTime.parse(it).atZoneSameInstant(mu).toLocalDate() }.getOrNull()
+        } ?: return TillGate.NONE
+        return if (openedDay.isBefore(java.time.ZonedDateTime.now(mu).toLocalDate())) TillGate.STALE_CLOSE_REQUIRED
+        else TillGate.NONE
+    }
+
     init {
         // Start the next operator at a clean Checkout, not the previous one's tab/history.
         viewModelScope.launch { session.isLoggedIn.collect { if (it == false) resetNav() } }
+
+        // Load this device's open till on sign-in — the state that drives tillGate.
+        viewModelScope.launch {
+            session.isLoggedIn.collect { logged ->
+                _tillLoaded.value = false
+                if (logged == true) {
+                    runCatching { tillRepo.openSession() }
+                    _tillLoaded.value = true
+                }
+            }
+        }
 
         // Device registry (Point of Sale module): announce this terminal once per
         // process, then heartbeat while signed in so the web's online dot stays
@@ -134,6 +167,24 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
             null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             false -> LoginScreen()
             true -> {
+                // ── owner-mandated till discipline ────────────────────────────
+                // Staff can't reach the app until today's till is open; a till
+                // left open from a previous day must be counted + closed first.
+                val till by rootViewModel.till.collectAsState()
+                val tillLoaded by rootViewModel.tillLoaded.collectAsState()
+                val gate = rootViewModel.tillGate(till, tillLoaded)
+                if (gate != TillGate.NONE) {
+                    TillScreen(
+                        onBack = {}, onOpened = {},
+                        forced = true,
+                        forcedBanner = when (gate) {
+                            TillGate.STALE_CLOSE_REQUIRED ->
+                                "Yesterday's till is still open. Count the drawer and close it — the period report will print — before starting today."
+                            else ->
+                                "Open the till to start the day. Count the float and enter it below — the owner requires this before any sale."
+                        },
+                    )
+                } else {
                 val tab by rootViewModel.tab.collectAsState()
                 val showTill by rootViewModel.showTill.collectAsState()
                 val backDepth by rootViewModel.backDepth.collectAsState()
@@ -171,6 +222,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                         PosTab.DASH -> DashScreen()
                         PosTab.SETTINGS -> SettingsScreen()
                     }
+                }
                 }
             }
         }

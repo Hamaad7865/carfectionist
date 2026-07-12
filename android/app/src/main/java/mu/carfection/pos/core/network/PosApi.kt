@@ -498,6 +498,35 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_closing_count", closingCountRupees)
         }).decodeAs()
 
+    // ── Till Z-report (Clôture de période) ────────────────────────────────────
+    /** Every payment of a till session with its document, lines and product categories. */
+    suspend fun fetchSessionPayments(sessionId: String): List<ZPaymentDto> =
+        client.postgrest.from("payments")
+            .select(
+                Columns.raw(
+                    "id, method, amount, change_given, reverses_payment_id, received_by, " +
+                        "documents(id, number, total_incl, vat_total, subtotal_excl, " +
+                        "document_lines(qty, line_total_excl, line_vat, products(category)))",
+                ),
+            ) { filter { eq("cash_session_id", sessionId) } }
+            .decodeList()
+
+    suspend fun fetchUserNames(): List<UserNameDto> =
+        client.postgrest.from("app_users").select(Columns.raw("id, display_name")).decodeList()
+
+    /** Unpaid/partly-paid invoices issued inside the session window — the slip's on-account block. */
+    suspend fun fetchOnAccountBetween(fromIso: String, toIso: String): List<OpenInvoiceDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("total_incl, amount_paid")) {
+                filter {
+                    eq("doc_type", "invoice")
+                    isIn("status", listOf("issued", "partly_paid"))
+                    gte("created_at", fromIso)
+                    lte("created_at", toIso)
+                }
+            }
+            .decodeList()
+
     suspend fun openSessionForDevice(deviceId: String): CashSessionDto? =
         client.postgrest.from("cash_sessions")
             .select(Columns.raw("id, status, device_id, opening_float, opened_at, closing_count, expected_cash, variance")) {
