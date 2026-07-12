@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { rupeesToCents } from "@/lib/money";
 
 export interface ReceiptLine {
@@ -28,6 +29,7 @@ export interface ReceiptData {
   dateLabel: string;     // "26 May 2026, 14:08" (card)
   cashier: string;
   customerName: string;
+  customerEmail: string | null; // prefills the "email receipt" dialog
   lines: ReceiptLine[];
   subtotalInclCents: number;   // sum of inclusive line totals, before order discount
   subtotalCents: number;       // ex-VAT taxable base
@@ -60,9 +62,21 @@ function muDate(iso: string | null): Date | null {
 }
 const p2 = (x: number) => String(x).padStart(2, "0");
 
+/** RLS-scoped (staff pages). */
 export async function getReceipt(id: string): Promise<ReceiptData | null> {
   const sb = await createClient();
-  const { data: doc } = await sb.from("documents").select("*, customers(name)").eq("id", id).maybeSingle();
+  return getReceiptWith(sb, id);
+}
+
+/** Service-role (the PUBLIC /t/[token] ticket page — the HMAC token is the
+ *  authorisation; never call without a verified token). */
+export async function getReceiptPublic(id: string): Promise<ReceiptData | null> {
+  return getReceiptWith(createAdminClient(), id);
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> {
+  const { data: doc } = await sb.from("documents").select("*, customers(name, email)").eq("id", id).maybeSingle();
   if (!doc) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
@@ -180,6 +194,7 @@ export async function getReceipt(id: string): Promise<ReceiptData | null> {
     dateLabel,
     cashier,
     customerName: d.customers?.name ?? "Walk-in customer",
+    customerEmail: d.customers?.email ?? null,
     lines: rLines,
     subtotalInclCents,
     subtotalCents,

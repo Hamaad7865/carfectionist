@@ -6,6 +6,7 @@ import { getTickets } from "@/lib/supabase/queries/tickets";
 import { getReceipt } from "@/lib/supabase/queries/receipt";
 import { DocumentsFilterBar } from "@/features/documents/DocumentsFilterBar";
 import { TicketPopup } from "@/features/tickets/TicketPopup";
+import { EmailReceiptButton } from "@/features/tickets/EmailReceiptButton";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
@@ -148,7 +149,7 @@ export default async function SalesPage({
 
           {popup && ticketId && (
             <Suspense fallback={null}>
-              <TicketPopup r={popup} docId={ticketId} />
+              <TicketPopup r={popup} docId={ticketId} emailSlot={<EmailReceiptButton docId={ticketId} defaultEmail={popup.customerEmail} />} />
             </Suspense>
           )}
         </>

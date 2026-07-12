@@ -301,7 +301,7 @@ export async function getDeviceDashboard(
   const rangeGiven = !!((opts?.from && DATE_RE.test(opts.from)) || (opts?.to && DATE_RE.test(opts.to)));
   let auditQ = sb
     .from("audit_events")
-    .select("id, event_type, payload, created_at, actor_id")
+    .select("id, event_type, payload, created_at, actor_id, ref_id")
     .eq("device_id", code)
     .order("created_at", { ascending: false })
     .limit(rangeGiven ? 300 : 120);
@@ -555,6 +555,10 @@ export async function getDeviceDashboard(
         break;
       case "receipt_skipped":
         push(`a${a.id}`, a.created_at, "receipt", "Sale without printed receipt", pl.number ?? null, saleHref(null, pl.number));
+        break;
+      case "receipt_emailed":
+        push(`a${a.id}`, a.created_at, "receipt", "Receipt emailed",
+          [pl.number, pl.to].filter(Boolean).join(" → ") || null, saleHref(a.ref_id, pl.number));
         break;
       case "data_export":
         push(`a${a.id}`, a.created_at, "export", "Data export", pl.report ?? null);

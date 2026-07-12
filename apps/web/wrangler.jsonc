@@ -8,6 +8,10 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  // Email Sending (customer receipts). One-time dashboard step: Email >
+  // Email Sending > enable app-carfectionist.com (DNS is auto-managed —
+  // the zone lives on this account). Sends fail cleanly until then.
+  "send_email": [{ "name": "EMAIL" }],
   "observability": {
     "enabled": true
   }
