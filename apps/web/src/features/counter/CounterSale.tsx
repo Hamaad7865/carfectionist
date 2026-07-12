@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle } from "lucide-react";
+import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
 import { formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
@@ -40,6 +40,8 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   const router = useRouter();
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
+  const [catOpen, setCatOpen] = useState(true); // the vertical category rail
+  const [catQuery, setCatQuery] = useState("");
   // The cart, its discounts and the customer are one value: everything a settle sends. Once an
   // attempt reaches issue_document they freeze together, so a retry re-sends the same request.
   const [basket, setBasket] = useState<Basket>(EMPTY_BASKET);
@@ -75,6 +77,16 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
     [products],
+  );
+  const catCounts = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of products) if (p.category) m.set(p.category, (m.get(p.category) ?? 0) + 1);
+    return m;
+  }, [products]);
+  // "All" always survives the rail filter, so there is always a way back out.
+  const railCats = useMemo(
+    () => categories.filter((c) => c.toLowerCase().includes(catQuery.trim().toLowerCase())),
+    [categories, catQuery],
   );
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
@@ -228,56 +240,102 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
     // without these the whole page blows out horizontally and the ticket panel
     // lands off-screen.
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
-      {/* catalogue */}
-      <div className="flex min-w-0 flex-col rounded-[15px] border border-line bg-card">
-        <div className="border-b border-line p-3">
-          <div className="relative">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
-            <input
-              className="h-11 w-full rounded-[11px] border border-line-2 bg-sub pl-9 pr-3 text-[14px] text-ink outline-none focus:border-brand"
-              placeholder="Search products or scan a barcode…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              autoFocus
-            />
-          </div>
-          {categories.length > 0 && (
-            <div className="mt-2.5 flex gap-1.5 overflow-x-auto pb-0.5">
-              <button
-                onClick={() => setCat("")}
-                className={`h-8 shrink-0 whitespace-nowrap rounded-full px-3.5 text-[12px] font-bold ${cat === "" ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
-              >
-                All
-              </button>
-              {categories.map((c) => (
-                <button
-                  key={c}
-                  onClick={() => setCat(c)}
-                  className={`h-8 shrink-0 whitespace-nowrap rounded-full px-3.5 text-[12px] font-bold ${cat === c ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-sub text-body"}`}
-                >
-                  {c}
+      {/* catalogue: collapsible category rail (left) + search + product grid */}
+      <div className="flex min-w-0 rounded-[15px] border border-line bg-card">
+        {/* category rail — vertical, searchable, collapsible (owner request; mirrors the tablet) */}
+        {categories.length > 0 && (
+          catOpen ? (
+            <div className="hidden w-[212px] shrink-0 flex-col border-r border-line lg:flex">
+              <div className="flex items-center gap-1.5 border-b border-line p-2.5">
+                <input
+                  className="h-9 w-full min-w-0 rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12px] text-ink outline-none placeholder:text-faint focus:border-brand"
+                  placeholder="Filter categories…"
+                  value={catQuery}
+                  onChange={(e) => setCatQuery(e.target.value)}
+                />
+                <button onClick={() => setCatOpen(false)} title="Collapse categories" className="grid size-9 shrink-0 place-items-center rounded-[9px] text-faint hover:bg-sub hover:text-body">
+                  <PanelLeftClose size={16} />
                 </button>
-              ))}
+              </div>
+              <div className="flex max-h-[62vh] flex-1 flex-col gap-[2px] overflow-y-auto p-2">
+                <button
+                  onClick={() => setCat("")}
+                  className={`relative flex h-9 shrink-0 items-center rounded-[8px] px-3 text-left text-[12.5px] font-semibold ${cat === "" ? "bg-[rgba(43,140,255,0.10)] text-link" : "text-body hover:bg-sub"}`}
+                >
+                  {cat === "" && <span className="grad-rail absolute bottom-2 left-0 top-2 w-[3px] rounded-r-[3px]" />}
+                  <span className="flex-1">All</span>
+                  <span className="num text-[10.5px] text-faint">{products.length}</span>
+                </button>
+                {railCats.map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setCat(c)}
+                    title={c}
+                    className={`relative flex h-9 shrink-0 items-center gap-2 rounded-[8px] px-3 text-left text-[12px] font-semibold ${cat === c ? "bg-[rgba(43,140,255,0.10)] text-link" : "text-body hover:bg-sub"}`}
+                  >
+                    {cat === c && <span className="grad-rail absolute bottom-2 left-0 top-2 w-[3px] rounded-r-[3px]" />}
+                    <span className="min-w-0 flex-1 truncate">{c}</span>
+                    <span className="num text-[10.5px] text-faint">{catCounts.get(c) ?? 0}</span>
+                  </button>
+                ))}
+                {railCats.length === 0 && <div className="px-3 py-4 text-[11.5px] text-faint">No category matches.</div>}
+              </div>
             </div>
-          )}
-        </div>
-        <div className="grid max-h-[62vh] grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-          {filtered.map((p) => (
-            <button
-              key={p.id}
-              disabled={frozen}
-              onClick={() => add(p)}
-              className="flex flex-col items-start gap-1 rounded-[12px] border border-line bg-sub p-3 text-left transition hover:border-brand hover:bg-[rgba(43,140,255,0.05)] disabled:opacity-50 disabled:hover:border-line"
-            >
-              <span className="flex w-full items-center justify-between gap-1">
-                <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
-                {p.isStocked && p.shopQty <= 0 && <span className="rounded-[4px] bg-[rgba(214,59,80,0.14)] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-rose">0 left</span>}
-              </span>
-              <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
-              <span className="num mt-auto text-[13px] font-extrabold text-ink">{formatMUR(p.priceCents)}</span>
-            </button>
-          ))}
-          {filtered.length === 0 && <div className="col-span-full py-10 text-center text-[13px] text-faint">No products match “{q}”.</div>}
+          ) : (
+            <div className="hidden w-11 shrink-0 flex-col items-center gap-2 border-r border-line py-2.5 lg:flex">
+              <button onClick={() => setCatOpen(true)} title="Show categories" className="grid size-9 place-items-center rounded-[9px] text-faint hover:bg-sub hover:text-body">
+                <PanelLeftOpen size={16} />
+              </button>
+              {cat && <span title={cat} className="size-2 rounded-full bg-brand" />}
+            </div>
+          )
+        )}
+
+        {/* search + grid */}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <div className="border-b border-line p-3">
+            <div className="relative">
+              <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
+              <input
+                className="h-11 w-full rounded-[11px] border border-line-2 bg-sub pl-9 pr-3 text-[14px] text-ink outline-none focus:border-brand"
+                placeholder="Search products or scan a barcode…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                autoFocus
+              />
+            </div>
+            {/* Small screens have no rail — a compact dropdown keeps categories reachable. */}
+            {categories.length > 0 && (
+              <select
+                value={cat}
+                onChange={(e) => setCat(e.target.value)}
+                className="mt-2 h-9 w-full rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12.5px] font-medium text-body outline-none focus:border-brand lg:hidden"
+              >
+                <option value="">All categories</option>
+                {categories.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div className="grid max-h-[62vh] grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+            {filtered.map((p) => (
+              <button
+                key={p.id}
+                disabled={frozen}
+                onClick={() => add(p)}
+                className="flex flex-col items-start gap-1 rounded-[12px] border border-line bg-sub p-3 text-left transition hover:border-brand hover:bg-[rgba(43,140,255,0.05)] disabled:opacity-50 disabled:hover:border-line"
+              >
+                <span className="flex w-full items-center justify-between gap-1">
+                  <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
+                  {p.isStocked && p.shopQty <= 0 && <span className="rounded-[4px] bg-[rgba(214,59,80,0.14)] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-rose">0 left</span>}
+                </span>
+                <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
+                <span className="num mt-auto text-[13px] font-extrabold text-ink">{formatMUR(p.priceCents)}</span>
+              </button>
+            ))}
+            {filtered.length === 0 && <div className="col-span-full py-10 text-center text-[13px] text-faint">No products match “{q}”.</div>}
+          </div>
         </div>
       </div>
 
