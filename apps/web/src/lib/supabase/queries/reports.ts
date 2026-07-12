@@ -176,14 +176,14 @@ export async function getExtraReports(from?: string, to?: string): Promise<Extra
   // Every query below is PAGED past the PostgREST 1000-row cap (factories return
   // a fresh filtered query per page).
   const makeInvQ = () => {
-    let q = sb.from("documents").select("subtotal_excl, issue_date, jobs(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "invoice").in("status", ["issued", "partly_paid", "paid"]);
+    let q = sb.from("documents").select("subtotal_excl, issue_date, jobs!documents_job_id_fkey(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "invoice").in("status", ["issued", "partly_paid", "paid"]);
     if (from) q = q.gte("issue_date", from);
     if (to) q = q.lte("issue_date", to);
     return q;
   };
   // Credit notes net down revenue (and technician revenue).
   const makeCnQ = () => {
-    let q = sb.from("documents").select("subtotal_excl, issue_date, jobs(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "credit_note").eq("status", "issued");
+    let q = sb.from("documents").select("subtotal_excl, issue_date, jobs!documents_job_id_fkey(technician_id, app_users!jobs_technician_id_fkey(display_name))").eq("doc_type", "credit_note").eq("status", "issued");
     if (from) q = q.gte("issue_date", from);
     if (to) q = q.lte("issue_date", to);
     return q;
