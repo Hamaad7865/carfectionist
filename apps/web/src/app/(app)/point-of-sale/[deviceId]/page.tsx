@@ -54,8 +54,11 @@ export default async function DeviceDashboardPage({
   const { device, sessions, trace, todayCents, cashflow } = data;
   const Icon = device.isBackOffice ? Monitor : TabletSmartphone;
   const todayTotal = todayCents.reduce((s, m) => s + m.cents, 0);
-  const inflowTotal = cashflow.inflows.reduce((s, m) => s + m.amountCents, 0);
-  const outflowTotal = cashflow.outflows.reduce((s, m) => s + m.amountCents, 0);
+  // Struck rows don't count: totals are NET of cancelled pairs (a reversed
+  // inflow and its in-view mirror), per the owner — the header answers "what
+  // did this till actually take/move", not "how many rows are printed".
+  const inflowTotal = cashflow.inflows.reduce((s, m) => s + (m.wasReversed ? 0 : m.amountCents), 0);
+  const outflowTotal = cashflow.outflows.reduce((s, m) => s + (m.cancelled ? 0 : m.amountCents), 0);
 
   return (
     <div className="p-4 sm:p-6">
@@ -290,22 +293,22 @@ export default async function DeviceDashboardPage({
                     <div className="px-4 py-8 text-center text-[12.5px] text-faint">No data for this period.</div>
                   ) : (
                     cashflow.outflows.map((m) => (
-                      <div key={m.key} className="border-b border-line px-4 py-2.5 last:border-b-0">
+                      <div key={m.key} className={`border-b border-line px-4 py-2.5 last:border-b-0 ${m.cancelled ? "bg-[rgba(15,23,32,0.02)]" : ""}`}>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] md:hidden">
                           <span className="num text-muted">{m.at}</span>
                           <span className="rounded-[5px] bg-[rgba(214,59,80,0.08)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose">{METHOD_LABEL[m.method] ?? m.method}</span>
-                          <span className="num ml-auto font-bold text-rose">{formatMUR(m.amountCents)}</span>
+                          <span className={`num ml-auto font-bold ${m.cancelled ? "text-faint line-through" : "text-rose"}`}>{formatMUR(m.amountCents)}</span>
                         </div>
                         <div className="hidden grid-cols-[150px_1fr_110px_120px_130px_1fr] items-center gap-3 text-[12.5px] md:grid">
                           <span className="num text-muted">{m.at}</span>
-                          <span className="truncate text-body">{m.byName ?? "—"}</span>
-                          <span className="text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
-                          <span className="num text-right font-bold text-rose">{formatMUR(m.amountCents)}</span>
-                          <span className="text-muted">{m.type}</span>
+                          <span className={`truncate ${m.cancelled ? "text-faint" : "text-body"}`}>{m.byName ?? "—"}</span>
+                          <span className={m.cancelled ? "text-faint" : "text-muted"}>{METHOD_LABEL[m.method] ?? m.method}</span>
+                          <span className={`num text-right font-bold ${m.cancelled ? "text-faint line-through" : "text-rose"}`}>{formatMUR(m.amountCents)}</span>
+                          <span className={m.cancelled ? "text-faint" : "text-muted"}>{m.type}</span>
                           {m.docId ? (
-                            <Link href={`/sales/${m.docId}`} className="num truncate font-bold text-link hover:underline">{m.comment || "—"}</Link>
+                            <Link href={`/sales/${m.docId}`} className={`num truncate font-bold hover:underline ${m.cancelled ? "text-faint" : "text-link"}`}>{m.comment || "—"}</Link>
                           ) : (
-                            <span className="num truncate text-muted">{m.comment || "—"}</span>
+                            <span className={`num truncate ${m.cancelled ? "text-faint" : "text-muted"}`}>{m.comment || "—"}</span>
                           )}
                         </div>
                       </div>

@@ -251,6 +251,10 @@ export interface OutflowRow {
   type: string;    // "Bank deposit" | "Payment reversed" | "Petty cash"
   comment: string; // "Automatic bank deposit" | invoice number | reason
   docId: string | null; // → /sales/[id] for reversals
+  /** True when this reversal's ORIGINAL is also in view — the pair cancels, so
+   *  both rows render muted and neither counts in the period totals. A reversal
+   *  of a prior-period payment stays live: money really left the till today. */
+  cancelled: boolean;
 }
 
 /** The Cash Flow tab, driven entirely by date pickers (owner's Cashmag spec):
@@ -418,7 +422,9 @@ export async function getDeviceDashboard(
       varianceCents: isOpen ? null : rupeesToCents(Number(s.variance ?? 0)),
       cashCents: cash,
       cashOutCents: cashOut,
-      nonCash: [...nonCashMap.entries()].map(([method, cents]) => ({ method, cents })),
+      // Net ≤ 0 methods (e.g. a fully-reversed Juice pair) carry no money to the
+      // bank — "Juice Rs 0.00 straight to the bank" is noise, not information.
+      nonCash: [...nonCashMap.entries()].filter(([, cents]) => cents > 0).map(([method, cents]) => ({ method, cents })),
       movements,
     };
   };
@@ -463,6 +469,12 @@ export async function getDeviceDashboard(
       wasReversed: undoneInFlow.has(p.id),
     }));
 
+  // Originals that are BOTH undone and visible as inflows of this period — only
+  // those pairs cancel out of the totals.
+  const originalsInView = new Set(
+    flowPays.filter((p) => Number(p.amount) > 0 && inRange(p.received_at) && undoneInFlow.has(p.id)).map((p) => p.id),
+  );
+
   const outflows: OutflowRow[] = flowPays
     .filter((p) => Number(p.amount) < 0 && inRange(p.received_at))
     .map((p) => ({
@@ -477,6 +489,7 @@ export async function getDeviceDashboard(
         .filter(Boolean)
         .join(" · "),
       docId: p.documents?.id ?? null,
+      cancelled: p.reverses_payment_id != null && originalsInView.has(p.reverses_payment_id),
     }));
   // Manual petty-cash outs (Cashmag's type "Autre" rows, made at the till).
   const flowIdSet = new Set(flowIds);
@@ -493,6 +506,7 @@ export async function getDeviceDashboard(
       type: "Petty cash",
       comment: m.reason ?? "",
       docId: null,
+      cancelled: false,
     });
   }
   // Cashmag books each closure's non-cash takings out of the register as
@@ -516,6 +530,7 @@ export async function getDeviceDashboard(
         type: "Bank deposit",
         comment: "Automatic bank deposit",
         docId: null,
+        cancelled: false,
       });
     }
   }
