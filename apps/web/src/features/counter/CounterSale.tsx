@@ -223,9 +223,13 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_380px]">
+    // minmax(0,1fr) + min-w-0: a grid track's min width defaults to its CONTENT's
+    // width, and the 57-category chip strip (shrink-0 nowrap) is ~4000px wide —
+    // without these the whole page blows out horizontally and the ticket panel
+    // lands off-screen.
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
       {/* catalogue */}
-      <div className="flex flex-col rounded-[15px] border border-line bg-card">
+      <div className="flex min-w-0 flex-col rounded-[15px] border border-line bg-card">
         <div className="border-b border-line p-3">
           <div className="relative">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
@@ -257,7 +261,7 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
             </div>
           )}
         </div>
-        <div className="grid max-h-[62vh] grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3">
+        <div className="grid max-h-[62vh] grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
           {filtered.map((p) => (
             <button
               key={p.id}
@@ -278,7 +282,7 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
       </div>
 
       {/* ticket */}
-      <div className="flex flex-col rounded-[15px] border border-line bg-card">
+      <div className="flex min-w-0 flex-col rounded-[15px] border border-line bg-card">
         <div className="border-b border-line px-4 py-3">
           <input
             className={`h-10 w-full rounded-[10px] border bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand ${method === "credit" && !customerId ? "border-amber-ink" : "border-line-2"}`}
