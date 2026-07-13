@@ -12,6 +12,7 @@ import {
   Settings2,
   History,
   MonitorSmartphone,
+  Megaphone,
   type LucideIcon,
 } from "lucide-react";
 
@@ -49,6 +50,7 @@ export const NAV: NavItem[] = [
   { label: "Purchases & Expenses", href: "/purchases", icon: Truck, roles: ["owner", "manager", "accountant"] },
   { label: "Accounting & Reports", href: "/reports", icon: BarChart3, roles: ["owner", "manager", "accountant"] },
   { label: "Forms & Enquiries", href: "/enquiries", icon: Inbox, roles: ["owner", "manager"] },
+  { label: "Marketing", href: "/marketing", icon: Megaphone, roles: ["owner"] },
   { label: "Team & Settings", href: "/settings", icon: Settings2, roles: ["owner", "manager"] },
   { label: "Activity", href: "/activity", icon: History, roles: ["owner"] },
 ];

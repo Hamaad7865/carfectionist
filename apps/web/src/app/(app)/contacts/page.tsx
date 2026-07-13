@@ -6,7 +6,9 @@ import { CustomerList } from "@/features/contacts/CustomerList";
 import { ImportExport } from "@/features/dataio/ImportExport";
 import { VehiclesEditor } from "@/features/contacts/VehiclesEditor";
 import { SuppliersPanel } from "@/features/contacts/SuppliersPanel";
+import { WaOptOutToggle } from "@/features/contacts/WaOptOutToggle";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { getSessionContext } from "@/lib/auth/session";
 import { formatMUR } from "@/lib/money";
 
 function initials(name: string): string {
@@ -24,8 +26,9 @@ export default async function ContactsPage({
 }) {
   const sp = await searchParams;
   const tab = sp.tab === "suppliers" ? "suppliers" : "customers";
-  const data = await getContacts(sp.c);
+  const [data, session] = await Promise.all([getContacts(sp.c), getSessionContext()]);
   const sel = data.selected;
+  const canMarket = session?.role === "owner" || session?.role === "manager";
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">
@@ -69,6 +72,12 @@ export default async function ContactsPage({
                   <div className={`num mt-1.5 text-[22px] font-extrabold ${sel.outstandingCents > 0 ? "text-amber-ink" : "text-ink-strong"}`}>{formatMUR(sel.outstandingCents)}</div>
                 </div>
               </div>
+
+              {canMarket && (
+                <div className="px-[22px] pb-1">
+                  <WaOptOutToggle customerId={sel.id} optOut={sel.waOptOut} />
+                </div>
+              )}
 
               <div className="px-[22px] pb-2">
                 <VehiclesEditor customerId={sel.id} vehicles={sel.vehicles} />
