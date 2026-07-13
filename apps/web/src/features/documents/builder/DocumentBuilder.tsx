@@ -20,6 +20,40 @@ import { toDocumentProps } from "./toDocumentProps";
 // server-side in state.ts (both previously used an l<N> counter from 0).
 const newKey = () => crypto.randomUUID();
 
+// Signature of the editable content — used to detect edits made WHILE a save is
+// in flight, so saveOk doesn't clear dirty and silently drop them.
+const editSig = (st: BuilderState) =>
+  JSON.stringify({ l: st.lines, c: st.customerId, d: st.docType, sc: st.sectionConfig, cf: st.customFields, dk: st.docDiscountKind, dv: st.docDiscountValue });
+
+/**
+ * A money text field that keeps a local editing buffer so a transient "1500."
+ * survives (a controlled value re-derived from cents rounds the dot away, making
+ * fractional rates impossible to type). Commits parsed cents (clamped ≥ 0) up to
+ * the parent, and re-syncs only when the cents value changes from OUTSIDE.
+ */
+function MoneyField({ cents, onCents, className, placeholder }: { cents: number; onCents: (c: number) => void; className: string; placeholder?: string }) {
+  const [text, setText] = useState(cents ? String(cents / 100) : "");
+  const last = useRef(cents);
+  useEffect(() => {
+    if (cents !== last.current) { setText(cents ? String(cents / 100) : ""); last.current = cents; }
+  }, [cents]);
+  return (
+    <input
+      value={text}
+      onChange={(e) => {
+        const t = e.target.value;
+        setText(t);
+        const c = Math.max(0, parseMoneyInput(t) ?? 0);
+        last.current = c;
+        onCents(c);
+      }}
+      inputMode="decimal"
+      placeholder={placeholder}
+      className={className}
+    />
+  );
+}
+
 export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial: BuilderState }) {
   const router = useRouter();
   const [state, dispatch] = useReducer(reducer, initial);
@@ -50,6 +84,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     const run = async (): Promise<string | null> => {
       const s = stateRef.current;
       if (s.status !== "draft") return serverRef.current.docId; // never save an issued document
+      const startSig = editSig(s);
       dispatch({ type: "saveStart" });
       const payload: SaveDraftInput = {
         doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue },
@@ -69,7 +104,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       const res = await saveDraftAction(payload);
       if (res.ok) {
         serverRef.current = { docId: res.data.id, revision: res.data.revision };
-        dispatch({ type: "saveOk", docId: res.data.id, revision: res.data.revision });
+        dispatch({ type: "saveOk", docId: res.data.id, revision: res.data.revision, stillDirty: editSig(stateRef.current) !== startSig });
         return res.data.id;
       }
       dispatch({ type: "saveError", error: res.error });
@@ -85,7 +120,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (state.status !== "draft" || !state.dirty) return;
     const t = setTimeout(() => void doSave(), 1200);
     return () => clearTimeout(t);
-  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.status, state.docDiscountKind, state.docDiscountValue, doSave]);
+  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.status, state.docDiscountKind, state.docDiscountValue, doSave]);
 
   async function onIssue() {
     const s = stateRef.current;
@@ -363,7 +398,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                             value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")}
                             onChange={(e) =>
                               l.discountKind === "amount"
-                                ? dispatch({ type: "patchLine", key: l.key, patch: { discountAmountCents: parseMoneyInput(e.target.value) ?? 0 } })
+                                ? dispatch({ type: "patchLine", key: l.key, patch: { discountAmountCents: Math.max(0, parseMoneyInput(e.target.value) ?? 0) } })
                                 : dispatch({ type: "patchLine", key: l.key, patch: { discountPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) } })
                             }
                             inputMode="decimal"
@@ -375,10 +410,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                       {!readOnly && (
                         <div className="relative w-[96px]" title="Unit rate (excl. VAT)">
                           <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
-                          <input
-                            value={l.unitCents ? String(l.unitCents / 100) : ""}
-                            onChange={(e) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: parseMoneyInput(e.target.value) ?? 0 } })}
-                            inputMode="decimal"
+                          <MoneyField
+                            cents={l.unitCents}
+                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: c } })}
                             placeholder="rate"
                             className="num h-7 w-full rounded-[7px] border border-line-2 bg-sub pl-6 pr-2 text-right text-[12px] font-semibold text-ink outline-none placeholder:text-faint focus:border-brand"
                           />
@@ -480,7 +514,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                     value={state.docDiscountKind === "amount" ? (state.docDiscountValue ? String(state.docDiscountValue / 100) : "") : (state.docDiscountValue || "")}
                     onChange={(e) =>
                       (state.docDiscountKind ?? "percent") === "amount"
-                        ? dispatch({ type: "setDocDiscount", kind: "amount", value: parseMoneyInput(e.target.value) ?? 0 })
+                        ? dispatch({ type: "setDocDiscount", kind: "amount", value: Math.max(0, parseMoneyInput(e.target.value) ?? 0) })
                         : dispatch({ type: "setDocDiscount", kind: "percent", value: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })
                     }
                     inputMode="decimal"

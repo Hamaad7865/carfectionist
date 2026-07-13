@@ -48,6 +48,7 @@ export async function createIntakeQuoteAction(input: z.input<typeof intakeSchema
       photos: p.data.photos,
     });
     revalidatePath("/jobs");
+    revalidatePath("/sales"); // the new draft quote also appears under Sales
     return { ok: true, data: { id: doc.id } };
   } catch (e) {
     const msg = (e as Error).message;

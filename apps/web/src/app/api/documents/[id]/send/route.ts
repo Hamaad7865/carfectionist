@@ -26,6 +26,14 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const { data: me } = await sb.auth.getUser(token);
   if (!me?.user) return json({ ok: false, error: "unauthorized" }, 401);
 
+  // Role gate — mirror the web action (sendDocumentAction requires owner/manager/
+  // cashier). RLS lets any tenant member READ documents, so without this a
+  // technician could POST here to exfiltrate any PDF and overwrite contacts.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: appUser } = await (sb as any).from("app_users").select("role").eq("auth_user_id", me.user.id).eq("is_active", true).maybeSingle();
+  const role = appUser?.role as string | undefined;
+  if (!role || !["owner", "manager", "cashier"].includes(role)) return json({ ok: false, error: "forbidden" }, 403);
+
   let body: { channel?: string; to?: string; saveContact?: boolean; deviceCode?: string };
   try {
     body = await req.json();

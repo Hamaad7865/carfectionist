@@ -84,10 +84,10 @@ export function SendDocumentButton({
 
             <button
               onClick={send}
-              disabled={busy || !to.trim()}
+              disabled={busy || done || !to.trim()}
               className="grad-brand shadow-brand mt-4 flex h-11 w-full items-center justify-center gap-2 rounded-[12px] font-bold text-white disabled:opacity-50"
             >
-              <Send size={15} /> {busy ? "Sending…" : "Send PDF"}
+              <Send size={15} /> {busy ? "Sending…" : done ? "Sent ✓" : "Send PDF"}
             </button>
           </div>
         </div>

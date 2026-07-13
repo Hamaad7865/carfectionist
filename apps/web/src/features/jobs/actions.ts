@@ -124,6 +124,7 @@ export async function setJobStatusAction(jobId: string, status: "scheduled" | "i
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const patch: Record<string, any> = { status };
   if (status === "in_progress") patch.started_at = new Date().toISOString();
+  if (status === "ready") patch.ready_at = new Date().toISOString(); // else jobClock keeps counting to now
   if (status === "delivered") patch.delivered_at = new Date().toISOString();
   const { error } = await sb.from("jobs").update(patch).eq("id", jobId);
   if (error) return { ok: false, error: error.message };

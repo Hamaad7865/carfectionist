@@ -159,7 +159,8 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
     {
       key: "job",
       label: "Job",
-      state: job ? (job.status === "delivered" ? "done" : job.status === "cancelled" ? "declined" : "done") : "todo",
+      // Only a delivered job is "done"; scheduled/in-progress/ready = work underway = "current".
+      state: job ? (job.status === "delivered" ? "done" : job.status === "cancelled" ? "declined" : "current") : "todo",
       at: job ? muDateTime(job.delivered_at ?? job.ready_at ?? job.started_at ?? job.created_at) : null,
       detail: job
         ? [
@@ -192,9 +193,13 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
     });
   }
 
-  // The first not-done step is where the car stands now.
-  const firstTodo = steps.find((s) => s.state === "todo");
-  if (firstTodo) firstTodo.state = "current";
+  // Mark where the car stands now: an active job already carries "current"; else
+  // the first todo becomes current — but NOT when the quote was declined (a dead
+  // deal has no "now", the declined step is terminal).
+  if (!quoteDeclined && !steps.some((s) => s.state === "current")) {
+    const firstTodo = steps.find((s) => s.state === "todo");
+    if (firstTodo) firstTodo.state = "current";
+  }
 
   return steps;
 }

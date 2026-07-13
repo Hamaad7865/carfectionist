@@ -70,7 +70,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
   }
   let creditedByNumber: string | null = null;
   if (d.doc_type === "invoice") {
-    const { data: cn } = await sb.from("documents").select("number").eq("source_document_id", id).eq("doc_type", "credit_note").neq("status", "void").maybeSingle();
+    const { data: cn } = await sb.from("documents").select("number").eq("source_document_id", id).eq("doc_type", "credit_note").neq("status", "void").order("created_at", { ascending: false }).limit(1).maybeSingle();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     creditedByNumber = (cn as any)?.number ?? null;
   }

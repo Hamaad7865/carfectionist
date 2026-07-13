@@ -96,6 +96,9 @@ data class QuoteState(
     val sendBusy: Boolean = false,
     val sendDone: String? = null,
     val sendError: String? = null,
+    // False while an existing quote's lines are (re)loading or failed to load —
+    // guards Save/Accept from persisting an empty basket over the real lines.
+    val linesLoaded: Boolean = true,
 )
 
 val QUOTE_TIMES = listOf("Now", "13:30", "14:30", "15:30", "Tomorrow")
@@ -139,6 +142,10 @@ class QuoteViewModel @Inject constructor(
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
             hasIntake = true, signed = false,
+            // Never carry a previously-opened customer's contact into this fresh
+            // quote's send dialog — that would email/WhatsApp the signed quote to
+            // the wrong person. Intake carries no contact; the operator fills it.
+            customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
         )
     }
 
@@ -183,25 +190,29 @@ class QuoteViewModel @Inject constructor(
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
                 lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
+                sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
+                linesLoaded = false, // becomes true only when the lines actually load
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
                 signed = q.acceptedSignature != null && q.acceptedSignature !is kotlinx.serialization.json.JsonNull,
             )
         }
         viewModelScope.launch {
-            runCatching { api.fetchQuoteLines(q.id) }.onSuccess { ls ->
-                _s.update { st ->
-                    st.copy(lines = ls.map {
-                        QuoteLine(
-                            productId = it.productId, title = it.title,
-                            priceText = centsToPlainText(rupeesToCents(it.unitPrice)),
-                            vatRate = it.vatRate, qty = it.qty.toInt().coerceAtLeast(1),
-                            discountMode = if (it.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
-                            discountPct = it.discountPct.toInt(),
-                            discountAmtText = if (it.discountKind == "amount" && it.discountAmount > 0) centsToPlainText(rupeesToCents(it.discountAmount)) else "",
-                        )
-                    })
+            runCatching { api.fetchQuoteLines(q.id) }
+                .onSuccess { ls ->
+                    _s.update { st ->
+                        st.copy(linesLoaded = true, lines = ls.map {
+                            QuoteLine(
+                                productId = it.productId, title = it.title,
+                                priceText = centsToPlainText(rupeesToCents(it.unitPrice)),
+                                vatRate = it.vatRate, qty = it.qty.toInt().coerceAtLeast(1),
+                                discountMode = if (it.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
+                                discountPct = it.discountPct.toInt(),
+                                discountAmtText = if (it.discountKind == "amount" && it.discountAmount > 0) centsToPlainText(rupeesToCents(it.discountAmount)) else "",
+                            )
+                        })
+                    }
                 }
-            }
+                .onFailure { e -> _s.update { it.copy(error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})") } }
         }
     }
 
@@ -292,6 +303,7 @@ class QuoteViewModel @Inject constructor(
 
     fun saveDraft() {
         val s = _s.value
+        if (!s.linesLoaded) { _s.update { it.copy(error = "Items still loading — wait a moment, or reopen the quote.") }; return }
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
@@ -305,6 +317,7 @@ class QuoteViewModel @Inject constructor(
     fun create(signaturePng: ByteArray?) {
         val s = _s.value
         val cid = s.customerId ?: return
+        if (s.status == "draft" && !s.linesLoaded) { _s.update { it.copy(error = "Items still loading — wait a moment before accepting.") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
@@ -335,7 +348,7 @@ class QuoteViewModel @Inject constructor(
                     }
                 }
                 // signed = true: the tablet's accept flow requires the client's signature.
-                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null, signed = true) }
+                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null, signed = true, sendBusy = false, sendDone = null, sendError = null) }
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

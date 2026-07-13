@@ -52,7 +52,7 @@ export type BuilderAction =
   | { type: "patchCustomField"; index: number; patch: Partial<{ label: string; value: string }> }
   | { type: "removeCustomField"; index: number }
   | { type: "saveStart" }
-  | { type: "saveOk"; docId: string; revision: number; number?: string | null; status?: string }
+  | { type: "saveOk"; docId: string; revision: number; number?: string | null; status?: string; stillDirty?: boolean }
   | { type: "saveError"; error: string }
   | { type: "issued"; number: string; status: string };
 
@@ -92,8 +92,11 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
         revision: action.revision,
         number: action.number ?? state.number,
         status: action.status ?? state.status,
-        dirty: false,
-        save: "saved",
+        // Keep dirty when the document changed mid-save (edits made after the
+        // saved snapshot) — otherwise those edits are silently lost while the UI
+        // reads "Saved". The pending autosave timer (armed by that edit) then fires.
+        dirty: action.stillDirty ?? false,
+        save: action.stillDirty ? "idle" : "saved",
         saveError: null,
       };
     case "saveError":

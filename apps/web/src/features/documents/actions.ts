@@ -90,6 +90,7 @@ export async function recordPaymentAction(
       idempotencyKey: parsed.data.idempotencyKey ?? null,
     });
     revalidatePath(`/sales/${parsed.data.invoiceId}`);
+    revalidatePath("/sales"); // list status pill / method / amount-paid go stale otherwise
     return { ok: true, data: pay };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
