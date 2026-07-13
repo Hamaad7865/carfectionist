@@ -49,6 +49,7 @@ export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
   return (
     <div
       className="flex flex-wrap items-center gap-1.5"
+      role="group"
       aria-label="Sales chart period"
     >
       {PRESETS.map((preset) => {

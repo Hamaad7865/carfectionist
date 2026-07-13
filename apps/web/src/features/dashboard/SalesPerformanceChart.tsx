@@ -23,6 +23,14 @@ import { SalesPeriodControls } from './SalesPeriodControls';
 
 type TooltipEntry = { payload?: SalesPoint };
 
+export function resolveSalesAxisDomain(
+  dataMin: number,
+  dataMax: number,
+): [number, number] {
+  if (dataMin === 0 && dataMax === 0) return [0, 100];
+  return [Math.min(dataMin, 0), Math.max(dataMax, 0)];
+}
+
 function SalesTooltip({
   active,
   payload,
@@ -75,8 +83,8 @@ export function SalesPerformanceChart({
       className="rounded-[15px] border border-line bg-card p-4 sm:p-5"
       aria-labelledby="sales-performance-title"
     >
-      <div className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
-        <figcaption>
+      <figcaption className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
+        <div>
           <div
             id="sales-performance-title"
             className="font-display text-[15px] font-extrabold text-ink"
@@ -86,7 +94,7 @@ export function SalesPerformanceChart({
           <div className="mt-0.5 text-[11.5px] text-muted">
             Issued sales including VAT · {data.period.label}
           </div>
-        </figcaption>
+        </div>
         <div className="flex flex-col items-start gap-2 lg:items-end">
           <div className="flex items-baseline gap-2 lg:flex-col lg:items-end lg:gap-0.5">
             <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">
@@ -98,7 +106,7 @@ export function SalesPerformanceChart({
           </div>
           <SalesPeriodControls period={data.period} />
         </div>
-      </div>
+      </figcaption>
 
       {data.status === 'unavailable' ? (
         <div className="mt-5 rounded-[12px] bg-sub px-4 py-12 text-center">
@@ -154,10 +162,10 @@ export function SalesPerformanceChart({
                     tickLine={false}
                   />
                   <YAxis
-                    domain={[
-                      (dataMin: number) => Math.min(dataMin, 0),
-                      (dataMax: number) => Math.max(dataMax, 0),
-                    ]}
+                    domain={([dataMin, dataMax]) =>
+                      resolveSalesAxisDomain(dataMin, dataMax)
+                    }
+                    tickCount={data.hasSales ? 5 : 2}
                     tickFormatter={formatCompactMUR}
                     width={76}
                     tick={{ fill: '#68737f', fontSize: 10 }}

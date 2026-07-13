@@ -6,9 +6,13 @@ import {
   type ReactNode,
 } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { YAxis } from 'recharts';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { SalesPerformanceChart } from './SalesPerformanceChart';
+import {
+  resolveSalesAxisDomain,
+  SalesPerformanceChart,
+} from './SalesPerformanceChart';
 import { SalesPeriodControls } from './SalesPeriodControls';
 import {
   buildSalesPerformance,
@@ -49,6 +53,20 @@ function flattenElements(node: ReactNode): ReactElement[] {
   ];
 }
 
+describe('resolveSalesAxisDomain', () => {
+  it.each([
+    [0, 0, [0, 100]],
+    [-5_000, -1_000, [-5_000, 0]],
+    [1_000, 5_000, [0, 5_000]],
+    [-5_000, 4_000, [-5_000, 4_000]],
+  ])(
+    'resolves [%d, %d] to a useful zero-inclusive domain',
+    (dataMin, dataMax, expected) => {
+      expect(resolveSalesAxisDomain(dataMin, dataMax)).toEqual(expected);
+    },
+  );
+});
+
 describe('SalesPerformanceChart', () => {
   it('renders the period total and an accessible table with exact MUR values', () => {
     const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -67,17 +85,32 @@ describe('SalesPerformanceChart', () => {
     expect(html).toContain('Counter or direct');
     expect(html).toContain('Workshop jobs');
     expect(html).toContain('aria-labelledby="sales-performance-title"');
+    expect(html).toMatch(/^<figure[^>]*><figcaption[^>]*>/);
     expect(consoleWarn).not.toHaveBeenCalled();
     consoleWarn.mockRestore();
   });
 
   it('renders zero buckets with an honest empty message', () => {
+    const emptyData = buildSalesPerformance(period, []);
     const html = renderToStaticMarkup(
-      <SalesPerformanceChart data={buildSalesPerformance(period, [])} />,
+      <SalesPerformanceChart data={emptyData} />,
     );
+    const yAxis = flattenElements(
+      SalesPerformanceChart({ data: emptyData }),
+    ).find((element) => element.type === YAxis);
+    const yAxisProps = yAxis?.props as
+      | {
+          domain: (bounds: [number, number]) => [number, number];
+          tickCount: number;
+          tickFormatter: (cents: number) => string;
+        }
+      | undefined;
 
     expect(html).toContain('No issued sales in this period.');
     expect(html).toContain('Rs 0.00');
+    expect(yAxisProps?.domain([0, 0])).toEqual([0, 100]);
+    expect(yAxisProps?.tickCount).toBe(2);
+    expect(yAxisProps?.tickFormatter(100)).toBe('Rs 1');
   });
 
   it('renders query failure as unavailable rather than zero sales', () => {
@@ -122,6 +155,9 @@ describe('SalesPeriodControls', () => {
     );
 
     expect(html).toContain('aria-label="Sales chart period"');
+    expect(html).toMatch(
+      /<div[^>]*role="group"[^>]*aria-label="Sales chart period"/,
+    );
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-label="Sales chart from date"');
     expect(html).toContain('aria-label="Sales chart to date"');
