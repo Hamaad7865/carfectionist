@@ -3,6 +3,7 @@ import { Megaphone } from "lucide-react";
 import { getMarketing, getAudience } from "@/lib/supabase/queries/marketing";
 import { CampaignsPanel } from "@/features/marketing/CampaignsPanel";
 import { TemplatesPanel } from "@/features/marketing/TemplatesPanel";
+import { ReachabilityBar } from "@/features/marketing/ReachabilityBar";
 import { isConfigured } from "@/lib/whatsapp";
 
 const tabCls = (on: boolean) =>
@@ -13,6 +14,13 @@ export default async function MarketingPage({ searchParams }: { searchParams: Pr
   const tab = sp.tab === "templates" ? "templates" : "campaigns";
   const [data, audience] = await Promise.all([getMarketing(), tab === "campaigns" ? getAudience() : Promise.resolve([])]);
   const connected = isConfigured();
+
+  const reach = {
+    total: audience.length,
+    reachable: audience.filter((a) => a.phoneE164 && !a.optedOut).length,
+    noNumber: audience.filter((a) => !a.phoneE164).length,
+    optedOut: audience.filter((a) => a.optedOut).length,
+  };
 
   return (
     <div className="flex flex-col gap-5 p-4 sm:p-6">
@@ -34,7 +42,10 @@ export default async function MarketingPage({ searchParams }: { searchParams: Pr
       </div>
 
       {tab === "campaigns" ? (
-        <CampaignsPanel campaigns={data.campaigns} templates={data.templates} audience={audience} />
+        <>
+          <ReachabilityBar {...reach} />
+          <CampaignsPanel campaigns={data.campaigns} templates={data.templates} audience={audience} />
+        </>
       ) : (
         <TemplatesPanel templates={data.templates} />
       )}
