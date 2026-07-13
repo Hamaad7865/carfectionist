@@ -26,6 +26,8 @@ export interface DocumentDetail {
   issueDate: string | null;
   createdAt: string;
   customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
   subtotalCents: number;        // ex-VAT taxable base (post-discount)
   grossSubtotalCents: number;   // sum of line amounts (pre-order-discount)
   orderDiscountCents: number;   // whole-sale discount, ex-VAT
@@ -50,7 +52,7 @@ export interface DocumentDetail {
 
 export async function getDocumentDetail(id: string): Promise<DocumentDetail | null> {
   const sb = await createClient();
-  const { data: doc } = await sb.from("documents").select("*, customers(name)").eq("id", id).maybeSingle();
+  const { data: doc } = await sb.from("documents").select("*, customers(name, email, phone)").eq("id", id).maybeSingle();
   if (!doc) return null;
 
   const [{ data: lines }, { data: payments }] = await Promise.all([
@@ -111,6 +113,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     issueDate: d.issue_date,
     createdAt: d.created_at,
     customerName: d.customers?.name ?? d.bill_to_name ?? null,
+    customerEmail: d.customers?.email ?? null,
+    customerPhone: d.customers?.phone ?? null,
     subtotalCents,
     grossSubtotalCents,
     orderDiscountCents,

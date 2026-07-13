@@ -83,3 +83,18 @@ describe("DocumentA4 — invoice fiscal lock", () => {
     expect(html).toContain("VAT28070619");
   });
 });
+
+describe("DocumentA4 — client acceptance stamp", () => {
+  it("renders the signature block when accepted", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} accepted={{ name: "ANESH", at: "13 Jul 2026, 14:31", signatureUrl: "https://x/sig.png" }} />,
+    );
+    expect(html).toContain("Accepted by the client");
+    expect(html).toContain("ANESH");
+    expect(html).toContain("https://x/sig.png");
+  });
+  it("omits the block entirely when not accepted", () => {
+    const html = renderToStaticMarkup(<DocumentA4 {...base} />);
+    expect(html).not.toContain("Accepted by the client");
+  });
+});

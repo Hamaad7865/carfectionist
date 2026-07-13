@@ -598,6 +598,10 @@ export async function getDeviceDashboard(
         push(`a${a.id}`, a.created_at, "receipt", "Receipt emailed",
           [pl.number, pl.to].filter(Boolean).join(" → ") || null, saleHref(a.ref_id, pl.number));
         break;
+      case "document_sent":
+        push(`a${a.id}`, a.created_at, "receipt", pl.channel === "whatsapp" ? "Document sent on WhatsApp" : "Document emailed",
+          [pl.number, pl.to].filter(Boolean).join(" → ") || null, saleHref(a.ref_id, pl.number));
+        break;
       case "data_export":
         push(`a${a.id}`, a.created_at, "export", "Data export", pl.report ?? null);
         break;

@@ -43,18 +43,21 @@ export type WaResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
 // ─── template body → Meta components ─────────────────────────────────────────
 // Our stored body uses {{1}}, {{2}}… Meta wants a BODY component with an
-// example for each variable so reviewers see representative text.
+// example for each variable so reviewers see representative text. An optional
+// DOCUMENT header lets the sent message carry a PDF (quotes/invoices).
 export function buildTemplatePayload(t: {
   name: string;
   language: string;
   category: string;
   body: string;
   variableExamples: string[];
+  headerFormat?: "DOCUMENT";
 }) {
-  const components: Record<string, unknown>[] = [{ type: "BODY", text: t.body }];
-  if (t.variableExamples.length > 0) {
-    (components[0] as { example?: unknown }).example = { body_text: [t.variableExamples] };
-  }
+  const components: Record<string, unknown>[] = [];
+  if (t.headerFormat) components.push({ type: "HEADER", format: t.headerFormat });
+  const body: Record<string, unknown> = { type: "BODY", text: t.body };
+  if (t.variableExamples.length > 0) body.example = { body_text: [t.variableExamples] };
+  components.push(body);
   return { name: t.name, language: t.language, category: t.category, components };
 }
 
@@ -70,6 +73,46 @@ export function buildSendPayload(phone: string, templateName: string, language: 
     type: "template",
     template: { name: templateName, language: { code: language }, ...(components.length ? { components } : {}) },
   };
+}
+
+/** Template send carrying a PDF in the DOCUMENT header (Meta fetches the link). */
+export function buildDocumentSendPayload(
+  phone: string,
+  templateName: string,
+  language: string,
+  vars: string[],
+  doc: { link: string; filename: string },
+) {
+  const components: Record<string, unknown>[] = [
+    { type: "header", parameters: [{ type: "document", document: { link: doc.link, filename: doc.filename } }] },
+  ];
+  if (vars.length > 0) components.push({ type: "body", parameters: vars.map((v) => ({ type: "text", text: v })) });
+  return {
+    messaging_product: "whatsapp",
+    to: phone,
+    type: "template",
+    template: { name: templateName, language: { code: language }, components },
+  };
+}
+
+/** Send one approved document-header template (quote/invoice PDF). */
+export async function sendDocumentTemplate(
+  phone: string,
+  templateName: string,
+  language: string,
+  vars: string[],
+  doc: { link: string; filename: string },
+): Promise<WaResult<{ messageId: string }>> {
+  const e = waEnv();
+  if (!e.token || !e.phoneNumberId) return { ok: false, error: NOT_CONFIGURED };
+  const r = await graph(
+    `${e.phoneNumberId}/messages`,
+    { method: "POST", body: JSON.stringify(buildDocumentSendPayload(phone, templateName, language, vars, doc)) },
+    e.token,
+  );
+  if (!r.ok) return r;
+  const messages = (r.data.messages as { id?: string }[] | undefined) ?? [];
+  return { ok: true, data: { messageId: messages[0]?.id ?? "" } };
 }
 
 async function graph(path: string, init: RequestInit, token: string): Promise<WaResult<Record<string, unknown>>> {
@@ -96,6 +139,7 @@ export async function submitTemplate(t: {
   category: string;
   body: string;
   variableExamples: string[];
+  headerFormat?: "DOCUMENT";
 }): Promise<WaResult<{ id: string; status: string }>> {
   const e = waEnv();
   if (!e.token || !e.wabaId) return { ok: false, error: NOT_CONFIGURED };

@@ -72,7 +72,7 @@ data class TechnicianDto(
     @SerialName("display_name") val displayName: String,
 )
 
-@Serializable data class CustomerNameDto(val name: String? = null)
+@Serializable data class CustomerNameDto(val name: String? = null, val email: String? = null, val phone: String? = null)
 @Serializable data class VehicleNameDto(val plate: String? = null, val make: String? = null, val model: String? = null)
 
 @Serializable

@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { buildTemplatePayload, buildSendPayload, verifyWebhookSignature, isConfigured } from "./whatsapp";
+import { buildTemplatePayload, buildSendPayload, buildDocumentSendPayload, verifyWebhookSignature, isConfigured } from "./whatsapp";
 
 describe("buildTemplatePayload", () => {
   it("builds a BODY component with variable examples", () => {
@@ -59,5 +59,30 @@ describe("isConfigured", () => {
     keys.forEach((k) => delete process.env[k]);
     expect(isConfigured()).toBe(false);
     keys.forEach((k, i) => { if (saved[i] !== undefined) process.env[k] = saved[i]; });
+  });
+});
+
+describe("document-header templates", () => {
+  it("buildTemplatePayload includes a DOCUMENT header when asked", () => {
+    const p = buildTemplatePayload({
+      name: "document_delivery", language: "en", category: "UTILITY",
+      body: "Hello {{1}}, here is your {{2}} {{3}}.", variableExamples: ["Anesh", "quotation", "A00120"],
+      headerFormat: "DOCUMENT",
+    });
+    expect(p.components[0]).toEqual({ type: "HEADER", format: "DOCUMENT" });
+    expect(p.components[1]).toMatchObject({ type: "BODY" });
+  });
+
+  it("buildDocumentSendPayload carries the PDF link + filename in the header", () => {
+    const p = buildDocumentSendPayload("23052588854", "document_delivery", "en", ["Anesh", "quotation", "A00120"], {
+      link: "https://app-carfectionist.com/api/public/doc/tok/pdf",
+      filename: "A00120.pdf",
+    });
+    const comps = (p.template as { components: Record<string, unknown>[] }).components;
+    expect(comps[0]).toEqual({
+      type: "header",
+      parameters: [{ type: "document", document: { link: "https://app-carfectionist.com/api/public/doc/tok/pdf", filename: "A00120.pdf" } }],
+    });
+    expect(comps[1]).toMatchObject({ type: "body" });
   });
 });

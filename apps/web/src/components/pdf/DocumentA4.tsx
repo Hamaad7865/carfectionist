@@ -49,6 +49,9 @@ export interface DocumentA4Props {
   assets?: { headerBannerUrl?: string | null; footerBannerUrl?: string | null; logoUrl?: string | null };
   sectionConfig?: Partial<SectionFlags>;
   customFields?: { label: string; value: string }[];
+  /** Client acceptance captured on the tablet — stamps the document with the
+   *  signature so the customer receives proof of what they agreed to. */
+  accepted?: { name: string | null; at: string | null; signatureUrl: string | null } | null;
 }
 
 // Baked-in Diamondbrite artwork (served from apps/web/public) — the default so
@@ -299,6 +302,24 @@ export function DocumentA4(props: DocumentA4Props) {
                 <li key={i} style={{ marginBottom: "2px" }}>{t}</li>
               ))}
             </ol>
+          </div>
+        )}
+
+        {/* Client acceptance stamp — only on documents accepted (signed) on the tablet */}
+        {props.accepted && (
+          <div style={{ ...s.section, display: "flex", justifyContent: "flex-end" }}>
+            <div style={{ border: `1px solid ${RULE}`, borderRadius: "6px", padding: "10px 14px", minWidth: "220px" }}>
+              <div style={{ fontSize: "9px", textTransform: "uppercase", letterSpacing: "0.1em", color: "#2e7d32", fontWeight: 700 }}>
+                Accepted by the client
+              </div>
+              {props.accepted.signatureUrl ? (
+                <img src={props.accepted.signatureUrl} alt="Client signature" style={{ height: "44px", marginTop: "6px", objectFit: "contain" }} />
+              ) : null}
+              <div style={{ marginTop: "5px", fontSize: "9.5px", color: LINE_LABEL }}>
+                {props.accepted.name ? <span style={{ fontWeight: 700, color: INK }}>{props.accepted.name}</span> : "Signed in the studio"}
+                {props.accepted.at ? ` · ${props.accepted.at}` : ""}
+              </div>
+            </div>
           </div>
         )}
 
