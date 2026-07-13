@@ -222,27 +222,29 @@ export function SalesPerformanceChart({
               </ResponsiveContainer>
             </div>
           </div>
-          <table className="sr-only">
-            <caption>Sales including VAT by period and sales mode</caption>
-            <thead>
-              <tr>
-                <th scope="col">Period</th>
-                <th scope="col">Counter or direct</th>
-                <th scope="col">Workshop jobs</th>
-                <th scope="col">Total including VAT</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.points.map((point) => (
-                <tr key={point.key}>
-                  <th scope="row">{point.fullLabel}</th>
-                  <td>{formatMUR(point.counterCents)}</td>
-                  <td>{formatMUR(point.workshopCents)}</td>
-                  <td>{formatMUR(point.totalCents)}</td>
+          <div className="sr-only">
+            <table>
+              <caption>Sales including VAT by period and sales mode</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Period</th>
+                  <th scope="col">Counter or direct</th>
+                  <th scope="col">Workshop jobs</th>
+                  <th scope="col">Total including VAT</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.points.map((point) => (
+                  <tr key={point.key}>
+                    <th scope="row">{point.fullLabel}</th>
+                    <td>{formatMUR(point.counterCents)}</td>
+                    <td>{formatMUR(point.workshopCents)}</td>
+                    <td>{formatMUR(point.totalCents)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
     </figure>

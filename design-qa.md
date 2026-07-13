@@ -7,6 +7,8 @@
 - Primary viewport and state: Chrome, 1280 x 900, authenticated dashboard, `This month` (1-13 July 2026)
 - Final full-view evidence: `.superpowers/sdd/sales-chart-month-desktop-full-final.png`
 - Final focused evidence: `.superpowers/sdd/sales-chart-month-desktop-focus-final.png`
+- Post-merge desktop evidence: `.superpowers/sdd/sales-chart-month-desktop-merged.png`
+- Post-merge 320 px evidence: `.superpowers/sdd/sales-chart-custom-mobile-merged.png`
 - Tooltip and keyboard-focus evidence: `.superpowers/sdd/sales-chart-keyboard-focus.png`
 - Hover-state chart capture (popup not visible in the raster): `.superpowers/sdd/sales-chart-month-tooltip.png`
 - Responsive evidence: `.superpowers/sdd/sales-chart-today-mobile-top-fixed.png`, `.superpowers/sdd/sales-chart-today-mobile.png`, `.superpowers/sdd/sales-chart-today-mobile-scrolled.png`, `.superpowers/sdd/sales-chart-month-mobile.png`, `.superpowers/sdd/sales-chart-last7-tablet.png`
@@ -48,6 +50,7 @@ CashMag's ambiguous `Service 1` is intentionally adapted to the client's real sa
 - `Today`, `7 days`, and `This month` were exercised in the browser; the pressed state, period label, date values, and URL updated together.
 - An unrelated `qaMarker=keep` parameter survived preset changes, confirming URL preservation.
 - A valid custom route for 10-12 July rendered both selected date values and the correct inclusive label. The segmented native Chrome date field accepted keyboard focus/input; browser automation emitted partial intermediate native-date values, so final custom-route rendering was also verified directly. Component tests cover the complete custom update and unrelated-parameter preservation contracts.
+- The final draft-and-apply control was also exercised from the July month view to 1-31 January 2026. The URL stayed unchanged while each field was edited, then `Apply` committed the complete range and preserved the unrelated `qaMarker=final` parameter.
 - Hovering Sunday 12 July showed `Counter / direct Rs 35,234.62`, `Workshop jobs Rs 0.00`, and `Total incl. VAT Rs 35,234.62`.
 - Keyboard interaction focused the plot region itself (`role=region`, `aria-label=Sales chart plot`, `tabIndex=0`). A screen-reader-only table exposes exact MUR values for every bucket.
 - At 320 px the plot measured 236 px client width and 912 px scroll width. Horizontal interaction moved `scrollLeft` from 0 to 450 and exposed later hours/legend content without expanding the page.
@@ -86,6 +89,13 @@ There were zero app-origin warnings or errors. Chrome reported eight development
 
 - Evidence: source image plus `.superpowers/sdd/sales-chart-month-desktop-full-final.png` and `.superpowers/sdd/sales-chart-month-desktop-focus-final.png`, opened together in the same comparison input after the mobile fix.
 - Result: no actionable P0/P1/P2 difference remains. The implementation is intentionally Carfection-branded while matching CashMag's sales-statistics behavior and visual relationship.
+
+### Post-merge responsive pass
+
+- Evidence: `.superpowers/sdd/sales-chart-month-desktop-merged.png` and `.superpowers/sdd/sales-chart-custom-mobile-merged.png` after merging the latest `origin/main`.
+- Finding: P2 at 320 px. Applying `sr-only` directly to the accessible data table allowed native table layout to expand the document to 645 px, even though the visible plot itself was correctly contained.
+- Fix: moved `sr-only` to a wrapper around the table so the one-pixel accessibility box owns the clipping behavior without changing the table semantics.
+- Result: the document is now 311 px wide inside the 320 px viewport, while the visible plot remains independently scrollable at 237 px client width and 1178 px content width. The full January custom-range workflow and desktop month view remain visually correct; no P0/P1/P2 issue remains.
 
 ## Local checks
 

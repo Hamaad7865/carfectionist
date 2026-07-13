@@ -89,6 +89,8 @@ describe('SalesPerformanceChart', () => {
     expect(html).toContain('Workshop jobs');
     expect(html).toContain('aria-labelledby="sales-performance-title"');
     expect(html).toMatch(/^<figure[^>]*><figcaption[^>]*>/);
+    expect(html).toContain('<div class="sr-only"><table>');
+    expect(html).not.toContain('<table class="sr-only">');
     expect(consoleWarn).not.toHaveBeenCalled();
     consoleWarn.mockRestore();
   });
