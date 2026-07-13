@@ -110,6 +110,12 @@ data class FlowInvoiceRefDto(
     val status: String = "",
 )
 
+@Serializable
+data class FlowCertRefDto(
+    val number: String? = null,
+    @SerialName("expires_at") val expiresAt: String? = null,
+)
+
 // ── Jobs board ────────────────────────────────────────────────────────────────
 @Serializable data class ChecklistItemDto(val label: String, val done: Boolean = false)
 @Serializable data class JobCustomerDto(val name: String? = null, val phone: String? = null)
@@ -155,10 +161,12 @@ data class JobBoardDto(
     val customers: JobCustomerDto? = null,
     val vehicles: JobVehicleDto? = null,
     val technician: JobTechDto? = null,
-    // Lifecycle flow: the quote this job came from + any invoices billed on it.
+    // Lifecycle flow: the quote this job came from, invoices billed on it, and
+    // any warranty certificate issued against it (the ceramic journey's finale).
     @SerialName("source_quote_id") val sourceQuoteId: String? = null,
     @SerialName("source_quote") val sourceQuote: FlowQuoteRefDto? = null,
     val invoices: List<FlowInvoiceRefDto> = emptyList(),
+    val certificates: List<FlowCertRefDto> = emptyList(),
 )
 
 // ── Checkout · collect on invoice ─────────────────────────────────────────────

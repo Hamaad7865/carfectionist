@@ -563,5 +563,9 @@ private fun jobFlow(j: JobBoardDto): List<FlowStepUi> {
             when { inv != null -> FlowState.DONE; j.status == "delivered" -> FlowState.CURRENT; else -> FlowState.TODO },
             inv?.let { listOfNotNull(it.number, if (it.status == "paid") "paid" else null).joinToString(" · ") },
         ),
-    )
+    ) + (j.certificates.firstOrNull()?.let {
+        // For ceramic work the journey ends at the warranty certificate — the
+        // sixth step appears only when one has been issued.
+        listOf(FlowStepUi("Certificate", FlowState.DONE, listOfNotNull(it.number, it.expiresAt?.let { d -> "to $d" }).joinToString(" · ")))
+    } ?: emptyList())
 }

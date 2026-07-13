@@ -8,7 +8,7 @@ import { muDateTime } from "@/lib/mu-date";
 // five steps and where this car currently stands.
 
 export interface FlowStep {
-  key: "intake" | "quote" | "sign" | "job" | "invoice";
+  key: "intake" | "quote" | "sign" | "job" | "invoice" | "certificate";
   label: string;
   state: "done" | "current" | "todo" | "declined";
   at: string | null;     // MU display timestamp
@@ -83,6 +83,19 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
       .order("created_at", { ascending: false })
       .limit(1);
     invoice = (data ?? [])[0] ?? null;
+  }
+
+  // Certificate — for ceramic work the journey ends here, not at the invoice.
+  // certificates.job_id → jobs is a single FK (no embed ambiguity).
+  let cert: any = null;
+  if (job) {
+    const { data } = await sb
+      .from("certificates")
+      .select("id, number, applied_at, expires_at")
+      .eq("job_id", job.id)
+      .order("applied_at", { ascending: false })
+      .limit(1);
+    cert = (data ?? [])[0] ?? null;
   }
 
   // Plate — the car this whole flow is about.
@@ -165,6 +178,19 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
       href: invoice ? `/sales/${invoice.id}` : null,
     },
   ];
+
+  // A certificate extends the journey to six steps — but only when one exists
+  // (most work isn't ceramic; a permanent empty sixth step would be noise).
+  if (cert) {
+    steps.push({
+      key: "certificate",
+      label: "Certificate",
+      state: "done",
+      at: cert.applied_at ?? null,
+      detail: [cert.number, cert.expires_at ? `valid to ${cert.expires_at}` : null].filter(Boolean).join(" · "),
+      href: `/certificates`,
+    });
+  }
 
   // The first not-done step is where the car stands now.
   const firstTodo = steps.find((s) => s.state === "todo");

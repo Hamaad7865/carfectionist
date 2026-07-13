@@ -200,7 +200,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // PostgREST refuses with "more than one relationship was found".
     suspend fun fetchJobs(): List<JobBoardDto> =
         client.postgrest.from("jobs")
-            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, paused_at, paused_ms, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature), invoices:documents!documents_job_id_fkey(id, number, doc_type, status)")) {
+            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, paused_at, paused_ms, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature), invoices:documents!documents_job_id_fkey(id, number, doc_type, status), certificates(number, expires_at)")) {
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
             }
             .decodeList()
