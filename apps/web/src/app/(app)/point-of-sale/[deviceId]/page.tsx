@@ -257,13 +257,13 @@ export default async function DeviceDashboardPage({
                     cashflow.inflows.map((m) => (
                       <div key={m.id} className={`border-b border-line px-4 py-2.5 last:border-b-0 ${m.wasReversed ? "bg-[rgba(15,23,32,0.02)]" : ""}`}>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] md:hidden">
-                          <span className="num text-muted">{m.at}</span>
+                          <span className="text-muted">{m.at}</span>
                           <span className="rounded-[5px] bg-sub px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
                           {m.wasReversed && <span className="rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">Reversed</span>}
                           <span className={`num ml-auto font-bold ${m.wasReversed ? "text-faint line-through" : "text-ink"}`}>{formatMUR(m.amountCents)}</span>
                         </div>
                         <div className="hidden grid-cols-[150px_1fr_110px_100px_120px] items-center gap-3 text-[12.5px] md:grid">
-                          <span className="num text-muted">{m.at}</span>
+                          <span className="text-muted">{m.at}</span>
                           <span className={`min-w-0 truncate ${m.wasReversed ? "text-faint" : "text-body"}`}>{m.byName ?? "—"}</span>
                           <span className="flex items-center gap-1.5 text-muted">
                             {METHOD_LABEL[m.method] ?? m.method}
@@ -296,20 +296,20 @@ export default async function DeviceDashboardPage({
                     cashflow.outflows.map((m) => (
                       <div key={m.key} className={`border-b border-line px-4 py-2.5 last:border-b-0 ${m.cancelled ? "bg-[rgba(15,23,32,0.02)]" : ""}`}>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] md:hidden">
-                          <span className="num text-muted">{m.at}</span>
+                          <span className="text-muted">{m.at}</span>
                           <span className="rounded-[5px] bg-[rgba(214,59,80,0.08)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose">{METHOD_LABEL[m.method] ?? m.method}</span>
                           <span className={`num ml-auto font-bold ${m.cancelled ? "text-faint line-through" : "text-rose"}`}>{formatMUR(m.amountCents)}</span>
                         </div>
                         <div className="hidden grid-cols-[150px_1fr_110px_120px_130px_1fr] items-center gap-3 text-[12.5px] md:grid">
-                          <span className="num text-muted">{m.at}</span>
+                          <span className="text-muted">{m.at}</span>
                           <span className={`min-w-0 truncate ${m.cancelled ? "text-faint" : "text-body"}`}>{m.byName ?? "—"}</span>
                           <span className={m.cancelled ? "text-faint" : "text-muted"}>{METHOD_LABEL[m.method] ?? m.method}</span>
                           <span className={`num text-right font-bold ${m.cancelled ? "text-faint line-through" : "text-rose"}`}>{formatMUR(m.amountCents)}</span>
                           <span className={m.cancelled ? "text-faint" : "text-muted"}>{m.type}</span>
                           {m.docId ? (
-                            <Link href={`/sales/${m.docId}`} title={m.comment} className={`num min-w-0 truncate font-bold hover:underline ${m.cancelled ? "text-faint" : "text-link"}`}>{m.comment || "—"}</Link>
+                            <Link href={`/sales/${m.docId}`} title={m.comment} className={`min-w-0 truncate font-semibold hover:underline ${m.cancelled ? "text-faint" : "text-link"}`}>{m.comment || "—"}</Link>
                           ) : (
-                            <span title={m.comment} className={`num min-w-0 truncate ${m.cancelled ? "text-faint" : "text-muted"}`}>{m.comment || "—"}</span>
+                            <span title={m.comment} className={`min-w-0 truncate ${m.cancelled ? "text-faint" : "text-muted"}`}>{m.comment || "—"}</span>
                           )}
                         </div>
                       </div>
