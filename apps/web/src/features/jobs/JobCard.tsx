@@ -41,7 +41,9 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const [cProd, setCProd] = useState("");
   const [cQty, setCQty] = useState("1");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // Errors render next to the control that caused them — a banner pinned at the
+  // top is invisible when the Billing/Complete buttons are below the fold.
+  const [error, setError] = useState<{ at: "top" | "photos" | "billing" | "bottom"; msg: string } | null>(null);
   const [docBusy, setDocBusy] = useState<null | "quote" | "invoice">(null);
   const creatingRef = useRef(false);
   const readOnly = job.status === "ready" || job.status === "delivered";
@@ -53,7 +55,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   async function addAfter(p: IntakePhoto) {
     setAfterPhotos((prev) => [...prev, p]); // optimistic
     const r = await addJobPhotoAction({ jobId: job.id, path: p.path, phase: "after" });
-    if (!r.ok) { setAfterPhotos((prev) => prev.filter((x) => x !== p)); setError(r.error); }
+    if (!r.ok) { setAfterPhotos((prev) => prev.filter((x) => x !== p)); setError({ at: "photos", msg: r.error }); }
   }
 
   async function createDoc(docType: "quote" | "invoice") {
@@ -69,7 +71,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
     } else {
       creatingRef.current = false;
       setDocBusy(null);
-      setError(!r.ok ? r.error : "Could not create the document.");
+      setError({ at: "billing", msg: !r.ok ? r.error : "Could not create the document." });
     }
   }
 
@@ -88,12 +90,12 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
     return () => clearInterval(t);
   }, [job.running]);
 
-  async function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
+  async function run(fn: () => Promise<{ ok: boolean; error?: string }>, at: "top" | "bottom" = "top") {
     setBusy(true);
     setError(null);
     const r = await fn();
     setBusy(false);
-    if (!r.ok) setError(r.error ?? "Something went wrong");
+    if (!r.ok) setError({ at, msg: r.error ?? "Something went wrong" });
     else router.refresh();
   }
 
@@ -113,6 +115,11 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const checkDone = checklist.filter((c) => c.done).length;
   const consumeName = (id: string) => refData.consumables.find((p) => p.id === id)?.name ?? id;
 
+  const errNote = (at: "top" | "photos" | "billing" | "bottom") =>
+    error?.at === at ? (
+      <p className="my-3 rounded-[10px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[13px] text-rose">{error.msg}</p>
+    ) : null;
+
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-6">
       <Link href="/jobs" className="text-[13px] font-semibold text-muted hover:text-body">← Jobs board</Link>
@@ -126,7 +133,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         <StatusPill status={job.status} />
       </div>
 
-      {error && <p className="mt-3 rounded-[10px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[13px] text-rose">{error}</p>}
+      {errNote("top")}
 
       {/* timer — the POS clock: Start → (Pause/Resume)* → Complete stops it */}
       <div className="mt-5 flex items-center gap-4 rounded-[15px] border border-line bg-card p-4">
@@ -219,6 +226,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
             <div>
               <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">After</div>
               <PhotoUploader tenantId={job.tenantId} folder={job.id} photos={afterPhotos} onAdd={addAfter} label="" />
+              {errNote("photos")}
             </div>
           </div>
         </div>
@@ -247,6 +255,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
             </button>
           </div>
         </div>
+        {errNote("billing")}
         {job.documents.length === 0 ? (
           <p className="text-[13px] text-faint">No quote or invoice yet — create one from this job.</p>
         ) : (
@@ -321,19 +330,23 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
             </button>
           </div>
           <button
-            onClick={() => run(() => completeJobAction({ jobId: job.id, consumptions: consume }))}
+            onClick={() => run(() => completeJobAction({ jobId: job.id, consumptions: consume }), "bottom")}
             disabled={busy}
             className="grad-brand shadow-brand mt-4 flex h-12 w-full items-center justify-center rounded-[13px] font-display text-[15px] font-extrabold text-white disabled:opacity-60"
           >
             Complete job &amp; consume stock →
           </button>
+          {errNote("bottom")}
         </div>
       )}
 
       {job.status === "ready" && (
-        <button onClick={() => run(() => setJobStatusAction(job.id, "delivered"))} disabled={busy} className="mt-5 flex h-11 w-full items-center justify-center rounded-[12px] border border-line-2 bg-card text-[14px] font-bold text-body">
-          Mark delivered
-        </button>
+        <>
+          <button onClick={() => run(() => setJobStatusAction(job.id, "delivered"), "bottom")} disabled={busy} className="mt-5 flex h-11 w-full items-center justify-center rounded-[12px] border border-line-2 bg-card text-[14px] font-bold text-body">
+            Mark delivered
+          </button>
+          {errNote("bottom")}
+        </>
       )}
     </div>
   );
