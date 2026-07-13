@@ -8,6 +8,8 @@
 // to Meta (submitTemplate), poll approval (fetchTemplateStatuses), then send
 // the approved template per recipient with positional variables (sendTemplate).
 
+import { serverEnv } from "@/lib/server-env";
+
 const GRAPH = "https://graph.facebook.com/v21.0";
 
 interface WaEnv {
@@ -18,16 +20,16 @@ interface WaEnv {
   verifyToken: string;
 }
 
-// Secrets live in process.env on the Worker (Wrangler secrets), proven by
-// lib/receipt-token.ts. Kept behind a getter so a missing value is a runtime
+// Secrets resolve via serverEnv (Cloudflare context on the Worker, process.env
+// in dev/tests). Kept behind a getter so a missing value is a runtime
 // "not configured" rather than an import-time crash.
 function waEnv(): Partial<WaEnv> {
   return {
-    token: process.env.WHATSAPP_TOKEN,
-    phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID,
-    wabaId: process.env.WHATSAPP_WABA_ID,
-    appSecret: process.env.WHATSAPP_APP_SECRET,
-    verifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+    token: serverEnv("WHATSAPP_TOKEN"),
+    phoneNumberId: serverEnv("WHATSAPP_PHONE_NUMBER_ID"),
+    wabaId: serverEnv("WHATSAPP_WABA_ID"),
+    appSecret: serverEnv("WHATSAPP_APP_SECRET"),
+    verifyToken: serverEnv("WHATSAPP_WEBHOOK_VERIFY_TOKEN"),
   };
 }
 

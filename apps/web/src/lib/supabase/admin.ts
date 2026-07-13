@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import { serverEnv } from "@/lib/server-env";
 import type { Database } from "./database.types";
 
 /**
@@ -8,8 +9,8 @@ import type { Database } from "./database.types";
  */
 export function createAdminClient() {
   return createClient<Database>(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!, // build-time inlined (NEXT_PUBLIC_*)
+    serverEnv("SUPABASE_SERVICE_ROLE_KEY")!, // wrangler secret on the Worker
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 }

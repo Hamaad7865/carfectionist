@@ -1,3 +1,5 @@
+import { serverEnv } from "@/lib/server-env";
+
 /**
  * HTML → PDF, isolated behind one function so the engine (Cloudflare Browser
  * Rendering today) can be swapped without touching callers.
@@ -5,8 +7,8 @@
 export class PdfConfigError extends Error {}
 
 export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
-  const accountId = process.env.CF_ACCOUNT_ID;
-  const token = process.env.CF_BROWSER_RENDERING_TOKEN;
+  const accountId = serverEnv("CF_ACCOUNT_ID");
+  const token = serverEnv("CF_BROWSER_RENDERING_TOKEN");
   if (!accountId || !token) {
     throw new PdfConfigError(
       "Cloudflare Browser Rendering is not configured. Set CF_ACCOUNT_ID and CF_BROWSER_RENDERING_TOKEN.",

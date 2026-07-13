@@ -4,6 +4,8 @@
 // document id makes tokens unforgeable without the server secret. Web Crypto
 // only (runs on workerd). Server-side only — never import from a client file.
 
+import { serverEnv } from "@/lib/server-env";
+
 const b64url = (buf: ArrayBuffer) =>
   Buffer.from(buf).toString("base64").replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/, "");
 
@@ -11,7 +13,7 @@ function secret(): string {
   // A dedicated secret when configured; otherwise derived from the service-role
   // key (server-only either way). Rotating either invalidates old links — fine,
   // receipts can simply be re-sent.
-  return process.env.RECEIPT_LINK_SECRET || process.env.SUPABASE_SERVICE_ROLE_KEY || "dev-only-secret";
+  return serverEnv("RECEIPT_LINK_SECRET") || serverEnv("SUPABASE_SERVICE_ROLE_KEY") || "dev-only-secret";
 }
 
 async function sign(kind: string, docId: string): Promise<string> {
