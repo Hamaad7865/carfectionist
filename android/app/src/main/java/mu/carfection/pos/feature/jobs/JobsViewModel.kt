@@ -218,7 +218,17 @@ class JobsViewModel @Inject constructor(
         }
     }
 
-    fun jobsFor(s: JobsState, col: JobCol): List<JobBoardDto> = s.jobs.filter { it.status == col.key }
+    // Delivered cards linger 48h as a "just handed over" record, then leave the board
+    // (the job row itself is permanent — history lives in Documents/Reports).
+    fun jobsFor(s: JobsState, col: JobCol): List<JobBoardDto> = s.jobs.filter { job ->
+        job.status == col.key && (col != JobCol.DELIVERED || run {
+            val at = job.deliveredAt ?: return@run true
+            val ms = runCatching { Instant.parse(at).toEpochMilli() }.getOrNull()
+                ?: runCatching { java.time.OffsetDateTime.parse(at).toInstant().toEpochMilli() }.getOrNull()
+                ?: return@run true
+            System.currentTimeMillis() - ms < 48L * 60 * 60 * 1000
+        })
+    }
     fun active(s: JobsState): JobBoardDto? = s.jobs.firstOrNull { it.id == s.activeJobId }
 
     // Clear photoUploading too: it isn't job-scoped, so leaving it set would show a phantom

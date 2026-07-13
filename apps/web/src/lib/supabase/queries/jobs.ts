@@ -61,6 +61,9 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
   const now = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const j of (jobsRes.data ?? []) as any[]) {
+    // Delivered cards linger 48h as a "just handed over" record, then leave the
+    // board (the job row is permanent — history lives in Sales/Reports).
+    if (j.status === "delivered" && j.delivered_at && now - Date.parse(j.delivered_at) >= 48 * 3600_000) continue;
     const v = vehicles.find((x) => x.id === j.vehicle_id);
     const tech = nameById(users, j.technician_id);
     // The POS clock (started_at/paused) is authoritative when present; a job the
