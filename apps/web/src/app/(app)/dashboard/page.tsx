@@ -4,6 +4,8 @@ import { getDashboard } from "@/lib/supabase/queries/dashboard";
 import { getSessionContext } from "@/lib/auth/session";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
+import { SalesPerformanceChart } from "@/features/dashboard/SalesPerformanceChart";
+import type { SalesPeriodInput } from "@/features/dashboard/sales-performance";
 
 const card = "rounded-[15px] border border-line bg-card";
 const METHOD_COLOR: Record<string, string> = {
@@ -20,26 +22,31 @@ function Kpi({ icon: Icon, value, label, tint }: { icon: typeof ReceiptText; val
       <span className="grid size-[34px] place-items-center rounded-[10px]" style={{ background: `${tint}22`, color: tint }}>
         <Icon size={18} />
       </span>
-      <div className="num mt-3.5 text-[27px] font-extrabold tracking-tight text-ink-strong">{value}</div>
+      <div className="num mt-3.5 text-[18px] font-extrabold leading-tight tracking-tight text-ink-strong min-[400px]:text-[23px] sm:text-[27px]">{value}</div>
       <div className="mt-0.5 text-[12px] font-medium text-muted">{label}</div>
     </div>
   );
 }
 
-export default async function DashboardPage() {
-  const [d, session] = await Promise.all([getDashboard(), getSessionContext()]);
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<SalesPeriodInput> }) {
+  const params = await searchParams;
+  const [d, session] = await Promise.all([getDashboard(params), getSessionContext()]);
   const name = (session?.displayName ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
 
   const methodTotal = d.byMethod.reduce((s, m) => s + m.cents, 0) || 1;
-  let acc = 0;
-  const stops = d.byMethod
-    .map((m) => {
-      const start = (acc / methodTotal) * 360;
-      acc += m.cents;
-      const end = (acc / methodTotal) * 360;
-      return `${METHOD_COLOR[m.method] ?? "#8c96a1"} ${start}deg ${end}deg`;
-    })
-    .join(",");
+  const methodStops = d.byMethod.reduce(
+    (result, m) => {
+      const start = (result.cents / methodTotal) * 360;
+      const nextCents = result.cents + m.cents;
+      const end = (nextCents / methodTotal) * 360;
+      return {
+        cents: nextCents,
+        stops: [...result.stops, `${METHOD_COLOR[m.method] ?? "#8c96a1"} ${start}deg ${end}deg`],
+      };
+    },
+    { cents: 0, stops: [] as string[] },
+  );
+  const stops = methodStops.stops.join(",");
 
   const bestMax = d.bestServices[0]?.cents ?? 1;
 
@@ -59,6 +66,8 @@ export default async function DashboardPage() {
         <Kpi icon={Clock} value={formatMUR(d.outstandingCents)} label="Outstanding" tint="#f5a623" />
         <Kpi icon={FileText} value={String(d.docCount)} label="Invoices" tint="#6a5cff" />
       </div>
+
+      <SalesPerformanceChart data={d.salesPerformance} />
 
       {/* Collected by method + catalogue */}
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,400px)_1fr]">
