@@ -47,6 +47,14 @@ export interface SalesPeriod {
   label: string;
 }
 
+export interface SalesQuerySpec {
+  columns: 'id, doc_type, status, total_incl, origin, issued_at';
+  docTypes: ['invoice', 'credit_note'];
+  statuses: ['issued', 'partly_paid', 'paid'];
+  startIso: string;
+  endExclusiveIso: string;
+}
+
 export interface SalesDocumentRow {
   id: string;
   doc_type: 'invoice' | 'credit_note';
@@ -170,6 +178,16 @@ export function resolveSalesPeriod(
     }
   }
   return makePeriod('month', 'day', `${today.slice(0, 7)}-01`, today);
+}
+
+export function salesQuerySpec(period: SalesPeriod): SalesQuerySpec {
+  return {
+    columns: 'id, doc_type, status, total_incl, origin, issued_at',
+    docTypes: ['invoice', 'credit_note'],
+    statuses: ['issued', 'partly_paid', 'paid'],
+    startIso: period.startIso,
+    endExclusiveIso: period.endExclusiveIso,
+  };
 }
 
 function fullDayLabel(date: string): string {

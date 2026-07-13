@@ -4,6 +4,7 @@ import {
   buildSalesPerformance,
   formatCompactMUR,
   resolveSalesPeriod,
+  salesQuerySpec,
   settleSalesPerformance,
   unavailableSalesPerformance,
   type SalesDocumentRow,
@@ -94,6 +95,20 @@ function row(overrides: Partial<SalesDocumentRow> = {}): SalesDocumentRow {
 }
 
 describe('buildSalesPerformance', () => {
+  it('accepts PostgREST numeric strings and ignores rows outside the selected buckets', () => {
+    const period = resolveSalesPeriod({ salesRange: 'today' }, NOW);
+    const data = buildSalesPerformance(period, [
+      row({ total_incl: '123.45' }),
+      row({
+        id: 'outside',
+        total_incl: '999',
+        issued_at: '2026-07-11T10:00:00.000Z',
+      }),
+    ]);
+
+    expect(data.totalCents).toBe(12_345);
+  });
+
   it('creates 24 zero-filled buckets for Today', () => {
     const data = buildSalesPerformance(
       resolveSalesPeriod({ salesRange: 'today' }, NOW),
@@ -211,6 +226,20 @@ describe('buildSalesPerformance', () => {
         point.counterCents + point.workshopCents,
       );
     }
+  });
+});
+
+describe('salesQuerySpec', () => {
+  it('describes the exact paginated fiscal query window', () => {
+    const period = resolveSalesPeriod({ salesRange: 'today' }, NOW);
+
+    expect(salesQuerySpec(period)).toEqual({
+      columns: 'id, doc_type, status, total_incl, origin, issued_at',
+      docTypes: ['invoice', 'credit_note'],
+      statuses: ['issued', 'partly_paid', 'paid'],
+      startIso: '2026-07-12T20:00:00.000Z',
+      endExclusiveIso: '2026-07-13T20:00:00.000Z',
+    });
   });
 });
 
