@@ -34,26 +34,37 @@ async function bindingSend(msg: {
   if (!env?.EMAIL?.send) {
     return { ok: false, error: "Email sending isn't configured on this deployment yet (enable Email Sending for app-carfectionist.com in the Cloudflare dashboard)." };
   }
-  try {
-    const { createMimeMessage } = await import("mimetext");
-    const mime = createMimeMessage();
-    mime.setSender({ name: msg.from.name, addr: msg.from.email });
-    mime.setRecipient(msg.to);
-    mime.setSubject(msg.subject);
-    mime.addMessage({ contentType: "text/plain", data: msg.text });
-    mime.addMessage({ contentType: "text/html", data: msg.html });
-    for (const a of msg.attachments ?? []) {
-      mime.addAttachment({ filename: a.filename, contentType: a.contentType, data: a.content });
+  // The binding takes the structured form ({to, from, subject, text, html,
+  // attachments}) — `raw` is ignored ("text or html must have content") and the
+  // attachment type field is named `mimeType` (its validation error literally
+  // says "Invalid `mimeType` given" when absent). Field names aren't formally
+  // documented, so on an attachment-shape rejection we retry with `type`, and
+  // finally send WITHOUT the attachment — the body always carries the tokenized
+  // download button, so the customer still gets the document.
+  const base = {
+    to: msg.to,
+    from: { email: msg.from.email, name: msg.from.name },
+    subject: msg.subject,
+    text: msg.text,
+    html: msg.html,
+  };
+  const shapes: Record<string, unknown>[] = msg.attachments?.length
+    ? [
+        { ...base, attachments: msg.attachments.map((a) => ({ filename: a.filename, mimeType: a.contentType, content: a.content })) },
+        { ...base, attachments: msg.attachments.map((a) => ({ filename: a.filename, type: a.contentType, content: a.content })) },
+        base,
+      ]
+    : [base];
+  let lastErr = "send failed";
+  for (const shape of shapes) {
+    try {
+      await env.EMAIL.send(shape);
+      return { ok: true };
+    } catch (e) {
+      lastErr = (e as Error).message;
     }
-    // This binding version duck-types the message (the earlier structured object
-    // was accepted, only its internally-built MIME was malformed) — so we hand it
-    // a complete, valid raw MIME and skip the cloudflare:email EmailMessage class,
-    // which OpenNext's esbuild can't bundle.
-    await env.EMAIL.send({ from: msg.from.email, to: msg.to, raw: mime.asRaw() });
-    return { ok: true };
-  } catch (e) {
-    return { ok: false, error: (e as Error).message };
   }
+  return { ok: false, error: lastErr };
 }
 
 export interface ReceiptEmailInput {
