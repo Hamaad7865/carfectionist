@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   buildSalesPerformance,
   formatCompactMUR,
+  normalizeSalesPeriodInput,
   resolveSalesPeriod,
   salesQuerySpec,
   settleSalesPerformance,
@@ -13,6 +14,21 @@ import {
 const NOW = Date.parse('2026-07-13T08:00:00.000Z'); // 12:00 in Mauritius
 
 describe('resolveSalesPeriod', () => {
+  it('normalizes raw Next search parameters to scalar sales inputs', () => {
+    expect(
+      normalizeSalesPeriodInput({
+        salesRange: 'custom',
+        salesFrom: ['2026-01-01', '2026-02-01'],
+        salesTo: '2026-01-31',
+        unrelated: 'keep',
+      }),
+    ).toEqual({
+      salesRange: 'custom',
+      salesFrom: undefined,
+      salesTo: '2026-01-31',
+    });
+  });
+
   it('defaults to the current Mauritius month through today', () => {
     expect(resolveSalesPeriod({}, NOW)).toMatchObject({
       range: 'month',
@@ -213,6 +229,22 @@ describe('buildSalesPerformance', () => {
       -7_500,
     ]);
     expect(data.totalCents).toBe(-2_500);
+  });
+
+  it('keeps fiscal activity visible when an invoice and credit note cancel exactly', () => {
+    const period = resolveSalesPeriod({ salesRange: 'today' }, NOW);
+    const data = buildSalesPerformance(period, [
+      row({ id: 'invoice', total_incl: 75 }),
+      row({
+        id: 'credit',
+        doc_type: 'credit_note',
+        status: 'issued',
+        total_incl: 75,
+      }),
+    ]);
+
+    expect(data.totalCents).toBe(0);
+    expect(data.hasSales).toBe(true);
   });
 
   it('always reconciles the total line to both bar series', () => {

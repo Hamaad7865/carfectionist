@@ -5,7 +5,10 @@ import { getSessionContext } from "@/lib/auth/session";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 import { SalesPerformanceChart } from "@/features/dashboard/SalesPerformanceChart";
-import type { SalesPeriodInput } from "@/features/dashboard/sales-performance";
+import {
+  normalizeSalesPeriodInput,
+  type SalesSearchParams,
+} from "@/features/dashboard/sales-performance";
 
 const card = "rounded-[15px] border border-line bg-card";
 const METHOD_COLOR: Record<string, string> = {
@@ -28,8 +31,8 @@ function Kpi({ icon: Icon, value, label, tint }: { icon: typeof ReceiptText; val
   );
 }
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<SalesPeriodInput> }) {
-  const params = await searchParams;
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<SalesSearchParams> }) {
+  const params = normalizeSalesPeriodInput(await searchParams);
   const [d, session] = await Promise.all([getDashboard(params), getSessionContext()]);
   const name = (session?.displayName ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
 

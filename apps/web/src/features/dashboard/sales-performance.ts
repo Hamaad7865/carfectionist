@@ -37,6 +37,24 @@ export interface SalesPeriodInput {
   salesTo?: string;
 }
 
+export type SalesSearchParams = Record<
+  string,
+  string | string[] | undefined
+>;
+
+export function normalizeSalesPeriodInput(
+  input: SalesSearchParams,
+): SalesPeriodInput {
+  const scalar = (value: string | string[] | undefined) =>
+    typeof value === 'string' ? value : undefined;
+
+  return {
+    salesRange: scalar(input.salesRange),
+    salesFrom: scalar(input.salesFrom),
+    salesTo: scalar(input.salesTo),
+  };
+}
+
 export interface SalesPeriod {
   range: SalesRangeKey;
   bucket: SalesBucketKind;
@@ -248,6 +266,7 @@ export function buildSalesPerformance(
 ): ReadySalesPerformance {
   const points = emptyPoints(period);
   const byKey = new Map(points.map((point) => [point.key, point]));
+  let hasSales = false;
 
   for (const row of rows) {
     const cents = liveCents(row);
@@ -261,6 +280,7 @@ export function buildSalesPerformance(
     const point = byKey.get(key);
     if (!point) continue;
 
+    hasSales = true;
     if (row.origin === 'from_job') point.workshopCents += cents;
     else point.counterCents += cents;
     point.totalCents = point.counterCents + point.workshopCents;
@@ -271,9 +291,7 @@ export function buildSalesPerformance(
     period,
     points,
     totalCents: points.reduce((sum, point) => sum + point.totalCents, 0),
-    hasSales: points.some(
-      (point) => point.counterCents !== 0 || point.workshopCents !== 0,
-    ),
+    hasSales,
   };
 }
 

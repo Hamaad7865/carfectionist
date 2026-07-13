@@ -1,5 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/paginate";
+import {
+  fetchAllRowsByKeyset,
+  fixedIsoUpperBound,
+} from "@/lib/supabase/paginate";
 import { rupeesToCents } from "@/lib/money";
 import { muDate } from "@/lib/mu-date";
 import {
@@ -23,22 +26,57 @@ export interface DashboardData {
   bestServices: { name: string; cents: number; qty: number }[];
 }
 
+interface SalesDocumentCursor {
+  issuedAt: string;
+  id: string;
+}
+
+function salesDocumentCursor(row: SalesDocumentRow): SalesDocumentCursor {
+  if (!row.issued_at) {
+    throw new Error("Sales pagination row is missing issued_at");
+  }
+  return { issuedAt: row.issued_at, id: row.id };
+}
+
+function compareSalesDocumentCursors(
+  left: SalesDocumentCursor,
+  right: SalesDocumentCursor,
+): number {
+  const issuedAtOrder = Date.parse(left.issuedAt) - Date.parse(right.issuedAt);
+  if (issuedAtOrder !== 0) return issuedAtOrder;
+  if (left.id === right.id) return 0;
+  return left.id < right.id ? -1 : 1;
+}
+
 export async function getDashboard(input: SalesPeriodInput = {}): Promise<DashboardData> {
   const sb = await createClient();
   const period = resolveSalesPeriod(input);
   const salesQuery = salesQuerySpec(period);
+  const salesCutoffIso = fixedIsoUpperBound(salesQuery.endExclusiveIso);
   const salesPerformancePromise = settleSalesPerformance(
     period,
-    fetchAllRows<SalesDocumentRow>(
-      () => sb
-        .from("documents")
-        .select(salesQuery.columns)
-        .in("doc_type", salesQuery.docTypes)
-        .in("status", salesQuery.statuses)
-        .not("issued_at", "is", null)
-        .gte("issued_at", salesQuery.startIso)
-        .lt("issued_at", salesQuery.endExclusiveIso),
-      "id",
+    fetchAllRowsByKeyset<SalesDocumentRow, SalesDocumentCursor>(
+      (after) => {
+        let query = sb
+          .from("documents")
+          .select(salesQuery.columns)
+          .in("doc_type", salesQuery.docTypes)
+          .in("status", salesQuery.statuses)
+          .not("issued_at", "is", null)
+          .gte("issued_at", salesQuery.startIso)
+          .lt("issued_at", salesCutoffIso)
+          .order("issued_at", { ascending: true })
+          .order("id", { ascending: true });
+
+        if (after) {
+          query = query.or(
+            `issued_at.gt.${after.issuedAt},and(issued_at.eq.${after.issuedAt},id.gt.${after.id})`,
+          );
+        }
+        return query;
+      },
+      salesDocumentCursor,
+      compareSalesDocumentCursors,
     ),
   );
   const [invoices, payments, services, stocked, locations, team, recent, lines, salesPerformance] = await Promise.all([

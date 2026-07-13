@@ -1,7 +1,7 @@
 import {
   Children,
   isValidElement,
-  type ChangeEvent,
+  type FormEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -13,7 +13,10 @@ import {
   resolveSalesAxisDomain,
   SalesPerformanceChart,
 } from './SalesPerformanceChart';
-import { SalesPeriodControls } from './SalesPeriodControls';
+import {
+  buildCustomSalesRangeUpdate,
+  SalesPeriodControls,
+} from './SalesPeriodControls';
 import {
   buildSalesPerformance,
   resolveSalesPeriod,
@@ -156,11 +159,12 @@ describe('SalesPeriodControls', () => {
 
     expect(html).toContain('aria-label="Sales chart period"');
     expect(html).toMatch(
-      /<div[^>]*role="group"[^>]*aria-label="Sales chart period"/,
+      /<form[^>]*role="group"[^>]*aria-label="Sales chart period"/,
     );
     expect(html).toContain('aria-pressed="true"');
     expect(html).toContain('aria-label="Sales chart from date"');
     expect(html).toContain('aria-label="Sales chart to date"');
+    expect(html).toContain('>Apply</button>');
   });
 
   it('preserves unrelated parameters and clears custom dates for a preset', () => {
@@ -191,25 +195,135 @@ describe('SalesPeriodControls', () => {
     );
   });
 
-  it('switches to a complete custom range when either date changes', () => {
+  it('builds a remote custom range as one URL update', () => {
+    expect(
+      buildCustomSalesRangeUpdate(
+        '/dashboard',
+        'customer=vip&salesRange=month',
+        '2026-01-01',
+        '2026-01-31',
+      ),
+    ).toEqual({
+      ok: true,
+      href:
+        '/dashboard?customer=vip&salesRange=custom&salesFrom=2026-01-01&salesTo=2026-01-31',
+    });
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      '2026-02-30',
+      '2026-03-01',
+      'salesFrom',
+      'Choose a valid start date.',
+    ],
+    ['2026-01-01', 'not-a-date', 'salesTo', 'Choose a valid end date.'],
+    [
+      '2026-01-31',
+      '2026-01-01',
+      'salesTo',
+      'The end date must be on or after the start date.',
+    ],
+    [
+      '2026-01-01',
+      '2026-04-04',
+      'salesTo',
+      'Choose a range of 93 days or less.',
+    ],
+  ] as const)(
+    'rejects invalid custom range %s to %s',
+    (from, to, field, message) => {
+      expect(
+        buildCustomSalesRangeUpdate('/dashboard', 'customer=vip', from, to),
+      ).toEqual({ ok: false, field, message });
+    },
+  );
+
+  it('drafts remote endpoints and applies them together', () => {
     navigation.query = 'customer=vip&salesRange=month';
     const month = resolveSalesPeriod({}, NOW);
     const elements = flattenElements(SalesPeriodControls({ period: month }));
+    const form = elements.find((element) => element.type === 'form');
     const fromInput = elements.find(
       (element) =>
         element.type === 'input' &&
         (element.props as { 'aria-label'?: string })['aria-label'] ===
           'Sales chart from date',
     );
+    const toInput = elements.find(
+      (element) =>
+        element.type === 'input' &&
+        (element.props as { 'aria-label'?: string })['aria-label'] ===
+          'Sales chart to date',
+    );
+    const apply = elements.find(
+      (element) =>
+        element.type === 'button' &&
+        (element.props as { children?: ReactNode }).children === 'Apply',
+    );
 
+    expect(form).toBeDefined();
     expect(fromInput).toBeDefined();
+    expect(toInput).toBeDefined();
+    expect(apply).toBeDefined();
+    if (!form || !fromInput || !toInput || !apply) return;
+
+    const fromProps = fromInput.props as {
+      defaultValue?: string;
+      value?: string;
+      min?: string;
+      max?: string;
+      required?: boolean;
+      onChange?: unknown;
+    };
+    const toProps = toInput.props as typeof fromProps;
+    expect(fromProps).toMatchObject({
+      defaultValue: month.from,
+      required: true,
+    });
+    expect(toProps).toMatchObject({ defaultValue: month.to, required: true });
+    expect(fromProps.value).toBeUndefined();
+    expect(toProps.value).toBeUndefined();
+    expect(fromProps.min).toBeUndefined();
+    expect(fromProps.max).toBeUndefined();
+    expect(toProps.min).toBeUndefined();
+    expect(toProps.max).toBeUndefined();
+    expect(fromProps.onChange).toBeUndefined();
+    expect(toProps.onChange).toBeUndefined();
+    expect((apply.props as { type?: string }).type).toBe('submit');
+    expect(navigation.replace).not.toHaveBeenCalled();
+
+    const controls = {
+      salesFrom: {
+        value: '2026-01-01',
+        setCustomValidity: vi.fn(),
+        reportValidity: vi.fn(),
+      },
+      salesTo: {
+        value: '2026-01-31',
+        setCustomValidity: vi.fn(),
+        reportValidity: vi.fn(),
+      },
+    };
+    const preventDefault = vi.fn();
     (
-      fromInput?.props as {
-        onChange: (event: ChangeEvent<HTMLInputElement>) => void;
+      form.props as {
+        onSubmit: (event: FormEvent<HTMLFormElement>) => void;
       }
-    ).onChange({ target: { value: '2026-07-05' } } as ChangeEvent<HTMLInputElement>);
+    ).onSubmit({
+      preventDefault,
+      currentTarget: {
+        elements: {
+          namedItem: (name: string) =>
+            controls[name as keyof typeof controls] ?? null,
+        },
+      },
+    } as unknown as FormEvent<HTMLFormElement>);
+
+    expect(preventDefault).toHaveBeenCalledOnce();
     expect(navigation.replace).toHaveBeenCalledWith(
-      '/dashboard?customer=vip&salesRange=custom&salesFrom=2026-07-05&salesTo=2026-07-13',
+      '/dashboard?customer=vip&salesRange=custom&salesFrom=2026-01-01&salesTo=2026-01-31',
       { scroll: false },
     );
   });

@@ -7,8 +7,8 @@
 - Primary viewport and state: Chrome, 1280 x 900, authenticated dashboard, `This month` (1-13 July 2026)
 - Final full-view evidence: `.superpowers/sdd/sales-chart-month-desktop-full-final.png`
 - Final focused evidence: `.superpowers/sdd/sales-chart-month-desktop-focus-final.png`
-- Tooltip evidence: `.superpowers/sdd/sales-chart-month-tooltip.png`
-- Keyboard-focus evidence: `.superpowers/sdd/sales-chart-keyboard-focus.png`
+- Tooltip and keyboard-focus evidence: `.superpowers/sdd/sales-chart-keyboard-focus.png`
+- Hover-state chart capture (popup not visible in the raster): `.superpowers/sdd/sales-chart-month-tooltip.png`
 - Responsive evidence: `.superpowers/sdd/sales-chart-today-mobile-top-fixed.png`, `.superpowers/sdd/sales-chart-today-mobile.png`, `.superpowers/sdd/sales-chart-today-mobile-scrolled.png`, `.superpowers/sdd/sales-chart-month-mobile.png`, `.superpowers/sdd/sales-chart-last7-tablet.png`
 - Custom-range evidence: `.superpowers/sdd/sales-chart-custom-tablet.png`
 
