@@ -87,6 +87,9 @@ data class QuoteState(
     val intake: IntakeHandoff? = null,
     // the job this quote is already linked to — when set, the quote is converted (view, don't re-create)
     val jobId: String? = null,
+    // lifecycle flow strip: was there an intake, and has the client signed?
+    val hasIntake: Boolean = false,
+    val signed: Boolean = false,
 )
 
 val QUOTE_TIMES = listOf("Now", "13:30", "14:30", "15:30", "Tomorrow")
@@ -128,6 +131,7 @@ class QuoteViewModel @Inject constructor(
             basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
+            hasIntake = true, signed = false,
         )
     }
 
@@ -171,6 +175,8 @@ class QuoteViewModel @Inject constructor(
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
                 lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
+                hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
+                signed = q.acceptedSignature != null && q.acceptedSignature !is kotlinx.serialization.json.JsonNull,
             )
         }
         viewModelScope.launch {
@@ -320,7 +326,8 @@ class QuoteViewModel @Inject constructor(
                         }
                     }
                 }
-                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null) }
+                // signed = true: the tablet's accept flow requires the client's signature.
+                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null, signed = true) }
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

@@ -87,8 +87,27 @@ data class QuoteRowDto(
     @SerialName("job_id") val jobId: String? = null, // the job this quote was converted into, if any
     @SerialName("discount_kind") val discountKind: String? = null, // order-level: percent | amount | null
     @SerialName("discount_value") val discountValue: FlexDouble = 0.0, // % 0..100, or Rs (VAT-inclusive)
+    // Flow strip: did this quote start at reception, and has the client signed?
+    val intake: kotlinx.serialization.json.JsonElement? = null,
+    @SerialName("accepted_signature") val acceptedSignature: kotlinx.serialization.json.JsonElement? = null,
     val customers: CustomerNameDto? = null,
     val vehicles: VehicleNameDto? = null,
+)
+
+// ── Lifecycle flow refs (embedded on the jobs board) ──────────────────────────
+@Serializable
+data class FlowQuoteRefDto(
+    val number: String? = null,
+    val status: String = "",
+    @SerialName("accepted_signature") val acceptedSignature: kotlinx.serialization.json.JsonElement? = null,
+)
+
+@Serializable
+data class FlowInvoiceRefDto(
+    val id: String,
+    val number: String? = null,
+    @SerialName("doc_type") val docType: String = "",
+    val status: String = "",
 )
 
 // ── Jobs board ────────────────────────────────────────────────────────────────
@@ -136,6 +155,10 @@ data class JobBoardDto(
     val customers: JobCustomerDto? = null,
     val vehicles: JobVehicleDto? = null,
     val technician: JobTechDto? = null,
+    // Lifecycle flow: the quote this job came from + any invoices billed on it.
+    @SerialName("source_quote_id") val sourceQuoteId: String? = null,
+    @SerialName("source_quote") val sourceQuote: FlowQuoteRefDto? = null,
+    val invoices: List<FlowInvoiceRefDto> = emptyList(),
 )
 
 // ── Checkout · collect on invoice ─────────────────────────────────────────────

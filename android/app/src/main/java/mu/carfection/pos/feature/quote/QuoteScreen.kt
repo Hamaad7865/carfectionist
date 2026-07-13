@@ -53,6 +53,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.money.parseMoneyToCents
+import mu.carfection.pos.ui.FlowState
+import mu.carfection.pos.ui.FlowStepUi
+import mu.carfection.pos.ui.FlowStrip
+import mu.carfection.pos.ui.withCurrent
 import mu.carfection.pos.ui.FilledInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -329,6 +333,24 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     Spacer(Modifier.weight(1f))
                     Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
                 }
+                // The car's journey — same five steps as the back office.
+                FlowStrip(
+                    listOf(
+                        FlowStepUi("Intake", if (s.hasIntake) FlowState.DONE else FlowState.TODO, if (s.hasIntake) "recorded" else "walk-in"),
+                        FlowStepUi("Quote", FlowState.DONE, s.ref),
+                        FlowStepUi(
+                            "Signed",
+                            when {
+                                s.status == "declined" -> FlowState.DECLINED
+                                s.signed || s.status == "accepted" || s.jobId != null -> FlowState.DONE
+                                else -> FlowState.TODO
+                            },
+                            if (s.signed) "client signed" else if (s.jobId != null) "accepted" else null,
+                        ),
+                        FlowStepUi("Job", if (s.jobId != null) FlowState.DONE else FlowState.TODO, s.jobId?.let { "on the board" }),
+                        FlowStepUi("Invoice", if (s.createdInvoiceRef != null) FlowState.DONE else FlowState.TODO, s.createdInvoiceRef),
+                    ).withCurrent(),
+                )
                 s.error?.let { Text(it, color = Danger, fontSize = 12.sp) }
                 when {
                     // Already converted: a quote maps to exactly one job, so don't offer to make
