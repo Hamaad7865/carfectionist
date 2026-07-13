@@ -106,7 +106,7 @@ data class CounterUiState(
     val changeCents: Long get() = (effectiveTenderCents - dueCents).coerceAtLeast(0)
 
     val canRecord: Boolean
-        get() = !busy && (collect != null || cart.isNotEmpty()) && when (method) {
+        get() = !busy && dueCents > 0 && (collect != null || cart.isNotEmpty()) && when (method) {
             PayMethod.CASH -> effectiveTenderCents >= dueCents
             PayMethod.CREDIT -> collect == null && customerId != null // credit is walk-in only
             else -> true
@@ -248,7 +248,11 @@ class CounterViewModel @Inject constructor(
         viewModelScope.launch {
             val start = LocalDate.now(ZoneOffset.ofHours(4)).atStartOfDay(ZoneOffset.ofHours(4))
                 .toOffsetDateTime().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
+            // Only invoices with money actually owed: a zero-total (or fully settled)
+            // issued invoice has nothing to collect — offering it opened a Rs 0.00
+            // payment pad that could never succeed.
             val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
+                .filter { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) > 0 }
             val paidRaw = runCatching { api.fetchTodayPayments(start) }.getOrDefault(emptyList())
             // PAID TODAY = money that actually stands. A mistake + its reversal
             // cancel out and BOTH disappear (the trail stays in History and the
@@ -571,9 +575,26 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", error = null)
     }
     fun closePad() {
-        // Keep the settle context (collect + method/tender) so reopening resumes the same retry.
-        if (local.value.pendingSettle != null) { local.value = local.value.copy(padOpen = false); return }
-        local.value = local.value.copy(padOpen = false, collect = null)
+        val st = local.value
+        if (st.pendingSettle != null) {
+            if (st.collect != null) {
+                // A frozen COLLECTION is safe to cancel: there is no basket to mis-ring —
+                // the invoice lives on the server, so drop the freeze and re-read the list.
+                // If the payment did commit despite the lost response, the refreshed
+                // balance shows it (and the bill leaves TO COLLECT); the idempotency key
+                // is never reused, so a later retry can only collect what remains.
+                local.value = st.copy(
+                    padOpen = false, collect = null, pendingSettle = null, error = null,
+                    notice = "Collection cancelled — list refreshed",
+                )
+                loadLists()
+                return
+            }
+            // A frozen WALK-IN keeps its context: the retry must replay the identical basket.
+            local.value = st.copy(padOpen = false)
+            return
+        }
+        local.value = st.copy(padOpen = false, collect = null)
     }
     fun setMethod(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(method = m, error = settleError()) }
 

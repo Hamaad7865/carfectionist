@@ -51,7 +51,7 @@ data class NewVehicleDto(
 @Serializable
 data class JobRow(val id: String)
 
-@Serializable data class SavedDoc(val id: String, val number: String? = null)
+@Serializable data class SavedDoc(val id: String, val number: String? = null, val status: String? = null)
 
 @Serializable
 data class QuoteLineDto(

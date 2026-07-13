@@ -350,8 +350,55 @@ class JobsViewModel @Inject constructor(
                 }
                 api.markJobReady(id)
             }
-                .onSuccess { _s.update { it.copy(busy = false, toast = "Marked ready for collection") }; load() }
+                .onSuccess {
+                    // The bill exists the moment the car is ready: a quote-backed job's
+                    // priced invoice is created + issued NOW (idempotent), so checkout's
+                    // TO COLLECT already has it when the customer walks up.
+                    val quoteId = job?.sourceQuoteId
+                    val invoiced = quoteId != null && runCatching { ensureQuoteInvoice(quoteId) }.isSuccess
+                    _s.update {
+                        it.copy(
+                            busy = false,
+                            toast = when {
+                                invoiced -> "Ready — invoice waiting at checkout"
+                                quoteId != null -> "Ready — invoice pending; Go to checkout will retry"
+                                else -> "Marked ready for collection"
+                            },
+                        )
+                    }
+                    load()
+                }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
+    /**
+     * The quote's priced invoice, created + issued exactly once. Both layers are
+     * replay-safe: convert_quote_to_invoice hands back the existing live invoice
+     * (one per quote — DB unique index), and issue_document replays on the same
+     * "quote-inv:<quoteId>" key the quote builder's "Bill now" uses. An invoice
+     * already issued elsewhere is left untouched (only drafts get issued).
+     */
+    private suspend fun ensureQuoteInvoice(quoteId: String) {
+        val inv = api.convertQuoteToInvoice(quoteId)
+        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "quote-inv:$quoteId")
+    }
+
+    /**
+     * READY job → make sure its bill is waiting at checkout, then navigate.
+     * Covers jobs marked ready before auto-invoicing existed, and retries a
+     * mark-ready whose invoice step failed — all idempotent, never a duplicate.
+     */
+    fun goToCheckout(onGo: () -> Unit) {
+        val job = active(_s.value) ?: run { onGo(); return }
+        val quoteId = job.sourceQuoteId
+        val hasLiveInvoice = job.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
+        if (quoteId == null || hasLiveInvoice) { close(); onGo(); return }
+        _s.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            runCatching { ensureQuoteInvoice(quoteId) }
+                .onSuccess { _s.update { it.copy(busy = false) }; close(); onGo() }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage("Couldn't create the invoice — check the connection and try again")) } }
         }
     }
 }

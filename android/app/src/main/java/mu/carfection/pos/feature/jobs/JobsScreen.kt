@@ -339,7 +339,8 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 val (label, action) = when (j.status) {
                     "scheduled" -> "▶  Start job" to { vm.startJob() }
                     "in_progress" -> (if (j.checklist.isNotEmpty() && doneN == j.checklist.size) "Mark ready for collection" else "Mark ready" + if (j.checklist.isNotEmpty()) " ($doneN/${j.checklist.size} checklist)" else "") to { vm.markReady() }
-                    "ready" -> "Go to checkout →" to { vm.close(); onGoCheckout() }
+                    // Ensures the quote's priced invoice is waiting in TO COLLECT first.
+                    "ready" -> "Go to checkout →" to { vm.goToCheckout(onGoCheckout) }
                     else -> "View invoice" to { vm.close(); onGoCheckout() }
                 }
                 val muted = j.status == "delivered"
