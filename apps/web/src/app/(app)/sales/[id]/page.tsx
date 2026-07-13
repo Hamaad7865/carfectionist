@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { Printer, FileMinus, Receipt } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
+import { getDealFlow } from "@/lib/supabase/queries/flow";
+import { FlowStepper } from "@/components/flow/FlowStepper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
@@ -21,6 +23,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const doc = await getDocumentDetail(id);
   if (!doc) notFound();
   if (doc.status === "draft") redirect(`/sales/${id}/edit`);
+
+  // The car's journey — quotes and invoices sit inside the same five steps.
+  const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
 
   const isInvoice = doc.docType === "invoice";
   const canPay = isInvoice && (doc.status === "issued" || doc.status === "partly_paid");
@@ -59,6 +64,12 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             {doc.docType === "quote" && <ConvertButton quoteId={doc.id} />}
           </div>
         </div>
+
+        {flow && (
+          <div className="mt-4">
+            <FlowStepper steps={flow} />
+          </div>
+        )}
 
         {doc.status === "void" && (
           <div className="mt-4 flex items-start gap-3 rounded-[13px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.06)] px-4 py-3">

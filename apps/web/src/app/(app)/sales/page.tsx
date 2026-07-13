@@ -126,7 +126,11 @@ export default async function SalesPage({
                       <span className="num block text-[12.5px] font-bold" style={{ color: r.docType === "credit_note" ? "#d63b50" : "#1e6fe0" }}>{r.number ?? "—"}</span>
                       {r.cancelLabel && <span className="mt-0.5 inline-block rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose">{r.cancelLabel}</span>}
                     </span>
-                    {r.jobId ? (
+                    {r.plate ? (
+                      <span className={`num inline-block w-fit rounded-[6px] border px-2 py-0.5 text-[11px] font-bold ${r.jobId ? "border-[rgba(43,140,255,0.3)] bg-[rgba(43,140,255,0.07)] text-link" : "border-line-2 bg-sub text-body"}`}>
+                        {r.plate}{r.jobId ? " · job" : ""}
+                      </span>
+                    ) : r.jobId ? (
                       <span className="text-[12px] font-semibold text-link">Job →</span>
                     ) : (
                       <span className="text-[12px] text-faint">—</span>
