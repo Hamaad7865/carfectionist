@@ -3,7 +3,11 @@
   "name": "carfectionist",
   "main": ".open-next/worker.js",
   "compatibility_date": "2025-03-25",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // populate_process_env: our compat date predates 2025-04-01, when Workers
+  // began mirroring secrets/vars into process.env — without this flag every
+  // process.env.<SECRET> read (PDF engine, WhatsApp keys, admin client) is
+  // undefined in production while working fine in `next dev`.
+  "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env", "global_fetch_strictly_public"],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
