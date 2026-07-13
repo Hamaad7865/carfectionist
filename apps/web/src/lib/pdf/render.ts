@@ -25,7 +25,11 @@ export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
     try {
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle0" });
-      const pdf = (await page.pdf({ printBackground: true, format: "A4" })) as Uint8Array;
+      // One page sized to the content (min A4), like the reference system: a
+      // long invoice grows the page instead of splitting onto a second sheet.
+      const contentPx = await page.evaluate(() => document.documentElement.scrollHeight);
+      const heightMm = Math.max(297, Math.ceil((contentPx * 25.4) / 96) + 2);
+      const pdf = (await page.pdf({ printBackground: true, width: "210mm", height: `${heightMm}mm` })) as Uint8Array;
       // Copy into a fresh ArrayBuffer (page.pdf's buffer may be Shared on workerd).
       const out = new ArrayBuffer(pdf.byteLength);
       new Uint8Array(out).set(pdf);

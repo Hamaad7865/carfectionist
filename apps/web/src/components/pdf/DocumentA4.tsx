@@ -108,7 +108,10 @@ const s = {
     display: "flex",
     flexDirection: "column",
   } as CSSProperties,
-  banner: { display: "block", width: "100%", flexShrink: 0 } as CSSProperties,
+  // Banner bands are capped at the reference height (~43mm — the Refrens bands
+  // are 582×122pt) and centre-cropped, so a tall/square image configured in
+  // Settings → Templates can never balloon the page onto a second sheet.
+  banner: { display: "block", width: "100%", maxHeight: "43mm", objectFit: "cover", objectPosition: "center", flexShrink: 0 } as CSSProperties,
   body: { padding: "8mm 10mm 0", flexGrow: 1 } as CSSProperties,
 
   headerRow: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "16px" } as CSSProperties,
