@@ -27,7 +27,7 @@ The source and final implementation screenshots were opened together in the same
 
 ### Fonts and typography
 
-The implementation keeps Carfection's established Archivo display, Manrope UI, and JetBrains Mono financial-number treatment rather than copying CashMag's generic browser typography. Hierarchy matches the reference intent: the chart title is strongest, the date context is secondary, money ticks are compact, and the total-including-VAT figure is prominent. Axis labels remain readable at desktop/tablet widths and remain available through horizontal scrolling at 320 px.
+The implementation keeps Carfection's established Archivo display and Manrope UI/financial-number treatment rather than copying CashMag's generic browser typography. Hierarchy matches the reference intent: the chart title is strongest, the date context is secondary, money ticks are compact, and the total-including-VAT figure is prominent. Axis labels remain readable at desktop/tablet widths and remain available through horizontal scrolling at 320 px.
 
 ### Spacing and layout rhythm
 
