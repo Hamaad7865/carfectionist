@@ -10,6 +10,7 @@ import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
 import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
+import { SendDocumentButton } from "@/features/documents/SendDocumentButton";
 import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext } from "@/lib/supabase/queries/builder";
 import { reducer, type BuilderState } from "./state";
@@ -208,6 +209,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <FileDown size={15} /> Print / PDF
           </a>
         )}
+        {readOnly && state.docId && state.number && (
+          <SendDocumentButton documentId={state.docId} defaultEmail={customer?.email ?? null} defaultPhone={customer?.phone ?? null} />
+        )}
         {readOnly && state.docType === "quote" && (
           <button onClick={onConvert} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center justify-center rounded-[10px] px-4 font-display text-[13px] font-extrabold text-white disabled:opacity-60">
             Convert to invoice
@@ -365,6 +369,18 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                             inputMode="decimal"
                             placeholder="disc"
                             className="h-7 w-11 bg-transparent pr-1.5 text-right text-[11px] text-body outline-none placeholder:text-faint"
+                          />
+                        </div>
+                      )}
+                      {!readOnly && (
+                        <div className="relative w-[96px]" title="Unit rate (excl. VAT)">
+                          <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
+                          <input
+                            value={l.unitCents ? String(l.unitCents / 100) : ""}
+                            onChange={(e) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: parseMoneyInput(e.target.value) ?? 0 } })}
+                            inputMode="decimal"
+                            placeholder="rate"
+                            className="num h-7 w-full rounded-[7px] border border-line-2 bg-sub pl-6 pr-2 text-right text-[12px] font-semibold text-ink outline-none placeholder:text-faint focus:border-brand"
                           />
                         </div>
                       )}

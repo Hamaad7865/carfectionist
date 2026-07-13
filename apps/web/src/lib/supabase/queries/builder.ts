@@ -17,6 +17,8 @@ export interface BuilderCustomer {
   id: string;
   name: string;
   country: string;
+  email: string | null;
+  phone: string | null;
 }
 export interface BuilderContext {
   createdBy: string;
@@ -45,7 +47,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
     sb.from("products").select("id, name, selling_price, vat_rate, is_stocked, kind").eq("is_active", true).order("kind").order("name"),
-    sb.from("customers").select("id, name, country").order("name"),
+    sb.from("customers").select("id, name, country, email, phone").order("name"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -89,6 +91,8 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       id: c.id,
       name: c.name,
       country: c.country === "MU" ? "Mauritius" : (c.country ?? "Mauritius"),
+      email: c.email ?? null,
+      phone: c.phone ?? null,
     })),
   };
 }
