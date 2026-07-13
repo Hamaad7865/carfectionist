@@ -91,9 +91,14 @@
   box-shadow: 0 6px 16px rgba(43, 140, 255, 0.3);
 }
 
-/* Instrument-gauge figures */
+/* Figures: the app speaks ONE typeface (the owner's Cashmag reference) —
+   tabular numerals keep money columns aligned without the code-font look. */
 .num {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
+}
+/* The POS slip keeps its ticket-machine figures (approved mockup design). */
+.receipt-zig .num {
+  font-family: var(--font-mono);
   letter-spacing: -0.01em;
 }
