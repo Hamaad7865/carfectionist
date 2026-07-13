@@ -13,6 +13,7 @@ export interface CertificateRow {
   expiresAt: string;
   warrantyMonths: number;
   jobRef: string | null;
+  jobId: string | null; // → /jobs/[id], where the full flow stepper lives
   expired: boolean;
 }
 export interface CertRefCustomer {
@@ -61,6 +62,7 @@ export async function getCertificates(todayISO: string): Promise<CertificatesDat
     expiresAt: c.expires_at,
     warrantyMonths: c.warranty_months,
     jobRef: c.job_id ? `JOB-${String(c.job_id).slice(0, 4).toUpperCase()}` : null,
+    jobId: c.job_id ?? null,
     expired: c.expires_at < todayISO,
   }));
 
@@ -119,6 +121,7 @@ export async function getCertificate(id: string, todayISO: string): Promise<{ ce
     expiresAt: cc.expires_at,
     warrantyMonths: cc.warranty_months,
     jobRef: cc.job_id ? `JOB-${String(cc.job_id).slice(0, 4).toUpperCase()}` : null,
+    jobId: cc.job_id ?? null,
     expired: cc.expires_at < todayISO,
   };
   const studioName = (bsRes.data as any)?.trading_name ?? "Carfectionist";

@@ -24,3 +24,14 @@ describe("receipt tokens", () => {
     expect(await verifyReceiptToken("a.b")).toBeNull();
   });
 });
+
+describe("doc tokens are a separate kind", () => {
+  it("round-trips and never cross-validates with receipt tokens", async () => {
+    const { docToken, verifyDocToken, receiptToken, verifyReceiptToken } = await import("./receipt-token");
+    const id = "1f7c9a52-3b1e-4c8d-9a2f-6e5b4d3c2b1a";
+    const dt = await docToken(id);
+    expect(await verifyDocToken(dt)).toBe(id);
+    expect(await verifyReceiptToken(dt)).toBeNull(); // doc token can't open a ticket
+    expect(await verifyDocToken(await receiptToken(id))).toBeNull(); // and vice-versa
+  });
+});

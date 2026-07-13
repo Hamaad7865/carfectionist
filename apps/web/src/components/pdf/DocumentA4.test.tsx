@@ -41,33 +41,60 @@ describe("DocumentA4 — reproduces the Diamondbrite Rs 88,780 document", () => 
     for (const col of ["Item", "Quantity", "Rate", "Amount"]) expect(html).toContain(col);
   });
 
-  it("renders the money totals exactly", () => {
-    expect(html).toContain("Rs 77,200.00");
-    expect(html).toContain("Rs 11,580.00");
-    expect(html).toContain("Rs 88,780.00");
+  it("renders MUR-prefixed money — VAT, total and line amounts", () => {
+    expect(html).toContain("MUR 11,580.00"); // VAT
+    expect(html).toContain("MUR 88,780.00"); // Total (MUR)
+    expect(html).toContain("MUR 32,000.00"); // line amount
+    expect(html).toContain("MUR 30,000.00");
+  });
+
+  it("trims the whole-rupee rate (MUR 32,000, not MUR 32,000.00)", () => {
+    expect(html).toContain(">MUR 32,000<");
   });
 
   it("renders the amount in words", () => {
     expect(html).toContain("EIGHTY EIGHT THOUSAND SEVEN HUNDRED EIGHTY RUPEES ONLY");
   });
 
-  it("renders the legal identity, customer, bank and terms", () => {
-    expect(html).toContain("Diamondbrite Reunion (Mauritius) Ltd");
+  it("renders the identity, customer, bank, terms and disclaimer", () => {
     expect(html).toContain("C22190760");
     expect(html).toContain("VAT28070619");
     expect(html).toContain("Jean-Pierre Laval");
+    expect(html).toContain("Diamondbrite Reunion (Mauritius) Ltd"); // bank account name
     expect(html).toContain("MCB");
     expect(html).toContain("Quotation is valid for 5 days.");
+    expect(html).toContain("This is an electronically generated document, no signature is required.");
+  });
+
+  it("carries the Diamondbrite artwork by default", () => {
+    expect(html).toContain("/brand/covered-by-diamonds.png");
+    expect(html).toContain("/brand/diamondbrite-forever.png");
+    expect(html).toContain("/brand/diamondbrite-logo.png");
   });
 });
 
 describe("DocumentA4 — invoice fiscal lock", () => {
-  it("keeps the legal identity even when config tries to hide it", () => {
+  it("keeps the tax identity (BRN + VAT) even when config tries to hide the From box", () => {
     const html = renderToStaticMarkup(
       <DocumentA4 {...base} docType="invoice" number="INV-0001" sectionConfig={{ from: false }} />,
     );
     expect(html).toContain("Invoice");
-    expect(html).toContain("Diamondbrite Reunion (Mauritius) Ltd");
+    expect(html).toContain("C22190760");
     expect(html).toContain("VAT28070619");
+  });
+});
+
+describe("DocumentA4 — client acceptance stamp", () => {
+  it("renders the signature block when accepted", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} accepted={{ name: "ANESH", at: "13 Jul 2026, 14:31", signatureUrl: "https://x/sig.png" }} />,
+    );
+    expect(html).toContain("Accepted by the client");
+    expect(html).toContain("ANESH");
+    expect(html).toContain("https://x/sig.png");
+  });
+  it("omits the block entirely when not accepted", () => {
+    const html = renderToStaticMarkup(<DocumentA4 {...base} />);
+    expect(html).not.toContain("Accepted by the client");
   });
 });

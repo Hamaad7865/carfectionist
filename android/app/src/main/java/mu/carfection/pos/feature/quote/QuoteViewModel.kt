@@ -87,6 +87,15 @@ data class QuoteState(
     val intake: IntakeHandoff? = null,
     // the job this quote is already linked to — when set, the quote is converted (view, don't re-create)
     val jobId: String? = null,
+    // lifecycle flow strip: was there an intake, and has the client signed?
+    val hasIntake: Boolean = false,
+    val signed: Boolean = false,
+    // "Send to customer" (post-accept): prefill + progress
+    val customerEmail: String? = null,
+    val customerPhone: String? = null,
+    val sendBusy: Boolean = false,
+    val sendDone: String? = null,
+    val sendError: String? = null,
 )
 
 val QUOTE_TIMES = listOf("Now", "13:30", "14:30", "15:30", "Tomorrow")
@@ -98,6 +107,7 @@ class QuoteViewModel @Inject constructor(
     private val intakeBus: IntakeHandoffBus,
     private val session: SessionRepository,
     private val openJobBus: OpenJobBus,
+    private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
     val state = _s.asStateFlow()
@@ -128,6 +138,7 @@ class QuoteViewModel @Inject constructor(
             basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
+            hasIntake = true, signed = false,
         )
     }
 
@@ -158,6 +169,7 @@ class QuoteViewModel @Inject constructor(
             it.copy(
                 mode = QuoteMode.BUILDER, quoteId = q.id, ref = q.number ?: "Draft", status = q.status,
                 who = q.customers?.name ?: "—", vehPlate = q.vehicles?.plate,
+                customerEmail = q.customers?.email, customerPhone = q.customers?.phone,
                 veh = listOfNotNull(q.vehicles?.make, q.vehicles?.model).joinToString(" "),
                 customerId = q.customerId, vehicleId = q.vehicleId,
                 // The saved order discount comes back into the basket controls.
@@ -171,6 +183,8 @@ class QuoteViewModel @Inject constructor(
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
                 lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
+                hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
+                signed = q.acceptedSignature != null && q.acceptedSignature !is kotlinx.serialization.json.JsonNull,
             )
         }
         viewModelScope.launch {
@@ -320,7 +334,8 @@ class QuoteViewModel @Inject constructor(
                         }
                     }
                 }
-                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null) }
+                // signed = true: the tablet's accept flow requires the client's signature.
+                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null, signed = true) }
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
@@ -344,5 +359,26 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
-    fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null, createdInvoiceRef = null) }
+    fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null, createdInvoiceRef = null, sendDone = null, sendError = null, sendBusy = false) }
+
+    /** Post-accept "Send to customer": the Worker renders the signed quotation PDF
+     *  and delivers it by [channel] ("email" | "whatsapp"). */
+    fun sendToCustomer(channel: String, to: String) {
+        val quoteId = _s.value.quoteId ?: return
+        if (to.isBlank() || _s.value.sendBusy) return
+        _s.update { it.copy(sendBusy = true, sendError = null, sendDone = null) }
+        viewModelScope.launch {
+            val err = runCatching { sendApi.send(quoteId, channel, to.trim(), session.deviceId()) }
+                .getOrElse { it.message ?: "Network error" }
+            _s.update {
+                if (err == null) it.copy(
+                    sendBusy = false,
+                    sendDone = if (channel == "email") "Sent by email ✓" else "Sent on WhatsApp ✓",
+                    // remember what worked so re-opening prefills the corrected value
+                    customerEmail = if (channel == "email") to.trim() else it.customerEmail,
+                    customerPhone = if (channel == "whatsapp") to.trim() else it.customerPhone,
+                ) else it.copy(sendBusy = false, sendError = err)
+            }
+        }
+    }
 }

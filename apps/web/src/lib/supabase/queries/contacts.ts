@@ -33,6 +33,7 @@ export interface CustomerSummary {
 }
 export interface CustomerDetail extends CustomerSummary {
   spendCents: number;
+  waOptOut: boolean;
   vehicles: ContactVehicle[];
   history: ContactDoc[];
 }
@@ -56,7 +57,7 @@ export interface ContactsData {
 export async function getContacts(selectedId?: string): Promise<ContactsData> {
   const sb = await createClient();
   const [custRes, vehRes, docRes, supRes] = await Promise.all([
-    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country").order("name"),
+    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, wa_opt_out").order("name"),
     sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, vin, notes"),
     sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at"),
     sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
@@ -94,6 +95,9 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     outstandingCents: outstandingByCust.get(c.id) ?? 0,
   }));
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const optOutById = new Map<string, boolean>(((custRes.data ?? []) as any[]).map((c) => [c.id, c.wa_opt_out ?? false]));
+
   const selId = selectedId && customers.some((c) => c.id === selectedId) ? selectedId : customers[0]?.id;
   let selected: CustomerDetail | null = null;
   if (selId) {
@@ -101,6 +105,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     selected = {
       ...base,
       spendCents: spendByCust.get(selId) ?? 0,
+      waOptOut: optOutById.get(selId) ?? false,
       vehicles: vehicles
         .filter((v) => v.customer_id === selId)
         .map((v) => ({ id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, color: v.color, vin: v.vin, notes: v.notes })),

@@ -53,6 +53,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.money.parseMoneyToCents
+import mu.carfection.pos.ui.FlowState
+import mu.carfection.pos.ui.FlowStepUi
+import mu.carfection.pos.ui.FlowStrip
+import mu.carfection.pos.ui.withCurrent
 import mu.carfection.pos.ui.FilledInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -94,12 +98,34 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, viewModel: QuoteV
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel, onViewJob)
     }
-    s.createdJobId?.let {
-        Dialog(onDismissRequest = viewModel::clearToast) {
-            Column(Modifier.width(380.dp).card().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    s.createdJobId?.let { jobId ->
+        // Accepted → offer to send the signed quotation PDF right away (the server
+        // renders + delivers it; WhatsApp needs the Meta connection, email the
+        // Cloudflare enable — both fail with a clear message until then).
+        var email by remember(s.customerEmail) { mutableStateOf(s.customerEmail ?: "") }
+        var phone by remember(s.customerPhone) { mutableStateOf(s.customerPhone ?: "") }
+        Dialog(onDismissRequest = { viewModel.clearToast(); viewModel.back() }) {
+            Column(Modifier.width(470.dp).card().padding(26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Quote accepted", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
-                Text("JOB-${it.take(4).uppercase()} created.", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
-                FillBtn("Done", Modifier.fillMaxWidth()) { viewModel.clearToast(); viewModel.back() }
+                Text("JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
+
+                MiniLabel("EMAIL")
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledInput(value = email, onValueChange = { email = it }, placeholder = "customer@email.com", modifier = Modifier.weight(1f), bg = Inset)
+                    FillBtn(if (s.sendBusy) "…" else "Send", Modifier.width(96.dp), 48) { if (!s.sendBusy && email.isNotBlank()) viewModel.sendToCustomer("email", email) }
+                }
+                MiniLabel("WHATSAPP")
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
+                    Box(Modifier.width(96.dp).height(48.dp).background(Color(0xFF25D366), RoundedCornerShape(13.dp)).clickable(enabled = !s.sendBusy && phone.isNotBlank()) { viewModel.sendToCustomer("whatsapp", phone) }, contentAlignment = Alignment.Center) {
+                        Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF06231A))
+                    }
+                }
+
+                s.sendDone?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF12A150)) }
+                s.sendError?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = Color(0xFFD63B50)) }
+
+                OutlineBtn("Done", Modifier.fillMaxWidth(), 48) { viewModel.clearToast(); viewModel.back() }
             }
         }
     }
@@ -329,6 +355,24 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     Spacer(Modifier.weight(1f))
                     Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
                 }
+                // The car's journey — same five steps as the back office.
+                FlowStrip(
+                    listOf(
+                        FlowStepUi("Intake", if (s.hasIntake) FlowState.DONE else FlowState.TODO, if (s.hasIntake) "recorded" else "walk-in"),
+                        FlowStepUi("Quote", FlowState.DONE, s.ref),
+                        FlowStepUi(
+                            "Signed",
+                            when {
+                                s.status == "declined" -> FlowState.DECLINED
+                                s.signed || s.status == "accepted" || s.jobId != null -> FlowState.DONE
+                                else -> FlowState.TODO
+                            },
+                            if (s.signed) "client signed" else if (s.jobId != null) "accepted" else null,
+                        ),
+                        FlowStepUi("Job", if (s.jobId != null) FlowState.DONE else FlowState.TODO, s.jobId?.let { "on the board" }),
+                        FlowStepUi("Invoice", if (s.createdInvoiceRef != null) FlowState.DONE else FlowState.TODO, s.createdInvoiceRef),
+                    ).withCurrent(),
+                )
                 s.error?.let { Text(it, color = Danger, fontSize = 12.sp) }
                 when {
                     // Already converted: a quote maps to exactly one job, so don't offer to make

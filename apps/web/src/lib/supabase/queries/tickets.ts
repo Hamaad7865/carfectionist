@@ -15,6 +15,7 @@ export interface TicketRow {
   date: string;  // MU yyyy-mm-dd
   hour: string;  // MU HH:MM
   jobId: string | null; // Order / Booking
+  plate: string | null; // the car the ticket is about — owner wants it visible
   serviceCount: number; // lines on the ticket
   exclCents: number;    // negative for credit notes
   inclCents: number;
@@ -37,7 +38,7 @@ export async function getTickets(fromP?: string, toP?: string): Promise<TicketsD
 
   let q = sb
     .from("documents")
-    .select("id, number, doc_type, status, issued_at, job_id, total_incl, subtotal_excl, source_document_id, customers(name)")
+    .select("id, number, doc_type, status, issued_at, job_id, total_incl, subtotal_excl, source_document_id, customers(name), vehicles(plate)")
     .in("doc_type", ["invoice", "credit_note"])
     .neq("status", "draft")
     .order("issued_at", { ascending: false })
@@ -71,6 +72,7 @@ export async function getTickets(fromP?: string, toP?: string): Promise<TicketsD
       date: at ? muDate(at) : "—",
       hour: at ? muDateTime(at).slice(11) : "—",
       jobId: d.job_id ?? null,
+      plate: d.vehicles?.plate ?? null,
       serviceCount: countByDoc.get(d.id) ?? 0,
       exclCents: sign * rupeesToCents(Number(d.subtotal_excl)),
       inclCents: sign * rupeesToCents(Number(d.total_incl)),

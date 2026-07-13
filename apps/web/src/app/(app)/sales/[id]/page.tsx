@@ -2,6 +2,8 @@ import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { Printer, FileMinus, Receipt } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
+import { getDealFlow } from "@/lib/supabase/queries/flow";
+import { FlowStepper } from "@/components/flow/FlowStepper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
@@ -9,6 +11,7 @@ import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
 import { VoidButton } from "@/features/documents/VoidButton";
 import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
+import { SendDocumentButton } from "@/features/documents/SendDocumentButton";
 import { CarDiagram } from "@/features/intake/CarDiagram";
 import { StartJobButton } from "@/features/intake/StartJobButton";
 import { markerMeta } from "@/features/intake/damage";
@@ -21,6 +24,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const doc = await getDocumentDetail(id);
   if (!doc) notFound();
   if (doc.status === "draft") redirect(`/sales/${id}/edit`);
+
+  // The car's journey — quotes and invoices sit inside the same five steps.
+  const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
 
   const isInvoice = doc.docType === "invoice";
   const canPay = isInvoice && (doc.status === "issued" || doc.status === "partly_paid");
@@ -52,6 +58,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
               <Printer size={15} /> Print / PDF
             </a>
+            {doc.number && doc.status !== "void" && (
+              <SendDocumentButton documentId={doc.id} defaultEmail={doc.customerEmail} defaultPhone={doc.customerPhone} />
+            )}
             {doc.docType === "quote" && <ReviseButton quoteId={doc.id} />}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
             {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
@@ -59,6 +68,12 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             {doc.docType === "quote" && <ConvertButton quoteId={doc.id} />}
           </div>
         </div>
+
+        {flow && (
+          <div className="mt-4">
+            <FlowStepper steps={flow} />
+          </div>
+        )}
 
         {doc.status === "void" && (
           <div className="mt-4 flex items-start gap-3 rounded-[13px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.06)] px-4 py-3">

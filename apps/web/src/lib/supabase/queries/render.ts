@@ -1,11 +1,16 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents, formatMUR } from "@/lib/money";
+import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 
-/** Assemble DocumentA4 props for a saved document (print route + PDF endpoint). */
-export async function getDocumentProps(id: string): Promise<DocumentA4Props | null> {
-  const sb = await createClient();
+/** Assemble DocumentA4 props for a saved document (print route + PDF endpoint).
+ *  Pass a client to override the cookie-bound one (the public tokenized PDF
+ *  route has no session and supplies the service-role client instead). */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<any>): Promise<DocumentA4Props | null> {
+  const sb = sbOverride ?? (await createClient());
   const { data: doc } = await sb
     .from("documents")
     .select("*, customers(name, country)")
@@ -31,6 +36,19 @@ export async function getDocumentProps(id: string): Promise<DocumentA4Props | nu
     const { data: u } = await sb.from("app_users").select("display_name").eq("id", d.created_by).maybeSingle();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     createdBy = ((u as any)?.display_name ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
+  }
+
+  // Acceptance stamp: signature PNG lives in the private vehicle-photos bucket;
+  // a short-lived signed URL lets the PDF renderer (and the emailed copy) load it.
+  let accepted: DocumentA4Props["accepted"] = null;
+  const sig = d.accepted_signature as { path?: string; name?: string; at?: string } | null;
+  if (sig) {
+    let signatureUrl: string | null = null;
+    if (sig.path) {
+      const { data: signed } = await sb.storage.from("vehicle-photos").createSignedUrl(sig.path, 3600);
+      signatureUrl = signed?.signedUrl ?? null;
+    }
+    accepted = { name: sig.name ?? null, at: sig.at ? muDateTime(sig.at) : null, signatureUrl };
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,5 +104,6 @@ export async function getDocumentProps(id: string): Promise<DocumentA4Props | nu
     assets: resolveDocAssets(config),
     sectionConfig: d.template_overrides ?? {},
     customFields: Array.isArray(d.template_overrides?.customFields) ? d.template_overrides.customFields : [],
+    accepted,
   };
 }

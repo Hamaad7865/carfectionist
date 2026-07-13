@@ -58,6 +58,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import mu.carfection.pos.core.network.JobPhotoDto
+import mu.carfection.pos.ui.FlowState
+import mu.carfection.pos.ui.FlowStepUi
+import mu.carfection.pos.ui.FlowStrip
 import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.LocalPhotoCapture
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -295,6 +298,8 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                     val n = j.damageMarkers.size
                     Text("⚠ $n pre-existing damage mark${if (n > 1) "s" else ""} recorded at intake", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Warning)
                 }
+                // The car's journey — same five steps as the back office.
+                FlowStrip(jobFlow(j))
                 // technician
                 SectionLabel("TECHNICIAN")
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -528,4 +533,39 @@ private fun statusChip(status: String): Triple<String, Color, Color> = when (sta
     "ready" -> Triple("READY", Color(0x261FA361), Success)
     "delivered" -> Triple("DELIVERED", InsetAlt, TextSecondary)
     else -> Triple("SCHEDULED", Color(0x265A67D8), Color(0xFF5A67D8))
+}
+
+// ── Lifecycle flow for a job row: Intake → Quote → Signed → Job → Invoice ────
+private fun jobFlow(j: JobBoardDto): List<FlowStepUi> {
+    val inv = j.invoices.firstOrNull { it.docType == "invoice" && it.status != "void" }
+    val hasQuote = j.sourceQuoteId != null
+    val signed = j.sourceQuote?.acceptedSignature != null &&
+        j.sourceQuote.acceptedSignature !is kotlinx.serialization.json.JsonNull
+    return listOf(
+        FlowStepUi(
+            "Intake",
+            if (j.damageMarkers.isNotEmpty()) FlowState.DONE else FlowState.TODO,
+            if (j.damageMarkers.isNotEmpty()) "${j.damageMarkers.size} marks" else "walk-in",
+        ),
+        FlowStepUi("Quote", if (hasQuote) FlowState.DONE else FlowState.TODO, j.sourceQuote?.number),
+        FlowStepUi(
+            "Signed",
+            if (signed || hasQuote) FlowState.DONE else FlowState.TODO,
+            if (signed) "client signed" else if (hasQuote) "accepted" else null,
+        ),
+        FlowStepUi(
+            "Job",
+            when (j.status) { "delivered" -> FlowState.DONE; "cancelled" -> FlowState.DECLINED; else -> FlowState.CURRENT },
+            j.status.replace('_', ' '),
+        ),
+        FlowStepUi(
+            "Invoice",
+            when { inv != null -> FlowState.DONE; j.status == "delivered" -> FlowState.CURRENT; else -> FlowState.TODO },
+            inv?.let { listOfNotNull(it.number, if (it.status == "paid") "paid" else null).joinToString(" · ") },
+        ),
+    ) + (j.certificates.firstOrNull()?.let {
+        // For ceramic work the journey ends at the warranty certificate — the
+        // sixth step appears only when one has been issued.
+        listOf(FlowStepUi("Certificate", FlowState.DONE, listOfNotNull(it.number, it.expiresAt?.let { d -> "to $d" }).joinToString(" · ")))
+    } ?: emptyList())
 }

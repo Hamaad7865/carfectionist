@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { BadgeCheck, Check, Plus, ShieldCheck, X } from "lucide-react";
 import type { CertificatesData } from "@/lib/supabase/queries/certificates";
@@ -153,7 +154,16 @@ export function CertificatesPanel({ data, today }: { data: CertificatesData; tod
         {/* detail */}
         <div>
           {selected ? (
-            <CertificateCard cert={selected} studioName={data.studioName} />
+            <>
+              {selected.jobId && (
+                <div className="mb-2.5 flex justify-end">
+                  <Link href={`/jobs/${selected.jobId}`} className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-3 text-[12px] font-bold text-body hover:border-brand">
+                    View job & flow →
+                  </Link>
+                </div>
+              )}
+              <CertificateCard cert={selected} studioName={data.studioName} />
+            </>
           ) : (
             <div className="grid h-full min-h-[300px] place-items-center rounded-[15px] border border-dashed border-line-2 text-[13px] text-faint">
               Select a certificate to view it.
