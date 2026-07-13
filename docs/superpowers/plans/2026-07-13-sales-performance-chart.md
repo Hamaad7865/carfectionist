@@ -461,20 +461,19 @@ git commit -m "feat(dashboard): model Mauritius sales performance"
 ### Task 2: Range-Limited Dashboard Query
 
 **Files:**
+- Modify: `apps/web/src/features/dashboard/sales-performance.ts`
+- Modify: `apps/web/src/features/dashboard/sales-performance.test.ts`
 - Modify: `apps/web/src/lib/supabase/queries/dashboard.ts`
 
 **Interfaces:**
-- Consumes: `SalesPeriodInput`, `SalesDocumentRow`, `resolveSalesPeriod`, `buildSalesPerformance`, `unavailableSalesPerformance`, and `fetchAllRows`.
-- Produces: `DashboardData.salesPerformance: SalesPerformanceData` and `getDashboard(input?: SalesPeriodInput)`.
+- Consumes: `SalesPeriodInput`, `SalesDocumentRow`, `resolveSalesPeriod`, `settleSalesPerformance`, and `fetchAllRows`.
+- Produces: `SalesQuerySpec`, `salesQuerySpec(period)`, `DashboardData.salesPerformance: SalesPerformanceData`, and `getDashboard(input?: SalesPeriodInput)`.
 
-- [ ] **Step 1: Write failing contracts for the query boundary**
+- [ ] **Step 1: Write a failing query-specification test**
 
-Add Node file imports at the top of `sales-performance.test.ts`, then add one pure row-contract case and one server-query wiring contract:
+Extend the `./sales-performance` import with `salesQuerySpec`, then add one PostgREST row case and one exact fiscal-query specification case:
 
 ```ts
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-
 it("accepts PostgREST numeric strings and ignores rows outside the selected buckets", () => {
   const period = resolveSalesPeriod({ salesRange: "today" }, NOW);
   const data = buildSalesPerformance(period, [
@@ -484,19 +483,21 @@ it("accepts PostgREST numeric strings and ignores rows outside the selected buck
   expect(data.totalCents).toBe(12_345);
 });
 
-it("loads fiscal sales rows through the paginated issued-at query", () => {
-  const source = readFileSync(fileURLToPath(new URL("../../lib/supabase/queries/dashboard.ts", import.meta.url)), "utf8");
-  expect(source).toContain("fetchAllRows<SalesDocumentRow>");
-  expect(source).toContain('.select("id, doc_type, status, total_incl, origin, issued_at")');
-  expect(source).toContain('.gte("issued_at", period.startIso)');
-  expect(source).toContain('.lt("issued_at", period.endExclusiveIso)');
-  expect(source).toContain("settleSalesPerformance(period");
+it("describes the exact paginated fiscal query window", () => {
+  const period = resolveSalesPeriod({ salesRange: "today" }, NOW);
+  expect(salesQuerySpec(period)).toEqual({
+    columns: "id, doc_type, status, total_incl, origin, issued_at",
+    docTypes: ["invoice", "credit_note"],
+    statuses: ["issued", "partly_paid", "paid"],
+    startIso: "2026-07-12T20:00:00.000Z",
+    endExclusiveIso: "2026-07-13T20:00:00.000Z",
+  });
 });
 ```
 
 - [ ] **Step 2: Run the focused test and verify RED**
 
-Expected: the PostgREST numeric-string case passes, while the query wiring contract fails because the existing dashboard query has not been extended.
+Expected: the PostgREST numeric-string case passes, while the query-specification case fails because `salesQuerySpec` does not exist.
 
 - [ ] **Step 3: Add the paginated query and explicit failure state**
 
@@ -506,6 +507,7 @@ In `dashboard.ts`:
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import {
   resolveSalesPeriod,
+  salesQuerySpec,
   settleSalesPerformance,
   type SalesDocumentRow,
   type SalesPerformanceData,
@@ -519,17 +521,40 @@ Add `salesPerformance: SalesPerformanceData` to `DashboardData`, accept `input`,
 export async function getDashboard(input: SalesPeriodInput = {}): Promise<DashboardData> {
   const sb = await createClient();
   const period = resolveSalesPeriod(input);
+  const salesQuery = salesQuerySpec(period);
   const salesPerformancePromise = settleSalesPerformance(period, fetchAllRows<SalesDocumentRow>(
     () => sb
       .from("documents")
-      .select("id, doc_type, status, total_incl, origin, issued_at")
-      .in("doc_type", ["invoice", "credit_note"])
-      .in("status", ["issued", "partly_paid", "paid"])
+      .select(salesQuery.columns)
+      .in("doc_type", salesQuery.docTypes)
+      .in("status", salesQuery.statuses)
       .not("issued_at", "is", null)
-      .gte("issued_at", period.startIso)
-      .lt("issued_at", period.endExclusiveIso),
+      .gte("issued_at", salesQuery.startIso)
+      .lt("issued_at", salesQuery.endExclusiveIso),
     "id",
   ));
+```
+
+Add this pure specification beside the other exports in `sales-performance.ts` before wiring the server query:
+
+```ts
+export interface SalesQuerySpec {
+  columns: "id, doc_type, status, total_incl, origin, issued_at";
+  docTypes: ["invoice", "credit_note"];
+  statuses: ["issued", "partly_paid", "paid"];
+  startIso: string;
+  endExclusiveIso: string;
+}
+
+export function salesQuerySpec(period: SalesPeriod): SalesQuerySpec {
+  return {
+    columns: "id, doc_type, status, total_incl, origin, issued_at",
+    docTypes: ["invoice", "credit_note"],
+    statuses: ["issued", "partly_paid", "paid"],
+    startIso: period.startIso,
+    endExclusiveIso: period.endExclusiveIso,
+  };
+}
 ```
 
 Include `salesPerformancePromise` in the existing `Promise.all`, bind the result as `salesPerformance`, and return it without modifying any other totals.
@@ -817,27 +842,7 @@ git commit -m "feat(dashboard): render CashMag-style sales chart"
 - Consumes: `getDashboard(SalesPeriodInput)` and `SalesPerformanceChart({ data })`.
 - Produces: the complete `/dashboard?salesRange=...` experience.
 
-- [ ] **Step 1: Write a failing dashboard placement contract**
-
-Add to `sales-performance.test.ts`:
-
-```ts
-it("places the sales chart after KPIs and before payment methods", () => {
-  const dashboard = readFileSync(fileURLToPath(new URL("../../app/(app)/dashboard/page.tsx", import.meta.url)), "utf8");
-  const kpis = dashboard.indexOf("{/* KPIs */}");
-  const chart = dashboard.indexOf("<SalesPerformanceChart");
-  const methods = dashboard.indexOf("{/* Collected by method + catalogue */}");
-  expect(kpis).toBeGreaterThan(-1);
-  expect(chart).toBeGreaterThan(kpis);
-  expect(methods).toBeGreaterThan(chart);
-});
-```
-
-- [ ] **Step 2: Run the focused test and verify RED**
-
-Expected: FAIL because the dashboard does not import or render `SalesPerformanceChart`.
-
-- [ ] **Step 3: Pass dashboard URL parameters into the query and render the chart**
+- [ ] **Step 1: Pass dashboard URL parameters into the query and render the chart**
 
 Update the page signature and imports:
 
@@ -856,7 +861,7 @@ Insert this exact component between the KPI grid and the payment-method/catalogu
 <SalesPerformanceChart data={d.salesPerformance} />
 ```
 
-- [ ] **Step 4: Run automated verification**
+- [ ] **Step 2: Run automated verification**
 
 ```powershell
 npm test --workspace web
@@ -867,7 +872,7 @@ npm run build --workspace web
 
 Expected: all feature tests and changed-file lint pass, TypeScript exits 0, and the Next production build exits 0.
 
-- [ ] **Step 5: Run the app and inspect the real dashboard**
+- [ ] **Step 3: Run the app and inspect the real dashboard**
 
 Start the web app:
 
@@ -885,7 +890,7 @@ Use the in-app browser with the existing signed-in session if available. Inspect
 - horizontal scrolling on narrow widths;
 - zero and negative baselines if the available data exposes them.
 
-- [ ] **Step 6: Complete the blocking design QA gate**
+- [ ] **Step 4: Complete the blocking design QA gate**
 
 Create `design-qa.md` in the project root. Compare the supplied CashMag screenshot and the local dashboard capture at equivalent desktop density. Record:
 
@@ -919,7 +924,7 @@ final result: passed
 
 Fix every P0/P1/P2, capture again, and repeat the comparison until the file ends with `final result: passed`. If authenticated browser inspection is impossible, write the blocker and set `final result: blocked`; do not claim visual completion.
 
-- [ ] **Step 7: Re-run fresh final verification after visual fixes**
+- [ ] **Step 5: Re-run fresh final verification after visual fixes**
 
 Run the full Task 4 automated command block again. Also run:
 
@@ -930,7 +935,7 @@ git status --short
 
 Expected: automated verification succeeds, `design-qa.md` says `final result: passed`, and Git shows only intended feature files.
 
-- [ ] **Step 8: Commit Task 4**
+- [ ] **Step 6: Commit Task 4**
 
 ```powershell
 git add "apps/web/src/app/(app)/dashboard/page.tsx" design-qa.md

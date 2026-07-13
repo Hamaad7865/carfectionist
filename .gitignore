@@ -38,6 +38,7 @@ coverage/
 Thumbs.db
 .idea/
 .worktrees/
+.superpowers/sdd/
 .vscode/*
 !.vscode/extensions.json
 

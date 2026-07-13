@@ -1,21 +1,85 @@
 import { createClient } from "@/lib/supabase/server";
+import {
+  fetchAllRowsByKeyset,
+  fixedIsoUpperBound,
+} from "@/lib/supabase/paginate";
 import { rupeesToCents } from "@/lib/money";
 import { muDate } from "@/lib/mu-date";
+import {
+  resolveSalesPeriod,
+  salesQuerySpec,
+  settleSalesPerformance,
+  type SalesDocumentRow,
+  type SalesPerformanceData,
+  type SalesPeriodInput,
+} from "@/features/dashboard/sales-performance";
 
 export interface DashboardData {
   invoicedCents: number;
   collectedCents: number;
   outstandingCents: number;
   docCount: number;
+  salesPerformance: SalesPerformanceData;
   counts: { services: number; stocked: number; locations: number; team: number };
   byMethod: { method: string; cents: number }[];
   recent: { id: string; number: string | null; docType: string; status: string; totalCents: number; customer: string | null; date: string }[];
   bestServices: { name: string; cents: number; qty: number }[];
 }
 
-export async function getDashboard(): Promise<DashboardData> {
+interface SalesDocumentCursor {
+  issuedAt: string;
+  id: string;
+}
+
+function salesDocumentCursor(row: SalesDocumentRow): SalesDocumentCursor {
+  if (!row.issued_at) {
+    throw new Error("Sales pagination row is missing issued_at");
+  }
+  return { issuedAt: row.issued_at, id: row.id };
+}
+
+function compareSalesDocumentCursors(
+  left: SalesDocumentCursor,
+  right: SalesDocumentCursor,
+): number {
+  const issuedAtOrder = Date.parse(left.issuedAt) - Date.parse(right.issuedAt);
+  if (issuedAtOrder !== 0) return issuedAtOrder;
+  if (left.id === right.id) return 0;
+  return left.id < right.id ? -1 : 1;
+}
+
+export async function getDashboard(input: SalesPeriodInput = {}): Promise<DashboardData> {
   const sb = await createClient();
-  const [invoices, payments, services, stocked, locations, team, recent, lines] = await Promise.all([
+  const period = resolveSalesPeriod(input);
+  const salesQuery = salesQuerySpec(period);
+  const salesCutoffIso = fixedIsoUpperBound(salesQuery.endExclusiveIso);
+  const salesPerformancePromise = settleSalesPerformance(
+    period,
+    fetchAllRowsByKeyset<SalesDocumentRow, SalesDocumentCursor>(
+      (after) => {
+        let query = sb
+          .from("documents")
+          .select(salesQuery.columns)
+          .in("doc_type", salesQuery.docTypes)
+          .in("status", salesQuery.statuses)
+          .not("issued_at", "is", null)
+          .gte("issued_at", salesQuery.startIso)
+          .lt("issued_at", salesCutoffIso)
+          .order("issued_at", { ascending: true })
+          .order("id", { ascending: true });
+
+        if (after) {
+          query = query.or(
+            `issued_at.gt.${after.issuedAt},and(issued_at.eq.${after.issuedAt},id.gt.${after.id})`,
+          );
+        }
+        return query;
+      },
+      salesDocumentCursor,
+      compareSalesDocumentCursors,
+    ),
+  );
+  const [invoices, payments, services, stocked, locations, team, recent, lines, salesPerformance] = await Promise.all([
     sb.from("documents").select("total_incl, amount_paid").eq("doc_type", "invoice").in("status", ["issued", "partly_paid", "paid"]),
     sb.from("payments").select("method, amount"),
     sb.from("products").select("id", { count: "exact", head: true }).eq("kind", "service"),
@@ -24,6 +88,7 @@ export async function getDashboard(): Promise<DashboardData> {
     sb.from("app_users").select("id", { count: "exact", head: true }).eq("is_active", true),
     sb.from("documents").select("id, doc_type, number, status, total_incl, created_at, customers(name)").order("created_at", { ascending: false }).limit(6),
     sb.from("document_lines").select("title, line_total_excl, qty, documents!inner(status)").eq("documents.status", "paid"),
+    salesPerformancePromise,
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -60,6 +125,7 @@ export async function getDashboard(): Promise<DashboardData> {
     collectedCents,
     outstandingCents,
     docCount: inv.length,
+    salesPerformance,
     counts: {
       services: services.count ?? 0,
       stocked: stocked.count ?? 0,
