@@ -45,8 +45,11 @@ async function bindingSend(msg: {
     for (const a of msg.attachments ?? []) {
       mime.addAttachment({ filename: a.filename, contentType: a.contentType, data: a.content });
     }
-    const { EmailMessage } = await import(/* @vite-ignore */ "cloudflare:email");
-    await env.EMAIL.send(new EmailMessage(msg.from.email, msg.to, mime.asRaw()));
+    // This binding version duck-types the message (the earlier structured object
+    // was accepted, only its internally-built MIME was malformed) — so we hand it
+    // a complete, valid raw MIME and skip the cloudflare:email EmailMessage class,
+    // which OpenNext's esbuild can't bundle.
+    await env.EMAIL.send({ from: msg.from.email, to: msg.to, raw: mime.asRaw() });
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
