@@ -16,9 +16,11 @@ export interface EmailAttachment {
 
 type SendResult = { ok: true } | { ok: false; error: string };
 
-// One binding-facing sender so every mail path shares the "not configured yet"
-// message and error shaping. `attachments` follows the Email Sending binding's
-// object form; if the live binding rejects the shape we adjust here, once.
+// One binding-facing sender. The Cloudflare Email Sending binding wants a full
+// RFC-5322 MIME message wrapped in an EmailMessage — NOT a structured object —
+// so we build the MIME with mimetext (plain + html parts, plus any base64
+// attachment) and hand it over. cloudflare:email is a workerd built-in, imported
+// dynamically so the Next build doesn't try to resolve it.
 async function bindingSend(msg: {
   to: string;
   from: { email: string; name: string };
@@ -33,7 +35,18 @@ async function bindingSend(msg: {
     return { ok: false, error: "Email sending isn't configured on this deployment yet (enable Email Sending for app-carfectionist.com in the Cloudflare dashboard)." };
   }
   try {
-    await env.EMAIL.send(msg);
+    const { createMimeMessage } = await import("mimetext");
+    const mime = createMimeMessage();
+    mime.setSender({ name: msg.from.name, addr: msg.from.email });
+    mime.setRecipient(msg.to);
+    mime.setSubject(msg.subject);
+    mime.addMessage({ contentType: "text/plain", data: msg.text });
+    mime.addMessage({ contentType: "text/html", data: msg.html });
+    for (const a of msg.attachments ?? []) {
+      mime.addAttachment({ filename: a.filename, contentType: a.contentType, data: a.content });
+    }
+    const { EmailMessage } = await import(/* @vite-ignore */ "cloudflare:email");
+    await env.EMAIL.send(new EmailMessage(msg.from.email, msg.to, mime.asRaw()));
     return { ok: true };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
