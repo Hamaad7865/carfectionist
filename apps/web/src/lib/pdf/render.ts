@@ -1,24 +1,48 @@
+import { getCloudflareContext } from "@opennextjs/cloudflare";
 import { serverEnv } from "@/lib/server-env";
 
 /**
- * HTML → PDF, isolated behind one function so the engine (Cloudflare Browser
- * Rendering today) can be swapped without touching callers.
+ * HTML → PDF, isolated behind one function so the engine can be swapped without
+ * touching callers. Primary path is the Cloudflare Browser Rendering BINDING
+ * (env.BROWSER + @cloudflare/puppeteer) — no account id or API token, the
+ * binding is the auth. A REST fallback covers `next dev` if browser-rendering
+ * credentials happen to be set locally.
  */
 export class PdfConfigError extends Error {}
 
 export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
-  // Cloudflare RESERVES the `CF_` env-var prefix and strips it at runtime on the
-  // Worker (wrangler secret put accepts CF_* but the running code never sees it).
-  // So the deployed secrets use un-prefixed names; the CF_* fallbacks keep local
-  // dev (.env.local / .dev.vars) working unchanged.
+  // ── Preferred: the Browser Rendering binding (deployed Worker) ──────────────
+  let browserBinding: unknown;
+  try {
+    browserBinding = (getCloudflareContext().env as Record<string, unknown>)?.BROWSER;
+  } catch {
+    /* no Cloudflare context (e.g. plain node/tests) */
+  }
+  if (browserBinding) {
+    const puppeteer = (await import("@cloudflare/puppeteer")).default;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const browser = await puppeteer.launch(browserBinding as any);
+    try {
+      const page = await browser.newPage();
+      await page.setContent(html, { waitUntil: "networkidle0" });
+      const pdf = (await page.pdf({ printBackground: true, format: "A4" })) as Uint8Array;
+      // Copy into a fresh ArrayBuffer (page.pdf's buffer may be Shared on workerd).
+      const out = new ArrayBuffer(pdf.byteLength);
+      new Uint8Array(out).set(pdf);
+      return out;
+    } finally {
+      await browser.close();
+    }
+  }
+
+  // ── Fallback: Browser Rendering REST API (local dev, if configured) ─────────
   const accountId = serverEnv("BROWSER_RENDER_ACCOUNT_ID") || serverEnv("CF_ACCOUNT_ID");
   const token = serverEnv("BROWSER_RENDER_TOKEN") || serverEnv("CF_BROWSER_RENDERING_TOKEN");
   if (!accountId || !token) {
     throw new PdfConfigError(
-      "Cloudflare Browser Rendering is not configured. Set BROWSER_RENDER_ACCOUNT_ID and BROWSER_RENDER_TOKEN.",
+      "Browser Rendering is not available. Enable Browser Rendering on the Cloudflare account (the BROWSER binding), or set BROWSER_RENDER_ACCOUNT_ID + BROWSER_RENDER_TOKEN for the REST fallback.",
     );
   }
-
   const res = await fetch(
     `https://api.cloudflare.com/client/v4/accounts/${accountId}/browser-rendering/pdf`,
     {
@@ -27,9 +51,7 @@ export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
       body: JSON.stringify({ html, pdfOptions: { printBackground: true, format: "A4" } }),
     },
   );
-  if (!res.ok) {
-    throw new Error(`Browser Rendering error ${res.status}: ${await res.text()}`);
-  }
+  if (!res.ok) throw new Error(`Browser Rendering error ${res.status}: ${await res.text()}`);
   return res.arrayBuffer();
 }
 

@@ -16,6 +16,10 @@
   // Email Sending > enable app-carfectionist.com (DNS is auto-managed —
   // the zone lives on this account). Sends fail cleanly until then.
   "send_email": [{ "name": "EMAIL" }],
+  // Browser Rendering — server-side HTML→PDF for emailed/WhatsApp documents.
+  // The binding IS the auth (no account id / API token needed). Requires
+  // Browser Rendering enabled on the account (free tier is sufficient).
+  "browser": { "binding": "BROWSER" },
   "observability": {
     "enabled": true
   }
