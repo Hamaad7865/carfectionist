@@ -5,8 +5,12 @@ import type { FlowStep } from "@/lib/supabase/queries/flow";
 // The car's journey, at a glance: Intake → Quote → Client signs → Job →
 // Invoice. Server-rendered, pure props — mounted on the quote/invoice pages
 // and above the job card so the owner sees the same five steps everywhere.
+//
+// The connector rail lives in its own overlay layer (below), painted ABOVE the
+// per-step hover cards, so hovering a step never hides the lines running into
+// or out of it.
 
-function Node({ s, last }: { s: FlowStep; last: boolean }) {
+function Node({ s }: { s: FlowStep }) {
   const done = s.state === "done";
   const current = s.state === "current";
   const declined = s.state === "declined";
@@ -47,33 +51,46 @@ function Node({ s, last }: { s: FlowStep; last: boolean }) {
     </div>
   );
 
+  // min-w-0 keeps every column an equal flex-1 width (the nowrap detail line
+  // would otherwise inflate its column and skew the rail). The hover card fills
+  // its column and fades in; the rail (z-10, below) paints over it, so hovering
+  // never hides the lines.
   return (
-    <div className={`relative flex-1 ${last ? "" : ""}`}>
-      {/* connector to the next node (desktop) */}
-      {!last && (
-        <span
-          className={`absolute left-[calc(50%+18px)] right-[calc(-50%+18px)] top-[13px] hidden h-[2px] rounded sm:block ${
-            done ? "bg-brand" : "bg-line-2"
-          }`}
-        />
-      )}
+    <div className="min-w-0 flex-1 sm:text-center">
       {s.href ? (
-        <Link href={s.href} className="block rounded-[10px] px-1 py-1 hover:bg-sub">
+        <Link
+          href={s.href}
+          className="block rounded-[11px] px-2 py-2 transition-colors duration-150 ease-out hover:bg-sub"
+        >
           {body}
         </Link>
       ) : (
-        <div className="px-1 py-1">{body}</div>
+        <div className="px-2 py-2">{body}</div>
       )}
     </div>
   );
 }
 
 export function FlowStepper({ steps }: { steps: FlowStep[] }) {
+  const n = steps.length;
   return (
     <div className="rounded-[15px] border border-line bg-card px-4 py-3.5">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-0">
-        {steps.map((s, i) => (
-          <Node key={s.key} s={s} last={i === steps.length - 1} />
+      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-0">
+        {/* connector rail — one segment per gap, painted above the hover cards
+            (z-10) so a hovered step can't cover the lines. Pointer-events off so
+            it never eats a click. Columns are equal (flex-1), so segment i runs
+            from column i's centre +18px to column i+1's centre −18px. */}
+        <div className="pointer-events-none absolute inset-0 z-10 hidden sm:block" aria-hidden>
+          {steps.slice(0, -1).map((s, i) => (
+            <span
+              key={s.key}
+              className={`absolute top-[21px] h-[2px] rounded ${s.state === "done" ? "bg-brand" : "bg-line-2"}`}
+              style={{ left: `calc(${((i + 0.5) / n) * 100}% + 18px)`, width: `calc(${100 / n}% - 36px)` }}
+            />
+          ))}
+        </div>
+        {steps.map((s) => (
+          <Node key={s.key} s={s} />
         ))}
       </div>
     </div>
