@@ -733,6 +733,12 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
 
             s.error?.let { Text(it, color = Danger, fontSize = 13.sp) }
 
+            // A dead button with no reason is the worst thing to hand a cashier mid-sale.
+            if (s.cashNeedsTill) Text(
+                "Open the till before taking cash — cash has to land in a drawer that gets counted.",
+                color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Box(
                     Modifier.weight(1f).height(54.dp).background(InsetAlt, RoundedCornerShape(13.dp)).clickable(onClick = vm::closePad),

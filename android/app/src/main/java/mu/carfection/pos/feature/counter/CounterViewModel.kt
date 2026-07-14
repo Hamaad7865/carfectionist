@@ -107,10 +107,16 @@ data class CounterUiState(
 
     val canRecord: Boolean
         get() = !busy && dueCents > 0 && (collect != null || cart.isNotEmpty()) && when (method) {
-            PayMethod.CASH -> effectiveTenderCents >= dueCents
+            // Cash moves a physical drawer, so it has to be taken ON a till — the server refuses
+            // it otherwise. Owners skip the till gate, so without this they would only find out at
+            // the moment of tender, with the customer's money already in their hand.
+            PayMethod.CASH -> effectiveTenderCents >= dueCents && till != null
             PayMethod.CREDIT -> collect == null && customerId != null // credit is walk-in only
             else -> true
         }
+
+    /** Why the pay button is dead, when the reason is the till and not the basket. */
+    val cashNeedsTill: Boolean get() = method == PayMethod.CASH && till == null && dueCents > 0
 
     /** Quick-tender chips: Exact + the round-ups a customer actually hands over. */
     val quickTenders: List<Long>

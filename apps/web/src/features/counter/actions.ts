@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
 import { resolveShopLocationId } from "@/lib/supabase/locations";
+import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
 import { computeTotals } from "@/lib/money";
 import type { SettlePhase } from "./settle";
@@ -183,9 +184,9 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
         // cash-up reconciles, card/Juice/bank so the sale is traceable to a
         // device (Point of Sale module). Drawer math is untouched:
         // close_cash_session only sums method='cash'.
-        const { data: sess } = await sb.from("cash_sessions").select("id").eq("status", "open").limit(1).maybeSingle();
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const cashSessionId: string | null = (sess as any)?.id ?? null;
+        // The DESK's till — never "any open till". Picking the first open session put a
+        // back-office payment into a tablet's drawer and corrupted both cash-ups.
+        const cashSessionId: string = await backOfficeTillId(sb);
 
         const tenderedRupees =
           p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;
