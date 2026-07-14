@@ -4,6 +4,7 @@ const ITEMS = [
   { key: "business", label: "Business profile", href: "/settings" },
   { key: "templates", label: "Document template", href: "/settings/templates" },
   { key: "team", label: "Team & roles", href: "/settings/team" },
+  { key: "whatsapp", label: "WhatsApp", href: "/settings/whatsapp" },
 ];
 
 export function SettingsNav({ active }: { active: string }) {

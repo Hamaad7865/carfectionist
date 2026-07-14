@@ -284,3 +284,68 @@ export async function downloadMedia(url: string): Promise<WaResult<{ bytes: Arra
     return { ok: false, error: (err as Error).message };
   }
 }
+
+// ─── connection diagnostics (Settings → WhatsApp) ────────────────────────────
+// Proves each credential ACTUALLY works by asking Meta, rather than just
+// checking a value is present. Never returns secret values — only what's true.
+
+export interface WaSecretState {
+  token: boolean;
+  phoneNumberId: boolean;
+  wabaId: boolean;
+  appSecret: boolean;
+  verifyToken: boolean;
+}
+
+export function secretState(): WaSecretState {
+  const e = waEnv();
+  return {
+    token: !!e.token,
+    phoneNumberId: !!e.phoneNumberId,
+    wabaId: !!e.wabaId,
+    appSecret: !!e.appSecret,
+    verifyToken: !!e.verifyToken,
+  };
+}
+
+export interface WaProbe {
+  phone: { ok: boolean; number?: string; name?: string; quality?: string; error?: string };
+  waba: { ok: boolean; name?: string; error?: string };
+}
+
+/** Ask Meta who we are. A green result means the token + ids genuinely work. */
+export async function probeConnection(): Promise<WaProbe> {
+  const e = waEnv();
+  const out: WaProbe = { phone: { ok: false }, waba: { ok: false } };
+  if (!e.token) {
+    out.phone.error = "No access token set.";
+    out.waba.error = "No access token set.";
+    return out;
+  }
+
+  if (e.phoneNumberId) {
+    const r = await graph(`${e.phoneNumberId}?fields=display_phone_number,verified_name,quality_rating`, { method: "GET" }, e.token);
+    if (r.ok) {
+      out.phone = {
+        ok: true,
+        number: String(r.data.display_phone_number ?? ""),
+        name: String(r.data.verified_name ?? ""),
+        quality: String(r.data.quality_rating ?? ""),
+      };
+    } else out.phone.error = r.error;
+  } else out.phone.error = "No phone number ID set.";
+
+  if (e.wabaId) {
+    const r = await graph(`${e.wabaId}?fields=name`, { method: "GET" }, e.token);
+    if (r.ok) out.waba = { ok: true, name: String(r.data.name ?? "") };
+    else out.waba.error = r.error;
+  } else out.waba.error = "No WhatsApp account ID set.";
+
+  return out;
+}
+
+/** Meta pre-approves a `hello_world` template on every new account — the
+ *  canonical "does sending work end-to-end" test, same as Meta's own console. */
+export async function sendHelloWorld(phone: string): Promise<WaResult<{ messageId: string }>> {
+  return sendTemplate(phone, "hello_world", "en_US", []);
+}
