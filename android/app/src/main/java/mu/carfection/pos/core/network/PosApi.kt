@@ -384,6 +384,13 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     suspend fun convertQuoteToInvoice(quoteId: String): SavedDoc =
         client.postgrest.rpc("convert_quote_to_invoice", buildJsonObject { put("p_quote_id", quoteId) }).decodeAs()
 
+    /**
+     * A fresh draft carrying the quote's lines and discount, linked back to it. The
+     * original is never touched — what the customer signed stays exactly as they signed it.
+     */
+    suspend fun reviseQuote(quoteId: String): SavedDoc =
+        client.postgrest.rpc("revise_quote", buildJsonObject { put("p_quote_id", quoteId) }).decodeAs()
+
     /** Create a job-linked draft document (invoice/quote) — one live doc per job per type. */
     suspend fun createDocumentFromJob(jobId: String, docType: String): SavedDoc =
         client.postgrest.rpc("create_document_from_job", buildJsonObject {

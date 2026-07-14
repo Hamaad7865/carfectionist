@@ -185,7 +185,29 @@ class JobsViewModel @Inject constructor(
     }
 
     // ── invoice a finished job (create_document_from_job → price → issue) ──────
-    fun openInvoice() { val j = active(_s.value); _s.update { it.copy(invoiceOpen = true, invoiceService = j?.notes?.ifBlank { null } ?: "Detailing service", invoiceAmountText = "") } }
+    /**
+     * A quoted job's bill is its quote — already priced, already signed. Raise it as-is
+     * rather than opening a pad that asks the operator to retype what the customer has
+     * agreed to. Only a job with no quote (a walk-in booked straight onto the board) has
+     * nothing to inherit, and only that job gets the typed dialog.
+     */
+    fun openInvoice() {
+        val j = active(_s.value) ?: return
+        val quoteId = j.sourceQuoteId
+        if (quoteId != null) {
+            _s.update { it.copy(invoiceBusy = true) }
+            viewModelScope.launch {
+                runCatching { ensureQuoteInvoice(quoteId) }
+                    .onSuccess {
+                        _s.update { it.copy(invoiceBusy = false, toast = "Invoice raised from the quote — collect it in Checkout") }
+                        load()
+                    }
+                    .onFailure { e -> _s.update { it.copy(invoiceBusy = false, toast = e.uiMessage("Couldn’t raise the invoice")) } }
+            }
+            return
+        }
+        _s.update { it.copy(invoiceOpen = true, invoiceService = j.notes?.ifBlank { null } ?: "Detailing service", invoiceAmountText = "") }
+    }
     fun closeInvoice() = _s.update { it.copy(invoiceOpen = false) }
     fun setInvoiceService(t: String) = _s.update { it.copy(invoiceService = t) }
     fun setInvoiceAmount(t: String) = _s.update { it.copy(invoiceAmountText = t.filter { c -> c.isDigit() || c == '.' }) }
@@ -200,20 +222,28 @@ class JobsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val draft = api.createDocumentFromJob(job.id, "invoice")
-                val doc = buildJsonObject {
-                    put("id", draft.id); put("doc_type", "invoice"); put("customer_id", cid)
-                    if (job.vehicleId != null) put("vehicle_id", job.vehicleId) else put("vehicle_id", JsonNull)
-                    put("origin", "from_job")
+                // The server, not this screen, knows whether the job has a signed quote —
+                // a job can acquire one (an accepted revision) without its own immutable
+                // source_quote_id ever changing, and this pad would then overwrite a bill
+                // the customer signed with a figure someone typed. If it came priced from a
+                // quote, leave every line exactly as agreed and just issue it.
+                if (draft.sourceDocumentId == null) {
+                    val doc = buildJsonObject {
+                        put("id", draft.id); put("doc_type", "invoice"); put("customer_id", cid)
+                        if (job.vehicleId != null) put("vehicle_id", job.vehicleId) else put("vehicle_id", JsonNull)
+                        put("origin", "from_job")
+                    }
+                    val lines = buildJsonArray {
+                        add(buildJsonObject {
+                            put("product_id", JsonNull); put("title", s.invoiceService.ifBlank { "Detailing service" })
+                            put("qty", 1); put("unit_price", centsToRupees(cents)); put("discount_pct", 0); put("vat_rate", 15); put("sort_order", 0)
+                        })
+                    }
+                    api.saveDraft(doc, lines)
                 }
-                val lines = buildJsonArray {
-                    add(buildJsonObject {
-                        put("product_id", JsonNull); put("title", s.invoiceService.ifBlank { "Detailing service" })
-                        put("qty", 1); put("unit_price", centsToRupees(cents)); put("discount_pct", 0); put("vat_rate", 15); put("sort_order", 0)
-                    })
-                }
-                api.saveDraft(doc, lines)
-                api.issueDocument(draft.id, "job-inv:${job.id}")
-            }.onSuccess { d -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${d.number ?: "Invoice"} created — collect it in Checkout") } }
+                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}").number
+                else draft.number
+            }.onSuccess { n -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${n ?: "Invoice"} created — collect it in Checkout") } }
                 .onFailure { e ->
                     val msg = if (e.message?.contains("already has", true) == true) "This job already has an invoice — collect it in Checkout" else e.uiMessage("Couldn’t create the invoice")
                     _s.update { it.copy(invoiceBusy = false, toast = msg) }
@@ -490,15 +520,21 @@ class JobsViewModel @Inject constructor(
     }
 
     /**
-     * The quote's priced invoice, created + issued exactly once. Both layers are
-     * replay-safe: convert_quote_to_invoice hands back the existing live invoice
-     * (one per quote — DB unique index), and issue_document replays on the same
-     * "quote-inv:<quoteId>" key the quote builder's "Bill now" uses. An invoice
-     * already issued elsewhere is left untouched (only drafts get issued).
+     * The job's priced invoice, created + issued exactly once.
+     *
+     * The quote id here is only a way in, never the price: convert_quote_to_invoice
+     * re-resolves it to the quote the customer signed LAST for this job, so a car whose
+     * quote was revised is billed at the figure they agreed, not the one they refused.
+     *
+     * Replay-safe on both layers: convert_quote_to_invoice hands back the live invoice if
+     * there already is one, and the issue is keyed on the DOCUMENT rather than the quote.
+     * Keying it on the quote meant that voiding a bill — an ordinary correction at the
+     * counter — burned the key: the fresh invoice could never be issued under it, and the
+     * job became permanently un-billable from the tablet.
      */
     private suspend fun ensureQuoteInvoice(quoteId: String) {
         val inv = api.convertQuoteToInvoice(quoteId)
-        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "quote-inv:$quoteId")
+        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
     }
 
     /**

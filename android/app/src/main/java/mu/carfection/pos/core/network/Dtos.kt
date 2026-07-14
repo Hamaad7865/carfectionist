@@ -51,7 +51,14 @@ data class NewVehicleDto(
 @Serializable
 data class JobRow(val id: String)
 
-@Serializable data class SavedDoc(val id: String, val number: String? = null, val status: String? = null)
+@Serializable data class SavedDoc(
+    val id: String,
+    val number: String? = null,
+    val status: String? = null,
+    // Set when the server priced this document from a quote. Its presence is the only
+    // trustworthy answer to "was this bill already priced?" — the client must not decide.
+    @SerialName("source_document_id") val sourceDocumentId: String? = null,
+)
 
 @Serializable
 data class QuoteLineDto(

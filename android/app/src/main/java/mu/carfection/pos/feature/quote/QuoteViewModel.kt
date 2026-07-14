@@ -269,16 +269,26 @@ class QuoteViewModel @Inject constructor(
 
     fun back() { _s.update { it.copy(mode = QuoteMode.LIST) }; loadQuotes() }
 
+    /**
+     * Only a draft can be changed. Once a quote is issued the customer has been shown a
+     * price, and once accepted they have signed it — save_draft refuses either, so every
+     * keystroke past that point was work the operator would silently lose. Editing is
+     * closed here instead, and "Revise" opens a fresh draft to change.
+     */
+    fun editable(s: QuoteState): Boolean = s.status == "draft"
+
     fun addProduct(p: ProductEntity) = _s.update { st ->
+        if (!editable(st)) return@update st
         val i = st.lines.indexOfFirst { it.productId == p.id }
         val lines = if (i >= 0) st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
         else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct)
         st.copy(lines = lines)
     }
 
-    fun openAdhoc() = _s.update { it.copy(adhocOpen = true) }
+    fun openAdhoc() = _s.update { if (editable(it)) it.copy(adhocOpen = true) else it }
     fun closeAdhoc() = _s.update { it.copy(adhocOpen = false) }
     fun addAdhoc(name: String, priceCents: Long, vatRate: Double = 15.0) = _s.update { st ->
+        if (!editable(st)) return@update st.copy(adhocOpen = false)
         if (name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
         else st.copy(adhocOpen = false, lines = st.lines + quoteLine(null, name.trim(), priceCents, vatRate))
     }
@@ -286,20 +296,47 @@ class QuoteViewModel @Inject constructor(
     /** Gross (pre-discount) subtotal in cents, for the "Subtotal" display row. */
     fun grossCents(s: QuoteState): Long = s.lines.sumOf { it.qty * it.unitCents }
 
-    fun toggleLine(i: Int) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(expanded = !l.expanded) else l.copy(expanded = false) }) }
-    fun setQty(i: Int, q: Int) = _s.update { st -> if (q <= 0) st.copy(lines = st.lines.filterIndexed { j, _ -> j != i }) else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = q) else l }) }
-    fun setDiscount(i: Int, d: Int) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountPct = d) else l }) }
-    fun removeLine(i: Int) = _s.update { st -> st.copy(lines = st.lines.filterIndexed { j, _ -> j != i }) }
+    fun toggleLine(i: Int) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(expanded = !l.expanded) else l.copy(expanded = false) }) }
+    fun setQty(i: Int, q: Int) = _s.update { st -> if (!editable(st)) st else if (q <= 0) st.copy(lines = st.lines.filterIndexed { j, _ -> j != i }) else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = q) else l }) }
+    fun setDiscount(i: Int, d: Int) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountPct = d) else l }) }
+    fun removeLine(i: Int) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.filterIndexed { j, _ -> j != i }) }
+
+    /**
+     * Change an issued or accepted quote: a NEW draft carrying its lines and discount,
+     * linked back to it. The original is never rewritten — a signed price the customer
+     * agreed to must still read, next year, exactly as they agreed it.
+     */
+    fun reviseQuote() {
+        val s = _s.value
+        val id = s.quoteId ?: return
+        if (editable(s) || s.busy) return
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val rev = api.reviseQuote(id)
+                // Re-read the list so the new draft arrives with its customer, vehicle and
+                // number attached — the RPC hands back the row, not the joins the builder needs.
+                val quotes = api.fetchQuotes()
+                rev.id to quotes
+            }.onSuccess { (newId, quotes) ->
+                _s.update { it.copy(busy = false, quotes = quotes) }
+                quotes.firstOrNull { it.id == newId }?.let { openQuote(it) }
+                    ?: _s.update { it.copy(error = "The revision was created — reopen it from the list.") }
+            }.onFailure { e ->
+                _s.update { it.copy(busy = false, error = e.uiMessage("Couldn’t start a revision")) }
+            }
+        }
+    }
 
     // ── price + Rs-discount editing (raw text lives on the line; cents derived) ──
     private fun moneyText(t: String) = t.filter { it.isDigit() || it == '.' }
-    fun setPrice(i: Int, t: String) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(priceText = moneyText(t)) else l }) }
-    fun setLineDiscMode(i: Int, m: DiscountMode) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountMode = m) else l }) }
+    fun setPrice(i: Int, t: String) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(priceText = moneyText(t)) else l }) }
+    fun setLineDiscMode(i: Int, m: DiscountMode) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountMode = m) else l }) }
     fun setLineDiscAmt(i: Int, t: String) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountAmtText = moneyText(t)) else l }) }
 
     // ── basket (order-level) discount ────────────────────────────────────────────
-    fun setBasketMode(m: DiscountMode) = _s.update { it.copy(basketMode = m, basketText = "") }
-    fun setBasketText(t: String) = _s.update { it.copy(basketText = if (it.basketMode == DiscountMode.PCT) t.filter { c -> c.isDigit() } else moneyText(t)) }
+    fun setBasketMode(m: DiscountMode) = _s.update { if (!editable(it)) it else it.copy(basketMode = m, basketText = "") }
+    fun setBasketText(t: String) = _s.update { if (!editable(it)) it else it.copy(basketText = if (it.basketMode == DiscountMode.PCT) t.filter { c -> c.isDigit() } else moneyText(t)) }
 
     private fun basketPct(s: QuoteState): Int = if (s.basketMode == DiscountMode.PCT) (s.basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
     private fun basketAmtCents(s: QuoteState): Long = if (s.basketMode == DiscountMode.AMT) (parseMoneyToCents(s.basketText) ?: 0L).coerceAtLeast(0) else 0
@@ -490,8 +527,12 @@ class QuoteViewModel @Inject constructor(
                     if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val draft = api.convertQuoteToInvoice(quoteId)
-                api.issueDocument(draft.id, "quote-inv:$quoteId")
-            }.onSuccess { d -> _s.update { it.copy(busy = false, acceptOpen = false, billed = true, createdInvoiceRef = d.number ?: "Invoice issued") } }
+                // Keyed on the document, not the quote: a voided bill must be re-issuable,
+                // and a key spent on the void one would refuse its replacement forever.
+                // One already issued (by the board, say) is handed back as it stands.
+                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}").number
+                else draft.number
+            }.onSuccess { n -> _s.update { it.copy(busy = false, acceptOpen = false, billed = true, createdInvoiceRef = n ?: "Invoice issued") } }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

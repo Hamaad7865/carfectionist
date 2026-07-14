@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -285,6 +286,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         // LEFT 53 — category rail + search + product grid (the same catalogue Checkout browses,
         // so it gets the same rail: 795 products under 40-odd categories are not browsable as chips)
+        // A quote the customer has already been shown — or signed — is not a shopping
+        // screen. Showing 795 tappable products that silently do nothing is worse than
+        // showing none, so the picker gives way to the one thing left to do: revise it.
+        if (!vm.editable(s)) LockedQuotePanel(s, vm) else {
         CategoryRail(s, vm)
         Column(Modifier.weight(53f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // The ad-hoc tile lives at the end of the grid — past hundreds of products, so it
@@ -326,6 +331,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 }
             }
         }
+        }
         // RIGHT 47 — quote lines
         Column(Modifier.weight(47f).fillMaxHeight().card()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -355,7 +361,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         else -> ""
                     }
                     Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Color(0xFFF1F4F7), RoundedCornerShape(12.dp)).border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))) {
-                        Row(Modifier.fillMaxWidth().clickable { vm.toggleLine(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(Modifier.fillMaxWidth().clickable(enabled = vm.editable(s)) { vm.toggleLine(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Text("×${l.qty}$discNote", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
@@ -414,8 +420,14 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 val lineDisc = gross - t.lineExclCents.sum()
                 TotalLine("Subtotal", formatMUR(gross), TextSecondary)
                 if (lineDisc > 0) TotalLine("Line discounts", "−" + formatMUR(lineDisc), Success)
-                // basket (order-level) discount — % of the total, or Rs off (VAT-inclusive)
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                // basket (order-level) discount — % of the total, or Rs off (VAT-inclusive).
+                // Once the quote has left draft this is only a figure to read: controls that
+                // accept a tap and then quietly ignore it are worse than no controls at all.
+                if (!vm.editable(s)) {
+                    if (t.orderDiscountInclCents > 0) {
+                        TotalLine("Basket discount", "−" + formatMUR(t.orderDiscountInclCents), Success)
+                    }
+                } else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Text("Basket discount", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary)
                     listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
                         val on = s.basketMode == m
@@ -624,6 +636,49 @@ private fun AcceptBody(
                 }
             }
         }
+    }
+}
+
+/**
+ * What stands where the product picker was, once a quote has left draft. It says plainly
+ * that the quote is closed, why, and what to do instead — a screen that simply ignored
+ * taps would leave the operator poking at products, wondering what was broken.
+ */
+@Composable
+private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
+    val accepted = s.status == "accepted" || s.signed
+    Column(
+        Modifier.weight(53f).fillMaxHeight().card(14).padding(28.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        Spacer(Modifier.weight(1f))
+        Text(
+            if (accepted) "This quote has been signed" else "This quote has been sent",
+            fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = TextPrimary,
+        )
+        Text(
+            if (accepted)
+                "The customer agreed to these prices, so they stay exactly as they agreed them. " +
+                    "To change anything, start a revision — a new quote carrying these lines, with this one kept as the record."
+            else
+                "The customer has been shown these prices. To change anything, start a revision — " +
+                    "a new quote carrying these lines, with this one kept as the record.",
+            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 14.5.sp, lineHeight = 21.sp, color = TextMuted,
+        )
+        Spacer(Modifier.height(4.dp))
+        Box(
+            Modifier.height(52.dp).background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                .clickable(enabled = !s.busy) { vm.reviseQuote() }
+                .padding(horizontal = 26.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (s.busy) "Working…" else "Revise this quote →",
+                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                color = if (s.busy) TextSecondary else AccentInk,
+            )
+        }
+        Spacer(Modifier.weight(1f))
     }
 }
 
