@@ -34,42 +34,51 @@ jobs:
       - name: Tests
         run: npm run test --workspace web
 
-      - name: Build (OpenNext)
+      # WEBPACK, not Turbopack (Next 16's default). Turbopack names its server chunks
+      # `[root-of-the-server]__<hash>._.js`; the OpenNext Worker cannot resolve those at
+      # runtime, so pages die with ChunkLoadError — intermittently, per isolate, with a
+      # green build. See apps/web/next.config.ts.
+      - name: Build (Next, webpack)
         working-directory: apps/web
         env:
           # Build-time: NEXT_PUBLIC_* are inlined into the bundle by `next build`.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-        run: npx opennextjs-cloudflare build
+        run: npx next build --webpack
 
-      - name: Deploy to Cloudflare Workers
+      - name: Deploy to Cloudflare Workers (bundles the build above)
         working-directory: apps/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx opennextjs-cloudflare deploy
+        run: npx opennextjs-cloudflare deploy --skipNextBuild
 
-      # A green build is NOT a working site. On 2026-07-14 a deploy passed tests, passed
-      # the OpenNext build, deployed — and then every page 500'd with a ChunkLoadError that
-      # only appears at runtime in the Worker. Nobody knew until the owner tried to log in.
-      # So: after every deploy, actually load the site. A page that does not render is a
-      # failed deploy, and this job says so loudly instead of leaving the shop dark.
+      # A green build is NOT a working site. On 2026-07-14 a deploy passed tests, passed the
+      # OpenNext build, deployed green — and pages 500'd with a runtime ChunkLoadError that
+      # only appears inside the Worker. Worse, it was INTERMITTENT: the same URL answered 200
+      # on one request and 500 on the next, so a single check of a single page can miss it.
+      # So: hit several real pages, several times each. Anything that 500s fails the deploy.
       - name: Smoke test — the deployed site actually renders
         run: |
-          set -e
-          url="https://app-carfectionist.com/login"
-          for attempt in 1 2 3 4 5 6; do
-            code=$(curl -s -o /tmp/body.html -w "%{http_code}" --max-time 30 "$url" || echo "000")
-            if [ "$code" = "200" ]; then
-              echo "✓ $url renders (HTTP 200) on attempt $attempt"
-              exit 0
-            fi
-            echo "attempt $attempt: HTTP $code — waiting for the new version to roll out…"
-            sleep 10
+          sleep 15   # let the new version roll out across isolates
+          base="https://app-carfectionist.com"
+          paths="/login /jobs /products /sales /dashboard /sales/counter"
+          fail=0
+          for round in 1 2 3; do
+            for p in $paths; do
+              code=$(curl -s -o /tmp/body.html -w "%{http_code}" --max-time 30 "$base$p" || echo "000")
+              # A signed-out visitor gets 200 (login) or a redirect to it. A 5xx is a broken build.
+              case "$code" in
+                200|301|302|307|308) echo "  ✓ $p -> $code (round $round)" ;;
+                *) echo "  ✗ $p -> $code (round $round)"; fail=1; head -c 400 /tmp/body.html || true ;;
+              esac
+            done
           done
-          echo "::error::DEPLOY IS BROKEN — $url returned HTTP $code after the deploy. The site is down; roll back (git revert) before anything else."
-          head -c 800 /tmp/body.html || true
-          exit 1
+          if [ "$fail" = "1" ]; then
+            echo "::error::DEPLOY IS BROKEN — the site is serving errors. Roll back (git revert) before anything else."
+            exit 1
+          fi
+          echo "✓ every page renders on the deployed site"
 
 # Runtime Worker secrets (SUPABASE_SERVICE_ROLE_KEY, WHATSAPP_*) are NOT set
 # here — set once on the Worker (dashboard → Settings → Variables and Secrets);
