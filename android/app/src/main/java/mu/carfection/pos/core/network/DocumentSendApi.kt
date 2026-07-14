@@ -18,6 +18,7 @@ import javax.inject.Singleton
 private data class SendDocumentBody(
     val channel: String,
     val to: String,
+    val note: String? = null,
     val saveContact: Boolean,
     val deviceCode: String? = null,
 )
@@ -38,11 +39,11 @@ class DocumentSendApi @Inject constructor(private val client: SupabaseClient) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /** Returns null on success, or a human-readable error message. */
-    suspend fun send(documentId: String, channel: String, to: String, deviceCode: String?): String? =
+    suspend fun send(documentId: String, channel: String, to: String, note: String?, deviceCode: String?): String? =
         withContext(Dispatchers.IO) {
             val token = client.auth.currentAccessTokenOrNull()
                 ?: return@withContext "Not signed in — sign in again and retry."
-            val body = json.encodeToString(SendDocumentBody(channel, to, saveContact = true, deviceCode = deviceCode))
+            val body = json.encodeToString(SendDocumentBody(channel, to, note = note?.takeIf { it.isNotBlank() }, saveContact = true, deviceCode = deviceCode))
             val conn = (URL("$base/api/documents/$documentId/send").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 15_000

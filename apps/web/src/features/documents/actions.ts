@@ -189,6 +189,7 @@ const sendDocSchema = z.object({
   documentId: z.string().min(1),
   channel: z.enum(["email", "whatsapp"]),
   to: z.string().min(1).max(200),
+  note: z.string().max(300).optional(),
 });
 
 /** Email / WhatsApp the document PDF to the customer (same engine as the tablet). */
@@ -201,5 +202,5 @@ export async function sendDocumentAction(input: z.infer<typeof sendDocSchema>): 
   const { headers } = await import("next/headers");
   const host = (await headers()).get("host") ?? "app-carfectionist.com";
   const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
-  return sendDocument({ sb, docId: p.data.documentId, channel: p.data.channel, to: p.data.to, origin: `${proto}://${host}` });
+  return sendDocument({ sb, docId: p.data.documentId, channel: p.data.channel, to: p.data.to, note: p.data.note, origin: `${proto}://${host}` });
 }

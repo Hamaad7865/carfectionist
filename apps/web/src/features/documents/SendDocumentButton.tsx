@@ -6,6 +6,16 @@ import { sendDocumentAction } from "./actions";
 
 // "Send to customer" on the document page — email the PDF or WhatsApp it as a
 // document message. Same engine the tablet uses after a client signs.
+
+// Message presets the operator can pick, then edit freely. On WhatsApp the text
+// travels as a variable inside the one Meta-approved template; on email it goes
+// straight into the body.
+const NOTE_PRESETS = [
+  { label: "Thank you", text: "Thank you for your business." },
+  { label: "As discussed", text: "As discussed — please review and let us know if you have any questions." },
+  { label: "Reminder", text: "A gentle reminder regarding this document. We remain at your service." },
+];
+
 export function SendDocumentButton({
   documentId,
   defaultEmail,
@@ -18,6 +28,7 @@ export function SendDocumentButton({
   const [open, setOpen] = useState(false);
   const [channel, setChannel] = useState<"email" | "whatsapp">("email");
   const [to, setTo] = useState(defaultEmail ?? "");
+  const [note, setNote] = useState(NOTE_PRESETS[0].text);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -32,7 +43,7 @@ export function SendDocumentButton({
   async function send() {
     setBusy(true);
     setError(null);
-    const r = await sendDocumentAction({ documentId, channel, to });
+    const r = await sendDocumentAction({ documentId, channel, to, note: note.trim() || undefined });
     setBusy(false);
     if (r.ok) setDone(true);
     else setError(r.error);
@@ -74,6 +85,29 @@ export function SendDocumentButton({
                 inputMode={channel === "email" ? "email" : "tel"}
               />
             </label>
+
+            <div className="mt-3 flex flex-col gap-1.5">
+              <span className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Message</span>
+              <div className="flex flex-wrap gap-1.5">
+                {NOTE_PRESETS.map((p) => (
+                  <button
+                    key={p.label}
+                    type="button"
+                    onClick={() => { setNote(p.text); setDone(false); }}
+                    className={`h-7 rounded-[8px] px-2.5 text-[11.5px] font-semibold ${note === p.text ? "grad-brand text-white" : "border border-line-2 bg-sub text-body"}`}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
+              <textarea
+                value={note}
+                onChange={(e) => { setNote(e.target.value.slice(0, 300)); setDone(false); }}
+                rows={2}
+                className="w-full resize-none rounded-[11px] border border-line-2 bg-sub px-3 py-2 text-[13px] leading-snug text-ink outline-none focus:border-brand"
+                placeholder="Message to the customer…"
+              />
+            </div>
 
             {error && <p className="mt-3 rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
             {done && (

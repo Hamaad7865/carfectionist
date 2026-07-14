@@ -104,20 +104,33 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, viewModel: QuoteV
         // Cloudflare enable — both fail with a clear message until then).
         var email by remember(s.customerEmail) { mutableStateOf(s.customerEmail ?: "") }
         var phone by remember(s.customerPhone) { mutableStateOf(s.customerPhone ?: "") }
+        var note by remember { mutableStateOf(SEND_NOTE_PRESETS.first().second) }
         Dialog(onDismissRequest = { viewModel.clearToast(); viewModel.back() }) {
             Column(Modifier.width(470.dp).card().padding(26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Quote accepted", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
                 Text("JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
 
+                MiniLabel("MESSAGE")
+                Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    SEND_NOTE_PRESETS.forEach { (label, text) ->
+                        val on = note == text
+                        Box(
+                            Modifier.height(30.dp).background(if (on) Accent else Inset, RoundedCornerShape(9.dp)).clickable { note = text }.padding(horizontal = 11.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (on) AccentInk else TextSecondary) }
+                    }
+                }
+                FilledInput(value = note, onValueChange = { note = it.take(300) }, placeholder = "Message to the customer…", modifier = Modifier.fillMaxWidth(), bg = Inset)
+
                 MiniLabel("EMAIL")
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledInput(value = email, onValueChange = { email = it }, placeholder = "customer@email.com", modifier = Modifier.weight(1f), bg = Inset)
-                    FillBtn(if (s.sendBusy) "…" else "Send", Modifier.width(96.dp), 48) { if (!s.sendBusy && email.isNotBlank()) viewModel.sendToCustomer("email", email) }
+                    FillBtn(if (s.sendBusy) "…" else "Send", Modifier.width(96.dp), 48) { if (!s.sendBusy && email.isNotBlank()) viewModel.sendToCustomer("email", email, note) }
                 }
                 MiniLabel("WHATSAPP")
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
-                    Box(Modifier.width(96.dp).height(48.dp).background(Color(0xFF25D366), RoundedCornerShape(13.dp)).clickable(enabled = !s.sendBusy && phone.isNotBlank()) { viewModel.sendToCustomer("whatsapp", phone) }, contentAlignment = Alignment.Center) {
+                    Box(Modifier.width(96.dp).height(48.dp).background(Color(0xFF25D366), RoundedCornerShape(13.dp)).clickable(enabled = !s.sendBusy && phone.isNotBlank()) { viewModel.sendToCustomer("whatsapp", phone, note) }, contentAlignment = Alignment.Center) {
                         Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF06231A))
                     }
                 }
@@ -535,3 +548,10 @@ private fun strokesToPng(strokes: List<List<Offset>>, w: Int, h: Int, strokePx: 
 }
 
 @Composable private fun Modifier.horizontalScrollRow(): Modifier = this.horizontalScroll(rememberScrollState())
+
+// Message presets for the post-accept send dialog — pick one, then edit freely.
+private val SEND_NOTE_PRESETS = listOf(
+    "Thank you" to "Thank you for your business.",
+    "As discussed" to "As discussed — please review and let us know if you have any questions.",
+    "Reminder" to "A gentle reminder regarding this document. We remain at your service.",
+)

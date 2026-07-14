@@ -17,20 +17,26 @@ import * as wa from "@/lib/whatsapp";
 // on first use: insert the wa_templates row + submit to Meta, and tell the
 // operator to retry once it's approved (usually minutes).
 
+// {{4}} carries the operator's message (picked from the presets or edited
+// freely) — Meta only delivers pre-approved templates, so the free text rides
+// as a variable inside the one approved template rather than as its own body.
 const DOC_TEMPLATE = {
   name: "document_delivery",
   language: "en",
   category: "UTILITY",
-  body: "Hello {{1}}, here is your {{2}} {{3}} from Carfectionist. Thank you for your business.",
-  variableExamples: ["Anesh", "quotation", "A00120"],
+  body: "Hello {{1}}, here is your {{2}} {{3}} from Carfectionist. {{4}}",
+  variableExamples: ["Anesh", "quotation", "A00120", "Thank you for your business."],
   headerFormat: "DOCUMENT" as const,
 };
+
+export const DEFAULT_SEND_NOTE = "Thank you for your business.";
 
 export interface SendDocumentInput {
   sb: SupabaseClient; // RLS-scoped client of the operator (cookie or bearer)
   docId: string;
   channel: "email" | "whatsapp";
   to: string;
+  note?: string | null; // operator's message to the customer (preset or edited)
   saveContact?: boolean;
   origin: string; // https://app-carfectionist.com — for the public PDF link
   deviceCode?: string | null; // stamps the traceability event when sent from a tablet
@@ -58,6 +64,8 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
 
   const to = i.to.trim();
   if (!to) return { ok: false, error: "Enter where to send it." };
+  // One line, bounded — WhatsApp template variables reject newlines/tabs.
+  const note = (i.note ?? "").replace(/\s+/g, " ").trim().slice(0, 300) || DEFAULT_SEND_NOTE;
 
   if (i.channel === "email") {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return { ok: false, error: "That email address doesn't look right." };
@@ -79,6 +87,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       customerName,
       totalCents: Math.round(Number(d.total_incl) * 100),
       accepted: !!d.accepted_signature,
+      note,
       pdfBase64: Buffer.from(pdf).toString("base64"),
       downloadLink: link,
       studioName: "Carfectionist",
@@ -108,7 +117,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
         language: DOC_TEMPLATE.language,
         category: DOC_TEMPLATE.category,
         body: DOC_TEMPLATE.body,
-        variable_count: 3,
+        variable_count: 4,
         status: "pending",
         meta_template_id: sub.data.id,
       });
@@ -123,7 +132,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       phone,
       DOC_TEMPLATE.name,
       DOC_TEMPLATE.language,
-      [firstName(customerName) || "there", kind, d.number],
+      [firstName(customerName) || "there", kind, d.number, note],
       { link, filename: `${d.number}.pdf` },
     );
     if (!r.ok) return r;

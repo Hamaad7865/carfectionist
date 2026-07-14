@@ -34,7 +34,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const role = appUser?.role as string | undefined;
   if (!role || !["owner", "manager", "cashier"].includes(role)) return json({ ok: false, error: "forbidden" }, 403);
 
-  let body: { channel?: string; to?: string; saveContact?: boolean; deviceCode?: string };
+  let body: { channel?: string; to?: string; note?: string; saveContact?: boolean; deviceCode?: string };
   try {
     body = await req.json();
   } catch {
@@ -51,6 +51,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     docId: id,
     channel: body.channel,
     to: body.to,
+    note: typeof body.note === "string" ? body.note : null,
     saveContact: !!body.saveContact,
     origin,
     deviceCode: typeof body.deviceCode === "string" ? body.deviceCode : null,

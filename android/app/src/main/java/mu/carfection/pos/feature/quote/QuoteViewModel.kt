@@ -376,12 +376,12 @@ class QuoteViewModel @Inject constructor(
 
     /** Post-accept "Send to customer": the Worker renders the signed quotation PDF
      *  and delivers it by [channel] ("email" | "whatsapp"). */
-    fun sendToCustomer(channel: String, to: String) {
+    fun sendToCustomer(channel: String, to: String, note: String = "") {
         val quoteId = _s.value.quoteId ?: return
         if (to.isBlank() || _s.value.sendBusy) return
         _s.update { it.copy(sendBusy = true, sendError = null, sendDone = null) }
         viewModelScope.launch {
-            val err = runCatching { sendApi.send(quoteId, channel, to.trim(), session.deviceId()) }
+            val err = runCatching { sendApi.send(quoteId, channel, to.trim(), note.trim().take(300), session.deviceId()) }
                 .getOrElse { it.message ?: "Network error" }
             _s.update {
                 if (err == null) it.copy(

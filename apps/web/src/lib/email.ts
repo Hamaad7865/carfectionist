@@ -119,6 +119,7 @@ export interface DocumentEmailInput {
   customerName: string;
   totalCents: number;
   accepted: boolean; // signed on the tablet → say so in the mail
+  note?: string; // operator's message to the customer (preset or edited)
   pdfBase64: string;
   downloadLink: string; // public tokenized PDF URL (backup to the attachment)
   studioName: string;
@@ -130,9 +131,12 @@ export async function sendDocumentEmail(i: DocumentEmailInput): Promise<SendResu
   const kindCap = i.docKind.charAt(0).toUpperCase() + i.docKind.slice(1);
   const subject = `${kindCap} ${i.number} from ${i.studioName}`;
   const acceptedLine = i.accepted ? `This ${i.docKind} was accepted and signed in the studio.` : "";
+  const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const noteText = (i.note ?? "").trim();
   const text =
     `Dear ${i.customerName},\n\n` +
     `Please find attached your ${i.docKind} ${i.number} from ${i.studioName}. Total: ${total}.\n` +
+    (noteText ? `${noteText}\n` : "") +
     (acceptedLine ? `${acceptedLine}\n` : "") +
     `\nIf the attachment doesn't open, you can also download it here: ${i.downloadLink}\n\n` +
     `Thank you,\n${i.studioName}`;
@@ -144,6 +148,7 @@ export async function sendDocumentEmail(i: DocumentEmailInput): Promise<SendResu
       <p style="text-align:center;font-size:13px;color:#5b6572;line-height:1.6;margin:14px 0 22px">
         Dear ${i.customerName}, your ${i.docKind} is attached to this email.${acceptedLine ? `<br/>${acceptedLine}` : ""}
       </p>
+      ${noteText ? `<p style="text-align:center;font-size:13.5px;color:#1c2733;line-height:1.6;margin:0 0 22px;font-style:italic">&ldquo;${esc(noteText)}&rdquo;</p>` : ""}
       <table style="width:100%;font-size:13.5px;color:#1c2733;border-collapse:collapse">
         <tr><td style="padding:6px 0;color:#5b6572">Reference</td><td style="padding:6px 0;text-align:right;font-weight:700">${i.number}</td></tr>
         <tr><td style="padding:6px 0;color:#5b6572">Total</td><td style="padding:6px 0;text-align:right;font-weight:800;color:#0d8a5f">${total}</td></tr>
