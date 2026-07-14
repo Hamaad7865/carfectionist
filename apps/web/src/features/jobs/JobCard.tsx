@@ -21,6 +21,7 @@ import {
   setJobStatusAction,
   completeJobAction,
   createDocumentFromJobAction,
+  recordPaymentAction,
   setJobScheduleAction,
 } from "./actions";
 import { estimatedFinish } from "./clock";
@@ -55,6 +56,114 @@ function toLocalInput(iso: string | null): string {
 }
 
 const EST_CHOICES = [30, 60, 120, 240, 480];
+
+const PAY_METHODS = [
+  { v: "bank_transfer", label: "Bank transfer" },
+  { v: "card", label: "Card" },
+  { v: "juice", label: "Juice" },
+] as const;
+
+/**
+ * A deposit, or part of a bill, taken from the back office. Any amount up to the balance —
+ * the invoice goes partly paid and the remainder waits in the counter's TO COLLECT.
+ */
+function PartPayment({
+  jobId, invoiceId, outstandingCents, onDone,
+}: {
+  jobId: string;
+  invoiceId: string;
+  outstandingCents: number;
+  onDone: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState("");
+  const [method, setMethod] = useState<(typeof PAY_METHODS)[number]["v"]>("bank_transfer");
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const outstanding = outstandingCents / 100;
+  const typed = Number(amount);
+  // The pad on the tablet clamps the same way. Nobody should discover the ceiling by
+  // having the transaction thrown back at them with the customer waiting.
+  const over = Number.isFinite(typed) && typed > outstanding + 0.001;
+
+  async function submit() {
+    setBusy(true);
+    setErr(null);
+    const r = await recordPaymentAction(jobId, invoiceId, typed, method, ref);
+    setBusy(false);
+    if (!r.ok) return setErr(r.error);
+    setOpen(false);
+    setAmount("");
+    setRef("");
+    onDone();
+  }
+
+  if (!open) {
+    return (
+      <button onClick={() => setOpen(true)} className="mt-1.5 text-[12px] font-semibold text-link hover:underline">
+        Record a payment
+      </button>
+    );
+  }
+
+  return (
+    <div className="mt-2 rounded-[11px] border border-line bg-card p-3">
+      <div className="flex flex-wrap items-end gap-2.5">
+        <label className="flex flex-col gap-1">
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint">Amount</span>
+          <input
+            type="number" min={0.01} max={outstanding} step="0.01" autoFocus
+            placeholder={outstanding.toFixed(2)}
+            className={`${field} w-[120px]`}
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => setAmount(outstanding.toFixed(2))}
+          className="h-9 rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12.5px] font-bold text-body"
+        >
+          Full {formatMUR(outstandingCents)}
+        </button>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint">Method</span>
+          <select className={field} value={method} onChange={(e) => setMethod(e.target.value as typeof method)}>
+            {PAY_METHODS.map((m) => <option key={m.v} value={m.v}>{m.label}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint">Reference</span>
+          <input
+            className={`${field} w-[150px]`}
+            placeholder="e.g. MCB-2214"
+            value={ref}
+            onChange={(e) => setRef(e.target.value)}
+          />
+        </label>
+        <button
+          onClick={submit}
+          disabled={busy || !(typed > 0) || over || !ref.trim()}
+          className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50"
+        >
+          {busy ? "Recording…" : "Record"}
+        </button>
+        <button onClick={() => { setOpen(false); setErr(null); }} className="h-9 px-2 text-[12.5px] font-semibold text-muted">
+          Cancel
+        </button>
+      </div>
+      {over && <p className="mt-2 text-[12px] text-rose">That is more than the {formatMUR(outstandingCents)} still owed.</p>}
+      {typed > 0 && !over && typed < outstanding && (
+        <p className="mt-2 text-[12px] text-muted">
+          Leaves {formatMUR(outstandingCents - Math.round(typed * 100))} owing — it stays in Checkout to collect.
+        </p>
+      )}
+      {err && <p className="mt-2 text-[12px] text-rose">{err}</p>}
+    </div>
+  );
+}
 
 /**
  * One line of the job's life. A step that hasn't happened renders nothing at all —
@@ -446,6 +555,16 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
                     <span className="num font-semibold text-ink">{formatMUR(d.totalCents)}</span>
                   </span>
                 </Link>
+                {/* Take a deposit or part of the bill by transfer. Cash is not offered: it
+                    moves a physical drawer, and the server only takes it on an open till. */}
+                {d.docType === "invoice" && d.outstandingCents > 0 && !readOnly && (
+                  <PartPayment
+                    jobId={job.id}
+                    invoiceId={d.id}
+                    outstandingCents={d.outstandingCents}
+                    onDone={() => router.refresh()}
+                  />
+                )}
               </li>
             ))}
           </ul>

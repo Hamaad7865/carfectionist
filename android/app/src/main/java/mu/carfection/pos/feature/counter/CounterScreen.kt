@@ -671,12 +671,44 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 // left: amount / tender / change or ref
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DisplayCard("AMOUNT", formatMUR(s.dueCents))
+                    // On a bill, the amount is the cashier's to set — a deposit at booking, half
+                    // today and half on collection. Tap it and the keys type here. A counter sale
+                    // has no balance to carry, so its amount is simply the basket.
+                    val amountEditable = s.collect != null
+                    val onAmount = amountEditable && (s.padField == PadField.AMOUNT || s.method != PayMethod.CASH)
+                    DisplayCard(
+                        if (s.isPartPayment) "PAYING NOW" else "AMOUNT",
+                        formatMUR(s.payCents),
+                        highlight = onAmount,
+                        onClick = if (amountEditable) ({ vm.focusPad(PadField.AMOUNT) }) else null,
+                    )
+                    if (amountEditable) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            QuickChip("Full") { vm.setPayCents(null) }
+                            s.depositChips.forEach { cents ->
+                                QuickChip(formatMUR(cents).removePrefix("Rs ").substringBefore(".")) { vm.setPayCents(cents) }
+                            }
+                        }
+                        if (s.isPartPayment) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Balance left", color = TextSecondary, fontSize = 13.sp)
+                                Spacer(Modifier.weight(1f))
+                                Text(formatMUR(s.balanceAfterCents), color = Warning, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                            }
+                        }
+                    }
                     when (s.method) {
                         PayMethod.CASH -> {
-                            DisplayCard("CASH TENDERED", formatMUR(s.effectiveTenderCents), highlight = true)
+                            DisplayCard(
+                                "CASH TENDERED", formatMUR(s.effectiveTenderCents),
+                                highlight = !onAmount,
+                                onClick = if (amountEditable) ({ vm.focusPad(PadField.TENDER) }) else null,
+                            )
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                QuickChip("Exact") { vm.setTenderCents(s.totals.totalCents) }
+                                // "Exact" means exactly what is being taken — which on a part
+                                // payment is NOT the basket total. It used to read the cart, so
+                                // collecting a bill tendered Rs 0.00.
+                                QuickChip("Exact") { vm.setTenderCents(s.payCents) }
                                 s.quickTenders.forEach { cents ->
                                     QuickChip(formatMUR(cents).removePrefix("Rs ").substringBefore(".")) { vm.setTenderCents(cents) }
                                 }
@@ -753,7 +785,12 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (s.busy) "Recording…" else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.dueCents)} on account" else "Record ${formatMUR(s.dueCents)}",
+                        if (s.busy) "Recording…"
+                        else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.dueCents)} on account"
+                        // Say what is actually being taken — a cashier must never press a button
+                        // labelled with one figure and charge the customer another.
+                        else if (s.isPartPayment) "Take ${formatMUR(s.payCents)} — ${formatMUR(s.balanceAfterCents)} left"
+                        else "Record ${formatMUR(s.payCents)}",
                         color = if (s.canRecord) AccentInk else TextMuted, fontSize = 15.5.sp, fontWeight = FontWeight.Bold,
                     )
                 }
@@ -832,12 +869,13 @@ private fun Notice(msg: String, onGone: () -> Unit) {
 }
 
 @Composable
-private fun DisplayCard(label: String, value: String, highlight: Boolean = false) {
+private fun DisplayCard(label: String, value: String, highlight: Boolean = false, onClick: (() -> Unit)? = null) {
     Column(
         Modifier
             .fillMaxWidth()
             .background(Inset, RoundedCornerShape(12.dp))
             .border(1.5.dp, if (highlight) AccentLine else Hairline, RoundedCornerShape(12.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Text(label, color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
@@ -1109,6 +1147,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             SlipRow("Paid · ${d.payLabel?.lowercase()}", rsSlip(d.paidCents))
             SlipRow("Change", rsSlip(d.changeCents))
         }
+        // A deposit is only half a story without the half still to pay.
+        if (d.balanceDueCents > 0) SlipRow("Balance due", rsSlip(d.balanceDueCents), strong = true)
         DashRule()
         Text(d.footer, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp))
         // barcode of the invoice number

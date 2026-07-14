@@ -104,11 +104,11 @@ private fun Modifier.dashedBorder(color: Color, radius: Dp, stroke: Dp = 1.5.dp)
 }
 
 @Composable
-fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, viewModel: QuoteViewModel = hiltViewModel()) {
+fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () -> Unit, viewModel: QuoteViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
     LaunchedEffect(s.mode) { if (s.mode == QuoteMode.LIST) viewModel.loadQuotes() } // refresh list on entry / when returning from builder
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel, onViewJob)
+        if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel, onViewJob, onGoCheckout)
     }
     s.createdJobId?.let { jobId ->
         // Accepted → offer to send the signed quotation PDF right away (the server
@@ -262,7 +262,7 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
 
 // ── BUILDER ───────────────────────────────────────────────────────────────────
 @Composable
-private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJob: () -> Unit) {
+private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJob: () -> Unit, onGoCheckout: () -> Unit) {
     // The client's signature strokes, in pad-local pixels. Hoisted to the builder because the
     // pad lives in the middle of the card and the "Create job" button is pinned to its foot —
     // they have to share it. Cleared whenever the accept panel opens or the quote changes, so
@@ -474,10 +474,25 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     // Already converted: a quote maps to exactly one job, so don't offer to make
                     // another — just open the one it produced.
                     s.jobId != null -> {
-                        Box(Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { vm.viewJob(); onViewJob() }, contentAlignment = Alignment.Center) {
-                            Text("View job →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
+                        // The customer is standing there with their wallet out — take them to the
+                        // money before anything else. The pad is already waiting on their bill.
+                        if (s.depositPending) {
+                            Box(Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { onGoCheckout() }, contentAlignment = Alignment.Center) {
+                                Text("Collect the deposit →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
+                            }
+                            Text(
+                                "The bill is waiting in Checkout with ${formatMUR(s.depositCents)} dialled in. Nothing has been taken yet.",
+                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
+                            )
+                            Box(Modifier.fillMaxWidth().height(46.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.viewJob(); onViewJob() }, contentAlignment = Alignment.Center) {
+                                Text("View job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent)
+                            }
+                        } else {
+                            Box(Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { vm.viewJob(); onViewJob() }, contentAlignment = Alignment.Center) {
+                                Text("View job →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
+                            }
+                            Text("This quote has been accepted — JOB-${s.jobId.take(4).uppercase()} is on the board.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
                         }
-                        Text("This quote has been accepted — JOB-${s.jobId.take(4).uppercase()} is on the board.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
                     }
                     s.billed -> {
                         Box(Modifier.fillMaxWidth().height(52.dp).background(InsetAlt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
@@ -587,6 +602,46 @@ private fun AcceptBody(
                     )
                 }
             }
+        }
+
+        // Money on signing. Raising the bill is what gives the deposit something to land in —
+        // which also fixes the price, so the panel says so rather than letting the shop find
+        // out when a revision is refused.
+        MiniLabel("DEPOSIT ON SIGNING")
+        Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            val chosen = vm.depositPct(s)
+            Box(
+                Modifier.height(38.dp)
+                    .background(if (s.depositCents <= 0L) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
+                    .border(if (s.depositCents <= 0L) 1.5.dp else 1.dp, if (s.depositCents <= 0L) AccentLine else Hairline, RoundedCornerShape(19.dp))
+                    .clickable { vm.pickDepositPct(null) }.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("None", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.depositCents <= 0L) Accent else TextSecondary)
+            }
+            QuoteViewModel.DEPOSIT_CHOICES.forEach { pct ->
+                val on = chosen == pct
+                Box(
+                    Modifier.height(38.dp)
+                        .background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
+                        .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp))
+                        .clickable { vm.pickDepositPct(if (on) null else pct) }.padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("$pct%", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextSecondary)
+                }
+            }
+            if (s.depositCents > 0) {
+                Spacer(Modifier.weight(1f))
+                Text(formatMUR(s.depositCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
+            }
+        }
+        if (s.depositCents > 0) {
+            Text(
+                "The bill is raised now so the deposit has something to pay into — which fixes this price. " +
+                    "Changing it later needs a credit note, not a revision.",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
+            )
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

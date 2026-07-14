@@ -89,6 +89,10 @@ data class QuoteState(
     // How long the work should take. Null = nobody said; the board then shows no ETA
     // rather than inventing one.
     val estimateMinutes: Int? = null,
+    // Money the customer leaves on signing. 0 = none. Taking one raises the bill, so it
+    // also fixes the price — a change after that needs a credit note, not a quiet edit.
+    val depositCents: Long = 0,
+    val depositPending: Boolean = false, // accepted with a deposit → the pad is waiting in Checkout
     val datePickerOpen: Boolean = false,
     val timePickerOpen: Boolean = false,
     val busy: Boolean = false,
@@ -135,6 +139,7 @@ class QuoteViewModel @Inject constructor(
     private val intakeBus: IntakeHandoffBus,
     private val session: SessionRepository,
     private val openJobBus: OpenJobBus,
+    private val collectBus: mu.carfection.pos.core.data.CollectBus,
     private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
@@ -379,9 +384,28 @@ class QuoteViewModel @Inject constructor(
     /** How long the work should take. Null clears it — "we don't know yet" is a real answer. */
     fun pickEstimate(minutes: Int?) = _s.update { it.copy(estimateMinutes = minutes) }
 
+    /**
+     * What the customer leaves on signing. Tapping the chosen share again clears it — no
+     * deposit is the normal case, and the shop must never be nudged into asking for one.
+     */
+    fun pickDepositPct(pct: Int?) = _s.update { st ->
+        if (pct == null) st.copy(depositCents = 0)
+        else st.copy(depositCents = (totals(st).totalCents * pct / 100) / 100 * 100)
+    }
+
+    /** The share of the total this deposit represents, for highlighting the chip that set it. */
+    fun depositPct(s: QuoteState): Int? {
+        val total = totals(s).totalCents
+        if (s.depositCents <= 0 || total <= 0) return null
+        return DEPOSIT_CHOICES.firstOrNull { (total * it / 100) / 100 * 100 == s.depositCents }
+    }
+
     companion object {
         /** A wash to a full day's ceramic — the shop's real spread of jobs. */
         val ESTIMATE_CHOICES = listOf(30, 60, 120, 240, 480)
+
+        /** The splits a detailing shop actually asks for on signing. */
+        val DEPOSIT_CHOICES = listOf(25, 50, 75)
 
         /** 90 → "1h 30m". Nobody books a car in for "ninety minutes". */
         fun estimateLabel(minutes: Int): String {
@@ -492,8 +516,21 @@ class QuoteViewModel @Inject constructor(
                 // Book the car in, with how long it should take. Safe to retry: the conversion
                 // is idempotent, so a failed schedule write simply re-runs against the same job.
                 api.setJobSchedule(jobId, scheduledIso(s), s.estimateMinutes)
-                quoteId to jobId
-            }.onSuccess { (quoteId, jobId) ->
+
+                // A deposit is money against a bill, and the bill is this quote. Raise it now so
+                // there is something to pay into; the customer then settles the balance when they
+                // collect the car. The money itself is NOT taken here — the pad takes it, with the
+                // cash in hand, and the cashier can still change the figure.
+                val depositInvoice = if (s.depositCents > 0) {
+                    runCatching {
+                        val inv = api.convertQuoteToInvoice(quoteId)
+                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
+                        inv.id
+                    }.getOrNull()
+                } else null
+
+                Triple(quoteId, jobId, depositInvoice)
+            }.onSuccess { (quoteId, jobId, depositInvoice) ->
                 // Stamp what reception recorded onto the new job — best-effort; the
                 // job exists either way and the board still opens it.
                 s.intake?.let { h ->
@@ -507,8 +544,19 @@ class QuoteViewModel @Inject constructor(
                         }
                     }
                 }
+                // Hand the bill to Checkout with the deposit already dialled in. The cashier
+                // still presses the button — the customer's money is theirs to take, not ours.
+                depositInvoice?.let { collectBus.request(it, _s.value.depositCents) }
+
                 // signed = true: the tablet's accept flow requires the client's signature.
-                _s.update { it.copy(busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId, acceptOpen = false, intake = null, signed = true, sendBusy = false, sendDone = null, sendError = null) }
+                _s.update {
+                    it.copy(
+                        busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId,
+                        acceptOpen = false, intake = null, signed = true,
+                        sendBusy = false, sendDone = null, sendError = null,
+                        depositPending = depositInvoice != null,
+                    )
+                }
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

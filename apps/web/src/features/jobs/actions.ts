@@ -134,6 +134,45 @@ export async function setJobScheduleAction(
   return { ok: true };
 }
 
+/**
+ * Take money against a job's invoice from the back office — a deposit paid by transfer, or
+ * part of a bill settled before the car is collected. Any amount up to the balance: the
+ * invoice goes PARTLY PAID and the rest stays in the counter's TO COLLECT.
+ *
+ * Cash is deliberately not on offer. Cash moves a physical drawer, so the server takes it
+ * only on an open till — and there is no till in the back office. Offering it here would
+ * produce money no cash-up could ever see.
+ */
+export async function recordPaymentAction(
+  jobId: string,
+  invoiceId: string,
+  amountRupees: number,
+  method: "card" | "juice" | "bank_transfer",
+  externalRef: string,
+): Promise<Result> {
+  await requireRole(...ROLES);
+  if (!(amountRupees > 0)) return { ok: false, error: "Enter an amount." };
+  if (!externalRef.trim()) return { ok: false, error: "A card, Juice or transfer payment needs its reference." };
+
+  const sb = await createClient();
+  try {
+    await rpc.recordPayment(sb, {
+      invoiceId,
+      method,
+      amount: amountRupees,
+      externalRef: externalRef.trim(),
+      // Keyed on the invoice AND the amount so a double-click cannot take the money twice,
+      // while a genuine second instalment of a different size still goes through.
+      idempotencyKey: `web-pay:${invoiceId}:${amountRupees.toFixed(2)}:${externalRef.trim()}`,
+    });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not record the payment." };
+  }
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/sales");
+  return { ok: true };
+}
+
 export async function assignTechnicianAction(jobId: string, technicianId: string | null): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const sb = await createClient();

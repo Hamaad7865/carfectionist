@@ -78,6 +78,10 @@ data class CounterUiState(
     val padOpen: Boolean = false,
     val method: PayMethod = PayMethod.CASH,
     val tenderText: String = "", // numpad-owned; empty = exact
+    // How much of the bill is being settled now. Empty = all of it. Only a collect can
+    // carry a balance, so only a collect can type here.
+    val payText: String = "",
+    val padField: PadField = PadField.TENDER, // which display the numpad is typing into
     val refText: String = "",
     val busy: Boolean = false,
     val error: String? = null,
@@ -100,33 +104,59 @@ data class CounterUiState(
     val historyBusy: Boolean = false,
     val viewDoc: ReceiptDoc? = null, // a past sale's receipt, rebuilt for preview/reprint
 ) {
-    /** The amount the pad is settling: an existing invoice's balance, or the cart total. */
+    /** The whole balance the pad COULD settle: an invoice's outstanding, or the cart total. */
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
+
+    /**
+     * What is being taken RIGHT NOW — a deposit, a part payment, or the lot.
+     *
+     * Only a bill can be part-paid: an invoice carries a balance and can wait for the rest.
+     * A counter sale has nothing to owe against, so it settles in full or goes on account.
+     * Never more than what is owed — the server refuses an overpayment anyway, and the
+     * cashier should learn that from the pad, not from a failed transaction.
+     */
+    val payCents: Long
+        get() {
+            if (collect == null) return dueCents
+            val typed = if (payText.isBlank()) null else parseMoneyToCents(payText)
+            return (typed ?: dueCents).coerceIn(0, dueCents.coerceAtLeast(0))
+        }
+
+    /** Money still owed after this payment lands — what stays in TO COLLECT. */
+    val balanceAfterCents: Long get() = (dueCents - payCents).coerceAtLeast(0)
+    val isPartPayment: Boolean get() = collect != null && payCents in 1 until dueCents
+
     val tenderCents: Long? get() = if (tenderText.isBlank()) null else parseMoneyToCents(tenderText)
-    val effectiveTenderCents: Long get() = tenderCents ?: dueCents // pad opens "exact"
-    val changeCents: Long get() = (effectiveTenderCents - dueCents).coerceAtLeast(0)
+    val effectiveTenderCents: Long get() = tenderCents ?: payCents // pad opens "exact"
+    val changeCents: Long get() = (effectiveTenderCents - payCents).coerceAtLeast(0)
 
     val canRecord: Boolean
-        get() = !busy && dueCents > 0 && (collect != null || cart.isNotEmpty()) && when (method) {
+        get() = !busy && payCents > 0 && (collect != null || cart.isNotEmpty()) && when (method) {
             // Cash moves a physical drawer, so it has to be taken ON a till — the server refuses
             // it otherwise. Owners skip the till gate, so without this they would only find out at
             // the moment of tender, with the customer's money already in their hand.
-            PayMethod.CASH -> effectiveTenderCents >= dueCents && till != null
-            PayMethod.CREDIT -> collect == null && customerId != null // credit is walk-in only
+            PayMethod.CASH -> effectiveTenderCents >= payCents && till != null
+            // On account is the whole bill by definition — you cannot half-owe a counter sale.
+            PayMethod.CREDIT -> collect == null && customerId != null
             else -> true
         }
 
     /** Why the pay button is dead, when the reason is the till and not the basket. */
-    val cashNeedsTill: Boolean get() = method == PayMethod.CASH && till == null && dueCents > 0
+    val cashNeedsTill: Boolean get() = method == PayMethod.CASH && till == null && payCents > 0
 
-    /** Quick-tender chips: Exact + the round-ups a customer actually hands over. */
+    /** Quick-tender chips: the round-ups a customer actually hands over, above what is being paid. */
     val quickTenders: List<Long>
         get() {
-            val t = dueCents
+            val t = payCents
             fun up(step: Long) = ((t + step - 1) / step) * step
             return listOf(up(100_00), up(500_00), up(1000_00), up(5000_00))
                 .filter { it > t }.distinct().take(3)
         }
+
+    /** Deposit chips — the split a shop actually asks for. Only on a bill that can carry one. */
+    val depositChips: List<Long>
+        get() = if (collect == null || dueCents <= 0) emptyList()
+        else listOf(dueCents / 2, dueCents / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until dueCents }.distinct()
 
     // ── basket discount, derived from the raw input ─────────────────────────────
     val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
@@ -141,6 +171,9 @@ data class CounterUiState(
 }
 
 enum class CheckoutMode { LIST, WALKIN }
+
+/** Which figure the numpad is editing: what we're taking, or what the customer handed over. */
+enum class PadField { AMOUNT, TENDER }
 
 /** A tap that would sell past available stock, held until the cashier confirms. */
 data class OversellPrompt(val product: ProductEntity, val targetQty: Double)
@@ -210,6 +243,7 @@ class CounterViewModel @Inject constructor(
     private val printer: ReceiptPrinter,
     private val drawer: CashDrawer,
     private val api: PosApi,
+    private val collectBus: mu.carfection.pos.core.data.CollectBus,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(CounterUiState())
@@ -235,6 +269,7 @@ class CounterViewModel @Inject constructor(
         refreshTill()
         loadLists()
         refreshStock()
+        watchCollectRequests() // a deposit agreed at signing lands the pad on its bill
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
@@ -411,14 +446,42 @@ class CounterViewModel @Inject constructor(
     fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") { api.issueCreditNote(p.documentId, restock = true, stockLocationId = api.fetchShopLocationId()) }
 
     /** Tap an outstanding invoice → open the pad to collect its balance. */
-    fun collectOn(bill: OutstandingInvoiceDto) {
+    fun collectOn(bill: OutstandingInvoiceDto, amountCents: Long? = null) {
         // Starting a new collection would rotate saleKey and abandon an in-flight settle.
         if (frozenBySettle()) return
         saleKey = UUID.randomUUID().toString()
         local.value = local.value.copy(
             collect = bill, padOpen = true, method = PayMethod.CASH,
-            tenderText = "", refText = "", error = null,
+            // Every bill opens at its full balance — unless a deposit was agreed at signing,
+            // which dials the pad in for the cashier. A part payment typed for the LAST
+            // customer must never ride along into this one's.
+            tenderText = "",
+            payText = amountCents?.let { centsToText(it) } ?: "",
+            padField = PadField.TENDER,
+            refText = "", error = null,
         )
+    }
+
+    /**
+     * A customer just signed a quote and left a deposit: the bill is waiting, the figure is
+     * agreed. Land on it with the pad already open. Latched, so it survives the navigation
+     * that creates this ViewModel in the first place.
+     */
+    private fun watchCollectRequests() {
+        viewModelScope.launch {
+            collectBus.pending.collect { req ->
+                if (req == null) return@collect
+                val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
+                val bill = bills.firstOrNull { it.id == req.invoiceId }
+                if (bill != null) {
+                    local.value = local.value.copy(mode = CheckoutMode.LIST, bills = bills)
+                    collectOn(bill, req.amountCents)
+                }
+                // Consume either way: a bill already settled (or a failed fetch) must not leave
+                // the pad springing open on the next unrelated visit to Checkout.
+                collectBus.consume()
+            }
+        }
     }
 
     /** The pad's confirm button: collect on an invoice, or settle the walk-in cart. */
@@ -434,7 +497,7 @@ class CounterViewModel @Inject constructor(
                 val result = sales.collectOnInvoice(
                     invoiceId = bill.id,
                     number = bill.number,
-                    amountCents = s.dueCents,
+                    amountCents = s.payCents, // a deposit or a part payment, not always the lot
                     method = s.method,
                     tenderCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
                     externalRef = s.refText,
@@ -462,9 +525,10 @@ class CounterViewModel @Inject constructor(
                     subtotalCents = s.dueCents, vatRatePct = catalog.vatDefault().toInt(),
                     vatCents = 0L, discountCents = 0L, totalCents = s.dueCents,
                     payLabel = s.method.label,
-                    paidCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else s.dueCents,
+                    paidCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else s.payCents,
                     changeCents = s.changeCents,
                     onAccount = false, isPayment = true,
+                    balanceDueCents = s.balanceAfterCents,
                 )
                 launch {
                     val printed = runCatching {
@@ -619,12 +683,33 @@ class CounterViewModel @Inject constructor(
     /** An unresolved settle keeps its message: it is the cashier's only instruction for getting out. */
     private fun settleError(): String? = local.value.error.takeIf { local.value.pendingSettle != null }
     fun setRef(t: String) { if (frozenBySettle()) return; local.value = local.value.copy(refText = t) }
-    fun setTenderCents(cents: Long) { if (frozenBySettle()) return; local.value = local.value.copy(tenderText = (cents / 100).toString() + if (cents % 100 != 0L) "." + (cents % 100).toString().padStart(2, '0') else "") }
+    private fun centsToText(cents: Long) =
+        (cents / 100).toString() + if (cents % 100 != 0L) "." + (cents % 100).toString().padStart(2, '0') else ""
+
+    fun setTenderCents(cents: Long) { if (frozenBySettle()) return; local.value = local.value.copy(tenderText = centsToText(cents)) }
+
+    /**
+     * Take part of the bill now and leave the rest owing — a deposit at booking, a customer
+     * paying half today. Only a collect reaches here; a counter sale has no balance to carry.
+     * Clearing the field means the whole balance again.
+     */
+    fun setPayCents(cents: Long?) {
+        if (frozenBySettle()) return
+        local.value = local.value.copy(
+            payText = cents?.let { centsToText(it) } ?: "",
+            tenderText = "", // the tender was for the old figure; re-open it at "exact"
+        )
+    }
+
+    fun focusPad(f: PadField) { if (frozenBySettle()) return; local.value = local.value.copy(padField = f) }
 
     /** Spec numpad rules: digits append; one '.'; ≤2 decimals; ≤7 integer digits; ⌫ deletes. */
     fun padKey(key: String) {
         if (frozenBySettle()) return
-        val t = local.value.tenderText
+        val st = local.value
+        // Non-cash has no tender to count out, so the keys always mean the amount.
+        val onAmount = st.padField == PadField.AMOUNT || (st.collect != null && st.method != PayMethod.CASH)
+        val t = if (onAmount) st.payText else st.tenderText
         val next = when (key) {
             "⌫" -> t.dropLast(1)
             "." -> if (t.contains('.')) t else if (t.isEmpty()) "0." else "$t."
@@ -637,7 +722,9 @@ class CounterViewModel @Inject constructor(
                 }
             }
         }
-        local.value = local.value.copy(tenderText = next)
+        local.value =
+            if (onAmount && st.collect != null) st.copy(payText = next, tenderText = "")
+            else st.copy(tenderText = next)
     }
 
     // ── settle ───────────────────────────────────────────────────────────────

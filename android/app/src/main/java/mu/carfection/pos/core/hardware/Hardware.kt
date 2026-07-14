@@ -64,7 +64,10 @@ data class ReceiptDoc(
     val paidCents: Long,
     val changeCents: Long,
     val onAccount: Boolean,
-    val isPayment: Boolean = false, // collect-on-invoice slip (no item table / tax lines)
+    val isPayment: Boolean = false, // collect-on-invoice slip
+    // What is still owed after this payment. A deposit or a part payment leaves a balance,
+    // and the customer must walk away holding paper that says so.
+    val balanceDueCents: Long = 0,
 ) {
     val footer = "Goods sold are not refundable. Thank you for shopping with us."
 }
@@ -133,6 +136,8 @@ object ReceiptText {
             appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents), w))
             appendLine(kv("Change", money(d.changeCents), w))
         }
+        // The one number a customer leaving a deposit needs to see on the paper.
+        if (d.balanceDueCents > 0) appendLine(kv("BALANCE DUE", money(d.balanceDueCents), w))
         appendLine(rule(w))
         wrap(d.footer, w).forEach { appendLine(center(it, w)) }
     }
