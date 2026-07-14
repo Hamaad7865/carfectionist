@@ -12,13 +12,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -43,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -257,6 +262,15 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
 // ── BUILDER ───────────────────────────────────────────────────────────────────
 @Composable
 private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJob: () -> Unit) {
+    // The client's signature strokes, in pad-local pixels. Hoisted to the builder because the
+    // pad lives in the middle of the card and the "Create job" button is pinned to its foot —
+    // they have to share it. Cleared whenever the accept panel opens or the quote changes, so
+    // one client's signature can never be submitted for the next.
+    val strokes = remember(s.quoteId, s.acceptOpen) { mutableStateListOf<List<Offset>>() }
+    var padSize by remember { mutableStateOf(IntSize.Zero) }
+    val strokePx = with(LocalDensity.current) { 4.dp.toPx() }
+    val signed = strokes.any { it.size > 1 }
+
     // header
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Box(Modifier.size(44.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(12.dp)).clickable { vm.back() }, contentAlignment = Alignment.Center) { Text("←", fontFamily = Barlow, fontSize = 18.sp, color = TextSecondary) }
@@ -269,7 +283,9 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
     }
 
     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        // LEFT 53 — search + tabs + product grid
+        // LEFT 53 — category rail + search + product grid (the same catalogue Checkout browses,
+        // so it gets the same rail: 795 products under 40-odd categories are not browsable as chips)
+        CategoryRail(s, vm)
         Column(Modifier.weight(53f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // The ad-hoc tile lives at the end of the grid — past hundreds of products, so it
             // may as well not exist. This button is the way in: a typed one-off line, always
@@ -287,14 +303,6 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     contentAlignment = Alignment.Center,
                 ) {
                     Text("+ Ad-hoc line", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent)
-                }
-            }
-            Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                vm.tabs(s).forEach { t ->
-                    val sel = t == s.tab
-                    Box(Modifier.height(38.dp).background(if (sel) AccentSoft else InsetAlt, RoundedCornerShape(19.dp)).border(if (sel) 1.5.dp else 1.dp, if (sel) AccentLine else Hairline, RoundedCornerShape(19.dp)).clickable { vm.setTab(t) }.padding(horizontal = 15.dp), contentAlignment = Alignment.Center) {
-                        Text(t, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (sel) Accent else TextSecondary)
-                    }
                 }
             }
             LazyVerticalGrid(columns = GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxSize()) {
@@ -326,6 +334,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 Text("${s.lines.size} line${if (s.lines.size == 1) "" else "s"}", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary)
             }
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+            // Accepting takes over this middle region rather than growing the footer — that is
+            // what used to push the buttons off the bottom of the screen. The signature pad then
+            // sizes itself to whatever room is left, so it can never be clipped either.
+            if (s.acceptOpen) {
+                AcceptBody(s, vm, strokes, { padSize = it }, strokePx, Modifier.weight(1f))
+            } else
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 if (s.lines.isEmpty()) {
                     Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -468,22 +482,47 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             Text(if (s.busy) "Working…" else "Bill now — create invoice", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.lines.isNotEmpty()) Accent else TextMuted)
                         }
                     }
-                    else -> AcceptPanel(s, vm)
+                    // Pinned to the foot of the card — never pushed off the screen by the
+                    // signature pad above it, which is what used to happen.
+                    else -> Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeAccept() }
+                        Box(
+                            Modifier.weight(1.6f).height(52.dp)
+                                .background(if (s.busy || !signed) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                                .clickable(enabled = !s.busy && signed) {
+                                    vm.create(strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx))
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (s.busy) "Creating…" else if (!signed) "Sign to create job" else "Create job",
+                                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                                color = if (s.busy || !signed) TextMuted else AccentInk,
+                            )
+                        }
+                    }
                 }
             }
         }
     }
 }
 
+/**
+ * Everything the client has to see before they sign: who will do the work, when the car is
+ * booked in, and the pad itself. It OWNS the middle of the card ([modifier] carries a
+ * weight), so the pad grows into whatever room is left and the buttons below it stay put.
+ */
 @Composable
-private fun AcceptPanel(s: QuoteState, vm: QuoteViewModel) {
-    // Client signature strokes, in pad-local pixels. Pure UI state until "Create
-    // job" renders them to a PNG; discarded when the panel closes.
-    val strokes = remember { mutableStateListOf<List<Offset>>() }
-    var padSize by remember { mutableStateOf(IntSize.Zero) }
-    val strokePx = with(LocalDensity.current) { 4.dp.toPx() }
+private fun AcceptBody(
+    s: QuoteState,
+    vm: QuoteViewModel,
+    strokes: androidx.compose.runtime.snapshots.SnapshotStateList<List<Offset>>,
+    onPadSize: (IntSize) -> Unit,
+    strokePx: Float,
+    modifier: Modifier = Modifier,
+) {
     val signed = strokes.any { it.size > 1 }
-    Column(Modifier.padding(top = 7.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         MiniLabel("ASSIGN TECHNICIAN")
         if (s.technicians.isEmpty()) Text("No active technicians — assign later from the job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
         Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -515,17 +554,25 @@ private fun AcceptPanel(s: QuoteState, vm: QuoteViewModel) {
             Spacer(Modifier.weight(1f))
             if (signed) Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { strokes.clear() }.padding(horizontal = 4.dp))
         }
+        // The pad takes the room that is left, and CLIPS: a signature that runs past the edge
+        // stops at the edge instead of being drawn across the card. Points are clamped to the
+        // pad's bounds too, so the PNG that gets stored is exactly what the client saw.
         Box(
-            Modifier.fillMaxWidth().height(110.dp)
-                .background(Color.White, RoundedCornerShape(12.dp))
+            Modifier.fillMaxWidth().weight(1f).heightIn(min = 96.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Color.White)
                 .border(1.dp, Hairline, RoundedCornerShape(12.dp))
-                .onSizeChanged { padSize = it }
+                .onSizeChanged(onPadSize)
                 .pointerInput(Unit) {
+                    fun clamp(p: Offset) = Offset(
+                        p.x.coerceIn(0f, size.width.toFloat()),
+                        p.y.coerceIn(0f, size.height.toFloat()),
+                    )
                     detectDragGestures(
-                        onDragStart = { pos -> strokes.add(listOf(pos)) },
+                        onDragStart = { pos -> strokes.add(listOf(clamp(pos))) },
                         onDrag = { change, _ ->
                             change.consume()
-                            if (strokes.isNotEmpty()) strokes[strokes.lastIndex] = strokes.last() + change.position
+                            if (strokes.isNotEmpty()) strokes[strokes.lastIndex] = strokes.last() + clamp(change.position)
                         },
                     )
                 },
@@ -547,16 +594,46 @@ private fun AcceptPanel(s: QuoteState, vm: QuoteViewModel) {
                 }
             }
         }
-        Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-            OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeAccept() }
-            Box(Modifier.weight(1.6f).height(52.dp).background(if (s.busy || !signed) InsetAlt else Accent, RoundedCornerShape(13.dp)).clickable(enabled = !s.busy && signed) {
-                vm.create(strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx))
-            }, contentAlignment = Alignment.Center) {
-                Text(
-                    if (s.busy) "Creating…" else if (!signed) "Sign to create job" else "Create job",
-                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                    color = if (s.busy || !signed) TextMuted else AccentInk,
-                )
+    }
+}
+
+/** The catalogue's categories, with their own search — lifted from Checkout so the two
+ *  screens browse the same catalogue the same way. */
+@Composable
+private fun CategoryRail(s: QuoteState, vm: QuoteViewModel) {
+    val counts = vm.catCounts(s)
+    Column(Modifier.width(178.dp).fillMaxHeight().card(14)) {
+        Row(Modifier.fillMaxWidth().height(38.dp).padding(start = 13.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("CATEGORIES", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp)
+        }
+        FilledInput(
+            value = s.catQuery, onValueChange = vm::setCatQuery,
+            placeholder = "Search…",
+            modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+            height = 36.dp, bg = InsetAlt, fontSize = 12.5.sp, leadingSearch = true,
+        )
+        LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
+            items(vm.tabs(s), key = { it }) { c ->
+                val on = c == s.tab
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = 44.dp).height(IntrinsicSize.Min)
+                        .background(if (on) AccentSoft else Color.Transparent)
+                        .clickable { vm.setTab(c) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // selection is never colour alone
+                    Box(Modifier.width(3.dp).fillMaxHeight().background(if (on) Accent else Color.Transparent))
+                    Text(
+                        c, color = if (on) Accent else TextSecondary, fontFamily = Barlow,
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, lineHeight = 15.sp,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f).padding(start = 9.dp, top = 8.dp, bottom = 8.dp),
+                    )
+                    Text(
+                        (counts[c] ?: 0).toString(), color = TextMuted, fontFamily = Mono, fontSize = 10.sp,
+                        modifier = Modifier.padding(start = 5.dp, end = 10.dp),
+                    )
+                }
             }
         }
     }

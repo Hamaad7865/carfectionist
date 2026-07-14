@@ -72,8 +72,9 @@ data class QuoteState(
     val veh: String = "",
     val customerId: String? = null,
     val vehicleId: String? = null,
-    val tab: String = "All",
+    val tab: String = "All", // the selected CATEGORY (same rail as Checkout)
     val query: String = "", // product search (name or scanned barcode)
+    val catQuery: String = "", // narrows the category rail — 40+ categories aren't browsable
     val listQuery: String = "", // quote search on the list (customer, plate, vehicle, number)
     val products: List<ProductEntity> = emptyList(),
     val lines: List<QuoteLine> = emptyList(),
@@ -193,18 +194,29 @@ class QuoteViewModel @Inject constructor(
 
     fun setListQuery(q: String) = _s.update { it.copy(listQuery = q) }
 
-    fun tabs(s: QuoteState): List<String> =
-        listOf("All") + s.products.map { it.kind.replaceFirstChar { c -> c.uppercase() } }.distinct()
+    /**
+     * The category rail — the same one Checkout browses, because it is the same catalogue.
+     * ("All" always survives the rail's own search, so there is always a way back out.)
+     */
+    fun tabs(s: QuoteState): List<String> {
+        val q = s.catQuery.trim()
+        return listOf("All") + s.products.mapNotNull { it.category }.distinct().sorted()
+            .filter { q.isEmpty() || it.contains(q, ignoreCase = true) }
+    }
+
+    fun catCounts(s: QuoteState): Map<String, Int> =
+        s.products.mapNotNull { it.category }.groupingBy { it }.eachCount() + ("All" to s.products.size)
 
     fun filteredProducts(s: QuoteState): List<ProductEntity> {
         val q = s.query.trim()
         return s.products
-            .filter { s.tab == "All" || it.kind.equals(s.tab, true) }
+            .filter { s.tab == "All" || it.category == s.tab }
             .filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.barcode?.contains(q) == true }
     }
 
     fun setTab(t: String) = _s.update { it.copy(tab = t) }
     fun setQuery(q: String) = _s.update { it.copy(query = q) }
+    fun setCatQuery(q: String) = _s.update { it.copy(catQuery = q) }
 
     fun openQuote(q: QuoteRowDto) {
         _s.update {
