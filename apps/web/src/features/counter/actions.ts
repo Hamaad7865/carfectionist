@@ -98,6 +98,17 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     };
   });
 
+  // A product with no price in the catalogue would be sold for nothing — the prices come
+  // from the catalogue (above), so nothing the till types could fix it. Name the product,
+  // because "price it first" is only useful if you know which one.
+  const unpriced = rpcLines.filter((l) => !(l.unit_price > 0)).map((l) => l.title);
+  if (unpriced.length > 0) {
+    return {
+      ok: false,
+      error: `${unpriced.slice(0, 3).join(", ")}${unpriced.length > 3 ? ` and ${unpriced.length - 3} more` : ""} ${unpriced.length === 1 ? "has" : "have"} no price. Set the price first — the sale takes its prices from the catalogue.`,
+    };
+  }
+
   const orderDiscount = p.data.orderDiscountKind ? { kind: p.data.orderDiscountKind, value: p.data.orderDiscountValue ?? 0 } : null;
   const totals = computeTotals(
     rpcLines.map((l) => ({
@@ -110,6 +121,12 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     })),
     orderDiscount,
   );
+
+  // A receipt for nothing is never intentional, and a Rs 0.00 invoice jams the collect
+  // screen (it can never be settled — there is nothing to pay).
+  if (totals.totalCents <= 0) {
+    return { ok: false, error: "This sale comes to Rs 0.00 — check the prices or the discount before charging." };
+  }
 
   try {
     // A selected customer id is used directly (validated); otherwise fall back to
