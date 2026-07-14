@@ -66,7 +66,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
     if (!props) return { ok: false, error: "Document not found." };
     let pdf: ArrayBuffer;
     try {
-      pdf = await renderDocumentPdf(props);
+      pdf = await renderDocumentPdf(props, i.origin);
     } catch (e) {
       if (e instanceof PdfConfigError) return { ok: false, error: "PDF generation isn't configured on this deployment." };
       return { ok: false, error: `Could not render the PDF: ${(e as Error).message}` };

@@ -3,7 +3,7 @@ import { getSessionContext } from "@/lib/auth/session";
 import { renderDocumentPdf } from "@/lib/pdf/document-pdf";
 import { PdfConfigError } from "@/lib/pdf/render";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ id: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
   // Auth (defense in depth; RLS is the real boundary on the query below).
@@ -14,7 +14,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!props) return new Response("Not found", { status: 404 });
 
   try {
-    const pdf = await renderDocumentPdf(props);
+    const pdf = await renderDocumentPdf(props, new URL(req.url).origin);
     return new Response(pdf, {
       headers: {
         "Content-Type": "application/pdf",

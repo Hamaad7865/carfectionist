@@ -10,7 +10,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 // AFTER the token verifies.
 export const dynamic = "force-dynamic";
 
-export async function GET(_req: Request, { params }: { params: Promise<{ token: string }> }) {
+export async function GET(req: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
   const docId = await verifyDocToken(decodeURIComponent(token));
   if (!docId) return new Response("Not found", { status: 404 });
@@ -20,7 +20,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   if (!props || !props.number) return new Response("Not found", { status: 404 });
 
   try {
-    const pdf = await renderDocumentPdf(props);
+    const pdf = await renderDocumentPdf(props, new URL(req.url).origin);
     return new Response(pdf, {
       headers: {
         "Content-Type": "application/pdf",

@@ -59,6 +59,10 @@ export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
   return res.arrayBuffer();
 }
 
-export function documentHtml(body: string): string {
-  return `<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0">${body}</body></html>`;
+export function documentHtml(body: string, baseHref?: string): string {
+  // The PDF renderer loads this HTML via setContent (about:blank), so relative
+  // asset URLs (/brand/….png) resolve to nothing without a <base href> pointing
+  // at the deployed origin — banners silently render as broken images.
+  const base = baseHref ? `<base href="${baseHref.replace(/"/g, "")}">` : "";
+  return `<!doctype html><html><head><meta charset="utf-8">${base}</head><body style="margin:0">${body}</body></html>`;
 }
