@@ -866,6 +866,33 @@ describe("trace source mappers", () => {
       });
     });
 
+    it("normalizes variable fractional precision for canonical ASC ordering", () => {
+      const payments = [
+        makePaymentRow({
+          id: "payment-z",
+          received_at: "2026-07-14T08:00:00.000Z",
+          received_by: "actor-3",
+        }),
+        makePaymentRow({
+          id: "payment-a",
+          received_at: "2026-07-14T08:00:00.000100Z",
+          received_by: "actor-1",
+        }),
+      ];
+
+      expect(
+        mapDiscountTraceEvent(
+          "document-1",
+          payments,
+          [makeDiscountLine()],
+          mapperContext,
+        ),
+      ).toMatchObject({
+        at: "2026-07-14T08:00:00.000Z",
+        actorName: "Anshika",
+      });
+    });
+
     it("does not treat null fixed discounts as zero-valued metadata", () => {
       const payment = makePaymentRow({
         documents: {
@@ -1016,6 +1043,39 @@ describe("trace selection", () => {
     expect(sortTraceEvents(input).map((event) => event.key)).toEqual([
       "event:a",
       "event:z",
+    ]);
+  });
+
+  it("normalizes variable fractional precision for global DESC ordering", () => {
+    const input = [
+      makeEvent({ key: "event:z", at: "2026-07-14T08:00:00.000Z" }),
+      makeEvent({
+        key: "event:a",
+        at: "2026-07-14T08:00:00.000100Z",
+      }),
+    ];
+
+    expect(sortTraceEvents(input).map((event) => event.key)).toEqual([
+      "event:a",
+      "event:z",
+    ]);
+  });
+
+  it("uses the stable key for equal instants in different timezone forms", () => {
+    const input = [
+      makeEvent({
+        key: "event:a",
+        at: "2026-07-14T12:00:00.000100+04:00",
+      }),
+      makeEvent({
+        key: "event:z",
+        at: "2026-07-14T08:00:00.000100Z",
+      }),
+    ];
+
+    expect(sortTraceEvents(input).map((event) => event.key)).toEqual([
+      "event:z",
+      "event:a",
     ]);
   });
 

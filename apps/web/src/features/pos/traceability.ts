@@ -137,6 +137,8 @@ export interface TraceSummary {
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const ISO_INSTANT_PATTERN =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:?\d{2})$/i;
 const DAY_MS = 24 * 3600_000;
 const TRACE_FILTERS = new Set<TraceFilter>([
   "all",
@@ -188,6 +190,39 @@ function scalarText(value: unknown): string | null {
     return String(value);
   }
   return null;
+}
+
+function preciseInstantNanoseconds(value: string): bigint | null {
+  const match = ISO_INSTANT_PATTERN.exec(value);
+  if (match === null) return null;
+
+  const [, wholeSecond, fraction = "", timezone] = match;
+  const wholeSecondMs = Date.parse(`${wholeSecond}${timezone}`);
+  if (!Number.isFinite(wholeSecondMs)) return null;
+
+  const fractionNanoseconds = BigInt(fraction.padEnd(9, "0"));
+  return BigInt(wholeSecondMs) * BigInt(1_000_000) + fractionNanoseconds;
+}
+
+function comparePreciseInstants(left: string, right: string): number {
+  const leftNanoseconds = preciseInstantNanoseconds(left);
+  const rightNanoseconds = preciseInstantNanoseconds(right);
+  if (leftNanoseconds !== null && rightNanoseconds !== null) {
+    if (leftNanoseconds === rightNanoseconds) return 0;
+    return leftNanoseconds < rightNanoseconds ? -1 : 1;
+  }
+
+  const leftMilliseconds = Date.parse(left);
+  const rightMilliseconds = Date.parse(right);
+  if (
+    Number.isFinite(leftMilliseconds) &&
+    Number.isFinite(rightMilliseconds) &&
+    leftMilliseconds !== rightMilliseconds
+  ) {
+    return leftMilliseconds < rightMilliseconds ? -1 : 1;
+  }
+  if (left === right) return 0;
+  return left < right ? -1 : 1;
 }
 
 function auditPayload(payload: unknown): Record<string, unknown> {
@@ -611,9 +646,11 @@ export function mapDiscountTraceEvent(
       );
     })
     .sort((left, right) => {
-      if (left.received_at !== right.received_at) {
-        return left.received_at < right.received_at ? -1 : 1;
-      }
+      const timeOrder = comparePreciseInstants(
+        left.received_at,
+        right.received_at,
+      );
+      if (timeOrder !== 0) return timeOrder;
       if (left.id === right.id) return 0;
       return left.id < right.id ? -1 : 1;
     });
@@ -699,7 +736,8 @@ export function resolveTraceFilter(
 
 export function sortTraceEvents(events: readonly TraceEvent[]): TraceEvent[] {
   return [...events].sort((left, right) => {
-    if (left.at !== right.at) return left.at > right.at ? -1 : 1;
+    const timeOrder = comparePreciseInstants(left.at, right.at);
+    if (timeOrder !== 0) return -timeOrder;
     if (left.key === right.key) return 0;
     return left.key > right.key ? -1 : 1;
   });
