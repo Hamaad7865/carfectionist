@@ -103,6 +103,15 @@ function anchorWithLabel(html: string, label: string): string {
   return anchor ?? "";
 }
 
+function summaryValue(html: string, label: string): string {
+  const escaped = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const value = html.match(
+    new RegExp(`<dt>${escaped}</dt><dd[^>]*>([^<]+)</dd>`),
+  )?.[1];
+  expect(value, `missing value for ${label} summary card`).toBeDefined();
+  return value ?? "";
+}
+
 const summaryEvents: TraceEvent[] = [
   makeEvent({
     key: "payment:received",
@@ -197,15 +206,10 @@ describe("TraceabilityPanel", () => {
     });
 
     for (const html of [allHtml, receiptsHtml]) {
-      expect(html).toContain("<dt>Events</dt>");
-      expect(html).toContain("<dd class=\"num");
-      expect(html).toContain(">8</dd>");
-      expect(html).toContain("<dt>Net payments</dt>");
-      expect(html).toContain("Rs 85.00");
-      expect(html).toContain("<dt>Receipts</dt>");
-      expect(html).toContain(">3</dd>");
-      expect(html).toContain("<dt>Exceptions</dt>");
-      expect(html).toContain(">4</dd>");
+      expect(summaryValue(html, "Events")).toBe("8");
+      expect(summaryValue(html, "Net payments")).toBe("Rs 85.00");
+      expect(summaryValue(html, "Receipts")).toBe("3");
+      expect(summaryValue(html, "Exceptions")).toBe("4");
       expect(html).toContain("grid-cols-2");
       expect(html).toContain("sm:grid-cols-4");
     }
@@ -310,7 +314,7 @@ describe("TraceabilityPanel", () => {
   });
 
   it("uses the approved Lucide kind mapping and decorative icons", () => {
-    const iconEvents = [
+    const iconCases = [
       ["terminal_started", "system", "system", "power"],
       ["version_changed", "system", "system", "download"],
       ["operator_signed_in", "system", "system", "user-round"],
@@ -328,48 +332,45 @@ describe("TraceabilityPanel", () => {
       ["payment_reversed", "payments", "warning", "coins"],
       ["discount_applied", "payments", "payment", "badge-percent"],
       ["unexpected_event", "system", "system", "circle-dot"],
-    ].map(([kind, category, tone, icon], index) => ({
-      event: makeEvent({
-        key: `icon:${kind}`,
-        at: `2026-07-13T21:${String(index).padStart(2, "0")}:00.000Z`,
-        kind,
-        category: category as TraceEvent["category"],
-        tone: tone as TraceEvent["tone"],
-        status:
-          kind === "device_disabled"
-            ? "disabled"
-            : kind === "receipt_skipped"
-              ? "receipt_skipped"
-              : kind === "payment_reversed"
-                ? "reversed"
-                : null,
-        title: kind,
-      }),
-      icon,
-    }));
-    const html = renderPanel({ events: iconEvents.map(({ event }) => event) });
+    ] as const;
+    const toneClasses: Record<TraceEvent["tone"], string> = {
+      payment: "bg-[rgba(13,167,124,0.12)] text-mint",
+      till: "bg-[rgba(245,166,35,0.16)] text-amber-ink",
+      receipt: "bg-[rgba(43,140,255,0.12)] text-link",
+      system: "bg-[rgba(15,23,32,0.05)] text-faint",
+      warning: "bg-[rgba(214,59,80,0.1)] text-rose",
+    };
 
-    for (const { icon } of iconEvents) {
-      expect(html).toContain(`lucide-${icon}`);
+    for (const [kind, category, tone, icon] of iconCases) {
+      const html = renderPanel({
+        events: [
+          makeEvent({
+            key: `icon:${kind}`,
+            kind,
+            category,
+            tone,
+            status:
+              kind === "device_disabled"
+                ? "disabled"
+                : kind === "receipt_skipped"
+                  ? "receipt_skipped"
+                  : kind === "payment_reversed"
+                    ? "reversed"
+                    : null,
+            title: kind,
+          }),
+        ],
+      });
+
+      expect(html).toContain(`>${kind}</h4>`);
+      expect(html).toMatch(
+        new RegExp(
+          `<svg(?=[^>]*class="lucide lucide-${icon}")(?=[^>]*aria-hidden="true")[^>]*>`,
+        ),
+      );
+      expect(count(html, /<svg\b/g)).toBe(1);
+      expect(html).toContain(toneClasses[tone]);
     }
-    expect(count(html, /<svg\b/g)).toBe(
-      count(html, /<svg[^>]*aria-hidden="true"/g),
-    );
-    expect(html).toContain(
-      "bg-[rgba(13,167,124,0.12)] text-mint",
-    );
-    expect(html).toContain(
-      "bg-[rgba(245,166,35,0.16)] text-amber-ink",
-    );
-    expect(html).toContain(
-      "bg-[rgba(43,140,255,0.12)] text-link",
-    );
-    expect(html).toContain(
-      "bg-[rgba(15,23,32,0.05)] text-faint",
-    );
-    expect(html).toContain(
-      "bg-[rgba(214,59,80,0.1)] text-rose",
-    );
   });
 
   it("renders Mauritius day groups, ordered lists, semantic times, and structured wrapping fields", () => {
@@ -383,7 +384,7 @@ describe("TraceabilityPanel", () => {
           title: "Payment received",
           summary: "Counter sale completed",
           actorName: "Anshika",
-          amountCents: 10_000,
+          amountCents: 12_345_678_900,
           method: "Card",
           reference: "INV-VERY-LONG-REFERENCE-0001",
           reason: "A long reason that must wrap safely on narrow screens",
@@ -423,9 +424,13 @@ describe("TraceabilityPanel", () => {
       /<dt>Whole sale<\/dt><dd class="num [^"]*">5%<\/dd>/,
     );
     expect(html).toContain("break-words");
-    expect(html).toContain("Rs 100.00");
-    expect(html).toContain("pl-12");
-    expect(html).toContain("sm:pl-0");
+    expect(html).toContain("Rs 123,456,789.00");
+    expect(html).toContain(
+      "flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pl-12 sm:shrink-0 sm:flex-col sm:flex-nowrap sm:items-end sm:pl-0",
+    );
+    expect(html).not.toContain(
+      "flex shrink-0 items-baseline justify-between gap-3 pl-12 sm:flex-col sm:items-end sm:pl-0",
+    );
     expect(html).not.toContain("overflow-x-auto");
   });
 

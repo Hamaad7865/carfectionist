@@ -247,7 +247,7 @@ function TraceEventCard({ event }: { event: TraceEvent }) {
         </div>
       </div>
 
-      <div className="flex shrink-0 items-baseline justify-between gap-3 pl-12 sm:flex-col sm:items-end sm:pl-0">
+      <div className="flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 pl-12 sm:shrink-0 sm:flex-col sm:flex-nowrap sm:items-end sm:pl-0">
         {event.amountCents !== null && (
           <span
             className={`num shrink-0 text-[13px] font-bold ${event.tone === "warning" ? "text-rose" : "text-ink"}`}
