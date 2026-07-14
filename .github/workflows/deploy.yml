@@ -46,7 +46,13 @@ jobs:
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
         run: npx next build --webpack
 
-      - name: Deploy to Cloudflare Workers (bundles the build above)
+      # Bundle the webpack build into the Worker. --skipNextBuild so OpenNext does NOT re-run
+      # `next build` itself (which would use Turbopack again and undo the whole point).
+      - name: Bundle the Worker (OpenNext)
+        working-directory: apps/web
+        run: npx opennextjs-cloudflare build --skipNextBuild
+
+      - name: Deploy to Cloudflare Workers
         working-directory: apps/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
