@@ -213,6 +213,15 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
     }
     if (s.loading) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading…", color = TextMuted) }
+    } else if (s.error != null && s.quotes.isEmpty()) {
+        // A failed load must never read as "no quotes" — that's how a broken list hides.
+        Column(Modifier.weight(1f).fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.weight(1f))
+            Text("Couldn’t load the quotes.", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Danger)
+            Text(s.error, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+            OutlineBtn("Try again", h = 44) { vm.loadQuotes() }
+            Spacer(Modifier.weight(1f))
+        }
     } else if (shown.isEmpty()) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(

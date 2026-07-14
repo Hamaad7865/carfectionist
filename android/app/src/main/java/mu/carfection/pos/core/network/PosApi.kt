@@ -66,11 +66,15 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .insert(row) { select(Columns.raw("id, plate, make, model, color")) }
             .decodeSingle()
 
-    // The job embed (documents.job_id → jobs) tells the list which quotes are finished
-    // business: once its car is delivered, a quote drops out of the working list.
+    // documents→documents is self-referencing, and PostgREST will NOT take a constraint-name
+    // hint for that ("no relationship … using the hint documents_source_document_id_fkey") —
+    // it wants the COLUMN. Getting this wrong 400s the whole call, and the quotes list just
+    // renders empty. documents→jobs is a different pair and does need its FK named.
+    // The job embed tells the list which quotes are finished business: once its car is
+    // delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, intake, accepted_signature, invoices:documents!documents_source_document_id_fkey(id, number, doc_type, status), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, intake, accepted_signature, invoices:documents!source_document_id(id, number, doc_type, status), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(120) // deep enough that the search bar reaches past the last few days
