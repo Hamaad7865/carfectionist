@@ -211,3 +211,76 @@ export async function verifyWebhookSignature(rawBody: string, header: string | n
 export function webhookVerifyToken(): string | undefined {
   return waEnv().verifyToken;
 }
+
+// ─── two-way messaging (the reply inbox) ─────────────────────────────────────
+
+/** Free-typed reply. Meta ONLY allows this inside the 24h service window (i.e.
+ *  within 24h of the customer's last inbound message); outside it the Graph API
+ *  rejects with #131047 and an approved template must be used instead. */
+export async function sendText(phone: string, body: string): Promise<WaResult<{ messageId: string }>> {
+  const e = waEnv();
+  if (!e.token || !e.phoneNumberId) return { ok: false, error: NOT_CONFIGURED };
+  const r = await graph(
+    `${e.phoneNumberId}/messages`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: phone,
+        type: "text",
+        text: { preview_url: true, body },
+      }),
+    },
+    e.token,
+  );
+  if (!r.ok) {
+    // Translate the one error the operator will actually hit into plain words.
+    if (/131047|re-?engagement|outside.*window/i.test(r.error)) {
+      return { ok: false, error: "The 24-hour reply window has closed — send an approved template instead." };
+    }
+    return r;
+  }
+  const messages = (r.data.messages as { id?: string }[] | undefined) ?? [];
+  return { ok: true, data: { messageId: messages[0]?.id ?? "" } };
+}
+
+/** Mark an inbound message read (the customer sees the blue ticks). Best-effort. */
+export async function markReadOnWhatsApp(wamid: string): Promise<void> {
+  const e = waEnv();
+  if (!e.token || !e.phoneNumberId) return;
+  await graph(
+    `${e.phoneNumberId}/messages`,
+    { method: "POST", body: JSON.stringify({ messaging_product: "whatsapp", status: "read", message_id: wamid }) },
+    e.token,
+  ).catch(() => undefined);
+}
+
+/** Inbound media arrives as an id — resolve it to a (short-lived, token-gated) URL. */
+export async function fetchMediaMeta(mediaId: string): Promise<WaResult<{ url: string; mime: string; fileSize: number }>> {
+  const e = waEnv();
+  if (!e.token) return { ok: false, error: NOT_CONFIGURED };
+  const r = await graph(`${mediaId}`, { method: "GET" }, e.token);
+  if (!r.ok) return r;
+  return {
+    ok: true,
+    data: {
+      url: String(r.data.url ?? ""),
+      mime: String(r.data.mime_type ?? "application/octet-stream"),
+      fileSize: Number(r.data.file_size ?? 0),
+    },
+  };
+}
+
+/** Download the bytes of a media URL from step 1 (needs the bearer token too). */
+export async function downloadMedia(url: string): Promise<WaResult<{ bytes: ArrayBuffer }>> {
+  const e = waEnv();
+  if (!e.token) return { ok: false, error: NOT_CONFIGURED };
+  try {
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${e.token}` } });
+    if (!res.ok) return { ok: false, error: `media download ${res.status}` };
+    return { ok: true, data: { bytes: await res.arrayBuffer() } };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}

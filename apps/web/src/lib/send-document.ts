@@ -7,6 +7,7 @@ import { docToken } from "@/lib/receipt-token";
 import { normalizePhoneMU } from "@/lib/phone";
 import { firstName } from "@/features/marketing/render";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { recordOutbound } from "@/lib/wa-inbox";
 import * as wa from "@/lib/whatsapp";
 
 // One send path for tablet + web: render the exact document PDF and deliver it
@@ -136,6 +137,19 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       { link, filename: `${d.number}.pdf` },
     );
     if (!r.ok) return r;
+
+    // Thread it into the customer's conversation so the inbox reads as one
+    // story: "we sent A00004" → their reply lands right under it.
+    await recordOutbound(createAdminClient(), {
+      tenantId: d.tenant_id,
+      phone,
+      body: `${kind.charAt(0).toUpperCase() + kind.slice(1)} ${d.number} sent. ${note}`,
+      waMessageId: r.data.messageId,
+      msgType: "document",
+      refType: "document",
+      refId: d.id,
+      customerId: d.customer_id ?? null,
+    });
   }
 
   // Optionally save a newly-captured address/number back onto the customer.

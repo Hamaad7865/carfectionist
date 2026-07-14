@@ -2,15 +2,15 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { departmentLabel } from "@/lib/departments";
 import { signVehiclePhotos } from "@/lib/supabase/storage";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 import { jobClock } from "@/features/jobs/clock";
+import { JOB_COLUMNS as COLUMNS } from "@/features/jobs/columns";
+import { pickDoc, pickQuote, liveInvoices, outstandingCents, toJobDoc, type JobDoc, type RawDoc } from "@/features/jobs/job-docs";
 import type { Marker } from "@/features/intake/damage";
 
-export const JOB_COLUMNS = [
-  { status: "scheduled", label: "Scheduled", dot: "#8c96a1" },
-  { status: "in_progress", label: "In progress", dot: "#2b8cff" },
-  { status: "ready", label: "Ready", dot: "#0da77c" },
-  { status: "delivered", label: "Delivered", dot: "#6a5cff" },
-] as const;
+// Lives in features/jobs/columns so client components can read it without
+// importing this server-only module. Re-exported here for existing callers.
+export { JOB_COLUMNS } from "@/features/jobs/columns";
 
 export interface JobCardSummary {
   id: string;
@@ -57,7 +57,7 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
   const running = new Set(((timerRes.data ?? []) as { job_id: string }[]).map((t) => t.job_id));
 
   const board: Record<string, JobCardSummary[]> = {};
-  for (const c of JOB_COLUMNS) board[c.status] = [];
+  for (const c of COLUMNS) board[c.status] = [];
   const now = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const j of (jobsRes.data ?? []) as any[]) {
@@ -92,6 +92,150 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
     (board[j.status] ?? (board[j.status] = [])).push(card);
   }
   return board;
+}
+
+// ── The searchable jobs list (second tab) ────────────────────────────────────
+// Every job ever, with the quote it came from and the invoice it was billed on —
+// this is where you find the car from three months ago, so it deliberately does
+// NOT inherit the board's "delivered cards leave after 48h / when swiped" rules.
+
+export interface JobListRow extends JobCardSummary {
+  createdAt: string;
+  phone: string | null;
+  quote: JobDoc | null;
+  invoice: JobDoc | null;
+  invoiceCount: number; // live invoices — >1 means the row shows only the latest
+  outstandingCents: number; // across ALL live invoices, not just the one shown
+}
+
+const DOC_COLS = "id, job_id, doc_type, status, number, total_incl, amount_paid, source_document_id, created_at";
+
+const chunk = <T,>(a: T[], n: number): T[][] =>
+  Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
+
+export async function listJobs(): Promise<JobListRow[]> {
+  const sb = await createClient();
+
+  // Flat reads joined in memory — the same shape as getJobsBoard above, and
+  // deliberately no PostgREST embeds: jobs↔documents has two FKs and documents↔
+  // documents is self-referencing, and a mis-hinted embed 400s the WHOLE query,
+  // which renders as a silently empty list rather than an error.
+  // fetchAllRows pages past PostgREST's 1000-row cap — a "find any job" feature
+  // that quietly stops at row 1000 is worse than no feature.
+  const [jobs, customers, vehicles, users, timers, linkedDocs] = await Promise.all([
+    fetchAllRows<Record<string, unknown>>(() =>
+      sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, paused_at, paused_ms, source_quote_id"),
+    ),
+    fetchAllRows<{ id: string; name: string | null; phone: string | null }>(() => sb.from("customers").select("id, name, phone")),
+    fetchAllRows<{ id: string; make: string | null; model: string | null; plate: string | null }>(() => sb.from("vehicles").select("id, make, model, plate")),
+    fetchAllRows<{ id: string; display_name: string | null }>(() => sb.from("app_users").select("id, display_name")),
+    fetchAllRows<{ id: string; job_id: string }>(() => sb.from("job_timers").select("id, job_id, stopped_at").is("stopped_at", null)),
+    // Only documents that carry a job link. This picks up the quote as well as the
+    // invoice: convert_quote_to_job stamps job_id on the QUOTE too (and credit notes
+    // carry it as well) — which is exactly why the doc_type filter below matters.
+    fetchAllRows<RawDoc & { job_id: string; source_document_id: string | null }>(() =>
+      sb.from("documents").select(DOC_COLS).not("job_id", "is", null),
+    ),
+  ]);
+
+  const byJob = new Map<string, RawDoc[]>();
+  const add = (jobId: string, d: RawDoc) => {
+    const docs = byJob.get(jobId);
+    if (docs) docs.push(d);
+    else byJob.set(jobId, [d]);
+  };
+  for (const d of linkedDocs) add(d.job_id, d);
+
+  // A job's source quote is normally among the linked docs (convert_quote_to_job stamps
+  // job_id on it). An older job's quote may not be — fetch the stragglers by id so the
+  // row never shows "No quote" for a job that plainly came from one.
+  const jobOfSourceQuote = new Map<string, string>();
+  for (const raw of jobs) {
+    const sq = raw.source_quote_id as string | null;
+    if (sq) jobOfSourceQuote.set(sq, raw.id as string);
+  }
+  const known = new Set(linkedDocs.map((d) => d.id));
+  const missingQuoteIds = [...jobOfSourceQuote.keys()].filter((id) => !known.has(id));
+
+  // .in() with hundreds of uuids builds a multi-KB URL; chunk it so these never trip the
+  // request-line limit once the shop has years of history.
+  const quoteIds = [...new Set([...linkedDocs.filter((d) => d.doc_type === "quote").map((d) => d.id), ...missingQuoteIds])];
+  const [missingQuotePages, orphanPages] = await Promise.all([
+    Promise.all(chunk(missingQuoteIds, 100).map((ids) => sb.from("documents").select(DOC_COLS).in("id", ids))),
+    // An invoice raised from a quote BEFORE the job existed has job_id = null; it links
+    // back only through source_document_id → the quote. Without this pass the row claims
+    // "not invoiced" on a job that has been billed.
+    Promise.all(
+      chunk(quoteIds, 100).map((ids) =>
+        sb.from("documents").select(DOC_COLS).eq("doc_type", "invoice").is("job_id", null).in("source_document_id", ids),
+      ),
+    ),
+  ]);
+
+  const rowsOf = (pages: { data: unknown; error: { message: string } | null }[]) =>
+    pages.flatMap((r) => {
+      if (r.error) throw new Error(r.error.message);
+      return (r.data ?? []) as (RawDoc & { source_document_id: string | null })[];
+    });
+
+  for (const d of rowsOf(missingQuotePages)) {
+    const jobId = jobOfSourceQuote.get(d.id);
+    if (jobId) add(jobId, d);
+  }
+
+  // Which job each quote belongs to — used to route an orphan invoice back to its job.
+  const jobOfQuote = new Map<string, string>(jobOfSourceQuote);
+  for (const d of linkedDocs) if (d.doc_type === "quote") jobOfQuote.set(d.id, d.job_id);
+  for (const d of rowsOf(orphanPages)) {
+    const jobId = d.source_document_id ? jobOfQuote.get(d.source_document_id) : undefined;
+    if (jobId) add(jobId, d);
+  }
+
+  const running = new Set(timers.map((t) => t.job_id));
+  const now = Date.now();
+
+  // Index by id — a .find() per job is quadratic, and this list is every job the
+  // shop has ever done.
+  const customerOf = new Map(customers.map((c) => [c.id, c]));
+  const vehicleOf = new Map(vehicles.map((v) => [v.id, v]));
+  const techOf = new Map(users.map((u) => [u.id, u.display_name]));
+
+  const rows = jobs.map((raw) => {
+    const j = raw as Record<string, string | null>;
+    const id = j.id as string;
+    const v = j.vehicle_id ? vehicleOf.get(j.vehicle_id) : undefined;
+    const cust = j.customer_id ? customerOf.get(j.customer_id) : undefined;
+    const tech = (j.technician_id ? techOf.get(j.technician_id) : null) ?? null;
+    const docs = byJob.get(id) ?? [];
+    const quoteRaw = pickQuote(docs, (j.source_quote_id as string | null) ?? null);
+    const invoiceRaw = pickDoc(docs, "invoice");
+    const clock = jobClock(
+      { status: j.status as string, startedAt: j.started_at, readyAt: j.ready_at, deliveredAt: j.delivered_at, pausedAt: j.paused_at, pausedMs: Number(raw.paused_ms ?? 0) },
+      now,
+    );
+    return {
+      id,
+      status: j.status as string,
+      service: j.notes,
+      customer: cust?.name ?? null,
+      phone: cust?.phone ?? null,
+      vehicle: v ? [v.make, v.model].filter(Boolean).join(" ") || null : null,
+      plate: v?.plate ?? null,
+      technician: tech ? tech.replace(/\s*\(.*\)\s*$/, "").trim() : null,
+      technicianInitials: initials(tech),
+      department: departmentLabel(j.department),
+      running: clock ? clock.running : running.has(id),
+      paused: clock?.paused ?? false,
+      createdAt: (j.created_at as string) ?? "",
+      quote: quoteRaw ? toJobDoc(quoteRaw) : null,
+      invoice: invoiceRaw ? toJobDoc(invoiceRaw) : null,
+      invoiceCount: liveInvoices(docs).length,
+      outstandingCents: outstandingCents(docs),
+    } satisfies JobListRow;
+  });
+
+  // fetchAllRows pages by id for stable paging — order for display here.
+  return rows.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
 export interface JobDocument {
