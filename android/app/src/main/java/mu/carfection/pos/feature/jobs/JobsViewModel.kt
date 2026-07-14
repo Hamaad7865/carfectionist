@@ -42,6 +42,14 @@ enum class JobCol(val key: String, val label: String, val dot: Long) {
 
 val CERT_TERMS = listOf(12 to "1 year", 36 to "3 years", 60 to "5 years", 120 to "10 years")
 
+/** How long a handed-over car stays visible on the board before it ages off by itself. */
+const val DELIVERED_WINDOW_MS = 48L * 60 * 60 * 1000
+
+/** Timestamps come back as ISO instants or offset date-times depending on the column. */
+private fun epochOrNull(iso: String): Long? =
+    runCatching { Instant.parse(iso).toEpochMilli() }.getOrNull()
+        ?: runCatching { java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
+
 data class JobsState(
     val loading: Boolean = true,
     val jobs: List<JobBoardDto> = emptyList(),
@@ -218,16 +226,35 @@ class JobsViewModel @Inject constructor(
         }
     }
 
-    // Delivered cards linger 48h as a "just handed over" record, then leave the board
-    // (the job row itself is permanent — history lives in Documents/Reports).
+    // A delivered card leaves the board two ways: swiped away by staff, or aged off 48h
+    // after the handover. Either way only the CARD goes — the job, its invoice and its
+    // history are permanent (Documents/Reports).
     fun jobsFor(s: JobsState, col: JobCol): List<JobBoardDto> = s.jobs.filter { job ->
         job.status == col.key && (col != JobCol.DELIVERED || run {
+            if (job.boardDismissedAt != null) return@run false
             val at = job.deliveredAt ?: return@run true
-            val ms = runCatching { Instant.parse(at).toEpochMilli() }.getOrNull()
-                ?: runCatching { java.time.OffsetDateTime.parse(at).toInstant().toEpochMilli() }.getOrNull()
-                ?: return@run true
-            System.currentTimeMillis() - ms < 48L * 60 * 60 * 1000
+            val ms = epochOrNull(at) ?: return@run true
+            System.currentTimeMillis() - ms < DELIVERED_WINDOW_MS
         })
+    }
+
+    /** Swipe a delivered card off the board. Optimistic: the card goes now, the write follows. */
+    fun dismissDelivered(jobId: String) {
+        val now = Instant.now().toString()
+        _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == jobId) it.copy(boardDismissedAt = now) else it }, toast = "Cleared from the board") }
+        viewModelScope.launch {
+            runCatching { api.dismissJobCard(jobId, now) }
+                .onFailure { e ->
+                    // Put it back — a card that silently reappears on the next load is worse
+                    // than one that never left.
+                    _s.update { st ->
+                        st.copy(
+                            jobs = st.jobs.map { if (it.id == jobId) it.copy(boardDismissedAt = null) else it },
+                            toast = e.uiMessage("Couldn’t clear the card — check the connection"),
+                        )
+                    }
+                }
+        }
     }
     fun active(s: JobsState): JobBoardDto? = s.jobs.firstOrNull { it.id == s.activeJobId }
 
@@ -235,7 +262,7 @@ class JobsViewModel @Inject constructor(
     // "Uploading…" (and a disabled capture button) on the next job opened.
     fun open(id: String) { _s.update { it.copy(activeJobId = id, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null) }; loadPhotos(id) }
     fun close() = _s.update { it.copy(activeJobId = null, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null) }
-    fun clearToast() = _s.update { it.copy(toast = null) }
+    fun clearToast() = _s.update { it.copy(toast = null, error = null) }
     fun note(msg: String) = _s.update { it.copy(toast = msg) }
 
     // ── checklist add ──────────────────────────────────────────────────────────
@@ -316,6 +343,7 @@ class JobsViewModel @Inject constructor(
 
     fun startJob() {
         val id = _s.value.activeJobId ?: return
+        if (_s.value.busy) return
         _s.update { it.copy(busy = true) }
         viewModelScope.launch {
             runCatching { api.startJob(id, Instant.now().toString()) }
@@ -333,6 +361,7 @@ class JobsViewModel @Inject constructor(
         val id = _s.value.activeJobId ?: return
         val job = _s.value.jobs.firstOrNull { it.id == id } ?: return
         if (job.status != "in_progress") return
+        if (_s.value.busy) return
         val now = Instant.now()
         val pausedSince = isoToInstant(job.pausedAt)
         val (at, ms, note) =
@@ -347,6 +376,7 @@ class JobsViewModel @Inject constructor(
 
     fun markReady() {
         val id = _s.value.activeJobId ?: return
+        if (_s.value.busy) return
         val job = _s.value.jobs.firstOrNull { it.id == id }
         _s.update { it.copy(busy = true) }
         viewModelScope.launch {
@@ -378,7 +408,10 @@ class JobsViewModel @Inject constructor(
                     }
                     load()
                 }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+                .onFailure { e ->
+                    _s.update { it.copy(busy = false, error = e.uiMessage()) }
+                    load() // re-sync: a half-applied sequence (pause folded, ready failed) must not retry from stale local state
+                }
         }
     }
 

@@ -115,7 +115,9 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
 
   const sig = quote?.accepted_signature ?? null;
   const quoteAccepted = quote?.status === "accepted" || !!job; // a job implies acceptance
-  const quoteDeclined = quote?.status === "declined";
+  // declined AND expired are equally terminal - the DB refuses to bill either.
+  const quoteDeclined = quote?.status === "declined" || quote?.status === "expired";
+  const deadLabel = quote?.status === "expired" ? "Expired" : "Declined";
 
   const invoicePaid = invoice ? Number(invoice.amount_paid) >= Number(invoice.total_incl) && Number(invoice.total_incl) > 0 : false;
 
@@ -146,7 +148,7 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
       state: quoteDeclined ? "declined" : sig || quoteAccepted ? "done" : "todo",
       at: sig?.at ? muDateTime(sig.at) : null,
       detail: quoteDeclined
-        ? "Declined"
+        ? deadLabel
         : sig
           ? `Signed${sig.name ? ` — ${sig.name}` : ""}`
           : quoteAccepted
@@ -196,7 +198,9 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
   // Mark where the car stands now: an active job already carries "current"; else
   // the first todo becomes current — but NOT when the quote was declined (a dead
   // deal has no "now", the declined step is terminal).
-  if (!quoteDeclined && !steps.some((s) => s.state === "current")) {
+  // ...and NOT when an invoice already exists: a finished standalone sale must
+  // not render "Next step: Intake" for steps that never applied to it.
+  if (!quoteDeclined && !invoice && !steps.some((s) => s.state === "current")) {
     const firstTodo = steps.find((s) => s.state === "todo");
     if (firstTodo) firstTodo.state = "current";
   }

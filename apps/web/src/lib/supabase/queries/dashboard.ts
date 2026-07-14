@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import {
+  fetchAllRows,
   fetchAllRowsByKeyset,
   fixedIsoUpperBound,
 } from "@/lib/supabase/paginate";
@@ -80,36 +81,49 @@ export async function getDashboard(input: SalesPeriodInput = {}): Promise<Dashbo
     ),
   );
   const [invoices, payments, services, stocked, locations, team, recent, lines, salesPerformance] = await Promise.all([
-    sb.from("documents").select("total_incl, amount_paid").eq("doc_type", "invoice").in("status", ["issued", "partly_paid", "paid"]),
-    sb.from("payments").select("method, amount"),
+    // fetchAllRows: these are aggregated in JS - PostgREST's 1000-row cap would
+    // silently understate every headline KPI past 1000 lifetime rows.
+    fetchAllRows(() => sb.from("documents").select("id, doc_type, status, total_incl, amount_paid, source_document_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"])),
+    fetchAllRows(() => sb.from("payments").select("id, method, amount")),
     sb.from("products").select("id", { count: "exact", head: true }).eq("kind", "service"),
     sb.from("products").select("id", { count: "exact", head: true }).eq("is_stocked", true),
     sb.from("stock_locations").select("id", { count: "exact", head: true }),
     sb.from("app_users").select("id", { count: "exact", head: true }).eq("is_active", true),
     sb.from("documents").select("id, doc_type, number, status, total_incl, created_at, customers(name)").order("created_at", { ascending: false }).limit(6),
-    sb.from("document_lines").select("title, line_total_excl, qty, documents!inner(status)").eq("documents.status", "paid"),
+    fetchAllRows(() => sb.from("document_lines").select("id, title, line_total_excl, qty, documents!inner(status)").eq("documents.status", "paid")),
     salesPerformancePromise,
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inv: any[] = invoices.data ?? [];
-  const invoicedCents = inv.reduce((s, d) => s + rupeesToCents(Number(d.total_incl)), 0);
-  const outstandingCents = inv.reduce((s, d) => s + rupeesToCents(Number(d.total_incl) - Number(d.amount_paid)), 0);
+  const docs: any[] = invoices ?? [];
+  const inv = docs.filter((d) => d.doc_type === "invoice");
+  // Invoiced = invoices net of live credit notes (a credited sale is not revenue).
+  const invoicedCents = docs.reduce((s, d) => s + (d.doc_type === "invoice" ? 1 : -1) * rupeesToCents(Number(d.total_incl)), 0);
+  // Outstanding must skip invoices fully reversed by a credit note - the aged
+  // receivables report already excludes them; the tile said Rs 5,000 was owed
+  // on a sale the credit note had wiped.
+  const creditedIds = new Set(docs.filter((d) => d.doc_type === "credit_note" && d.source_document_id).map((d) => d.source_document_id));
+  const outstandingCents = inv.reduce(
+    (s, d) => s + (creditedIds.has(d.id) ? 0 : rupeesToCents(Number(d.total_incl) - Number(d.amount_paid))),
+    0,
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pays: any[] = payments.data ?? [];
-  const collectedCents = pays.reduce((s, p) => s + Math.max(0, rupeesToCents(Number(p.amount))), 0);
+  const pays: any[] = payments ?? [];
+  // SIGNED sums: a reversal is a negative mirror row - clamping it to zero kept
+  // reversed money in "Collected" forever.
+  const collectedCents = pays.reduce((s, p) => s + rupeesToCents(Number(p.amount)), 0);
   const methodMap = new Map<string, number>();
   for (const p of pays) {
     const c = rupeesToCents(Number(p.amount));
-    if (c > 0) methodMap.set(p.method, (methodMap.get(p.method) ?? 0) + c);
+    methodMap.set(p.method, (methodMap.get(p.method) ?? 0) + c);
   }
   const byMethod = [...methodMap.entries()].map(([method, cents]) => ({ method, cents })).sort((a, b) => b.cents - a.cents);
 
   // best-selling services from paid invoices
   const svcMap = new Map<string, { cents: number; qty: number }>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const l of (lines.data ?? []) as any[]) {
+  for (const l of (lines ?? []) as any[]) {
     const e = svcMap.get(l.title) ?? { cents: 0, qty: 0 };
     e.cents += rupeesToCents(Number(l.line_total_excl));
     e.qty += Number(l.qty);

@@ -90,9 +90,15 @@ data class QuoteRowDto(
     // Flow strip: did this quote start at reception, and has the client signed?
     val intake: kotlinx.serialization.json.JsonElement? = null,
     @SerialName("accepted_signature") val acceptedSignature: kotlinx.serialization.json.JsonElement? = null,
+    // live invoices derived from this quote ("Bill now"/auto-billing) - the billed marker
+    val invoices: List<FlowInvoiceRefDto> = emptyList(),
+    // the job this quote produced — its status retires the quote from the list once delivered
+    val job: JobStatusRefDto? = null,
     val customers: CustomerNameDto? = null,
     val vehicles: VehicleNameDto? = null,
 )
+
+@Serializable data class JobStatusRefDto(val status: String = "")
 
 // ── Lifecycle flow refs (embedded on the jobs board) ──────────────────────────
 @Serializable
@@ -151,6 +157,8 @@ data class JobBoardDto(
     @SerialName("started_at") val startedAt: String? = null,
     @SerialName("ready_at") val readyAt: String? = null,
     @SerialName("delivered_at") val deliveredAt: String? = null,
+    // set when staff swipe a delivered card off the board — the job itself is untouched
+    @SerialName("board_dismissed_at") val boardDismissedAt: String? = null,
     @SerialName("paused_at") val pausedAt: String? = null, // timer paused since; null = running
     @SerialName("paused_ms") val pausedMs: Long = 0, // accumulated paused time
 

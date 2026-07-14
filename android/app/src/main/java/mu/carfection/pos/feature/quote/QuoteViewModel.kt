@@ -31,6 +31,12 @@ import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteRowDto
 import mu.carfection.pos.core.network.TechnicianDto
 import mu.carfection.pos.core.network.uiMessage
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
 import javax.inject.Inject
 
 enum class QuoteMode { LIST, BUILDER }
@@ -68,6 +74,7 @@ data class QuoteState(
     val vehicleId: String? = null,
     val tab: String = "All",
     val query: String = "", // product search (name or scanned barcode)
+    val listQuery: String = "", // quote search on the list (customer, plate, vehicle, number)
     val products: List<ProductEntity> = emptyList(),
     val lines: List<QuoteLine> = emptyList(),
     // basket (order-level) discount — % of the inclusive total, or Rs off (VAT-inclusive)
@@ -76,7 +83,10 @@ data class QuoteState(
     val technicians: List<TechnicianDto> = emptyList(),
     val acceptOpen: Boolean = false,
     val techId: String? = null,
-    val time: String? = null,
+    // When the car is booked in for. null = start now; otherwise the picked date+time.
+    val startAt: Long? = null,
+    val datePickerOpen: Boolean = false,
+    val timePickerOpen: Boolean = false,
     val busy: Boolean = false,
     val adhocOpen: Boolean = false,
     val savedRef: String? = null,
@@ -90,6 +100,8 @@ data class QuoteState(
     // lifecycle flow strip: was there an intake, and has the client signed?
     val hasIntake: Boolean = false,
     val signed: Boolean = false,
+    // a live invoice exists for this quote ("Bill now" / auto-billing on ready)
+    val billed: Boolean = false,
     // "Send to customer" (post-accept): prefill + progress
     val customerEmail: String? = null,
     val customerPhone: String? = null,
@@ -101,7 +113,16 @@ data class QuoteState(
     val linesLoaded: Boolean = true,
 )
 
-val QUOTE_TIMES = listOf("Now", "13:30", "14:30", "15:30", "Tomorrow")
+/** A quote whose car has already been handed over is finished business — off the working list. */
+private fun QuoteRowDto.isDelivered(): Boolean = job?.status == "delivered"
+
+private fun QuoteRowDto.matches(q: String): Boolean {
+    val hay = listOfNotNull(
+        number, customers?.name, customers?.phone,
+        vehicles?.plate, vehicles?.make, vehicles?.model,
+    ).joinToString(" ")
+    return hay.contains(q, ignoreCase = true)
+}
 
 @HiltViewModel
 class QuoteViewModel @Inject constructor(
@@ -137,11 +158,11 @@ class QuoteViewModel @Inject constructor(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
             who = h.customerName, vehPlate = h.plate, veh = h.vehLabel,
             customerId = h.customerId, vehicleId = h.vehicleId,
-            lines = emptyList(), acceptOpen = false, techId = null, time = null,
+            lines = emptyList(), acceptOpen = false, techId = null, startAt = null,
             basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
-            hasIntake = true, signed = false,
+            hasIntake = true, signed = false, billed = false,
             // Never carry a previously-opened customer's contact into this fresh
             // quote's send dialog — that would email/WhatsApp the signed quote to
             // the wrong person. Intake carries no contact; the operator fills it.
@@ -157,6 +178,20 @@ class QuoteViewModel @Inject constructor(
                 .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
+
+    /**
+     * The working list: quotes whose car has been delivered are done and drop out — but a
+     * search still finds them, so nothing is ever locked away, just out of the way.
+     */
+    fun filteredQuotes(s: QuoteState): List<QuoteRowDto> {
+        val q = s.listQuery.trim()
+        return if (q.isEmpty()) s.quotes.filterNot { it.isDelivered() } else s.quotes.filter { it.matches(q) }
+    }
+
+    /** How many delivered quotes the empty search bar is hiding — shown as a hint on the list. */
+    fun retiredCount(s: QuoteState): Int = s.quotes.count { it.isDelivered() }
+
+    fun setListQuery(q: String) = _s.update { it.copy(listQuery = q) }
 
     fun tabs(s: QuoteState): List<String> =
         listOf("All") + s.products.map { it.kind.replaceFirstChar { c -> c.uppercase() } }.distinct()
@@ -189,11 +224,12 @@ class QuoteViewModel @Inject constructor(
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
-                lines = emptyList(), acceptOpen = false, techId = null, time = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
+                lines = emptyList(), acceptOpen = false, techId = null, startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
                 sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
                 linesLoaded = false, // becomes true only when the lines actually load
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
                 signed = q.acceptedSignature != null && q.acceptedSignature !is kotlinx.serialization.json.JsonNull,
+                billed = q.invoices.any { it.docType == "invoice" && it.status != "void" },
             )
         }
         viewModelScope.launch {
@@ -279,7 +315,54 @@ class QuoteViewModel @Inject constructor(
     fun openAccept() = _s.update { it.copy(acceptOpen = true) }
     fun closeAccept() = _s.update { it.copy(acceptOpen = false) }
     fun pickTech(id: String) = _s.update { it.copy(techId = id) }
-    fun pickTime(t: String) = _s.update { it.copy(time = t) }
+
+    // ── when the car is booked in for ────────────────────────────────────────────
+    // startAt == null means "start now". Picking a date keeps the time already chosen
+    // (or the next half-hour); picking a time keeps the date (or today).
+    fun openDatePicker() = _s.update { it.copy(datePickerOpen = true) }
+    fun openTimePicker() = _s.update { it.copy(timePickerOpen = true) }
+    fun closePickers() = _s.update { it.copy(datePickerOpen = false, timePickerOpen = false) }
+    fun startNow() = _s.update { it.copy(startAt = null, datePickerOpen = false, timePickerOpen = false) }
+
+    private fun currentStart(s: QuoteState): ZonedDateTime =
+        s.startAt?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()) }
+            ?: ZonedDateTime.now().let { it.plusMinutes((30 - it.minute % 30).toLong()).withSecond(0).withNano(0) }
+
+    /** [utcMillis] is what the Material date picker hands back: midnight UTC on the chosen day. */
+    fun pickDate(utcMillis: Long) = _s.update { s ->
+        val day = Instant.ofEpochMilli(utcMillis).atZone(ZoneOffset.UTC).toLocalDate()
+        val at = currentStart(s)
+        s.copy(
+            startAt = day.atTime(at.hour, at.minute).atZone(ZoneId.systemDefault()).toInstant().toEpochMilli(),
+            datePickerOpen = false,
+        )
+    }
+
+    fun pickTime(hour: Int, minute: Int) = _s.update { s ->
+        val at = currentStart(s)
+        s.copy(
+            startAt = at.withHour(hour).withMinute(minute).withSecond(0).withNano(0).toInstant().toEpochMilli(),
+            timePickerOpen = false,
+        )
+    }
+
+    /** Labels for the two picker buttons — "Today"/"Tomorrow" read better than a bare date. */
+    fun startDateLabel(s: QuoteState): String {
+        val at = s.startAt?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).toLocalDate() } ?: return "Today"
+        val today = LocalDate.now()
+        return when (at) {
+            today -> "Today"
+            today.plusDays(1) -> "Tomorrow"
+            else -> at.format(DateTimeFormatter.ofPattern("EEE d MMM"))
+        }
+    }
+
+    fun startTimeLabel(s: QuoteState): String =
+        s.startAt?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm")) } ?: "Now"
+
+    /** What gets written to jobs.scheduled_at — the picked moment, or now. */
+    private fun scheduledIso(s: QuoteState): String =
+        Instant.ofEpochMilli(s.startAt ?: System.currentTimeMillis()).toString()
 
     /** Open the job this quote already produced on the Jobs board (a quote maps to one job). */
     fun viewJob() { _s.value.jobId?.let { openJobBus.request(it) } }
@@ -303,6 +386,7 @@ class QuoteViewModel @Inject constructor(
 
     fun saveDraft() {
         val s = _s.value
+        if (s.busy) return // double-tap = two inserted drafts when quoteId is null
         if (!s.linesLoaded) { _s.update { it.copy(error = "Items still loading — wait a moment, or reopen the quote.") }; return }
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         _s.update { it.copy(busy = true, error = null) }
@@ -316,6 +400,7 @@ class QuoteViewModel @Inject constructor(
     /** [signaturePng] is the client's acceptance signature drawn on the pad — required by the UI. */
     fun create(signaturePng: ByteArray?) {
         val s = _s.value
+        if (s.busy) return // double-tap on a fresh quote = two quotes -> two jobs
         val cid = s.customerId ?: return
         if (s.status == "draft" && !s.linesLoaded) { _s.update { it.copy(error = "Items still loading — wait a moment before accepting.") }; return }
         _s.update { it.copy(busy = true, error = null) }
@@ -332,7 +417,11 @@ class QuoteViewModel @Inject constructor(
                 val quoteId =
                     if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
-                quoteId to api.convertQuoteToJob(quoteId, s.techId, signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
+                val jobId = api.convertQuoteToJob(quoteId, s.techId, signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
+                // Book the car in. Safe to retry: the conversion is idempotent, so a failed
+                // schedule write simply re-runs against the same job.
+                api.setJobSchedule(jobId, scheduledIso(s))
+                quoteId to jobId
             }.onSuccess { (quoteId, jobId) ->
                 // Stamp what reception recorded onto the new job — best-effort; the
                 // job exists either way and the board still opens it.
@@ -356,6 +445,7 @@ class QuoteViewModel @Inject constructor(
     /** Bill the quote now: persist it, copy into a draft invoice, then issue for gapless INV#. */
     fun convertToInvoice() {
         val s = _s.value
+        if (s.busy) return // double-tap on a fresh quote = two quotes -> two invoices
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         if (s.lines.isEmpty()) { _s.update { it.copy(error = "Add a line before billing") }; return }
         _s.update { it.copy(busy = true, error = null) }
@@ -367,7 +457,7 @@ class QuoteViewModel @Inject constructor(
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val draft = api.convertQuoteToInvoice(quoteId)
                 api.issueDocument(draft.id, "quote-inv:$quoteId")
-            }.onSuccess { d -> _s.update { it.copy(busy = false, acceptOpen = false, createdInvoiceRef = d.number ?: "Invoice issued") } }
+            }.onSuccess { d -> _s.update { it.copy(busy = false, acceptOpen = false, billed = true, createdInvoiceRef = d.number ?: "Invoice issued") } }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
@@ -383,14 +473,17 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch {
             val err = runCatching { sendApi.send(quoteId, channel, to.trim(), note.trim().take(300), session.deviceId()) }
                 .getOrElse { it.message ?: "Network error" }
-            _s.update {
-                if (err == null) it.copy(
+            _s.update { cur ->
+                // A late result must not stamp a DIFFERENT quote's dialog (the
+                // operator may have dismissed and accepted another quote meanwhile).
+                if (cur.quoteId != quoteId) cur
+                else if (err == null) cur.copy(
                     sendBusy = false,
                     sendDone = if (channel == "email") "Sent by email ✓" else "Sent on WhatsApp ✓",
                     // remember what worked so re-opening prefills the corrected value
-                    customerEmail = if (channel == "email") to.trim() else it.customerEmail,
-                    customerPhone = if (channel == "whatsapp") to.trim() else it.customerPhone,
-                ) else it.copy(sendBusy = false, sendError = err)
+                    customerEmail = if (channel == "email") to.trim() else cur.customerEmail,
+                    customerPhone = if (channel == "whatsapp") to.trim() else cur.customerPhone,
+                ) else cur.copy(sendBusy = false, sendError = err)
             }
         }
     }

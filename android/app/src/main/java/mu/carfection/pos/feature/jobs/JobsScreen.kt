@@ -5,11 +5,15 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -36,6 +40,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,13 +52,20 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.abs
+import kotlin.math.roundToInt
+import kotlin.math.sign
+import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
@@ -128,6 +140,10 @@ fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: Jobs
     if (s.addChecklistOpen) AddChecklistDialog(viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(1800); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
+    // Failures (mark ready / checkout / timer) were captured in state but never
+    // shown — the operator saw silent no-ops on money-relevant taps.
+    s.error?.let { LaunchedEffect(it) { delay(2600); viewModel.clearToast() } }
+    s.error?.let { Toast(it) }
 }
 
 @Composable
@@ -228,13 +244,27 @@ private fun JobColumn(s: JobsState, vm: JobsViewModel, col: JobCol, modifier: Mo
             }
         }
         Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(start = 8.dp, end = 8.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            cards.forEach { j -> JobCard(j, col, Color(col.dot)) { vm.open(j.id) } }
+            cards.forEach { j ->
+                // Delivered cards can be swiped away the moment the car leaves; the rest are
+                // live work and must stay put.
+                JobCard(
+                    j, col, Color(col.dot),
+                    onDismiss = if (col == JobCol.DELIVERED) ({ vm.dismissDelivered(j.id) }) else null,
+                ) { vm.open(j.id) }
+            }
+            if (col == JobCol.DELIVERED && cards.isNotEmpty()) {
+                Text(
+                    "Swipe a card away to clear it — they leave on their own after 48h.",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 15.sp,
+                    color = TextMuted, modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onClick: () -> Unit) {
+private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onDismiss: (() -> Unit)? = null, onClick: () -> Unit) {
     val (right, rightC) = when (col) {
         JobCol.SCHEDULED -> clock(j.scheduledAt) to TextMuted
         JobCol.IN_PROGRESS -> {
@@ -246,7 +276,31 @@ private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onClick: () -> Uni
         JobCol.READY -> clock(j.readyAt) to Success
         JobCol.DELIVERED -> "Done" to TextMuted
     }
-    Box(Modifier.clip(RoundedCornerShape(12.dp)).background(CardTile).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = onClick)) {
+    // Swipe-to-clear (delivered only): the card follows the finger, fades as it goes, and
+    // is gone past 40% of its width; anything short of that springs back.
+    val offsetX = remember(j.id) { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    val swipe = if (onDismiss == null) Modifier else Modifier.pointerInput(j.id) {
+        val gone = size.width * 0.4f
+        detectHorizontalDragGestures(
+            onHorizontalDrag = { change, delta -> change.consume(); scope.launch { offsetX.snapTo(offsetX.value + delta) } },
+            onDragCancel = { scope.launch { offsetX.animateTo(0f, tween(160)) } },
+            onDragEnd = {
+                scope.launch {
+                    if (abs(offsetX.value) > gone) {
+                        offsetX.animateTo(sign(offsetX.value) * size.width, tween(150))
+                        onDismiss()
+                    } else offsetX.animateTo(0f, tween(160))
+                }
+            },
+        )
+    }
+    Box(
+        Modifier.offset { IntOffset(offsetX.value.roundToInt(), 0) }
+            .graphicsLayer { alpha = 1f - (abs(offsetX.value) / (size.width.takeIf { it > 0 } ?: 1).toFloat()).coerceIn(0f, 0.85f) }
+            .then(swipe)
+            .clip(RoundedCornerShape(12.dp)).background(CardTile).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = onClick),
+    ) {
         // IntrinsicSize.Min gives the row a resolved height — without it the edge
         // stripe's fillMaxHeight() collapses to zero and the stripe never shows.
         Row(Modifier.height(IntrinsicSize.Min)) {
@@ -327,7 +381,7 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (j.status == "ready" || j.status == "delivered") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openInvoice() }, contentAlignment = Alignment.Center) {
+                        if (j.invoices.none { it.docType == "invoice" && it.status != "void" }) Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openInvoice() }, contentAlignment = Alignment.Center) {
                             Text("＋  Invoice", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
                         }
                         Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openCertIssue() }, contentAlignment = Alignment.Center) {

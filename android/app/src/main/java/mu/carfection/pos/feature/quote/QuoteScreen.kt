@@ -26,7 +26,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -143,7 +149,9 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, viewModel: QuoteV
         }
     }
     s.createdInvoiceRef?.let {
-        Dialog(onDismissRequest = viewModel::clearToast) {
+        // Dismiss = leave the builder (parity with the accept dialog) - staying on a
+        // just-billed quote left Accept/Bill both tappable again.
+        Dialog(onDismissRequest = { viewModel.clearToast(); viewModel.back() }) {
             Column(Modifier.width(380.dp).card().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Invoice issued", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
                 Text("$it — collect it in Checkout.", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
@@ -152,6 +160,8 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, viewModel: QuoteV
         }
     }
     if (s.adhocOpen) AdhocDialog(viewModel)
+    if (s.datePickerOpen) StartDatePicker(s, viewModel)
+    if (s.timePickerOpen) StartTimePicker(s, viewModel)
 }
 
 @Composable
@@ -186,18 +196,41 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
         Spacer(Modifier.weight(1f))
         OutlineBtn("+ New intake", h = 44) { onGoIntake() }
     }
+    val shown = vm.filteredQuotes(s)
+    val retired = vm.retiredCount(s)
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+        FilledInput(
+            value = s.listQuery, onValueChange = vm::setListQuery,
+            placeholder = "Search a quote — customer, plate or number…",
+            modifier = Modifier.weight(1f), height = 44.dp, bg = CardBg, leadingSearch = true,
+        )
+        if (s.listQuery.isBlank() && retired > 0) {
+            Text(
+                "$retired delivered — search to find them",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+            )
+        }
+    }
     if (s.loading) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading…", color = TextMuted) }
-    } else if (s.quotes.isEmpty()) {
-        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("No quotes yet — start one from Intake.", color = TextMuted, fontFamily = Barlow, fontSize = 14.sp) }
+    } else if (shown.isEmpty()) {
+        Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text(
+                if (s.listQuery.isNotBlank()) "No quote matches “${s.listQuery}”."
+                else if (s.quotes.isNotEmpty()) "Every quote is delivered — search to find one."
+                else "No quotes yet — start one from Intake.",
+                color = TextMuted, fontFamily = Barlow, fontSize = 14.sp,
+            )
+        }
     } else {
         LazyVerticalGrid(columns = GridCells.Fixed(3), horizontalArrangement = Arrangement.spacedBy(11.dp), verticalArrangement = Arrangement.spacedBy(11.dp), modifier = Modifier.weight(1f).fillMaxWidth()) {
-            items(s.quotes, key = { it.id }) { q ->
+            items(shown, key = { it.id }) { q ->
                 Column(Modifier.card(15).clickable { vm.openQuote(q) }.padding(horizontal = 15.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Text(q.number ?: "Draft", fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextSecondary)
                         Spacer(Modifier.weight(1f))
                         StatusChip(q.status)
+                        if (q.invoices.any { it.docType == "invoice" && it.status != "void" }) StatusChip("billed")
                     }
                     Text(q.customers?.name ?: "—", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(listOfNotNull(q.vehicles?.plate, listOfNotNull(q.vehicles?.make, q.vehicles?.model).joinToString(" ").ifBlank { null }).joinToString(" · ").ifBlank { "—" }, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -229,11 +262,24 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         // LEFT 53 — search + tabs + product grid
         Column(Modifier.weight(53f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            FilledInput(
-                value = s.query, onValueChange = vm::setQuery,
-                placeholder = "Search products or scan a barcode…",
-                modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
-            )
+            // The ad-hoc tile lives at the end of the grid — past hundreds of products, so it
+            // may as well not exist. This button is the way in: a typed one-off line, always
+            // one tap away.
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                FilledInput(
+                    value = s.query, onValueChange = vm::setQuery,
+                    placeholder = "Search products or scan a barcode…",
+                    modifier = Modifier.weight(1f), height = 44.dp, bg = CardBg, leadingSearch = true,
+                )
+                Box(
+                    Modifier.height(44.dp).background(AccentSoft, RoundedCornerShape(12.dp))
+                        .border(1.5.dp, AccentLine, RoundedCornerShape(12.dp))
+                        .clickable { vm.openAdhoc() }.padding(horizontal = 15.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text("+ Ad-hoc line", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent)
+                }
+            }
             Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 vm.tabs(s).forEach { t ->
                     val sel = t == s.tab
@@ -383,7 +429,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             if (s.signed) "client signed" else if (s.jobId != null) "accepted" else null,
                         ),
                         FlowStepUi("Job", if (s.jobId != null) FlowState.DONE else FlowState.TODO, s.jobId?.let { "on the board" }),
-                        FlowStepUi("Invoice", if (s.createdInvoiceRef != null) FlowState.DONE else FlowState.TODO, s.createdInvoiceRef),
+                        FlowStepUi("Invoice", if (s.createdInvoiceRef != null || s.billed) FlowState.DONE else FlowState.TODO, s.createdInvoiceRef ?: if (s.billed) "issued" else null),
                     ).withCurrent(),
                 )
                 s.error?.let { Text(it, color = Danger, fontSize = 12.sp) }
@@ -395,6 +441,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             Text("View job →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
                         }
                         Text("This quote has been accepted — JOB-${s.jobId.take(4).uppercase()} is on the board.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                    }
+                    s.billed -> {
+                        Box(Modifier.fillMaxWidth().height(52.dp).background(InsetAlt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+                            Text("Billed — collect it in Checkout", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary)
+                        }
+                        Text("This quote already has an invoice — accepting or re-billing it here is disabled.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
                     }
                     !s.acceptOpen -> {
                         Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -434,13 +486,19 @@ private fun AcceptPanel(s: QuoteState, vm: QuoteViewModel) {
                 }
             }
         }
-        MiniLabel("START")
-        Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            QUOTE_TIMES.forEach { tm ->
-                val on = tm == s.time
-                Box(Modifier.height(38.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(19.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp)).clickable { vm.pickTime(tm) }.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
-                    Text(tm, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextPrimary)
-                }
+        MiniLabel("BOOKED IN FOR")
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            val scheduled = s.startAt != null
+            PickerChip("📅  " + vm.startDateLabel(s), scheduled, Modifier.weight(1f)) { vm.openDatePicker() }
+            PickerChip("🕐  " + vm.startTimeLabel(s), scheduled, Modifier.weight(1f)) { vm.openTimePicker() }
+            Box(
+                Modifier.height(38.dp)
+                    .background(if (scheduled) InsetAlt else AccentSoft, RoundedCornerShape(19.dp))
+                    .border(if (scheduled) 1.dp else 1.5.dp, if (scheduled) Hairline else AccentLine, RoundedCornerShape(19.dp))
+                    .clickable { vm.startNow() }.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text("Now", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (scheduled) TextSecondary else Accent)
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -495,6 +553,58 @@ private fun AcceptPanel(s: QuoteState, vm: QuoteViewModel) {
     }
 }
 
+@Composable
+private fun PickerChip(label: String, on: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) = Box(
+    modifier.height(38.dp)
+        .background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(19.dp))
+        .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp))
+        .clickable(onClick = onClick).padding(horizontal = 14.dp),
+    contentAlignment = Alignment.Center,
+) {
+    Text(label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextPrimary, maxLines = 1)
+}
+
+/** Pick the day the car comes in. The Material picker speaks midnight-UTC millis. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StartDatePicker(s: QuoteState, vm: QuoteViewModel) {
+    val st = rememberDatePickerState(initialSelectedDateMillis = s.startAt ?: System.currentTimeMillis())
+    DatePickerDialog(
+        onDismissRequest = vm::closePickers,
+        confirmButton = {
+            Text(
+                "Set date", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent,
+                modifier = Modifier.clickable { st.selectedDateMillis?.let { vm.pickDate(it) } ?: vm.closePickers() }.padding(14.dp),
+            )
+        },
+        dismissButton = {
+            Text(
+                "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary,
+                modifier = Modifier.clickable { vm.closePickers() }.padding(14.dp),
+            )
+        },
+    ) { DatePicker(state = st) }
+}
+
+/** Pick the hour the car comes in — the clock face, not a fixed list of slots. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun StartTimePicker(s: QuoteState, vm: QuoteViewModel) {
+    val now = java.time.LocalTime.now()
+    val at = s.startAt?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalTime() } ?: now
+    val st = rememberTimePickerState(initialHour = at.hour, initialMinute = at.minute, is24Hour = true)
+    Dialog(onDismissRequest = vm::closePickers) {
+        Column(Modifier.card().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("Start time", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, color = TextPrimary)
+            TimePicker(state = st)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                OutlineBtn("Cancel", Modifier.weight(1f), 48) { vm.closePickers() }
+                FillBtn("Set time", Modifier.weight(1f), 48) { vm.pickTime(st.hour, st.minute) }
+            }
+        }
+    }
+}
+
 /** Render the signature strokes to a white-background PNG at the pad's own pixel size. */
 private fun strokesToPng(strokes: List<List<Offset>>, w: Int, h: Int, strokePx: Float): ByteArray {
     val bmp = android.graphics.Bitmap.createBitmap(w.coerceAtLeast(1), h.coerceAtLeast(1), android.graphics.Bitmap.Config.ARGB_8888)
@@ -539,6 +649,7 @@ private fun strokesToPng(strokes: List<List<Offset>>, w: Int, h: Int, strokePx: 
     val (bg, fg, label) = when (status.lowercase()) {
         "accepted" -> Triple(Color(0x261FA361), Success, "ACCEPTED")
         "issued" -> Triple(AccentSoft, Accent, "SENT")
+        "billed" -> Triple(AccentSoft, Accent, "BILLED")
         "declined", "expired" -> Triple(Color(0x1FD63A3A), Danger, status.uppercase())
         else -> Triple(InsetAlt, TextSecondary, "DRAFT")
     }

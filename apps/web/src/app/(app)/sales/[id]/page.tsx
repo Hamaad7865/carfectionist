@@ -65,13 +65,29 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
             {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
             {canCredit && <CreditNoteButton invoiceId={doc.id} number={doc.number} />}
-            {doc.docType === "quote" && <ConvertButton quoteId={doc.id} />}
+            {doc.docType === "quote" && !["declined", "expired"].includes(doc.status) && <ConvertButton quoteId={doc.id} />}
           </div>
         </div>
 
         {flow && (
           <div className="mt-4">
             <FlowStepper steps={flow} />
+          </div>
+        )}
+
+        {/* Quote -> job actions must not be trapped behind intake data: a quote
+            created via "+ New document" has no markers/photos, yet still needs
+            "Accept -> create job" (and, once one exists, the way to its job). */}
+        {doc.docType === "quote" && !(doc.intake && (doc.intake.markers.length > 0 || doc.intake.photos.length > 0)) && (
+          <div className="mt-4 flex items-center justify-between rounded-[13px] border border-line bg-card px-4 py-2.5">
+            <span className="text-[12.5px] text-muted">{doc.jobId ? "This quote has a job on the board." : "Client accepted this quote?"}</span>
+            {doc.jobId ? (
+              <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job -&gt;</Link>
+            ) : ["declined", "expired"].includes(doc.status) ? (
+              <span className="text-[12px] font-semibold text-faint">Quote is {doc.status}</span>
+            ) : (
+              <StartJobButton documentId={doc.id} quote />
+            )}
           </div>
         )}
 

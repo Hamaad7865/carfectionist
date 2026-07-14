@@ -417,12 +417,15 @@ export async function getCustomerStatement(customerId: string, from?: string, to
   const { data: cust } = await sb.from("customers").select("id, name").eq("id", customerId).maybeSingle();
   if (!cust) return null;
 
-  const [docRes, payRes] = await Promise.all([
+  const [docRows, payRows] = await Promise.all([
     // Issued invoices (debits) + credit notes (credits); void/draft excluded.
-    sb.from("documents").select("doc_type, number, total_incl, issue_date").eq("customer_id", customerId).in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
+    // fetchAllRows: a fleet customer's lifetime history can exceed the 1000-row cap.
+    fetchAllRows(() => sb.from("documents").select("id, doc_type, number, total_incl, issue_date").eq("customer_id", customerId).in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"])),
     // Payments against this customer's documents (credits). Reversal mirrors keep the sign.
-    sb.from("payments").select("amount, received_at, method, documents!inner(number, customer_id)").eq("documents.customer_id", customerId),
+    fetchAllRows(() => sb.from("payments").select("id, amount, received_at, method, documents!inner(number, customer_id)").eq("documents.customer_id", customerId)),
   ]);
+  const docRes = { data: docRows };
+  const payRes = { data: payRows };
 
   type Ev = { date: string; kind: StatementLine["kind"]; ref: string | null; detail: string; debit: number; credit: number; seq: number };
   const evs: Ev[] = [];

@@ -42,7 +42,7 @@ function nameById(rows: any[], id: string | null, field = "display_name"): strin
 export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> {
   const sb = await createClient();
   const [jobsRes, custRes, vehRes, usersRes, timerRes] = await Promise.all([
-    sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, paused_at, paused_ms").order("created_at", { ascending: false }),
+    sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, board_dismissed_at, paused_at, paused_ms").order("created_at", { ascending: false }),
     sb.from("customers").select("id, name"),
     sb.from("vehicles").select("id, make, model, plate"),
     sb.from("app_users").select("id, display_name"),
@@ -61,9 +61,13 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
   const now = Date.now();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const j of (jobsRes.data ?? []) as any[]) {
-    // Delivered cards linger 48h as a "just handed over" record, then leave the
-    // board (the job row is permanent — history lives in Sales/Reports).
-    if (j.status === "delivered" && j.delivered_at && now - Date.parse(j.delivered_at) >= 48 * 3600_000) continue;
+    // A delivered card leaves the board two ways: swiped away by staff (on either app),
+    // or aged off 48h after the handover. The job row itself is permanent — its history
+    // lives in Sales/Reports.
+    if (j.status === "delivered") {
+      if (j.board_dismissed_at) continue;
+      if (j.delivered_at && now - Date.parse(j.delivered_at) >= 48 * 3600_000) continue;
+    }
     const v = vehicles.find((x) => x.id === j.vehicle_id);
     const tech = nameById(users, j.technician_id);
     // The POS clock (started_at/paused) is authoritative when present; a job the

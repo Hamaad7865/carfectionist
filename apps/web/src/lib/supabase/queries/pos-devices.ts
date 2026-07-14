@@ -455,6 +455,15 @@ export async function getDeviceDashboard(
     }
   }
 
+  // An inflow is struck ONLY when its reversal mirror is ALSO inside [from,to]
+  // (symmetric with `cancelled` on the outflow side). Striking on any-time
+  // reversal made two adjacent day-views sum to -Rs X instead of net zero.
+  const mirrorInView = new Set(
+    flowPays
+      .filter((p) => Number(p.amount) < 0 && inRange(p.received_at) && p.reverses_payment_id)
+      .map((p) => p.reverses_payment_id as string),
+  );
+
   const inflows: SessionMovement[] = flowPays
     .filter((p) => Number(p.amount) > 0 && inRange(p.received_at))
     .map((p) => ({
@@ -466,13 +475,13 @@ export async function getDeviceDashboard(
       docId: p.documents?.id ?? null,
       byName: nameById.get(p.received_by) ?? null,
       isReversal: false,
-      wasReversed: undoneInFlow.has(p.id),
+      wasReversed: mirrorInView.has(p.id),
     }));
 
   // Originals that are BOTH undone and visible as inflows of this period — only
   // those pairs cancel out of the totals.
   const originalsInView = new Set(
-    flowPays.filter((p) => Number(p.amount) > 0 && inRange(p.received_at) && undoneInFlow.has(p.id)).map((p) => p.id),
+    flowPays.filter((p) => Number(p.amount) > 0 && inRange(p.received_at) && mirrorInView.has(p.id)).map((p) => p.id),
   );
 
   const outflows: OutflowRow[] = flowPays

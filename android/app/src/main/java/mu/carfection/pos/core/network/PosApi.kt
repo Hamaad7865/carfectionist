@@ -66,12 +66,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .insert(row) { select(Columns.raw("id, plate, make, model, color")) }
             .decodeSingle()
 
+    // The job embed (documents.job_id → jobs) tells the list which quotes are finished
+    // business: once its car is delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, intake, accepted_signature, customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, intake, accepted_signature, invoices:documents!documents_source_document_id_fkey(id, number, doc_type, status), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                limit(30)
+                limit(120) // deep enough that the search bar reaches past the last few days
             }
             .decodeList()
 
@@ -200,10 +202,20 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // PostgREST refuses with "more than one relationship was found".
     suspend fun fetchJobs(): List<JobBoardDto> =
         client.postgrest.from("jobs")
-            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, paused_at, paused_ms, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature), invoices:documents!documents_job_id_fkey(id, number, doc_type, status), certificates(number, expires_at)")) {
+            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, board_dismissed_at, paused_at, paused_ms, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature), invoices:documents!documents_job_id_fkey(id, number, doc_type, status), certificates(number, expires_at)")) {
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
             }
             .decodeList()
+
+    /** When the car is booked in for. Written when a quote is accepted; shown on the scheduled card. */
+    suspend fun setJobSchedule(jobId: String, scheduledAtIso: String) {
+        client.postgrest.from("jobs").update({ set("scheduled_at", scheduledAtIso) }) { filter { eq("id", jobId) } }
+    }
+
+    /** Swipe a delivered card off the board. Board-only — the job, its invoice and its history stay. */
+    suspend fun dismissJobCard(jobId: String, atIso: String) {
+        client.postgrest.from("jobs").update({ set("board_dismissed_at", atIso) }) { filter { eq("id", jobId) } }
+    }
 
     /** Scheduled → in progress. Stamps started_at once (RLS scopes the tenant). */
     suspend fun startJob(jobId: String, startedAtIso: String) {
@@ -427,7 +439,9 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, customers(name), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "invoice"); isIn("status", listOf("issued", "partly_paid")) }
                 order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                limit(40)
+                // Auto-invoicing on "ready" makes outstanding invoices longer-lived;
+                // 40 silently hid the oldest (most overdue) ones once exceeded.
+                limit(200)
             }
             .decodeList()
 

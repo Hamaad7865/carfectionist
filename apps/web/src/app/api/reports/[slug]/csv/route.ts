@@ -1,5 +1,4 @@
 import { getReportsData, getExtraReports, getDiscountsReport, getCollectedPayments } from "@/lib/supabase/queries/reports";
-import { getCashSessions } from "@/lib/supabase/queries/cash";
 import { getSessionContext } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { logAudit } from "@/lib/supabase/audit";
@@ -48,10 +47,26 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
       break;
     }
     case "cash": {
-      const d = await getCashSessions();
+      // Date-scoped straight off cash_sessions - getCashSessions() ignores
+      // from/to (it feeds the Point of Sale screen's fixed recent list).
+      const sbc = await createClient();
+      let q = sbc.from("cash_sessions").select("opened_at, device_id, opening_float, expected_cash, closing_count, variance, status").order("opened_at", { ascending: true }).limit(1000);
+      if (from) q = q.gte("opened_at", `${from}T00:00:00+04:00`);
+      if (to) q = q.lte("opened_at", `${to}T23:59:59.999+04:00`);
+      const { data: sessRows } = await q;
       rows = [["Opened", "Device", "Opening float (Rs)", "Expected (Rs)", "Counted (Rs)", "Variance (Rs)"]];
-      if (d.open) rows.push([d.open.openedAt.slice(0, 10), d.open.deviceId, rs(d.open.openingFloatCents), rs(d.open.expectedCents), "OPEN", ""]);
-      for (const s of d.recent) rows.push([s.openedAt.slice(0, 10), s.deviceId, rs(s.openingFloatCents), rs(s.expectedCents), rs(s.countedCents), rs(s.varianceCents)]);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const s of (sessRows ?? []) as any[]) {
+        const open = s.status === "open";
+        rows.push([
+          String(s.opened_at).slice(0, 10),
+          s.device_id,
+          Number(s.opening_float ?? 0).toFixed(2),
+          open ? "" : Number(s.expected_cash ?? 0).toFixed(2),
+          open ? "OPEN" : Number(s.closing_count ?? 0).toFixed(2),
+          open ? "" : Number(s.variance ?? 0).toFixed(2),
+        ]);
+      }
       name = "cash-up";
       break;
     }
