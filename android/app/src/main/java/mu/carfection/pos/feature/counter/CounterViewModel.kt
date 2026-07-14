@@ -39,6 +39,7 @@ import kotlinx.serialization.json.put
 import mu.carfection.pos.core.network.CashSessionDto
 import mu.carfection.pos.core.network.OutstandingInvoiceDto
 import mu.carfection.pos.core.network.PosApi
+import mu.carfection.pos.core.data.saleReceiptDoc
 import mu.carfection.pos.core.network.SaleHistoryDto
 import mu.carfection.pos.core.network.SaleHistoryLineDto
 import mu.carfection.pos.core.network.TodayPaymentDto
@@ -440,7 +441,18 @@ class CounterViewModel @Inject constructor(
                     cashSessionId = s.till?.id,
                     payKey = saleKey,
                 )
-                val receipt = ReceiptDoc(
+                // The bill's items live on the server — the counter never held them, so this
+                // slip carried a total and nothing else: the customer paid Rs 38,000 and the
+                // paper never said what for. Rebuild it from the invoice that was just paid,
+                // through the same builder the job screen and the reprint use, so all three
+                // agree. If the line is down, fall back to the bare total — a slip without
+                // items still beats no slip at all.
+                val receipt = runCatching {
+                    api.fetchInvoice(bill.id)?.let {
+                        saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt())
+                            .copy(isPayment = true)
+                    }
+                }.getOrNull() ?: ReceiptDoc(
                     biz = catalog.receiptBiz(),
                     invoiceNo = bill.number,
                     dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm")),

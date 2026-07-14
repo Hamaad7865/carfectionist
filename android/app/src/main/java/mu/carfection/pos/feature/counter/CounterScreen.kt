@@ -1083,8 +1083,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         SlipRow("Cashier", d.cashier)
         SlipRow("Customer", d.customer)
         DashRule()
-        // items
-        if (!d.isPayment && d.lines.isNotEmpty()) {
+        // items — what was bought belongs on the slip however the money arrived
+        if (d.lines.isNotEmpty()) {
             d.lines.forEach { l ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
                     Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty} ×", color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.width(28.dp))
@@ -1095,7 +1095,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             DashRule()
         }
         // totals
-        if (!d.isPayment) {
+        if (d.lines.isNotEmpty()) {
             SlipRow("Subtotal", rsSlip(d.subtotalCents))
             SlipRow("Discount", rsSlip(d.discountCents))
         }
@@ -1103,7 +1103,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             Text("TOTAL", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
             Text(rsSlip(d.totalCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp)
         }
-        if (!d.isPayment) SlipRow("Excl. VAT", rsSlip(d.totalCents - d.vatCents))
+        if (d.lines.isNotEmpty()) SlipRow("Excl. VAT", rsSlip(d.totalCents - d.vatCents))
         if (d.onAccount) SlipRow("On account", rsSlip(d.totalCents), strong = true)
         else {
             SlipRow("Paid · ${d.payLabel?.lowercase()}", rsSlip(d.paidCents))

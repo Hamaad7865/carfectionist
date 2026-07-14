@@ -111,7 +111,11 @@ object ReceiptText {
         appendLine(kv("Cashier", d.cashier, w))
         appendLine(kv("Customer", d.customer, w))
         appendLine(rule(w))
-        if (!d.isPayment) {
+        // What the customer bought belongs on the slip whether they paid at the counter or
+        // against a job's invoice — how the money arrived says nothing about what it was
+        // for. Print the items whenever we have them; only a slip we could not price
+        // (offline fallback) falls back to a bare total.
+        if (d.lines.isNotEmpty()) {
             d.lines.forEach { l ->
                 val qty = if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString()
                 val amt = money(l.inclCents)
@@ -123,7 +127,7 @@ object ReceiptText {
             appendLine(kv("Discount", money(d.discountCents), w))
         }
         appendLine(kv("TOTAL", money(d.totalCents), w))
-        if (!d.isPayment) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents), w))
+        if (d.lines.isNotEmpty()) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents), w))
         if (d.onAccount) appendLine(kv("On account", money(d.totalCents), w))
         else {
             appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents), w))
