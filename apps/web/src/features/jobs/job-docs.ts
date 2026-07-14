@@ -33,13 +33,30 @@ export interface JobDoc {
 export const isCollectible = (d: { doc_type: string; status: string }): boolean =>
   d.doc_type === "invoice" && (d.status === "issued" || d.status === "partly_paid");
 
+/**
+ * A real document: numbered, issued, part of the business record. A DRAFT is not one —
+ * "Duplicate" on an invoice and "Revise" on a quote both mint an unnumbered draft that
+ * inherits the job's job_id, and it is always the newest thing on the job. If a draft
+ * could outrank the issued invoice, the row would read "Draft — nothing due" over a bill
+ * the customer still owes.
+ */
+const isReal = (d: RawDoc): boolean => d.status !== "void" && d.status !== "draft";
+
 const newest = (docs: RawDoc[]): RawDoc | null =>
   docs.reduce<RawDoc | null>((best, d) => (best === null || d.created_at > best.created_at ? d : best), null);
 
-/** The live document of this type, or — if they were all voided — the last void one. */
+/**
+ * The document that speaks for the job, in order of standing: the newest real one; failing
+ * that a draft (work in progress — say so rather than claim there is nothing); failing that
+ * the last void one (honest about a cancelled bill, instead of "never invoiced").
+ */
 export function pickDoc(docs: RawDoc[], type: "quote" | "invoice"): RawDoc | null {
   const mine = docs.filter((d) => d.doc_type === type);
-  return newest(mine.filter((d) => d.status !== "void")) ?? newest(mine);
+  return (
+    newest(mine.filter(isReal)) ??
+    newest(mine.filter((d) => d.status === "draft")) ??
+    newest(mine)
+  );
 }
 
 /**
@@ -54,9 +71,12 @@ export function pickQuote(docs: RawDoc[], sourceQuoteId: string | null): RawDoc 
   return source ?? pickDoc(docs, "quote");
 }
 
-/** Live (non-void) invoices on the job — what the outstanding total is summed over. */
+/**
+ * The job's real invoices — what the outstanding total is summed over, and what the
+ * "+N more" hint counts. A draft duplicate is not a second bill and must not inflate it.
+ */
 export const liveInvoices = (docs: RawDoc[]): RawDoc[] =>
-  docs.filter((d) => d.doc_type === "invoice" && d.status !== "void");
+  docs.filter((d) => d.doc_type === "invoice" && isReal(d));
 
 /** PostgREST hands numerics back as strings; cents keep the arithmetic exact. */
 const cents = (v: string | number): number => Math.round(Number(v) * 100);

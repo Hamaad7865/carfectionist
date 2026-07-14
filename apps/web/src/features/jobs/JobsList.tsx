@@ -16,9 +16,13 @@ const STATUS = Object.fromEntries(JOB_COLUMNS.map((c) => [c.status, c])) as Reco
 
 /** Job statuses are the board's four — StatusPill only knows document statuses. */
 function JobStatus({ status }: { status: string }) {
-  const s = STATUS[status] ?? { label: status.replace(/_/g, " "), dot: "#8c96a1" };
+  const known = STATUS[status];
+  // The curated labels are already cased ("In progress") — Tailwind's `capitalize` would
+  // repaint them "In Progress" and disagree with the very filter chip above. Only the
+  // fallback, built from a raw enum value, needs re-casing.
+  const s = known ?? { label: status.replace(/_/g, " "), dot: "#8c96a1" };
   return (
-    <span className="inline-flex items-center gap-1.5 text-[12px] font-semibold capitalize text-body">
+    <span className={`inline-flex items-center gap-1.5 text-[12px] font-semibold text-body ${known ? "" : "capitalize"}`}>
       <span className="size-2 shrink-0 rounded-full" style={{ background: s.dot }} />
       {s.label}
     </span>
@@ -68,8 +72,7 @@ export function JobsList({ rows }: { rows: JobListRow[] }) {
           service: r.service,
           technician: r.technician,
           department: r.department,
-          quoteNumber: r.quote?.number ?? null,
-          invoiceNumber: r.invoice?.number ?? null,
+          docNumbers: r.docNumbers,
         }),
       })),
     [rows],
@@ -128,7 +131,7 @@ export function JobsList({ rows }: { rows: JobListRow[] }) {
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-        <div className={`hidden md:grid ${COLS} gap-3.5 border-b border-line bg-band px-5 py-3`}>
+        <div className={`hidden xl:grid ${COLS} gap-3.5 border-b border-line bg-band px-5 py-3`}>
           {["Job", "Vehicle", "Customer", "Status", "Quote", "Invoice"].map((h) => (
             <span key={h} className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-th">
               {h}
@@ -146,23 +149,30 @@ export function JobsList({ rows }: { rows: JobListRow[] }) {
         ) : (
           filtered.map((r) => (
             <Link key={r.id} href={`/jobs/${r.id}`} className="block border-b border-line last:border-b-0 hover:bg-sub">
-              {/* Mobile card */}
-              <div className="flex flex-col gap-1.5 px-4 py-3 md:hidden">
+              {/* Card — phones through to a narrow desktop window; carries everything the
+                  wide grid does, so nothing is hidden by the size of the window. */}
+              <div className="flex flex-col gap-1.5 px-4 py-3 xl:hidden">
                 <div className="flex items-center justify-between gap-2">
                   <span className="num text-[11px] font-bold text-link">JOB-{r.id.slice(0, 4).toUpperCase()}</span>
                   <JobStatus status={r.status} />
                 </div>
                 <div className="text-[14px] font-bold leading-tight text-ink-strong">{r.vehicle ?? "—"}</div>
                 <div className="num text-[12px] text-muted">{r.plate ?? ""}</div>
-                <div className="truncate text-[12.5px] text-body">{r.customer ?? "—"}</div>
-                <div className="mt-1 flex items-center gap-4 border-t border-line pt-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="truncate text-[12.5px] text-body">{r.customer ?? "—"}</span>
+                  <span className="shrink-0 text-[11.5px] text-faint">{r.technician ?? "Unassigned"}</span>
+                </div>
+                <div className="mt-1 flex items-start gap-5 border-t border-line pt-2">
                   <DocChip doc={r.quote} kind="quote" />
-                  <DocChip doc={r.invoice} kind="invoice" />
+                  <span className="flex min-w-0 flex-col">
+                    <DocChip doc={r.invoice} kind="invoice" />
+                    {r.invoiceCount > 1 && <span className="text-[10.5px] text-faint">+{r.invoiceCount - 1} more</span>}
+                  </span>
                 </div>
               </div>
 
               {/* Desktop grid */}
-              <div className={`hidden md:grid ${COLS} items-center gap-3.5 px-5 py-3`}>
+              <div className={`hidden xl:grid ${COLS} items-center gap-3.5 px-5 py-3`}>
                 <span className="num text-[12px] font-bold text-link">JOB-{r.id.slice(0, 4).toUpperCase()}</span>
                 <span className="flex min-w-0 flex-col gap-0.5">
                   <span className="truncate text-[13px] font-bold text-ink-strong">{r.vehicle ?? "—"}</span>

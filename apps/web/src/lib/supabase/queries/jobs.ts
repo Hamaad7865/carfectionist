@@ -106,6 +106,9 @@ export interface JobListRow extends JobCardSummary {
   invoice: JobDoc | null;
   invoiceCount: number; // live invoices — >1 means the row shows only the latest
   outstandingCents: number; // across ALL live invoices, not just the one shown
+  // Every document number on the job — the two on the card, plus revised quotes and
+  // reissued invoices. Search reads these; the card still shows only the two.
+  docNumbers: string[];
 }
 
 const DOC_COLS = "id, job_id, doc_type, status, number, total_incl, amount_paid, source_document_id, created_at";
@@ -138,12 +141,18 @@ export async function listJobs(): Promise<JobListRow[]> {
     ),
   ]);
 
-  const byJob = new Map<string, RawDoc[]>();
+  // Group the documents onto their job. Adding is idempotent by document id: the same
+  // invoice reaching a job twice (from two of the passes below, or a paging hiccup) would
+  // silently DOUBLE what the customer appears to owe, and money must never be counted
+  // twice because of how it was fetched.
+  const byJob = new Map<string, Map<string, RawDoc>>();
   const add = (jobId: string, d: RawDoc) => {
     const docs = byJob.get(jobId);
-    if (docs) docs.push(d);
-    else byJob.set(jobId, [d]);
+    if (docs) docs.set(d.id, d);
+    else byJob.set(jobId, new Map([[d.id, d]]));
   };
+  const docsOf = (jobId: string): RawDoc[] => [...(byJob.get(jobId)?.values() ?? [])];
+
   for (const d of linkedDocs) add(d.job_id, d);
 
   // A job's source quote is normally among the linked docs (convert_quote_to_job stamps
@@ -206,7 +215,7 @@ export async function listJobs(): Promise<JobListRow[]> {
     const v = j.vehicle_id ? vehicleOf.get(j.vehicle_id) : undefined;
     const cust = j.customer_id ? customerOf.get(j.customer_id) : undefined;
     const tech = (j.technician_id ? techOf.get(j.technician_id) : null) ?? null;
-    const docs = byJob.get(id) ?? [];
+    const docs = docsOf(id);
     const quoteRaw = pickQuote(docs, (j.source_quote_id as string | null) ?? null);
     const invoiceRaw = pickDoc(docs, "invoice");
     const clock = jobClock(
@@ -231,6 +240,7 @@ export async function listJobs(): Promise<JobListRow[]> {
       invoice: invoiceRaw ? toJobDoc(invoiceRaw) : null,
       invoiceCount: liveInvoices(docs).length,
       outstandingCents: outstandingCents(docs),
+      docNumbers: docs.map((d) => d.number).filter((n): n is string => !!n),
     } satisfies JobListRow;
   });
 

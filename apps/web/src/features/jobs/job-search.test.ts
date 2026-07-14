@@ -11,8 +11,8 @@ const job = haystack({
   service: "Ceramic Glaze",
   technician: "Nikka",
   department: "Detailing",
-  quoteNumber: "A00001",
-  invoiceNumber: "INV-0016",
+  // every document on the job, not only the two shown on the card
+  docNumbers: ["A00001", "INV-0016", "A00006", "INV-0013"],
 });
 
 describe("job search", () => {
@@ -64,10 +64,17 @@ describe("job search", () => {
   it("does not crash on a job with almost no data", () => {
     const bare = haystack({
       ref: "JOB-0001", plate: null, vehicle: null, customer: null, phone: null,
-      service: null, technician: null, department: null, quoteNumber: null, invoiceNumber: null,
+      service: null, technician: null, department: null, docNumbers: [],
     });
     expect(matches(bare, "0001")).toBe(true);
     expect(matches(bare, "toyota")).toBe(false);
+  });
+
+  // The customer rings up quoting the REVISED quote, or the invoice that was voided and
+  // reissued. Those numbers aren't on the card — the search must still find the job.
+  it("finds a job by a document number that isn't the one shown on the card", () => {
+    expect(matches(job, "A00006")).toBe(true); // a second quote stamped on the job
+    expect(matches(job, "inv-0013")).toBe(true); // a voided invoice
   });
 });
 
@@ -171,5 +178,49 @@ describe("job documents", () => {
 
   it("keeps cents exact on the awkward numbers (77,200 / 11,580 / 88,780)", () => {
     expect(toJobDoc(doc({ doc_type: "invoice", status: "issued", total_incl: "887.80", amount_paid: "0", created_at: "x" })).totalCents).toBe(88780);
+  });
+
+  // "Duplicate" on an invoice (and "Revise" on a quote) mints an unnumbered DRAFT that
+  // inherits the job's job_id and is always the newest document on it. If the draft won,
+  // the row would read "Draft — nothing due" over a bill the customer still owes.
+  describe("a draft never masks the real document", () => {
+    const issued = doc({ doc_type: "invoice", status: "issued", number: "INV-0018", total_incl: "10350.00", amount_paid: "0", created_at: "2026-07-13T18:46:00Z" });
+    const draftDup = doc({ doc_type: "invoice", status: "draft", number: null, total_incl: "10350.00", amount_paid: "0", created_at: "2026-07-14T09:00:00Z" });
+
+    it("shows the issued invoice, not the newer draft duplicate", () => {
+      expect(pickDoc([issued, draftDup], "invoice")?.number).toBe("INV-0018");
+    });
+
+    it("still shows what is owed on that invoice", () => {
+      const shown = toJobDoc(pickDoc([issued, draftDup], "invoice")!);
+      expect(shown.outstandingCents).toBe(1035000);
+      expect(outstandingCents([issued, draftDup])).toBe(1035000); // and the footer agrees
+    });
+
+    it("does not count a draft duplicate as a second invoice", () => {
+      expect(liveInvoices([issued, draftDup])).toHaveLength(1); // no phantom "+1 more"
+    });
+
+    it("shows a draft when it is genuinely the only document", () => {
+      expect(pickDoc([draftDup], "invoice")?.status).toBe("draft");
+    });
+
+    it("prefers the issued quote over a newer draft revision", () => {
+      const docs = [
+        doc({ doc_type: "quote", status: "issued", number: "A00010", created_at: "2026-07-01" }),
+        doc({ doc_type: "quote", status: "draft", number: null, created_at: "2026-07-09" }),
+      ];
+      expect(pickDoc(docs, "quote")?.number).toBe("A00010");
+      expect(pickQuote(docs, null)?.number).toBe("A00010"); // walk-in job, no source quote
+    });
+
+    it("prefers a real document over a draft even when a void one is newest", () => {
+      const docs = [
+        issued,
+        draftDup,
+        doc({ doc_type: "invoice", status: "void", number: "INV-0019", created_at: "2026-07-15T10:00:00Z" }),
+      ];
+      expect(pickDoc(docs, "invoice")?.number).toBe("INV-0018");
+    });
   });
 });

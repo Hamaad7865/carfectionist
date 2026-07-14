@@ -12,15 +12,19 @@ export interface JobHaystack {
   service: string | null;
   technician: string | null;
   department: string | null;
-  quoteNumber: string | null;
-  invoiceNumber: string | null;
+  /**
+   * EVERY document number on the job, not just the two on the card. A customer rings up
+   * quoting the revised quote we sent them, or the invoice that was voided and reissued —
+   * the row still has to come back, or the search silently lies about what it can find.
+   */
+  docNumbers: string[];
 }
 
 /** Strip everything but letters and digits: "MU 123-AB" and "mu123ab" become the same string. */
 export const compact = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
 export function haystack(j: JobHaystack): { text: string; tight: string } {
-  const text = [j.ref, j.plate, j.vehicle, j.customer, j.phone, j.service, j.technician, j.department, j.quoteNumber, j.invoiceNumber]
+  const text = [j.ref, j.plate, j.vehicle, j.customer, j.phone, j.service, j.technician, j.department, ...j.docNumbers]
     .filter(Boolean)
     .join(" ")
     .toLowerCase();
