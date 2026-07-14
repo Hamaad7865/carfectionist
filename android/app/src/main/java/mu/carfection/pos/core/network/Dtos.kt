@@ -124,7 +124,7 @@ data class FlowCertRefDto(
 
 // ── Jobs board ────────────────────────────────────────────────────────────────
 @Serializable data class ChecklistItemDto(val label: String, val done: Boolean = false)
-@Serializable data class JobCustomerDto(val name: String? = null, val phone: String? = null)
+@Serializable data class JobCustomerDto(val name: String? = null, val phone: String? = null, val email: String? = null)
 @Serializable data class JobVehicleDto(
     val plate: String? = null,
     val make: String? = null,

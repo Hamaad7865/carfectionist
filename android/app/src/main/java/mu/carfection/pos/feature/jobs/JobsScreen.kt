@@ -67,8 +67,10 @@ import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlinx.coroutines.launch
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
+import mu.carfection.pos.feature.counter.ReceiptPaper
 import mu.carfection.pos.core.network.JobPhotoDto
 import mu.carfection.pos.ui.FlowState
 import mu.carfection.pos.ui.FlowStepUi
@@ -88,6 +90,7 @@ import mu.carfection.pos.ui.theme.AccentSoft
 import mu.carfection.pos.ui.theme.Barlow
 import mu.carfection.pos.ui.theme.CardBg
 import mu.carfection.pos.ui.theme.Condensed
+import mu.carfection.pos.ui.theme.Danger
 import mu.carfection.pos.ui.theme.Hairline
 import mu.carfection.pos.ui.theme.Inset
 import mu.carfection.pos.ui.theme.InsetAlt
@@ -137,6 +140,7 @@ fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: Jobs
     }
     if (s.certOpen) CertIssueDialog(s, viewModel)
     if (s.invoiceOpen) InvoiceDialog(s, viewModel)
+    if (s.viewInvoice != null || s.viewInvoiceBusy) ViewInvoiceDialog(s, viewModel)
     if (s.addChecklistOpen) AddChecklistDialog(viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(1800); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
@@ -172,6 +176,84 @@ private fun InvoiceDialog(s: JobsState, vm: JobsViewModel) {
                 Box(Modifier.weight(1.5f).height(52.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ok) { vm.issueInvoice() }, contentAlignment = Alignment.Center) {
                     Text(if (s.invoiceBusy) "Creating…" else "Create invoice", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted)
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The job's bill, on screen. A delivered job's invoice is PAID, so it is not in checkout's
+ * TO COLLECT — sending the operator there showed them nothing. This shows the slip exactly as
+ * it prints, and lets them print it again or send it to the customer.
+ */
+@Composable
+private fun ViewInvoiceDialog(s: JobsState, vm: JobsViewModel) {
+    var email by remember(s.viewCustEmail) { mutableStateOf(s.viewCustEmail ?: "") }
+    var phone by remember(s.viewCustPhone) { mutableStateOf(s.viewCustPhone ?: "") }
+    Dialog(onDismissRequest = vm::closeInvoiceView, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Row(
+            Modifier.width(880.dp).background(CardBg, RoundedCornerShape(22.dp)).border(1.dp, Hairline, RoundedCornerShape(22.dp)).padding(24.dp),
+            horizontalArrangement = Arrangement.spacedBy(22.dp),
+        ) {
+            // ── the slip, as it prints ──────────────────────────────────────────
+            Box(Modifier.width(300.dp).heightIn(max = 620.dp).verticalScroll(rememberScrollState())) {
+                s.viewInvoice?.let { ReceiptPaper(it, Modifier.fillMaxWidth()) }
+            }
+
+            // ── read it, print it, send it ─────────────────────────────────────
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("INVOICE", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 1.2.sp, color = TextPrimary)
+                        Text(
+                            if (s.viewInvoiceBusy) "Loading…" else "${s.viewInvoice?.invoiceNo ?: "—"} · ${s.viewInvoice?.customer ?: ""}",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary,
+                        )
+                    }
+                    Box(Modifier.size(40.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = vm::closeInvoiceView), contentAlignment = Alignment.Center) {
+                        Text("✕", fontFamily = Barlow, fontSize = 15.sp, color = TextSecondary)
+                    }
+                }
+
+                s.viewInvoice?.let { d ->
+                    Text(formatMUR(d.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 38.sp, color = TextPrimary)
+                    Text(
+                        d.payLabel?.let { "Paid in ${it.lowercase()}" } ?: "On account",
+                        fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp,
+                        color = if (d.payLabel != null) Success else Warning,
+                    )
+                }
+
+                Box(Modifier.fillMaxWidth().height(48.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = vm::printInvoice), contentAlignment = Alignment.Center) {
+                    Text("Print", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = AccentInk)
+                }
+
+                SectionLabel("EMAIL")
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledInput(value = email, onValueChange = { email = it }, placeholder = "customer@email.com", modifier = Modifier.weight(1f), bg = Inset)
+                    Box(
+                        Modifier.width(92.dp).height(48.dp).background(if (s.sendBusy || email.isBlank()) InsetAlt else Accent, RoundedCornerShape(12.dp))
+                            .clickable(enabled = !s.sendBusy && email.isNotBlank()) { vm.sendInvoice("email", email) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (s.sendBusy || email.isBlank()) TextMuted else AccentInk)
+                    }
+                }
+
+                SectionLabel("WHATSAPP")
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                    FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
+                    Box(
+                        Modifier.width(92.dp).height(48.dp).background(if (s.sendBusy || phone.isBlank()) InsetAlt else Color(0xFF25D366), RoundedCornerShape(12.dp))
+                            .clickable(enabled = !s.sendBusy && phone.isNotBlank()) { vm.sendInvoice("whatsapp", phone) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (s.sendBusy || phone.isBlank()) TextMuted else Color(0xFF06231A))
+                    }
+                }
+
+                s.sendDone?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Success) }
+                s.sendError?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = Danger) }
             }
         }
     }
@@ -395,7 +477,9 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                     "in_progress" -> (if (j.checklist.isNotEmpty() && doneN == j.checklist.size) "Mark ready for collection" else "Mark ready" + if (j.checklist.isNotEmpty()) " ($doneN/${j.checklist.size} checklist)" else "") to { vm.markReady() }
                     // Ensures the quote's priced invoice is waiting in TO COLLECT first.
                     "ready" -> "Go to checkout →" to { vm.goToCheckout(onGoCheckout) }
-                    else -> "View invoice" to { vm.close(); onGoCheckout() }
+                    // A delivered job's bill is PAID — it is not in checkout's TO COLLECT, which
+                    // is why sending the operator there showed an empty screen. Show the invoice.
+                    else -> "View invoice" to { vm.openInvoiceView() }
                 }
                 val muted = j.status == "delivered"
                 Box(Modifier.fillMaxWidth().height(56.dp).background(if (muted || s.busy) InsetAlt else Accent, RoundedCornerShape(14.dp)).clickable(enabled = !s.busy) { action() }, contentAlignment = Alignment.Center) {

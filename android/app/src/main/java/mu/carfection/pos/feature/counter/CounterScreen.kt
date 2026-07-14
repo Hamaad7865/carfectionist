@@ -1055,7 +1055,7 @@ private fun rsSlip(cents: Long): String {
 
 /** The on-screen paper slip — styled to the studio's retail receipt (no PAID stamp). */
 @Composable
-private fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifier: Modifier = Modifier) {
+internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifier: Modifier = Modifier) {
     Column(
         modifier.background(PaperBg, RoundedCornerShape(4.dp)).border(1.dp, Color(0x1A231F17), RoundedCornerShape(4.dp))
             .padding(horizontal = 22.dp, vertical = 20.dp),

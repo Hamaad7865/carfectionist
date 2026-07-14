@@ -16,6 +16,10 @@ import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.data.SessionRepository
+import mu.carfection.pos.core.data.saleReceiptDoc
+import mu.carfection.pos.core.hardware.ReceiptDoc
+import mu.carfection.pos.core.hardware.ReceiptPrinter
+import mu.carfection.pos.core.network.DocumentSendApi
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.money.centsToRupees
@@ -75,6 +79,17 @@ data class JobsState(
     val photos: List<JobPhotoDto> = emptyList(),
     val photoUrls: Map<String, String> = emptyMap(),
     val photoUploading: String? = null, // "before" | "after" while a capture uploads
+    // "View invoice": the job's bill, rebuilt from what the server stored — read it here,
+    // print it, or send it. It is NOT in checkout's TO COLLECT once it is paid, which is why
+    // sending the operator there showed them an empty screen.
+    val viewInvoice: ReceiptDoc? = null,
+    val viewInvoiceId: String? = null,
+    val viewInvoiceBusy: Boolean = false,
+    val viewCustEmail: String? = null,
+    val viewCustPhone: String? = null,
+    val sendBusy: Boolean = false,
+    val sendDone: String? = null,
+    val sendError: String? = null,
 )
 
 @HiltViewModel
@@ -85,6 +100,8 @@ class JobsViewModel @Inject constructor(
     private val captures: CaptureBus,
     private val session: SessionRepository,
     private val openJobBus: OpenJobBus,
+    private val printer: ReceiptPrinter,
+    private val sendApi: DocumentSendApi,
 ) : ViewModel() {
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
@@ -236,6 +253,63 @@ class JobsViewModel @Inject constructor(
             val ms = epochOrNull(at) ?: return@run true
             System.currentTimeMillis() - ms < DELIVERED_WINDOW_MS
         })
+    }
+
+    // ── the job's invoice: read it, print it, send it ───────────────────────────
+    /** The bill this job was charged on — the live one, never a voided or draft copy. */
+    private fun liveInvoiceOf(j: JobBoardDto) =
+        j.invoices.lastOrNull { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
+
+    fun openInvoiceView() {
+        val job = active(_s.value) ?: return
+        val inv = liveInvoiceOf(job) ?: run { _s.update { it.copy(toast = "This job has no invoice yet") }; return }
+        _s.update { it.copy(viewInvoiceBusy = true, viewInvoiceId = inv.id, sendDone = null, sendError = null) }
+        viewModelScope.launch {
+            runCatching { api.fetchInvoice(inv.id) ?: error("not found") }
+                .onSuccess { h ->
+                    val doc = saleReceiptDoc(h, catalog.receiptBiz(), catalog.vatDefault().toInt())
+                    _s.update {
+                        it.copy(
+                            viewInvoiceBusy = false, viewInvoice = doc,
+                            viewCustEmail = h.customers?.email, viewCustPhone = h.customers?.phone,
+                        )
+                    }
+                }
+                .onFailure { e ->
+                    _s.update { it.copy(viewInvoiceBusy = false, viewInvoiceId = null, error = e.uiMessage("Couldn’t load the invoice")) }
+                }
+        }
+    }
+
+    fun closeInvoiceView() = _s.update {
+        it.copy(viewInvoice = null, viewInvoiceId = null, viewInvoiceBusy = false, sendBusy = false, sendDone = null, sendError = null)
+    }
+
+    /** Reprint the same slip the till prints — the printer is the only side effect. */
+    fun printInvoice() {
+        val doc = _s.value.viewInvoice ?: return
+        viewModelScope.launch {
+            runCatching { printer.printDoc(doc) }
+                .onSuccess { _s.update { it.copy(toast = "Sent to the printer") } }
+                .onFailure { e -> _s.update { it.copy(toast = e.uiMessage("Couldn’t print — check the printer in Settings")) } }
+        }
+    }
+
+    /** The server renders the invoice PDF and delivers it as the operator (email or WhatsApp). */
+    fun sendInvoice(channel: String, to: String, note: String = "") {
+        val id = _s.value.viewInvoiceId ?: return
+        if (to.isBlank() || _s.value.sendBusy) return
+        _s.update { it.copy(sendBusy = true, sendDone = null, sendError = null) }
+        viewModelScope.launch {
+            val err = runCatching { sendApi.send(id, channel, to.trim(), note.trim().take(300), session.deviceId()) }
+                .getOrElse { it.message ?: "Network error" }
+            _s.update { cur ->
+                // A late reply must never stamp a different invoice's dialog.
+                if (cur.viewInvoiceId != id) cur
+                else if (err == null) cur.copy(sendBusy = false, sendDone = if (channel == "email") "Sent by email ✓" else "Sent on WhatsApp ✓")
+                else cur.copy(sendBusy = false, sendError = err)
+            }
+        }
     }
 
     /** Swipe a delivered card off the board. Optimistic: the card goes now, the write follows. */

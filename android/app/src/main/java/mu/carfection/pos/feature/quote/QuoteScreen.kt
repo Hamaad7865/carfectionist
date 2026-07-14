@@ -437,8 +437,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     Spacer(Modifier.weight(1f))
                     Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
                 }
-                // The car's journey — same five steps as the back office.
-                FlowStrip(
+                // The car's journey — same five steps as the back office. Hidden while the
+                // client is signing: it is decorative at that moment, and the ~90dp it eats
+                // is the difference between a cramped signature strip and a real pad.
+                if (!s.acceptOpen) FlowStrip(
                     listOf(
                         FlowStepUi("Intake", if (s.hasIntake) FlowState.DONE else FlowState.TODO, if (s.hasIntake) "recorded" else "walk-in"),
                         FlowStepUi("Quote", FlowState.DONE, s.ref),
@@ -557,8 +559,10 @@ private fun AcceptBody(
         // The pad takes the room that is left, and CLIPS: a signature that runs past the edge
         // stops at the edge instead of being drawn across the card. Points are clamped to the
         // pad's bounds too, so the PNG that gets stored is exactly what the client saw.
+        // A signature is a legal artefact, not a formality — give it room to be written with a
+        // finger. It takes the leftover height and never drops below a comfortable pad.
         Box(
-            Modifier.fillMaxWidth().weight(1f).heightIn(min = 96.dp)
+            Modifier.fillMaxWidth().weight(1f).heightIn(min = 190.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.White)
                 .border(1.dp, Hairline, RoundedCornerShape(12.dp))

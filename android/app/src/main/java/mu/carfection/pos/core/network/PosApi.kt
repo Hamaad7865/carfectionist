@@ -461,22 +461,30 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    // The slip needs the lines, the payments and who served — and the send dialog needs the
+    // customer's email/phone to prefill. One shape, two callers (history, and a job's invoice).
+    private val SALE_COLS =
+        "id, number, status, issued_at, total_incl, vat_total, amount_paid, " +
+            "customers(name, phone, email), creator:app_users!documents_created_by_fkey(display_name), " +
+            "document_lines(title, qty, line_total_excl, line_vat, sort_order), " +
+            "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"
+
     /** Past sales with lines + payments — the history list and its reprints. */
     suspend fun fetchSalesHistory(limit: Long = 60): List<SaleHistoryDto> =
         client.postgrest.from("documents")
-            .select(
-                Columns.raw(
-                    "id, number, status, issued_at, total_incl, vat_total, amount_paid, " +
-                        "customers(name), creator:app_users!documents_created_by_fkey(display_name), " +
-                        "document_lines(title, qty, line_total_excl, line_vat, sort_order), " +
-                        "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)",
-                ),
-            ) {
+            .select(Columns.raw(SALE_COLS)) {
                 filter { eq("doc_type", "invoice"); neq("status", "draft") }
                 order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(limit)
             }
             .decodeList()
+
+    /** One invoice, rebuilt for viewing/printing/sending — the job sheet's "View invoice". */
+    suspend fun fetchInvoice(id: String): SaleHistoryDto? =
+        client.postgrest.from("documents")
+            .select(Columns.raw(SALE_COLS)) { filter { eq("id", id) } }
+            .decodeList<SaleHistoryDto>()
+            .firstOrNull()
 
     // ── Corrections (owner/manager per the RPCs' require_role) ────────────────
     /** Void an unpaid/issued document (voids stock movements too). */

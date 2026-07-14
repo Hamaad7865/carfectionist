@@ -49,6 +49,28 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: npx opennextjs-cloudflare deploy
 
+      # A green build is NOT a working site. On 2026-07-14 a deploy passed tests, passed
+      # the OpenNext build, deployed — and then every page 500'd with a ChunkLoadError that
+      # only appears at runtime in the Worker. Nobody knew until the owner tried to log in.
+      # So: after every deploy, actually load the site. A page that does not render is a
+      # failed deploy, and this job says so loudly instead of leaving the shop dark.
+      - name: Smoke test — the deployed site actually renders
+        run: |
+          set -e
+          url="https://app-carfectionist.com/login"
+          for attempt in 1 2 3 4 5 6; do
+            code=$(curl -s -o /tmp/body.html -w "%{http_code}" --max-time 30 "$url" || echo "000")
+            if [ "$code" = "200" ]; then
+              echo "✓ $url renders (HTTP 200) on attempt $attempt"
+              exit 0
+            fi
+            echo "attempt $attempt: HTTP $code — waiting for the new version to roll out…"
+            sleep 10
+          done
+          echo "::error::DEPLOY IS BROKEN — $url returned HTTP $code after the deploy. The site is down; roll back (git revert) before anything else."
+          head -c 800 /tmp/body.html || true
+          exit 1
+
 # Runtime Worker secrets (SUPABASE_SERVICE_ROLE_KEY, WHATSAPP_*) are NOT set
 # here — set once on the Worker (dashboard → Settings → Variables and Secrets);
 # they persist across deploys. PDF rendering needs no secret at all (the

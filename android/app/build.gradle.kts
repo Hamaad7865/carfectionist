@@ -28,9 +28,13 @@ android {
         versionName = "0.1.0"
         buildConfigField("String", "SUPABASE_URL", "\"${prop("supabase.url")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("supabase.anonKey")}\"")
-        // Staff-PIN login talks to the web app's server-side routes (service-role stays there).
-        // Emulator reaches the host dev server at 10.0.2.2; override in local.properties for a real device/deploy.
-        buildConfigField("String", "POS_WEB_URL", "\"${prop("pos.webUrl").ifBlank { "http://10.0.2.2:3000" }}\"")
+        // Staff-PIN login and "Send to customer" talk to the web app's server-side routes
+        // (service-role, the PDF engine, the email + WhatsApp bindings all stay there).
+        // DEFAULTS TO PRODUCTION on purpose: a tablet built with a stale local.properties
+        // pointing at somebody's laptop can't reach it, and every send dies with
+        // "Failed to connect to /192.168.x.x:3000". Point pos.webUrl at a dev machine only
+        // when you are actually developing against one.
+        buildConfigField("String", "POS_WEB_URL", "\"${prop("pos.webUrl").ifBlank { "https://app-carfectionist.com" }}\"")
         buildConfigField("String", "POS_DEVICE_KEY", "\"${prop("pos.deviceKey")}\"")
     }
 
