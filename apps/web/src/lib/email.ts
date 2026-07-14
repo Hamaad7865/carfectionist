@@ -16,11 +16,10 @@ export interface EmailAttachment {
 
 type SendResult = { ok: true } | { ok: false; error: string };
 
-// One binding-facing sender. The Cloudflare Email Sending binding wants a full
-// RFC-5322 MIME message wrapped in an EmailMessage — NOT a structured object —
-// so we build the MIME with mimetext (plain + html parts, plus any base64
-// attachment) and hand it over. cloudflare:email is a workerd built-in, imported
-// dynamically so the Next build doesn't try to resolve it.
+// One binding-facing sender. The Email Sending binding takes the STRUCTURED
+// object form ({to, from, subject, text, html, attachments}) — verified live:
+// `raw` MIME is ignored ("text or html must have content") and importing
+// cloudflare:email breaks the OpenNext deploy bundle, so neither is used here.
 async function bindingSend(msg: {
   to: string;
   from: { email: string; name: string };

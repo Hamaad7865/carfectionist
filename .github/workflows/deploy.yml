@@ -1,6 +1,8 @@
 name: Deploy
 
-# Auto-deploy to Cloudflare Workers on every merge/push to main.
+# Push to main → tests → OpenNext build → deploy to Cloudflare Workers.
+# Deploy runs ONLY when tests + build are green, and pushes QUEUE (an in-flight
+# deploy is never cancelled by a newer push — each green commit lands in order).
 # The build runs on Linux (OpenNext is not reliable on Windows), which also
 # fixes the local .open-next file-lock problem.
 
@@ -11,13 +13,13 @@ on:
 
 concurrency:
   group: deploy-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   deploy:
-    name: Build (OpenNext) + deploy to Cloudflare Workers
+    name: Test → build (OpenNext) → deploy
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -29,18 +31,25 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build & deploy
+      - name: Tests
+        run: npm run test --workspace web
+
+      - name: Build (OpenNext)
         working-directory: apps/web
         env:
           # Build-time: NEXT_PUBLIC_* are inlined into the bundle by `next build`.
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          # Deploy auth for wrangler (used by `opennextjs-cloudflare deploy`).
+        run: npx opennextjs-cloudflare build
+
+      - name: Deploy to Cloudflare Workers
+        working-directory: apps/web
+        env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npm run deploy
+        run: npx opennextjs-cloudflare deploy
 
-# Runtime Worker secrets (SUPABASE_SERVICE_ROLE_KEY, CF_ACCOUNT_ID,
-# CF_BROWSER_RENDERING_TOKEN) are NOT set here — set them once on the Worker
-# (dashboard → the worker → Settings → Variables and Secrets). They persist
-# across deploys, so they don't need to be re-applied every run.
+# Runtime Worker secrets (SUPABASE_SERVICE_ROLE_KEY, WHATSAPP_*) are NOT set
+# here — set once on the Worker (dashboard → Settings → Variables and Secrets);
+# they persist across deploys. PDF rendering needs no secret at all (the
+# `browser` binding in wrangler.jsonc is the auth).
