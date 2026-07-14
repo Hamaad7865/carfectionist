@@ -52,12 +52,14 @@ jobs:
         working-directory: apps/web
         run: npx opennextjs-cloudflare build --skipNextBuild
 
+      # `deploy` ships the bundle built above — it takes no build flags (unknown args are
+      # forwarded to wrangler and it errors out).
       - name: Deploy to Cloudflare Workers
         working-directory: apps/web
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: npx opennextjs-cloudflare deploy --skipNextBuild
+        run: npx opennextjs-cloudflare deploy
 
       # A green build is NOT a working site. On 2026-07-14 a deploy passed tests, passed the
       # OpenNext build, deployed green — and pages 500'd with a runtime ChunkLoadError that

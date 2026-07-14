@@ -10,8 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "cf-build": "next build --webpack && opennextjs-cloudflare build --skipNextBuild",
-    "preview": "next build --webpack && opennextjs-cloudflare preview --skipNextBuild",
-    "deploy": "next build --webpack && opennextjs-cloudflare deploy --skipNextBuild",
+    "preview": "npm run cf-build && opennextjs-cloudflare preview",
+    "deploy": "npm run cf-build && opennextjs-cloudflare deploy",
     "cf-typegen": "wrangler types --env-interface CloudflareEnv"
   },
   "dependencies": {
