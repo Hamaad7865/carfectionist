@@ -160,7 +160,10 @@ const s = {
 };
 
 const PRINT_CSS = `
-@page { size: A4; margin: 0; }
+@page { size: auto; margin: 0; }
+/* size MUST stay auto: the PDF renderer prints onto content-height paper, and a
+   fixed "size: A4" here makes Chromium centre an A4 page box on the taller
+   paper — a 50pt band above the header and the footer spilling to page 2. */
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 thead { display: table-header-group; }
 tr { page-break-inside: avoid; }
