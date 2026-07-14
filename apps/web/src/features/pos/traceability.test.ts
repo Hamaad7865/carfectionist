@@ -373,6 +373,18 @@ describe("trace source mappers", () => {
       expect(mapAuditTraceEvent(row, mapperContext)).toEqual(expected);
     });
 
+    it("uses the retained audit row id rather than the event type in its key", () => {
+      const row = makeAuditRow(
+        "terminal_started",
+        { model: "Samsung Tab A9" },
+        { id: "audit-row-42" },
+      );
+
+      expect(mapAuditTraceEvent(row, mapperContext)?.key).toBe(
+        "audit:audit-row-42",
+      );
+    });
+
     it.each(["payment_reversed", "period_closed"])(
       "suppresses duplicate or globally-attributed %s audits",
       (eventType) => {
@@ -456,6 +468,22 @@ describe("trace source mappers", () => {
         }),
       );
     });
+
+    it("never reads inherited channel labels from the dictionary prototype", () => {
+      const event = mapAuditTraceEvent(
+        makeAuditRow("document_sent", {
+          number: "INV-001",
+          channel: "constructor",
+        }),
+        mapperContext,
+      );
+
+      expect(event?.metadata).toContainEqual({
+        label: "Channel",
+        value: "Constructor",
+      });
+      expect(typeof event?.metadata[0]?.value).toBe("string");
+    });
   });
 
   describe("mapPaymentTraceEvent", () => {
@@ -532,6 +560,55 @@ describe("trace source mappers", () => {
         amountCents: -2_500,
         reason: "Reason unavailable",
       });
+    });
+
+    it("classifies a positive ledger row as received even with a reversal pointer", () => {
+      expect(
+        mapPaymentTraceEvent(
+          makePaymentRow({
+            amount: "25.00",
+            reverses_payment_id: "payment-original",
+          }),
+          mapperContext,
+        ),
+      ).toMatchObject({
+        kind: "payment_received",
+        tone: "payment",
+        status: null,
+        amountCents: 2_500,
+        actorName: "Asha",
+        reason: null,
+      });
+    });
+
+    it("does not match a null reversal pointer to an unrelated null audit ref", () => {
+      const unrelatedAudit = makeAuditRow(
+        "payment_reversed",
+        { reason: "Unrelated reversal" },
+        { id: "unrelated-audit", actor_id: "actor-2", ref_id: null },
+      );
+
+      expect(
+        mapPaymentTraceEvent(makePaymentRow({ amount: "-25.00" }), {
+          ...mapperContext,
+          reversalAudits: [unrelatedAudit],
+        }),
+      ).toMatchObject({
+        kind: "payment_reversed",
+        actorName: "Asha",
+        amountCents: -2_500,
+        reason: "Reason unavailable",
+      });
+    });
+
+    it("never reads inherited method labels from the dictionary prototype", () => {
+      const event = mapPaymentTraceEvent(
+        makePaymentRow({ method: "__proto__" }),
+        mapperContext,
+      );
+
+      expect(event.method).toBe("Proto");
+      expect(typeof event.method).toBe("string");
     });
 
     it("does not coerce a defensive null amount to zero", () => {
@@ -762,6 +839,33 @@ describe("trace source mappers", () => {
       ).toBeNull();
     });
 
+    it("preserves PostgreSQL microseconds when selecting the canonical payment", () => {
+      const payments = [
+        makePaymentRow({
+          id: "payment-z",
+          received_at: "2026-07-14T08:00:00.000100Z",
+          received_by: "actor-3",
+        }),
+        makePaymentRow({
+          id: "payment-a",
+          received_at: "2026-07-14T08:00:00.000900Z",
+          received_by: "actor-1",
+        }),
+      ];
+
+      expect(
+        mapDiscountTraceEvent(
+          "document-1",
+          payments,
+          [makeDiscountLine()],
+          mapperContext,
+        ),
+      ).toMatchObject({
+        at: "2026-07-14T08:00:00.000100Z",
+        actorName: "Anshika",
+      });
+    });
+
     it("does not treat null fixed discounts as zero-valued metadata", () => {
       const payment = makePaymentRow({
         documents: {
@@ -894,6 +998,24 @@ describe("trace selection", () => {
       "event:a",
       "event:b",
       "event:c",
+    ]);
+  });
+
+  it("preserves PostgreSQL microseconds in the global event order", () => {
+    const input = [
+      makeEvent({
+        key: "event:z",
+        at: "2026-07-14T08:00:00.000100Z",
+      }),
+      makeEvent({
+        key: "event:a",
+        at: "2026-07-14T08:00:00.000900Z",
+      }),
+    ];
+
+    expect(sortTraceEvents(input).map((event) => event.key)).toEqual([
+      "event:a",
+      "event:z",
     ]);
   });
 

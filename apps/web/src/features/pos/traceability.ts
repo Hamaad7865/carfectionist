@@ -209,26 +209,26 @@ function humanize(value: string): string {
     : `${normalized[0]?.toUpperCase() ?? ""}${normalized.slice(1)}`;
 }
 
-const METHOD_LABELS: Readonly<Record<string, string>> = {
-  bank_transfer: "Bank transfer",
-  card: "Card",
-  cash: "Cash",
-  juice: "Juice",
-};
+const METHOD_LABELS: ReadonlyMap<string, string> = new Map([
+  ["bank_transfer", "Bank transfer"],
+  ["card", "Card"],
+  ["cash", "Cash"],
+  ["juice", "Juice"],
+]);
 
-const CHANNEL_LABELS: Readonly<Record<string, string>> = {
-  email: "Email",
-  whatsapp: "WhatsApp",
-};
+const CHANNEL_LABELS: ReadonlyMap<string, string> = new Map([
+  ["email", "Email"],
+  ["whatsapp", "WhatsApp"],
+]);
 
 function methodLabel(value: string): string {
   const normalized = value.trim().toLowerCase();
-  return METHOD_LABELS[normalized] ?? humanize(normalized);
+  return METHOD_LABELS.get(normalized) ?? humanize(normalized);
 }
 
 function channelLabel(value: string): string {
   const normalized = value.trim().toLowerCase();
-  return CHANNEL_LABELS[normalized] ?? humanize(normalized);
+  return CHANNEL_LABELS.get(normalized) ?? humanize(normalized);
 }
 
 function createTraceEvent(
@@ -475,10 +475,8 @@ export function mapPaymentTraceEvent(
 ): TraceEvent {
   const numericAmount = finiteNumber(row.amount);
   const amountCents = moneyCents(row.amount);
-  const isReversal =
-    (numericAmount !== null && numericAmount < 0) ||
-    row.reverses_payment_id !== null;
-  const reversalAudit = isReversal
+  const isReversal = numericAmount !== null && numericAmount < 0;
+  const reversalAudit = isReversal && row.reverses_payment_id !== null
     ? context.reversalAudits.find(
         (audit) => audit.ref_id === row.reverses_payment_id,
       )
@@ -613,8 +611,9 @@ export function mapDiscountTraceEvent(
       );
     })
     .sort((left, right) => {
-      const timeOrder = Date.parse(left.received_at) - Date.parse(right.received_at);
-      if (timeOrder !== 0) return timeOrder;
+      if (left.received_at !== right.received_at) {
+        return left.received_at < right.received_at ? -1 : 1;
+      }
       if (left.id === right.id) return 0;
       return left.id < right.id ? -1 : 1;
     });
@@ -700,8 +699,7 @@ export function resolveTraceFilter(
 
 export function sortTraceEvents(events: readonly TraceEvent[]): TraceEvent[] {
   return [...events].sort((left, right) => {
-    const timeOrder = Date.parse(right.at) - Date.parse(left.at);
-    if (timeOrder !== 0) return timeOrder;
+    if (left.at !== right.at) return left.at > right.at ? -1 : 1;
     if (left.key === right.key) return 0;
     return left.key > right.key ? -1 : 1;
   });
