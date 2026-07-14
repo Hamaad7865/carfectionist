@@ -29,7 +29,15 @@ export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
       // long invoice grows the page instead of splitting onto a second sheet.
       const contentPx = await page.evaluate(() => document.documentElement.scrollHeight);
       const heightMm = Math.max(297, Math.ceil((contentPx * 25.4) / 96) + 2);
-      const pdf = (await page.pdf({ printBackground: true, width: "210mm", height: `${heightMm}mm` })) as Uint8Array;
+      // margin 0 is load-bearing: unset, Chromium applies ~1cm defaults, which
+      // shrinks the printable area below the measured height (content spills to
+      // a 2nd page) and insets the full-bleed banner bands off the page edges.
+      const pdf = (await page.pdf({
+        printBackground: true,
+        width: "210mm",
+        height: `${heightMm}mm`,
+        margin: { top: 0, right: 0, bottom: 0, left: 0 },
+      })) as Uint8Array;
       // Copy into a fresh ArrayBuffer (page.pdf's buffer may be Shared on workerd).
       const out = new ArrayBuffer(pdf.byteLength);
       new Uint8Array(out).set(pdf);
