@@ -122,6 +122,39 @@ export interface TraceSessionPaymentRow {
   amount: number | string;
 }
 
+export interface TraceRepository {
+  fetchAuditCandidates(
+    code: string,
+    range: NormalizedTraceRange,
+  ): Promise<TraceAuditRow[]>;
+  fetchPaymentCandidates(
+    code: string,
+    range: NormalizedTraceRange,
+  ): Promise<TracePaymentRow[]>;
+  fetchSessionOpenCandidates(
+    code: string,
+    range: NormalizedTraceRange,
+  ): Promise<TraceSessionRow[]>;
+  fetchSessionCloseCandidates(
+    code: string,
+    range: NormalizedTraceRange,
+  ): Promise<TraceSessionRow[]>;
+  fetchReversalAudits(
+    originalIds: string[],
+  ): Promise<TraceReversalAuditRow[]>;
+  fetchDiscountLines(
+    documentIds: string[],
+  ): Promise<TraceDiscountLineRow[]>;
+  fetchCanonicalPayments(
+    code: string,
+    documentIds: string[],
+  ): Promise<TracePaymentRow[]>;
+  fetchActorNames(actorIds: string[]): Promise<TraceActorRow[]>;
+  fetchClosingSessionPayments(
+    sessionIds: string[],
+  ): Promise<TraceSessionPaymentRow[]>;
+}
+
 export interface TraceMapperContext {
   actorNames: ReadonlyMap<string, string>;
   documentIdsByNumber: ReadonlyMap<string, string>;
@@ -204,7 +237,7 @@ function preciseInstantNanoseconds(value: string): bigint | null {
   return BigInt(wholeSecondMs) * BigInt(1_000_000) + fractionNanoseconds;
 }
 
-function compareTraceTimestamps(
+export function compareTraceTimestamps(
   left: string,
   right: string,
   direction: "asc" | "desc",
@@ -833,4 +866,231 @@ export function buildTraceCategoryHref(
   else query.set("traceCategory", category);
 
   return `?${query.toString()}`;
+}
+
+function unavailableTrace(
+  range: NormalizedTraceRange,
+): DeviceTraceabilityData {
+  return {
+    trace: [],
+    traceState: {
+      status: "unavailable",
+      capped: false,
+      range: { from: range.from, to: range.to },
+    },
+  };
+}
+
+function uniqueSorted(values: Iterable<string | null | undefined>): string[] {
+  return [...new Set([...values].filter((value): value is string => {
+    return typeof value === "string" && value.trim() !== "";
+  }))].sort();
+}
+
+function hasPositiveNumber(value: unknown): boolean {
+  const numeric = finiteNumber(value);
+  return numeric !== null && numeric > 0;
+}
+
+function paymentHasWholeSaleDiscount(payment: TracePaymentRow): boolean {
+  const document = payment.documents;
+  return (
+    document?.id === payment.document_id &&
+    document.discount_kind !== null &&
+    hasPositiveNumber(document.discount_value)
+  );
+}
+
+function lineHasDiscount(line: TraceDiscountLineRow): boolean {
+  return line.discount_kind === "amount"
+    ? hasPositiveNumber(line.discount_amount)
+    : hasPositiveNumber(line.discount_pct);
+}
+
+function traceInstantIsInRange(
+  at: string,
+  range: NormalizedTraceRange,
+): boolean {
+  const instant = Date.parse(at);
+  return (
+    Number.isFinite(instant) &&
+    instant >= Date.parse(range.startIso) &&
+    instant < Date.parse(range.endExclusiveIso)
+  );
+}
+
+export async function loadDeviceTraceability(
+  code: string,
+  range: NormalizedTraceRange,
+  repository: TraceRepository,
+): Promise<DeviceTraceabilityData> {
+  let auditRows: TraceAuditRow[];
+  let paymentRows: TracePaymentRow[];
+  let sessionOpenRows: TraceSessionRow[];
+  let sessionCloseRows: TraceSessionRow[];
+
+  try {
+    [auditRows, paymentRows, sessionOpenRows, sessionCloseRows] =
+      await Promise.all([
+        repository.fetchAuditCandidates(code, range),
+        repository.fetchPaymentCandidates(code, range),
+        repository.fetchSessionOpenCandidates(code, range),
+        repository.fetchSessionCloseCandidates(code, range),
+      ]);
+  } catch {
+    return unavailableTrace(range);
+  }
+
+  try {
+    const reversalOriginalIds = uniqueSorted(
+      paymentRows
+        .filter((payment) => {
+          const amount = finiteNumber(payment.amount);
+          return amount !== null && amount < 0;
+        })
+        .map((payment) => payment.reverses_payment_id),
+    );
+    const documentIds = uniqueSorted(
+      paymentRows.map((payment) => payment.document_id),
+    );
+
+    const [reversalAudits, discountLines] = await Promise.all([
+      reversalOriginalIds.length === 0
+        ? Promise.resolve([])
+        : repository.fetchReversalAudits(reversalOriginalIds),
+      documentIds.length === 0
+        ? Promise.resolve([])
+        : repository.fetchDiscountLines(documentIds),
+    ]);
+
+    const discountedDocumentIds = uniqueSorted([
+      ...paymentRows
+        .filter(paymentHasWholeSaleDiscount)
+        .map((payment) => payment.document_id),
+      ...discountLines
+        .filter(lineHasDiscount)
+        .map((line) => line.document_id),
+    ]).filter((documentId) => documentIds.includes(documentId));
+    const canonicalPayments = discountedDocumentIds.length === 0
+      ? []
+      : await repository.fetchCanonicalPayments(code, discountedDocumentIds);
+
+    const actorIds = uniqueSorted([
+      ...auditRows
+        .filter(
+          (audit) =>
+            audit.event_type !== "payment_reversed" &&
+            audit.event_type !== "period_closed",
+        )
+        .map((audit) => audit.actor_id),
+      ...paymentRows.map((payment) => payment.received_by),
+      ...sessionOpenRows.map((session) => session.opened_by),
+      ...sessionCloseRows.map((session) => session.closed_by),
+      ...reversalAudits.map((audit) => audit.actor_id),
+      ...canonicalPayments.map((payment) => payment.received_by),
+    ]);
+    const actorChunks: string[][] = [];
+    for (let index = 0; index < actorIds.length; index += 100) {
+      actorChunks.push(actorIds.slice(index, index + 100));
+    }
+    const actorRows = (
+      await Promise.all(
+        actorChunks.map((chunk) => repository.fetchActorNames(chunk)),
+      )
+    ).flat();
+    const actorNames = new Map(
+      actorIds.map((actorId) => [actorId, "Unknown actor"]),
+    );
+    for (const actor of actorRows) {
+      const displayName = scalarText(actor.display_name);
+      if (actorNames.has(actor.id) && displayName !== null) {
+        actorNames.set(actor.id, displayName);
+      }
+    }
+    const documentIdsByNumber = new Map<string, string>();
+    for (const payment of [...paymentRows, ...canonicalPayments]) {
+      const document = payment.documents;
+      if (
+        document?.id === payment.document_id &&
+        scalarText(document.number) !== null
+      ) {
+        documentIdsByNumber.set(document.number as string, document.id);
+      }
+    }
+    const baseContext: TraceMapperContext = {
+      actorNames,
+      documentIdsByNumber,
+      reversalAudits,
+      sessionPayments: [],
+    };
+
+    const mappedEvents: TraceEvent[] = [];
+    for (const audit of auditRows) {
+      const event = mapAuditTraceEvent(audit, baseContext);
+      if (event !== null) mappedEvents.push(event);
+    }
+    for (const payment of paymentRows) {
+      mappedEvents.push(mapPaymentTraceEvent(payment, baseContext));
+    }
+    for (const session of sessionOpenRows) {
+      mappedEvents.push(mapSessionOpenTraceEvent(session, baseContext));
+    }
+    for (const session of sessionCloseRows) {
+      const event = mapSessionCloseTraceEvent(session, baseContext);
+      if (event !== null) mappedEvents.push(event);
+    }
+    for (const documentId of discountedDocumentIds) {
+      const event = mapDiscountTraceEvent(
+        documentId,
+        canonicalPayments,
+        discountLines,
+        baseContext,
+      );
+      if (event !== null && traceInstantIsInRange(event.at, range)) {
+        mappedEvents.push(event);
+      }
+    }
+
+    const selected = selectNewestTraceEvents(mappedEvents);
+    const retainedCloseIds = uniqueSorted(
+      selected.events
+        .filter((event) => event.kind === "till_closed")
+        .map((event) =>
+          event.key.startsWith("session-close:")
+            ? event.key.slice("session-close:".length)
+            : null,
+        ),
+    );
+
+    let visibleEvents = selected.events;
+    if (retainedCloseIds.length > 0) {
+      const completeSessionPayments =
+        await repository.fetchClosingSessionPayments(retainedCloseIds);
+      const enrichedContext: TraceMapperContext = {
+        ...baseContext,
+        sessionPayments: completeSessionPayments,
+      };
+      const retainedIds = new Set(retainedCloseIds);
+      const enrichedCloses = new Map<string, TraceEvent>();
+      for (const session of sessionCloseRows) {
+        if (!retainedIds.has(session.id)) continue;
+        const event = mapSessionCloseTraceEvent(session, enrichedContext);
+        if (event !== null) enrichedCloses.set(event.key, event);
+      }
+      visibleEvents = selected.events.map(
+        (event) => enrichedCloses.get(event.key) ?? event,
+      );
+    }
+
+    return {
+      trace: visibleEvents,
+      traceState: {
+        status: "ready",
+        capped: selected.capped,
+        range: { from: range.from, to: range.to },
+      },
+    };
+  } catch {
+    return unavailableTrace(range);
+  }
 }

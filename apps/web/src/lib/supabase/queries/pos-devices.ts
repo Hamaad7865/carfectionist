@@ -1,6 +1,30 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { muNow, muDateTime, muToday } from "@/lib/mu-date";
+import { getSessionContext } from "@/lib/auth/session";
+import { fetchAllRowsByKeyset } from "@/lib/supabase/paginate";
+import {
+  TRACE_SOURCE_LIMIT,
+  compareTraceTimestamps,
+  loadDeviceTraceability,
+  mapAuditTraceEvent,
+  mapPaymentTraceEvent,
+  mapSessionCloseTraceEvent,
+  mapSessionOpenTraceEvent,
+  normalizeTraceRange,
+  sortTraceEvents,
+  type DeviceTraceabilityData,
+  type TraceActorRow,
+  type TraceAuditRow,
+  type TraceDiscountLineRow,
+  type TraceEvent as StructuredTraceEvent,
+  type TraceMapperContext,
+  type TracePaymentRow,
+  type TraceRangeInput,
+  type TraceRepository,
+  type TraceSessionPaymentRow,
+  type TraceSessionRow,
+} from "@/features/pos/traceability";
 
 // ─── Point of Sale module queries ────────────────────────────────────────────
 // A "device" is a registered tablet (devices table, self-registered via the
@@ -201,6 +225,250 @@ export async function getPosOverview(): Promise<PosOverview> {
 
 // ─── Per-device dashboard ────────────────────────────────────────────────────
 
+interface TraceQueryError {
+  message: string;
+}
+
+interface TraceQueryResult<T> {
+  data: T[] | null;
+  error: TraceQueryError | null;
+}
+
+export interface TraceQueryBuilder<T>
+  extends PromiseLike<TraceQueryResult<T>> {
+  select(columns: string): TraceQueryBuilder<T>;
+  eq(column: string, value: unknown): TraceQueryBuilder<T>;
+  gte(column: string, value: unknown): TraceQueryBuilder<T>;
+  gt(column: string, value: unknown): TraceQueryBuilder<T>;
+  lt(column: string, value: unknown): TraceQueryBuilder<T>;
+  not(
+    column: string,
+    operator: string,
+    value: unknown,
+  ): TraceQueryBuilder<T>;
+  in(column: string, values: readonly string[]): TraceQueryBuilder<T>;
+  or(filters: string): TraceQueryBuilder<T>;
+  order(
+    column: string,
+    options: { ascending: boolean },
+  ): TraceQueryBuilder<T>;
+  limit(count: number): TraceQueryBuilder<T>;
+  range(from: number, to: number): PromiseLike<TraceQueryResult<T>>;
+}
+
+export interface TraceSupabaseClient {
+  from(table: string): TraceQueryBuilder<unknown>;
+}
+
+const TRACE_AUDIT_COLUMNS =
+  "id, event_type, payload, created_at, actor_id, ref_id";
+const TRACE_SESSION_COLUMNS =
+  "id, device_id, opened_at, opened_by, opening_float, closed_at, closed_by, expected_cash, closing_count, variance";
+const TRACE_PAYMENT_COLUMNS =
+  "id, cash_session_id, document_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value), cash_sessions!inner(device_id)";
+const TRACE_DISCOUNT_LINE_COLUMNS =
+  "id, document_id, title, discount_pct, discount_kind, discount_amount";
+const TRACE_CLOSING_PAYMENT_COLUMNS =
+  "id, cash_session_id, method, amount";
+
+function traceQuery<T>(
+  client: TraceSupabaseClient,
+  table: string,
+): TraceQueryBuilder<T> {
+  return client.from(table) as TraceQueryBuilder<T>;
+}
+
+async function readTraceRows<T>(
+  query: PromiseLike<TraceQueryResult<T>>,
+): Promise<T[]> {
+  const { data, error } = await query;
+  if (error !== null) throw new Error(error.message);
+  return data ?? [];
+}
+
+interface PaymentCursor {
+  receivedAt: string;
+  id: string;
+}
+
+function paymentCursor(row: TracePaymentRow): PaymentCursor {
+  return { receivedAt: row.received_at, id: row.id };
+}
+
+function comparePaymentCursor(
+  left: PaymentCursor,
+  right: PaymentCursor,
+): number {
+  const receivedAtOrder = compareTraceTimestamps(
+    left.receivedAt,
+    right.receivedAt,
+    "asc",
+  );
+  return receivedAtOrder || left.id.localeCompare(right.id);
+}
+
+function paymentCursorFilter(after: PaymentCursor): string {
+  return [
+    `received_at.gt.${after.receivedAt}`,
+    `and(received_at.eq.${after.receivedAt},id.gt.${after.id})`,
+  ].join(",");
+}
+
+export function createSupabaseTraceRepository(
+  client: TraceSupabaseClient,
+): TraceRepository {
+  return {
+    async fetchAuditCandidates(code, range) {
+      const query = traceQuery<TraceAuditRow>(client, "audit_events")
+        .select(TRACE_AUDIT_COLUMNS)
+        .eq("device_id", code)
+        .gte("created_at", range.startIso)
+        .lt("created_at", range.endExclusiveIso)
+        .not(
+          "event_type",
+          "in",
+          "(payment_reversed,period_closed)",
+        )
+        .order("created_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(TRACE_SOURCE_LIMIT);
+      return readTraceRows(query);
+    },
+
+    async fetchPaymentCandidates(code, range) {
+      const query = traceQuery<TracePaymentRow>(client, "payments")
+        .select(TRACE_PAYMENT_COLUMNS)
+        .eq("cash_sessions.device_id", code)
+        .gte("received_at", range.startIso)
+        .lt("received_at", range.endExclusiveIso)
+        .order("received_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(TRACE_SOURCE_LIMIT);
+      return readTraceRows(query);
+    },
+
+    async fetchSessionOpenCandidates(code, range) {
+      const query = traceQuery<TraceSessionRow>(client, "cash_sessions")
+        .select(TRACE_SESSION_COLUMNS)
+        .eq("device_id", code)
+        .gte("opened_at", range.startIso)
+        .lt("opened_at", range.endExclusiveIso)
+        .order("opened_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(TRACE_SOURCE_LIMIT);
+      return readTraceRows(query);
+    },
+
+    async fetchSessionCloseCandidates(code, range) {
+      const query = traceQuery<TraceSessionRow>(client, "cash_sessions")
+        .select(TRACE_SESSION_COLUMNS)
+        .eq("device_id", code)
+        .not("closed_at", "is", null)
+        .gte("closed_at", range.startIso)
+        .lt("closed_at", range.endExclusiveIso)
+        .order("closed_at", { ascending: false })
+        .order("id", { ascending: false })
+        .limit(TRACE_SOURCE_LIMIT);
+      return readTraceRows(query);
+    },
+
+    async fetchReversalAudits(originalIds) {
+      if (originalIds.length === 0) return [];
+      const query = traceQuery<TraceAuditRow>(client, "audit_events")
+        .select(TRACE_AUDIT_COLUMNS)
+        .eq("event_type", "payment_reversed")
+        .in("ref_id", originalIds);
+      return readTraceRows(query);
+    },
+
+    async fetchDiscountLines(documentIds) {
+      if (documentIds.length === 0) return [];
+      return fetchAllRowsByKeyset<TraceDiscountLineRow, string>(
+        (after) => {
+          let query = traceQuery<TraceDiscountLineRow>(
+            client,
+            "document_lines",
+          )
+            .select(TRACE_DISCOUNT_LINE_COLUMNS)
+            .in("document_id", documentIds)
+            .order("id", { ascending: true });
+          if (after !== null) query = query.gt("id", after);
+          return query;
+        },
+        (row) => row.id,
+        (left, right) => left.localeCompare(right),
+      );
+    },
+
+    async fetchCanonicalPayments(code, documentIds) {
+      if (documentIds.length === 0) return [];
+      return fetchAllRowsByKeyset<TracePaymentRow, PaymentCursor>(
+        (after) => {
+          let query = traceQuery<TracePaymentRow>(client, "payments")
+            .select(TRACE_PAYMENT_COLUMNS)
+            .eq("cash_sessions.device_id", code)
+            .in("document_id", documentIds)
+            .gt("amount", 0)
+            .order("received_at", { ascending: true })
+            .order("id", { ascending: true });
+          if (after !== null) query = query.or(paymentCursorFilter(after));
+          return query;
+        },
+        paymentCursor,
+        comparePaymentCursor,
+      );
+    },
+
+    async fetchActorNames(actorIds) {
+      if (actorIds.length === 0) return [];
+      const query = traceQuery<TraceActorRow>(client, "app_users")
+        .select("id, display_name")
+        .in("id", actorIds);
+      return readTraceRows(query);
+    },
+
+    async fetchClosingSessionPayments(sessionIds) {
+      if (sessionIds.length === 0) return [];
+      return fetchAllRowsByKeyset<TraceSessionPaymentRow, string>(
+        (after) => {
+          let query = traceQuery<TraceSessionPaymentRow>(client, "payments")
+            .select(TRACE_CLOSING_PAYMENT_COLUMNS)
+            .in("cash_session_id", sessionIds)
+            .order("id", { ascending: true });
+          if (after !== null) query = query.gt("id", after);
+          return query;
+        },
+        (row) => row.id,
+        (left, right) => left.localeCompare(right),
+      );
+    },
+  };
+}
+
+export async function getDeviceTraceability(
+  code: string,
+  input: TraceRangeInput = {},
+): Promise<DeviceTraceabilityData> {
+  const session = await getSessionContext();
+  const range = normalizeTraceRange(input);
+  if (session?.role !== "owner") {
+    return {
+      trace: [],
+      traceState: {
+        status: "unavailable",
+        capped: false,
+        range: { from: range.from, to: range.to },
+      },
+    };
+  }
+
+  const supabase = await createClient();
+  const repository = createSupabaseTraceRepository(
+    supabase as unknown as TraceSupabaseClient,
+  );
+  return loadDeviceTraceability(code, range, repository);
+}
+
 export interface SessionMovement {
   id: string;
   at: string; // MU "yyyy-mm-dd HH:MM"
@@ -230,14 +498,11 @@ export interface DeviceSession {
   movements: SessionMovement[];
 }
 
-export interface TraceEvent {
-  key: string;
-  at: string;    // ISO for sorting
-  atLabel: string; // MU display
-  kind: string;  // terminal_started | version | operator | till_open | till_close | payment | discount | receipt | export | period | device_state | cash_out
+export interface DeviceLastActivity {
+  at: string;
+  atLabel: string;
   title: string;
-  detail: string | null;
-  href: string | null; // → /sales/[id] when the event concerns a document
+  summary: string | null;
 }
 
 /** A money movement leaving the till — Cashmag's "cash outflows". */
@@ -272,17 +537,49 @@ export interface CashflowData {
 export interface DeviceDashboard {
   device: PosDevice;
   sessions: DeviceSession[]; // newest first, incl. open (General tab)
-  trace: TraceEvent[];
+  lastActivity: DeviceLastActivity | null;
   todayCents: { method: string; cents: number }[]; // takings today (MU) by method
   cashflow: CashflowData;
 }
-
-const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** MU calendar day → [start, end) as epoch ms (Mauritius is UTC+04, no DST). */
 const muDayStart = (d: string) => Date.parse(`${d}T00:00:00+04:00`);
 const muDayEnd = (d: string) => muDayStart(d) + 24 * 3600_000;
+
+function deviceActivitySummary(event: StructuredTraceEvent): string | null {
+  const parts: string[] = [];
+  if (event.summary !== null) parts.push(event.summary);
+  if (event.actorName !== null) parts.push(event.actorName);
+  if (event.amountCents !== null) {
+    parts.push(
+      `Rs ${(event.amountCents / 100).toLocaleString("en-US", {
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      })}`,
+    );
+  }
+  if (event.method !== null) parts.push(event.method);
+  if (event.reference !== null) parts.push(event.reference);
+  if (event.reason !== null) parts.push(event.reason);
+  for (const item of event.metadata) {
+    parts.push(`${item.label}: ${item.value}`);
+  }
+  return parts.length === 0 ? null : parts.join(" · ");
+}
+
+function toDeviceLastActivity(
+  event: StructuredTraceEvent | undefined,
+): DeviceLastActivity | null {
+  return event === undefined
+    ? null
+    : {
+        at: event.at,
+        atLabel: event.atLabel,
+        title: event.title,
+        summary: deviceActivitySummary(event),
+      };
+}
 
 export async function getDeviceDashboard(
   code: string,
@@ -301,26 +598,22 @@ export async function getDeviceDashboard(
   let to = opts?.to && DATE_RE.test(opts.to) ? opts.to : from;
   if (to < from) [from, to] = [to, from];
 
-  // Traceability follows the same period pickers: with ?from/?to present the
-  // feed is the chosen window; without them it's simply the most recent events.
-  const rangeGiven = !!((opts?.from && DATE_RE.test(opts.from)) || (opts?.to && DATE_RE.test(opts.to)));
-  let auditQ = sb
+  // General needs only the newest lifetime device event. The owner-only,
+  // range-bounded trace ledger is loaded separately by getDeviceTraceability.
+  const latestAuditQ = sb
     .from("audit_events")
     .select("id, event_type, payload, created_at, actor_id, ref_id")
     .eq("device_id", code)
+    .not("event_type", "in", "(payment_reversed,period_closed)")
     .order("created_at", { ascending: false })
-    .limit(rangeGiven ? 300 : 120);
-  if (rangeGiven) {
-    auditQ = auditQ
-      .gte("created_at", new Date(muDayStart(from)).toISOString())
-      .lt("created_at", new Date(muDayEnd(to)).toISOString());
-  }
+    .order("id", { ascending: false })
+    .limit(1);
 
-  const [sessRes, usersRes, auditRes] = await Promise.all([
+  const [sessRes, usersRes, latestAuditRes] = await Promise.all([
     // ALL of this device's sessions (≈1/day) — the pickers can reach any date.
     sb.from("cash_sessions").select("*").eq("device_id", code).order("opened_at", { ascending: false }).limit(400),
     sb.from("app_users").select("id, display_name"),
-    auditQ,
+    latestAuditQ,
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -342,14 +635,14 @@ export async function getDeviceDashboard(
     (s) => s.closed_at && Date.parse(s.closed_at) >= refMs && Date.parse(s.closed_at) < refEndMs,
   );
 
-  const PAY_COLS = "id, cash_session_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value)";
+  const PAY_COLS = "id, cash_session_id, document_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value)";
   const fetchPays = async (ids: string[]) => {
     if (ids.length === 0) return [];
     const { data } = await sb.from("payments").select(PAY_COLS).in("cash_session_id", ids).order("received_at", { ascending: false }).limit(600);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (data ?? []) as any[];
   };
-  // One fetch per distinct window: recent (General + traceability) and the
+  // One fetch per distinct window: recent (General) and the
   // union of period + reference sessions (Cash Flow). Deposits need a closed
   // session's FULL payment set, so the Cash Flow fetch is not date-filtered.
   const flowIds = [...new Set([...rangeSessions, ...closureSessions].map((s) => s.id))];
@@ -538,146 +831,41 @@ export async function getDeviceDashboard(
 
   const cashflow: CashflowData = { refDate, closures, from, to, inflows, outflows };
 
-  // ── Traceability feed ──────────────────────────────────────────────────────
-  // With ?from/?to the feed covers exactly that window (owner: "track what a
-  // user did on the date he chooses"); without them, the recent window.
-  const trace: TraceEvent[] = [];
-  const push = (key: string, at: string, kind: string, title: string, detail: string | null, href: string | null = null) =>
-    trace.push({ key, at, atLabel: muDateTime(at), kind, title, detail, href });
-
-  // Sales referenced only by number (receipt events) still get a link when the
-  // number appears among the fetched payments' documents.
-  const tracePays = rangeGiven ? flowPays.filter((p) => inRange(p.received_at)) : payRows;
-  const idByNumber = new Map<string, string>();
-  for (const p of [...payRows, ...flowPays]) {
-    if (p.documents?.number && p.documents?.id) idByNumber.set(p.documents.number, p.documents.id);
-  }
-  const saleHref = (docId?: string | null, number?: string | null) =>
-    docId ? `/sales/${docId}` : number && idByNumber.has(number) ? `/sales/${idByNumber.get(number)}` : null;
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (const a of (auditRes.data ?? []) as any[]) {
-    const pl = a.payload ?? {};
-    switch (a.event_type) {
-      case "terminal_started":
-        push(`a${a.id}`, a.created_at, "terminal_started", "Terminal started",
-          [pl.model, pl.app_version ? `v${pl.app_version}` : null].filter(Boolean).join(" · ") || null);
-        break;
-      case "app_version_changed":
-        push(`a${a.id}`, a.created_at, "version", "App version changed", `${pl.from ?? "—"} → ${pl.to ?? "—"}`);
-        break;
-      case "signed_in":
-        push(`a${a.id}`, a.created_at, "operator", "Operator", nameById.get(a.actor_id) ?? "Staff sign-in");
-        break;
-      case "device_enabled":
-      case "device_disabled":
-        push(`a${a.id}`, a.created_at, "device_state",
-          a.event_type === "device_enabled" ? "Device enabled" : "Device disabled",
-          nameById.get(a.actor_id) ?? null);
-        break;
-      case "till_cash_out":
-        push(`a${a.id}`, a.created_at, "cash_out", "Petty cash out",
-          [pl.amount != null ? `Rs ${Number(pl.amount).toLocaleString("en-US")}` : null, pl.reason].filter(Boolean).join(" · ") || null);
-        break;
-      case "payment_reversed":
-        // The reason is REQUIRED at the source — surface it front and centre.
-        push(`a${a.id}`, a.created_at, "payment", "Payment reversed",
-          [pl.amount != null ? `Rs ${Number(pl.amount).toLocaleString("en-US")}` : null,
-           METHOD_LABEL[pl.method as string] ?? pl.method,
-           pl.reason ? `“${pl.reason}”` : null,
-           nameById.get(a.actor_id)].filter(Boolean).join(" · ") || null,
-          saleHref(pl.document_id));
-        break;
-      case "receipt_printed":
-        push(`a${a.id}`, a.created_at, "receipt", "Receipt printed", pl.number ?? null, saleHref(null, pl.number));
-        break;
-      case "receipt_skipped":
-        push(`a${a.id}`, a.created_at, "receipt", "Sale without printed receipt", pl.number ?? null, saleHref(null, pl.number));
-        break;
-      case "receipt_emailed":
-        push(`a${a.id}`, a.created_at, "receipt", "Receipt emailed",
-          [pl.number, pl.to].filter(Boolean).join(" → ") || null, saleHref(a.ref_id, pl.number));
-        break;
-      case "document_sent":
-        push(`a${a.id}`, a.created_at, "receipt", pl.channel === "whatsapp" ? "Document sent on WhatsApp" : "Document emailed",
-          [pl.number, pl.to].filter(Boolean).join(" → ") || null, saleHref(a.ref_id, pl.number));
-        break;
-      case "data_export":
-        push(`a${a.id}`, a.created_at, "export", "Data export", pl.report ?? null);
-        break;
-      case "period_closed":
-        push(`a${a.id}`, a.created_at, "period", "Period closed", pl.period ?? null);
-        break;
-      default:
-        push(`a${a.id}`, a.created_at, "event", a.event_type.replaceAll("_", " "), null);
+  // Cheap General-tab activity: combine one newest lifetime audit with the
+  // recent session/payment rows already loaded for the dashboard.
+  const activityEvents: StructuredTraceEvent[] = [];
+  const activityDocumentIds = new Map<string, string>();
+  for (const payment of payRows as TracePaymentRow[]) {
+    const document = payment.documents;
+    if (document?.number && document.id === payment.document_id) {
+      activityDocumentIds.set(document.number, document.id);
     }
   }
+  const activityContext: TraceMapperContext = {
+    actorNames: nameById,
+    documentIdsByNumber: activityDocumentIds,
+    reversalAudits: [],
+    sessionPayments: [],
+  };
 
-  // Till events from raw session rows so the range can reach ANY date, not just
-  // the recent-20 window (names/figures resolved the same way either path).
-  const sessForTrace = rangeGiven
-    ? rangeSessions.filter((s) => inRange(s.opened_at) || (s.closed_at && inRange(s.closed_at)))
-    : sessions;
-  for (const s of sessForTrace) {
-    const pays = (rangeGiven ? flowBySession : paysBySession).get(s.id) ?? [];
-    if (!rangeGiven || inRange(s.opened_at)) {
-      push(`so${s.id}`, s.opened_at, "till_open", "Till opened",
-        `Float ${(rupeesToCents(Number(s.opening_float)) / 100).toLocaleString("en-US")}${nameById.get(s.opened_by) ? ` · ${nameById.get(s.opened_by)}` : ""}`);
-    }
-    if (s.closed_at && (!rangeGiven || inRange(s.closed_at))) {
-      const net = new Map<string, number>();
-      for (const p of pays) {
-        if (p.method === "cash") continue;
-        net.set(p.method, (net.get(p.method) ?? 0) + rupeesToCents(Number(p.amount)));
-      }
-      const nonCashTxt = [...net.entries()].filter(([, c]) => c > 0)
-        .map(([m, c]) => `${METHOD_LABEL[m] ?? m} ${(c / 100).toLocaleString("en-US")} to bank`).join(" · ");
-      push(`sc${s.id}`, s.closed_at, "till_close", "Cash register closing",
-        [`Variance ${(rupeesToCents(Number(s.variance ?? 0)) / 100).toLocaleString("en-US")}`, nonCashTxt].filter(Boolean).join(" · "));
-    }
+  const latestAudit = (latestAuditRes.data?.[0] ?? null) as
+    | TraceAuditRow
+    | null;
+  if (latestAudit !== null) {
+    const event = mapAuditTraceEvent(latestAudit, activityContext);
+    if (event !== null) activityEvents.push(event);
   }
 
-  for (const p of tracePays) {
-    const cents = rupeesToCents(Number(p.amount));
-    push(`p${p.id}`, p.received_at, "payment",
-      p.reverses_payment_id ? "Payment reversed" : `Payment · ${METHOD_LABEL[p.method] ?? p.method}`,
-      [`Rs ${(cents / 100).toLocaleString("en-US")}`, p.documents?.number, nameById.get(p.received_by)].filter(Boolean).join(" · "),
-      saleHref(p.documents?.id));
+  for (const session of sessions as TraceSessionRow[]) {
+    activityEvents.push(mapSessionOpenTraceEvent(session, activityContext));
+    const closeEvent = mapSessionCloseTraceEvent(session, activityContext);
+    if (closeEvent !== null) activityEvents.push(closeEvent);
+  }
+  for (const payment of payRows as TracePaymentRow[]) {
+    activityEvents.push(mapPaymentTraceEvent(payment, activityContext));
   }
 
-  // Discounts on invoices settled in these sessions (order-level via the
-  // document row that rode along with the payment; line-level fetched below).
-  const docIds = [...new Set(tracePays.map((p) => p.documents?.id).filter(Boolean))] as string[];
-  if (docIds.length > 0) {
-    const { data: lines } = await sb
-      .from("document_lines")
-      .select("document_id, title, discount_pct, discount_kind, discount_amount")
-      .in("document_id", docIds);
-    const discountedDocs = new Map<string, string[]>(); // docId -> line titles
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const l of (lines ?? []) as any[]) {
-      const has = l.discount_kind === "amount" ? Number(l.discount_amount) > 0 : Number(l.discount_pct) > 0;
-      if (!has) continue;
-      const arr = discountedDocs.get(l.document_id) ?? [];
-      const label = l.discount_kind === "amount" ? `Rs ${Number(l.discount_amount)} off ${l.title}` : `${Number(l.discount_pct)}% ${l.title}`;
-      arr.push(label);
-      discountedDocs.set(l.document_id, arr);
-    }
-    for (const p of tracePays) {
-      const d = p.documents;
-      if (!d?.id || p.reverses_payment_id) continue;
-      const parts: string[] = [];
-      if (d.discount_kind && Number(d.discount_value) > 0) {
-        parts.push(d.discount_kind === "percent" ? `${Number(d.discount_value)}% whole sale` : `Rs ${Number(d.discount_value)} whole sale`);
-      }
-      parts.push(...(discountedDocs.get(d.id) ?? []));
-      if (parts.length > 0) {
-        push(`d${p.id}`, p.received_at, "discount", "Discount", [d.number, ...parts].filter(Boolean).join(" · "), saleHref(d.id));
-      }
-    }
-  }
-
-  trace.sort((a, b) => (a.at < b.at ? 1 : -1));
+  const lastActivity = toDeviceLastActivity(sortTraceEvents(activityEvents)[0]);
 
   // Today's takings by method (MU day) across this device's sessions.
   const muMidnight = new Date(muNow().toISOString().slice(0, 10) + "T00:00:00+04:00").getTime();
@@ -691,7 +879,7 @@ export async function getDeviceDashboard(
   return {
     device,
     sessions: deviceSessions,
-    trace: trace.slice(0, 150),
+    lastActivity,
     todayCents: [...todayMap.entries()].map(([method, cents]) => ({ method, cents })),
     cashflow,
   };
