@@ -21,9 +21,68 @@ import {
   setJobStatusAction,
   completeJobAction,
   createDocumentFromJobAction,
+  setJobScheduleAction,
 } from "./actions";
+import { estimatedFinish } from "./clock";
 
 const DOC_LABEL: Record<string, string> = { quote: "Quotation", invoice: "Invoice", credit_note: "Credit note" };
+
+/** "Tue 14 Jul, 14:30" — Mauritius time, the only clock the shop runs on. */
+const WHEN = new Intl.DateTimeFormat("en-GB", {
+  weekday: "short", day: "numeric", month: "short",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+  timeZone: "Indian/Mauritius",
+});
+function fmtWhen(iso: string | number | null): string | null {
+  if (iso == null) return null;
+  const ms = typeof iso === "number" ? iso : Date.parse(iso);
+  return Number.isNaN(ms) ? null : WHEN.format(ms);
+}
+
+/** 90 → "1h 30m". The estimate is spoken in hours and minutes, never "90 minutes". */
+function fmtMins(m: number): string {
+  const h = Math.floor(m / 60), r = m % 60;
+  return h === 0 ? `${r}m` : r === 0 ? `${h}h` : `${h}h ${r}m`;
+}
+
+/** An <input type="datetime-local"> wants local wall-clock, not a UTC instant. */
+function toLocalInput(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+const EST_CHOICES = [30, 60, 120, 240, 480];
+
+/**
+ * One line of the job's life. A step that hasn't happened renders nothing at all —
+ * an empty "Started —" row reads as a fault rather than as work still to come.
+ */
+function Step({
+  label, value, tone = "done", note,
+}: {
+  label: string;
+  value: string | null;
+  tone?: "done" | "estimate" | "late";
+  note?: string;
+}) {
+  if (!value) return null;
+  const cls =
+    tone === "late" ? "text-rose font-bold"
+    : tone === "estimate" ? "text-amber-ink font-semibold"
+    : "text-body";
+  return (
+    <>
+      <dt className="text-[12.5px] font-semibold text-muted">{label}</dt>
+      <dd className={`num text-[13px] ${cls}`}>
+        {value}
+        {note && <span className="ml-2 text-[11.5px] font-semibold uppercase tracking-wide">{note}</span>}
+      </dd>
+    </>
+  );
+}
 
 function fmt(sec: number): string {
   const h = Math.floor(sec / 3600), m = Math.floor((sec % 3600) / 60), s = sec % 60;
@@ -90,6 +149,36 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
     return () => clearInterval(t);
   }, [job.running]);
 
+  // ── the schedule + estimate editor ──────────────────────────────────────────
+  const [editWhen, setEditWhen] = useState(false);
+  const [whenInput, setWhenInput] = useState(() => toLocalInput(job.scheduledAt));
+  const [estInput, setEstInput] = useState(job.estimatedMinutes?.toString() ?? "");
+
+  // The ETA slides while a job is paused, so recompute it on every tick rather than
+  // freezing it once on render. `seconds` is the tick; the value itself comes from now.
+  void seconds;
+  const etaMs = estimatedFinish(
+    {
+      status: job.status,
+      startedAt: job.startedAt,
+      readyAt: job.readyAt,
+      deliveredAt: job.deliveredAt,
+      pausedAt: job.pausedAt,
+      pausedMs: job.pausedMs,
+      scheduledAt: job.scheduledAt,
+      estimatedMinutes: job.estimatedMinutes,
+    },
+    Date.now(),
+  );
+  const overdue = etaMs != null && Date.now() > etaMs;
+
+  async function saveSchedule() {
+    const mins = estInput.trim() === "" ? null : Number(estInput);
+    if (mins != null && !Number.isFinite(mins)) return setError({ at: "top", msg: "That estimate isn't a number." });
+    await run(() => setJobScheduleAction(job.id, whenInput || null, mins == null ? null : Math.round(mins)));
+    setEditWhen(false);
+  }
+
   async function run(fn: () => Promise<{ ok: boolean; error?: string }>, at: "top" | "bottom" = "top") {
     setBusy(true);
     setError(null);
@@ -134,6 +223,85 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
       </div>
 
       {errNote("top")}
+
+      {/* the job's life, in order — only what has actually happened */}
+      <div className="mt-5 rounded-[15px] border border-line bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="text-[11px] font-bold uppercase tracking-[0.14em] text-faint">Timeline</div>
+          {!readOnly && (
+            <button
+              onClick={() => { setWhenInput(toLocalInput(job.scheduledAt)); setEstInput(job.estimatedMinutes?.toString() ?? ""); setEditWhen((v) => !v); }}
+              className="text-[12px] font-semibold text-link hover:underline"
+            >
+              {editWhen ? "Cancel" : job.scheduledAt || job.estimatedMinutes ? "Edit schedule" : "Add a schedule"}
+            </button>
+          )}
+        </div>
+
+        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-5 gap-y-2 text-[13px]">
+          <Step label={job.fromQuote ? "Accepted" : "Opened"} value={fmtWhen(job.createdAt)} />
+          <Step label="Scheduled for" value={fmtWhen(job.scheduledAt)} />
+          <Step label="Started" value={fmtWhen(job.startedAt)} />
+          {/* An estimate is only worth showing while it can still be met. */}
+          {etaMs != null && (
+            <Step
+              label="Est. finish"
+              value={`${fmtWhen(etaMs)}${job.estimatedMinutes ? ` · ${fmtMins(job.estimatedMinutes)} of work` : ""}`}
+              tone={overdue ? "late" : "estimate"}
+              note={overdue ? "running late" : job.paused ? "paused — sliding" : undefined}
+            />
+          )}
+          <Step label="Ready" value={fmtWhen(job.readyAt)} />
+          <Step label="Delivered" value={fmtWhen(job.deliveredAt)} />
+        </dl>
+
+        {editWhen && (
+          <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-line pt-4">
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Scheduled for</span>
+              <input
+                type="datetime-local"
+                className={`${field} w-[210px]`}
+                value={whenInput}
+                onChange={(e) => setWhenInput(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Takes about</span>
+              <div className="flex items-center gap-1.5">
+                {EST_CHOICES.map((m) => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => setEstInput(String(m))}
+                    className={`h-9 rounded-[9px] px-2.5 text-[12.5px] font-bold ${
+                      Number(estInput) === m ? "grad-brand text-white" : "border border-line-2 bg-sub text-body"
+                    }`}
+                  >
+                    {fmtMins(m)}
+                  </button>
+                ))}
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  placeholder="min"
+                  className={`${field} w-[74px]`}
+                  value={estInput}
+                  onChange={(e) => setEstInput(e.target.value)}
+                />
+              </div>
+            </label>
+            <button
+              onClick={saveSchedule}
+              disabled={busy}
+              className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-60"
+            >
+              Save
+            </button>
+          </div>
+        )}
+      </div>
 
       {/* timer — the POS clock: Start → (Pause/Resume)* → Complete stops it */}
       <div className="mt-5 flex items-center gap-4 rounded-[15px] border border-line bg-card p-4">

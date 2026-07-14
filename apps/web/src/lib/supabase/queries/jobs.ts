@@ -280,6 +280,18 @@ export interface JobDetail {
   running: boolean;
   paused: boolean;
   documents: JobDocument[];
+  // The timeline. Raw ISO so the card can recompute the estimated finish on every
+  // tick — a paused job's ETA slides, and a value frozen on the server would lie.
+  createdAt: string | null;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  readyAt: string | null;
+  deliveredAt: string | null;
+  pausedAt: string | null;
+  pausedMs: number;
+  estimatedMinutes: number | null;
+  /** Born of an accepted quote — so "Accepted" is the honest label, not "Opened". */
+  fromQuote: boolean;
 }
 
 export interface JobRefData {
@@ -365,6 +377,15 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       running: clock?.running ?? running,
       paused: clock?.paused ?? false,
       documents,
+      createdAt: j.created_at ?? null,
+      scheduledAt: j.scheduled_at ?? null,
+      startedAt: j.started_at ?? null,
+      readyAt: j.ready_at ?? null,
+      deliveredAt: j.delivered_at ?? null,
+      pausedAt: j.paused_at ?? null,
+      pausedMs: Number(j.paused_ms ?? 0),
+      estimatedMinutes: j.estimated_minutes ?? null,
+      fromQuote: j.source_quote_id != null,
     },
     ref: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

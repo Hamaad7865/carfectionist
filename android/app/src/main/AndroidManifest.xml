@@ -6,6 +6,12 @@
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
 
+    <!-- Job schedule alerts: post them (13+), fire them on the minute, and survive a
+         reboot — an alarm lost to a power cut is a car nobody starts. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
     <application
         android:name=".PosApplication"
         android:allowBackup="false"
@@ -37,5 +43,23 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- A due/overdue/late alarm coming home to roost. Not exported: only our own
+             AlarmManager pending intents may fire it. -->
+        <receiver
+            android:name=".core.notify.JobAlarmReceiver"
+            android:exported="false" />
+
+        <!-- Alarms do not survive a reboot; this re-arms them from the server. -->
+        <receiver
+            android:name=".core.notify.BootReceiver"
+            android:exported="true"
+            android:enabled="true"
+            android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
     </application>
 </manifest>

@@ -551,6 +551,32 @@ private fun AcceptBody(
                 Text("Now", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (scheduled) TextSecondary else Accent)
             }
         }
+
+        // Captured here because this is the moment the work is agreed — and it is the only
+        // thing that can answer "when will my car be ready?". Optional: an unestimated job
+        // simply shows no ETA rather than a made-up one.
+        MiniLabel("TAKES ABOUT")
+        Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+            QuoteViewModel.ESTIMATE_CHOICES.forEach { mins ->
+                val on = s.estimateMinutes == mins
+                Box(
+                    Modifier.height(38.dp)
+                        .background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
+                        .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp))
+                        // Tapping the chosen one again clears it — no estimate is a valid answer.
+                        .clickable { vm.pickEstimate(if (on) null else mins) }
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        QuoteViewModel.estimateLabel(mins),
+                        fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                        color = if (on) Accent else TextSecondary,
+                    )
+                }
+            }
+        }
+
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             MiniLabel("CLIENT SIGNATURE")
             Spacer(Modifier.weight(1f))

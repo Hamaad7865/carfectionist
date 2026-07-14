@@ -206,15 +206,52 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // PostgREST refuses with "more than one relationship was found".
     suspend fun fetchJobs(): List<JobBoardDto> =
         client.postgrest.from("jobs")
-            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, board_dismissed_at, paused_at, paused_ms, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature), invoices:documents!documents_job_id_fkey(id, number, doc_type, status), certificates(number, expires_at)")) {
+            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, board_dismissed_at, paused_at, paused_ms, estimated_minutes, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature), invoices:documents!documents_job_id_fkey(id, number, doc_type, status), certificates(number, expires_at)")) {
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
             }
             .decodeList()
 
-    /** When the car is booked in for. Written when a quote is accepted; shown on the scheduled card. */
-    suspend fun setJobSchedule(jobId: String, scheduledAtIso: String) {
-        client.postgrest.from("jobs").update({ set("scheduled_at", scheduledAtIso) }) { filter { eq("id", jobId) } }
+    /**
+     * When the car is booked in for, and how long it should take. Written when a quote
+     * is accepted; drives the scheduled card, the estimated finish and the tablet's alarms.
+     */
+    suspend fun setJobSchedule(jobId: String, scheduledAtIso: String, estimatedMinutes: Int? = null) {
+        client.postgrest.from("jobs").update({
+            set("scheduled_at", scheduledAtIso)
+            if (estimatedMinutes != null) set("estimated_minutes", estimatedMinutes)
+        }) { filter { eq("id", jobId) } }
     }
+
+    suspend fun setJobEstimate(jobId: String, estimatedMinutes: Int?) {
+        client.postgrest.from("jobs").update({
+            set("estimated_minutes", estimatedMinutes)
+        }) { filter { eq("id", jobId) } }
+    }
+
+    /** The columns the alerts reason about — no embeds, so this stays cheap enough to run from a receiver. */
+    private val ALERT_COLS = Columns.raw(
+        "id, status, scheduled_at, started_at, ready_at, delivered_at, paused_at, paused_ms, " +
+            "estimated_minutes, customers(name, phone), vehicles(plate, make, model, color)",
+    )
+
+    /**
+     * One job, re-read at the moment an alarm fires. The alarm is only a trigger — this
+     * is the truth. Without it a job started at 14:25 would still be announced as "due to
+     * start" at 14:30, and staff would learn to ignore the alerts.
+     */
+    suspend fun fetchJobForAlert(jobId: String): JobBoardDto? =
+        client.postgrest.from("jobs")
+            .select(ALERT_COLS) { filter { eq("id", jobId) } }
+            .decodeList<JobBoardDto>()
+            .firstOrNull()
+
+    /** Live work worth arming an alarm for: still to start, or running and not yet finished. */
+    suspend fun fetchAlertableJobs(): List<JobBoardDto> =
+        client.postgrest.from("jobs")
+            .select(ALERT_COLS) {
+                filter { isIn("status", listOf("scheduled", "in_progress")) }
+            }
+            .decodeList()
 
     /** Swipe a delivered card off the board. Board-only — the job, its invoice and its history stay. */
     suspend fun dismissJobCard(jobId: String, atIso: String) {

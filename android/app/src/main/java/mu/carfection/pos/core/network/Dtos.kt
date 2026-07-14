@@ -175,6 +175,8 @@ data class JobBoardDto(
     @SerialName("source_quote") val sourceQuote: FlowQuoteRefDto? = null,
     val invoices: List<FlowInvoiceRefDto> = emptyList(),
     val certificates: List<FlowCertRefDto> = emptyList(),
+    // How long the work should take. Null = nobody estimated; show no ETA rather than guess.
+    @SerialName("estimated_minutes") val estimatedMinutes: Int? = null,
 )
 
 // ── Checkout · collect on invoice ─────────────────────────────────────────────

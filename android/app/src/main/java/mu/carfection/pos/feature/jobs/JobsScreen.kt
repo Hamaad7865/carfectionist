@@ -72,6 +72,7 @@ import androidx.core.content.ContextCompat
 import coil.compose.AsyncImage
 import mu.carfection.pos.feature.counter.ReceiptPaper
 import mu.carfection.pos.core.network.JobPhotoDto
+import mu.carfection.pos.core.jobs.JobClock
 import mu.carfection.pos.ui.FlowState
 import mu.carfection.pos.ui.FlowStepUi
 import mu.carfection.pos.ui.FlowStrip
@@ -108,8 +109,33 @@ import java.time.format.DateTimeFormatter
 private val CardTile = Color(0xFFF1F4F7)
 private val MU = ZoneOffset.ofHours(4)
 private val HHMM = DateTimeFormatter.ofPattern("HH:mm")
+private val DAY = DateTimeFormatter.ofPattern("EEE d MMM")
 private fun epoch(iso: String?): Long? = iso?.let { runCatching { OffsetDateTime.parse(it).toInstant().toEpochMilli() }.getOrNull() }
 private fun clock(iso: String?): String = iso?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(MU).format(HHMM) }.getOrNull() } ?: "—"
+
+/**
+ * A booking has to say WHICH DAY. "14:30" alone is the same card whether the car is due
+ * in twenty minutes or a week on Thursday — the day is the whole point of a schedule.
+ * Today's jobs stay short ("14:30"); anything else earns its date.
+ */
+private fun scheduleLabel(iso: String?): String {
+    val at = iso?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(MU) }.getOrNull() } ?: return "—"
+    val today = OffsetDateTime.now(MU).toLocalDate()
+    val hhmm = at.format(HHMM)
+    return when (at.toLocalDate()) {
+        today -> hhmm
+        today.plusDays(1) -> "Tomorrow $hhmm"
+        today.minusDays(1) -> "Yesterday $hhmm"
+        else -> "${at.format(DAY)} $hhmm"
+    }
+}
+
+/** How long past its estimate, once a job has overrun it. */
+private fun overBy(ms: Long): String = "${elapsedShort(ms)} over"
+
+/** An epoch instant as the shop's wall clock. */
+private fun hhmm(ms: Long): String =
+    java.time.Instant.ofEpochMilli(ms).atOffset(MU).format(HHMM)
 private fun firstName(display: String?): String = (display ?: "").replace(Regex("\\s*\\(.*\\)$"), "").trim().split(" ").firstOrNull().orEmpty()
 private fun elapsedShort(ms: Long): String { val m = ms / 60000; return if (m < 60) "${m}m" else "${m / 60}h ${m % 60}m" }
 private fun elapsedLong(ms: Long): String { val s = (ms / 1000).coerceAtLeast(0); return "%d:%02d:%02d".format(s / 3600, (s % 3600) / 60, s % 60) }
@@ -347,17 +373,27 @@ private fun JobColumn(s: JobsState, vm: JobsViewModel, col: JobCol, modifier: Mo
 
 @Composable
 private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onDismiss: (() -> Unit)? = null, onClick: () -> Unit) {
+    val now = System.currentTimeMillis()
     val (right, rightC) = when (col) {
-        JobCol.SCHEDULED -> clock(j.scheduledAt) to TextMuted
+        // The day, not just the hour — a job booked for Thursday must not read as "now".
+        JobCol.SCHEDULED -> scheduleLabel(j.scheduledAt) to TextMuted
         JobCol.IN_PROGRESS -> {
-            val now = System.currentTimeMillis()
-            val pausedTotal = j.pausedMs + (epoch(j.pausedAt)?.let { (now - it).coerceAtLeast(0) } ?: 0L)
-            val t = epoch(j.startedAt)?.let { elapsedShort((now - it - pausedTotal).coerceAtLeast(0)) } ?: "0m"
-            if (j.pausedAt != null) "❚❚ $t" to TextMuted else t to Warning
+            val t = JobClock.elapsedMs(j, now)?.let { elapsedShort(it) } ?: "0m"
+            val eta = JobClock.estimatedFinishMs(j, now)
+            when {
+                j.pausedAt != null -> "❚❚ $t" to TextMuted
+                // Past its estimate: say by how much, in the colour of a problem.
+                eta != null && now > eta -> overBy(now - eta) to Danger
+                else -> t to Warning
+            }
         }
         JobCol.READY -> clock(j.readyAt) to Success
         JobCol.DELIVERED -> "Done" to TextMuted
     }
+    // When the car should be done — never invented: a job nobody estimated says nothing.
+    val etaLabel: String? = JobClock.estimatedFinishMs(j, now)
+        ?.takeIf { col == JobCol.SCHEDULED || col == JobCol.IN_PROGRESS }
+        ?.let { "est. ${hhmm(it)}" }
     // Swipe-to-clear (delivered only): the card follows the finger, fades as it goes, and
     // is gone past 40% of its width; anything short of that springs back.
     val offsetX = remember(j.id) { Animatable(0f) }
@@ -395,9 +431,13 @@ private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onDismiss: (() -> 
                 }
                 Text(vehLabel(j), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(j.notes?.ifBlank { null } ?: "—", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                     Avatar(firstName(j.technician?.displayName).ifBlank { "?" }.take(1), 22)
                     Text(firstName(j.technician?.displayName).ifBlank { "Unassigned" }, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextSecondary)
+                    if (etaLabel != null) {
+                        Spacer(Modifier.weight(1f))
+                        Text(etaLabel, fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted)
+                    }
                 }
             }
         }

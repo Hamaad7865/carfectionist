@@ -16,6 +16,11 @@ export interface JobClockRow {
   pausedMs: number | null;
 }
 
+export interface JobEstimateRow extends JobClockRow {
+  scheduledAt: string | null;
+  estimatedMinutes: number | null;
+}
+
 export interface JobClockState {
   elapsedSeconds: number;
   /** The clock is ticking — drives the live counter and the board's dot. */
@@ -41,4 +46,32 @@ export function jobClock(j: JobClockRow, nowMs: number): JobClockState | null {
     running: j.status === "in_progress" && !paused,
     paused,
   };
+}
+
+/**
+ * When the car is expected to be done, as epoch ms — the companion to jobClock.
+ *   not started → scheduled_at + estimate
+ *   running     → started_at + estimate + every pause (a paused job's ETA slides,
+ *                 which is the whole point of pausing)
+ *   finished    → null; ready_at is the truth and no estimate competes with it
+ * Null whenever nobody estimated, or there is no anchor to count from — callers must
+ * render nothing rather than invent a time.
+ */
+export function estimatedFinish(j: JobEstimateRow, nowMs: number): number | null {
+  if (!j.estimatedMinutes || j.estimatedMinutes <= 0) return null;
+  if (j.readyAt || j.deliveredAt || j.status === "cancelled") return null;
+  const estMs = j.estimatedMinutes * 60_000;
+
+  if (!j.startedAt) {
+    if (!j.scheduledAt) return null;
+    const scheduled = Date.parse(j.scheduledAt);
+    return Number.isNaN(scheduled) ? null : scheduled + estMs;
+  }
+
+  const started = Date.parse(j.startedAt);
+  if (Number.isNaN(started)) return null;
+
+  const pausedSince = j.pausedAt ? Date.parse(j.pausedAt) : NaN;
+  const openPauseMs = Number.isNaN(pausedSince) ? 0 : Math.max(0, nowMs - pausedSince);
+  return started + estMs + (j.pausedMs ?? 0) + openPauseMs;
 }

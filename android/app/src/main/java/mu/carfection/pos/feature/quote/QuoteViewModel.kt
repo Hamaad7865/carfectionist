@@ -86,6 +86,9 @@ data class QuoteState(
     val techId: String? = null,
     // When the car is booked in for. null = start now; otherwise the picked date+time.
     val startAt: Long? = null,
+    // How long the work should take. Null = nobody said; the board then shows no ETA
+    // rather than inventing one.
+    val estimateMinutes: Int? = null,
     val datePickerOpen: Boolean = false,
     val timePickerOpen: Boolean = false,
     val busy: Boolean = false,
@@ -336,6 +339,25 @@ class QuoteViewModel @Inject constructor(
     fun closePickers() = _s.update { it.copy(datePickerOpen = false, timePickerOpen = false) }
     fun startNow() = _s.update { it.copy(startAt = null, datePickerOpen = false, timePickerOpen = false) }
 
+    /** How long the work should take. Null clears it — "we don't know yet" is a real answer. */
+    fun pickEstimate(minutes: Int?) = _s.update { it.copy(estimateMinutes = minutes) }
+
+    companion object {
+        /** A wash to a full day's ceramic — the shop's real spread of jobs. */
+        val ESTIMATE_CHOICES = listOf(30, 60, 120, 240, 480)
+
+        /** 90 → "1h 30m". Nobody books a car in for "ninety minutes". */
+        fun estimateLabel(minutes: Int): String {
+            val h = minutes / 60
+            val m = minutes % 60
+            return when {
+                h == 0 -> "${m}m"
+                m == 0 -> "${h}h"
+                else -> "${h}h ${m}m"
+            }
+        }
+    }
+
     private fun currentStart(s: QuoteState): ZonedDateTime =
         s.startAt?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()) }
             ?: ZonedDateTime.now().let { it.plusMinutes((30 - it.minute % 30).toLong()).withSecond(0).withNano(0) }
@@ -430,9 +452,9 @@ class QuoteViewModel @Inject constructor(
                     if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val jobId = api.convertQuoteToJob(quoteId, s.techId, signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
-                // Book the car in. Safe to retry: the conversion is idempotent, so a failed
-                // schedule write simply re-runs against the same job.
-                api.setJobSchedule(jobId, scheduledIso(s))
+                // Book the car in, with how long it should take. Safe to retry: the conversion
+                // is idempotent, so a failed schedule write simply re-runs against the same job.
+                api.setJobSchedule(jobId, scheduledIso(s), s.estimateMinutes)
                 quoteId to jobId
             }.onSuccess { (quoteId, jobId) ->
                 // Stamp what reception recorded onto the new job — best-effort; the

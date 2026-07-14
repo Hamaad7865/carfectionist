@@ -37,6 +37,9 @@ object AppModule {
         install(Auth)
         install(Postgrest)
         install(io.github.jan.supabase.storage.Storage)
+        // Realtime: a car going ready is an event another person causes on another device.
+        // No local alarm can foresee it, so the server has to tell us.
+        install(io.github.jan.supabase.realtime.Realtime)
     }
 
     @Provides

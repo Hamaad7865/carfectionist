@@ -100,6 +100,40 @@ export async function setJobDepartmentAction(jobId: string, department: string |
   return { ok: true };
 }
 
+/**
+ * When the car is booked in, and how long the work is expected to take. Both are set
+ * together because an estimate with nothing to count from tells nobody anything.
+ * Clearing the schedule is allowed (null) — a job can fall back to unscheduled.
+ */
+export async function setJobScheduleAction(
+  jobId: string,
+  scheduledAt: string | null,
+  estimatedMinutes: number | null,
+): Promise<Result> {
+  await requireRole(...ROLES);
+
+  // Mirrors chk_jobs_estimated_minutes — fail with a sentence, not a Postgres error.
+  if (estimatedMinutes != null && (!Number.isInteger(estimatedMinutes) || estimatedMinutes < 1 || estimatedMinutes > 1440)) {
+    return { ok: false, error: "An estimate must be between 1 minute and 24 hours." };
+  }
+  let iso: string | null = null;
+  if (scheduledAt) {
+    const when = new Date(scheduledAt);
+    if (Number.isNaN(when.getTime())) return { ok: false, error: "That date and time isn't valid." };
+    iso = when.toISOString();
+  }
+
+  const sb = await createClient();
+  const { error } = await sb
+    .from("jobs")
+    .update({ scheduled_at: iso, estimated_minutes: estimatedMinutes })
+    .eq("id", jobId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/jobs");
+  return { ok: true };
+}
+
 export async function assignTechnicianAction(jobId: string, technicianId: string | null): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const sb = await createClient();
