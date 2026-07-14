@@ -26,3 +26,12 @@ export async function sendTestMessageAction(to: string): Promise<{ ok: true } | 
   }
   return { ok: true };
 }
+
+/** Ask Meta which WhatsApp account(s) and number(s) this token can use, so the
+ *  operator never has to hunt for the two IDs in Meta's console. */
+export async function discoverIdsAction(): Promise<
+  { ok: true; data: wa.DiscoveredWaba[] } | { ok: false; error: string }
+> {
+  await requireRole("owner");
+  return wa.discoverIds();
+}

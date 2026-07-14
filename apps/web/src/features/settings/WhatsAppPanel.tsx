@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Check, X, Copy, Send, RefreshCw, MessageCircle, ExternalLink } from "lucide-react";
-import type { WaSecretState, WaProbe } from "@/lib/whatsapp";
+import { Check, X, Copy, Send, RefreshCw, MessageCircle, ExternalLink, Search } from "lucide-react";
+import type { WaSecretState, WaProbe, DiscoveredWaba } from "@/lib/whatsapp";
 import type { WaTemplateRow } from "@/lib/supabase/queries/marketing";
-import { sendTestMessageAction } from "./wa-actions";
+import { sendTestMessageAction, discoverIdsAction } from "./wa-actions";
 
 // A self-testing connection page: rather than trust that a value is present, it
 // asks Meta who we are. Green here means the credentials genuinely work.
@@ -62,6 +62,18 @@ export function WhatsAppPanel({
   const [to, setTo] = useState("");
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [found, setFound] = useState<DiscoveredWaba[] | null>(null);
+  const [findBusy, setFindBusy] = useState(false);
+  const [findErr, setFindErr] = useState<string | null>(null);
+
+  async function discover() {
+    setFindBusy(true);
+    setFindErr(null);
+    const r = await discoverIdsAction();
+    setFindBusy(false);
+    if (r.ok) setFound(r.data);
+    else setFindErr(r.error);
+  }
 
   const live = !!probe?.phone.ok && !!probe?.waba.ok;
   const missing: string[] = [];
@@ -100,6 +112,42 @@ export function WhatsAppPanel({
           </div>
         </div>
       </div>
+
+      {/* find the IDs for them — the two values nobody can locate in Meta's console */}
+      {secrets.token && (!secrets.wabaId || !secrets.phoneNumberId) && (
+        <div className="rounded-[15px] border border-brand bg-[rgba(43,140,255,0.04)] p-5">
+          <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-link">Don&apos;t hunt for the IDs — find them here</div>
+          <p className="mb-3 text-[12.5px] text-muted">
+            Your token already knows which WhatsApp account and number it may use. Ask Meta, and copy the two values straight into Cloudflare.
+          </p>
+          <button
+            onClick={discover}
+            disabled={findBusy}
+            className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-60"
+          >
+            {findBusy ? <RefreshCw size={15} className="animate-spin" /> : <Search size={15} />} {findBusy ? "Asking Meta…" : "Find my IDs"}
+          </button>
+          {findErr && <p className="mt-3 rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{findErr}</p>}
+          {found?.map((w) => (
+            <div key={w.wabaId} className="mt-4 flex flex-col gap-3 rounded-[12px] border border-line bg-card p-4">
+              <div className="text-[12.5px] font-bold text-ink">{w.name}</div>
+              <CopyField label="WHATSAPP_WABA_ID" value={w.wabaId} />
+              {w.numbers.length === 0 ? (
+                <p className="text-[12px] text-amber-ink">No phone number on this account yet — add one in Meta (WhatsApp → API Setup), then press Find again.</p>
+              ) : (
+                w.numbers.map((n) => (
+                  <div key={n.phoneNumberId} className="flex flex-col gap-1.5 rounded-[10px] border border-line-2 bg-sub p-3">
+                    <div className="text-[12px] font-semibold text-body">
+                      {n.display} {n.verifiedName && <span className="text-muted">· {n.verifiedName}</span>}
+                    </div>
+                    <CopyField label="WHATSAPP_PHONE_NUMBER_ID" value={n.phoneNumberId} />
+                  </div>
+                ))
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* what Meta says about us */}
       <div className="rounded-[15px] border border-line bg-card p-5">
