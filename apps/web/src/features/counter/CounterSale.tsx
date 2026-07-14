@@ -8,6 +8,7 @@ import type { CounterProduct } from "@/lib/supabase/queries/counter";
 import { formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
 import { counterSaleAction, type CounterResult } from "./actions";
+import { setProductPriceAction } from "@/features/products/actions";
 import { getReceiptDataAction } from "./receipt-action";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 import {
@@ -36,9 +37,20 @@ const METHODS = [
 type Method = (typeof METHODS)[number]["key"];
 const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 
-export function CounterSale({ products, customers }: { products: CounterProduct[]; customers: { id: string; name: string }[] }) {
+export function CounterSale({
+  products,
+  customers,
+  canPrice = false,
+}: {
+  products: CounterProduct[];
+  customers: { id: string; name: string }[];
+  /** Owner/manager: may put a price on an unpriced product from here. */
+  canPrice?: boolean;
+}) {
   const router = useRouter();
   const [q, setQ] = useState("");
+  // The product someone is trying to sell that has no price yet.
+  const [pricing, setPricing] = useState<CounterProduct | null>(null);
   const [cat, setCat] = useState("");
   const [catOpen, setCatOpen] = useState(true); // the vertical category rail
   const [catQuery, setCatQuery] = useState("");
@@ -319,21 +331,36 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
             )}
           </div>
           <div className="grid max-h-[62vh] grid-cols-2 gap-2 overflow-y-auto p-3 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-            {filtered.map((p) => (
+            {filtered.map((p) => {
+              // No price in the catalogue = it cannot be sold, because the sale reads its
+              // prices from there. Say so on the tile instead of showing a confident
+              // "Rs 0.00", and let a manager put the price on it right here.
+              const unpriced = p.priceCents <= 0;
+              return (
               <button
                 key={p.id}
-                disabled={frozen}
-                onClick={() => add(p)}
-                className="flex flex-col items-start gap-1 rounded-[12px] border border-line bg-sub p-3 text-left transition hover:border-brand hover:bg-[rgba(43,140,255,0.05)] disabled:opacity-50 disabled:hover:border-line"
+                disabled={frozen || (unpriced && !canPrice)}
+                onClick={() => (unpriced ? setPricing(p) : add(p))}
+                title={unpriced && !canPrice ? "This product has no price — a manager has to set one before it can be sold." : undefined}
+                className={`flex flex-col items-start gap-1 rounded-[12px] border p-3 text-left transition disabled:opacity-50 disabled:hover:border-line ${
+                  unpriced
+                    ? "border-[rgba(245,166,35,0.4)] bg-[rgba(245,166,35,0.06)] hover:border-amber-ink"
+                    : "border-line bg-sub hover:border-brand hover:bg-[rgba(43,140,255,0.05)]"
+                }`}
               >
                 <span className="flex w-full items-center justify-between gap-1">
                   <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
                   {p.isStocked && p.shopQty <= 0 && <span className="rounded-[4px] bg-[rgba(214,59,80,0.14)] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-rose">0 left</span>}
                 </span>
                 <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
-                <span className="num mt-auto text-[13px] font-extrabold text-ink">{formatMUR(p.priceCents)}</span>
+                {unpriced ? (
+                  <span className="mt-auto text-[11.5px] font-bold text-amber-ink">{canPrice ? "Set a price →" : "No price"}</span>
+                ) : (
+                  <span className="num mt-auto text-[13px] font-extrabold text-ink">{formatMUR(p.priceCents)}</span>
+                )}
               </button>
-            ))}
+              );
+            })}
             {filtered.length === 0 && <div className="col-span-full py-10 text-center text-[13px] text-faint">No products match “{q}”.</div>}
           </div>
         </div>
@@ -483,15 +510,39 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           )}
           {notice && <p className="mt-2 text-[11.5px] font-semibold text-amber-ink">{notice}</p>}
 
+          {/* Nothing to charge = nothing to issue. A Rs 0.00 invoice can never be settled,
+              and it sits in the collect list forever. */}
           <button
             onClick={() => complete()}
-            disabled={busy || cart.length === 0}
+            disabled={busy || cart.length === 0 || totals.totalCents <= 0}
             className="grad-brand shadow-brand mt-3 flex h-12 w-full items-center justify-center rounded-[12px] text-[15px] font-extrabold text-white disabled:opacity-50"
           >
-            {busy ? "Working…" : frozen ? `Charge ${formatMUR(totals.totalCents)} again` : method === "credit" ? `Put ${formatMUR(totals.totalCents)} on account` : `Charge ${formatMUR(totals.totalCents)}`}
+            {busy
+              ? "Working…"
+              : cart.length > 0 && totals.totalCents <= 0
+                ? "Nothing to charge"
+                : frozen
+                  ? `Charge ${formatMUR(totals.totalCents)} again`
+                  : method === "credit"
+                    ? `Put ${formatMUR(totals.totalCents)} on account`
+                    : `Charge ${formatMUR(totals.totalCents)}`}
           </button>
         </div>
       </div>
+
+      {pricing && (
+        <PriceProductDialog
+          product={pricing}
+          onClose={() => setPricing(null)}
+          onPriced={(priceCents) => {
+            // Straight into the sale at the price just saved — she was mid-sale, that is
+            // why she is pricing it. The catalogue keeps the price for next time.
+            add({ ...pricing, priceCents });
+            setPricing(null);
+            router.refresh();
+          }}
+        />
+      )}
 
       {confirmNeg && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
@@ -520,6 +571,72 @@ export function CounterSale({ products, customers }: { products: CounterProduct[
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Price a product that has none, without leaving the sale. The price goes into the
+ * catalogue (that is where the sale reads prices from), so this both finishes the sale
+ * and stops the next person hitting the same wall.
+ */
+function PriceProductDialog({
+  product,
+  onClose,
+  onPriced,
+}: {
+  product: CounterProduct;
+  onClose: () => void;
+  onPriced: (priceCents: number) => void;
+}) {
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const cents = parseMoneyInput(value) ?? 0; // unparseable input reads as nothing entered
+
+  async function save() {
+    if (busy || cents <= 0) return;
+    setBusy(true);
+    setError(null);
+    const r = await setProductPriceAction({ id: product.id, sellingPrice: cents / 100 });
+    setBusy(false);
+    if (!r.ok) { setError(r.error); return; }
+    onPriced(r.data?.priceCents ?? cents);
+  }
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-[rgba(15,23,32,0.5)]" onClick={onClose} />
+      <div className="relative w-full max-w-sm rounded-[16px] border border-line bg-card p-6 shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
+        <div className="font-display text-[16px] font-extrabold text-ink-strong">Set a price</div>
+        <p className="mt-1.5 text-[13px] font-semibold text-body">{product.name}</p>
+        <p className="mt-2 text-[12.5px] text-muted">
+          This product has no price yet, so it can&apos;t be sold. The price is saved to the catalogue — you only have to do this once.
+        </p>
+
+        <label className="mt-4 block text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint">Selling price (Rs, excl. VAT)</label>
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") void save(); }}
+          placeholder="0.00"
+          inputMode="decimal"
+          className="num mt-1.5 h-11 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[15px] font-bold text-ink outline-none focus:border-brand"
+        />
+        {error && <p className="mt-2 rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
+
+        <div className="mt-5 flex gap-2">
+          <button onClick={onClose} className="h-11 flex-1 rounded-[12px] border border-line-2 bg-sub font-bold text-body">Cancel</button>
+          <button
+            onClick={() => void save()}
+            disabled={busy || cents <= 0}
+            className="grad-brand shadow-brand h-11 flex-1 rounded-[12px] font-bold text-white disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save & add"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
