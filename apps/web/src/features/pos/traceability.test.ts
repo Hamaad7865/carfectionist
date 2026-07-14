@@ -54,6 +54,15 @@ function makeEvents(count: number): TraceEvent[] {
   );
 }
 
+function permutations<T>(values: readonly T[]): T[][] {
+  if (values.length <= 1) return [[...values]];
+  return values.flatMap((value, index) =>
+    permutations([...values.slice(0, index), ...values.slice(index + 1)]).map(
+      (remaining) => [value, ...remaining],
+    ),
+  );
+}
+
 const TRACE_AT = "2026-07-14T08:00:00.000Z";
 const TRACE_AT_LABEL = "2026-07-14 12:00";
 
@@ -893,6 +902,51 @@ describe("trace source mappers", () => {
       });
     });
 
+    it("selects the same canonical ASC event across malformed timestamp permutations", () => {
+      const candidates = [
+        makePaymentRow({
+          id: "payment-whole",
+          received_at: "2026-07-14T08:00:00.000Z",
+          received_by: "actor-3",
+          documents: null,
+        }),
+        makePaymentRow({
+          id: "payment-micro",
+          received_at: "2026-07-14T08:00:00.000100Z",
+          received_by: "actor-1",
+          documents: null,
+        }),
+        makePaymentRow({
+          id: "payment-malformed",
+          received_at: "2026-07-14T08:00:00.000500BAD",
+          received_by: "actor-2",
+        }),
+      ];
+
+      const results = permutations(candidates).map((payments) =>
+        mapDiscountTraceEvent(
+          "document-1",
+          payments,
+          [makeDiscountLine()],
+          mapperContext,
+        ),
+      );
+
+      expect(
+        results.map((event) => ({
+          at: event?.at,
+          actorName: event?.actorName,
+          reference: event?.reference,
+        })),
+      ).toEqual(
+        Array.from({ length: 6 }, () => ({
+          at: "2026-07-14T08:00:00.000Z",
+          actorName: "Anshika",
+          reference: "INV-001",
+        })),
+      );
+    });
+
     it("does not treat null fixed discounts as zero-valued metadata", () => {
       const payment = makePaymentRow({
         documents: {
@@ -1077,6 +1131,34 @@ describe("trace selection", () => {
       "event:z",
       "event:a",
     ]);
+  });
+
+  it("keeps global DESC deterministic across malformed timestamp permutations", () => {
+    const events = [
+      makeEvent({
+        key: "event:whole",
+        at: "2026-07-14T08:00:00.000Z",
+      }),
+      makeEvent({
+        key: "event:micro",
+        at: "2026-07-14T08:00:00.000100Z",
+      }),
+      makeEvent({
+        key: "event:malformed",
+        at: "2026-07-14T08:00:00.000500BAD",
+      }),
+    ];
+
+    const orders = permutations(events).map((permutation) =>
+      sortTraceEvents(permutation).map((event) => event.key),
+    );
+    expect(orders).toEqual(
+      Array.from({ length: 6 }, () => [
+        "event:micro",
+        "event:whole",
+        "event:malformed",
+      ]),
+    );
   });
 
   it("caps a globally sorted selection at 150 events", () => {

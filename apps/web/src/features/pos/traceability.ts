@@ -204,25 +204,25 @@ function preciseInstantNanoseconds(value: string): bigint | null {
   return BigInt(wholeSecondMs) * BigInt(1_000_000) + fractionNanoseconds;
 }
 
-function comparePreciseInstants(left: string, right: string): number {
+function compareTraceTimestamps(
+  left: string,
+  right: string,
+  direction: "asc" | "desc",
+): number {
   const leftNanoseconds = preciseInstantNanoseconds(left);
   const rightNanoseconds = preciseInstantNanoseconds(right);
-  if (leftNanoseconds !== null && rightNanoseconds !== null) {
-    if (leftNanoseconds === rightNanoseconds) return 0;
-    return leftNanoseconds < rightNanoseconds ? -1 : 1;
-  }
+  if (leftNanoseconds !== null && rightNanoseconds === null) return -1;
+  if (leftNanoseconds === null && rightNanoseconds !== null) return 1;
 
-  const leftMilliseconds = Date.parse(left);
-  const rightMilliseconds = Date.parse(right);
-  if (
-    Number.isFinite(leftMilliseconds) &&
-    Number.isFinite(rightMilliseconds) &&
-    leftMilliseconds !== rightMilliseconds
-  ) {
-    return leftMilliseconds < rightMilliseconds ? -1 : 1;
+  let order = 0;
+  if (leftNanoseconds !== null && rightNanoseconds !== null) {
+    if (leftNanoseconds !== rightNanoseconds) {
+      order = leftNanoseconds < rightNanoseconds ? -1 : 1;
+    }
+  } else if (left !== right) {
+    order = left < right ? -1 : 1;
   }
-  if (left === right) return 0;
-  return left < right ? -1 : 1;
+  return direction === "asc" ? order : -order;
 }
 
 function auditPayload(payload: unknown): Record<string, unknown> {
@@ -641,14 +641,14 @@ export function mapDiscountTraceEvent(
       return (
         payment.document_id === documentId &&
         amount !== null &&
-        amount > 0 &&
-        Number.isFinite(Date.parse(payment.received_at))
+        amount > 0
       );
     })
     .sort((left, right) => {
-      const timeOrder = comparePreciseInstants(
+      const timeOrder = compareTraceTimestamps(
         left.received_at,
         right.received_at,
+        "asc",
       );
       if (timeOrder !== 0) return timeOrder;
       if (left.id === right.id) return 0;
@@ -736,8 +736,8 @@ export function resolveTraceFilter(
 
 export function sortTraceEvents(events: readonly TraceEvent[]): TraceEvent[] {
   return [...events].sort((left, right) => {
-    const timeOrder = comparePreciseInstants(left.at, right.at);
-    if (timeOrder !== 0) return -timeOrder;
+    const timeOrder = compareTraceTimestamps(left.at, right.at, "desc");
+    if (timeOrder !== 0) return timeOrder;
     if (left.key === right.key) return 0;
     return left.key > right.key ? -1 : 1;
   });
