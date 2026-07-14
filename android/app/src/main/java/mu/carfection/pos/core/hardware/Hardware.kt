@@ -185,6 +185,9 @@ private suspend fun sendRaw(host: String, port: Int, bytes: ByteArray) =
         }
     }
 
+/** No printer configured = nothing was printed. Say so; never claim paper that does not exist. */
+class NoPrinterConfigured : Exception("No printer is set up — add it in Settings › Hardware")
+
 @Singleton
 class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) : ReceiptPrinter {
     override suspend fun printReceipt(text: String) {
@@ -192,7 +195,11 @@ class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) 
         if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank()) {
             sendRaw(c.printerIp, c.printerPort, escPosReceipt(text))
         } else {
-            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — logging only)\n$text")
+            // It used to log and return normally, so the caller cheerfully reported "printed"
+            // while nothing came out. On a Z report — the fiscal slip the cash-up is signed off
+            // on — that is a lie the cashier would act on.
+            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — no printer)\n$text")
+            throw NoPrinterConfigured()
         }
     }
 
@@ -206,7 +213,8 @@ class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) 
                 FEED_CUT
             sendRaw(c.printerIp, c.printerPort, bytes)
         } else {
-            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — logging only)\n$body")
+            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — no printer)\n$body")
+            throw NoPrinterConfigured()
         }
     }
 }

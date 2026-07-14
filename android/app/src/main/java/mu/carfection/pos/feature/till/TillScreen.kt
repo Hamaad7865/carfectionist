@@ -111,10 +111,15 @@ class TillViewModel @Inject constructor(
      * summary would still be on screen next time the till is opened from the counter.
      */
     fun reload() = viewModelScope.launch {
+        // Closing the till flips the till gate, which re-mounts this screen and re-runs
+        // reload(). The Z that was just cut must survive that, or the operator never sees the
+        // slip they just closed on — it flashed past and went straight back to "open the till".
+        val z = _s.value.z
+        val notice = _s.value.notice
         _s.value = _s.value.copy(loading = true)
         runCatching { till.openSession() }
-            .onSuccess { _s.value = TillUiState(loading = false, session = it) }
-            .onFailure { _s.value = TillUiState(loading = false, error = it.uiMessage()) }
+            .onSuccess { _s.value = TillUiState(loading = false, session = it, z = z, notice = notice) }
+            .onFailure { _s.value = TillUiState(loading = false, error = it.uiMessage(), z = z, notice = notice) }
     }
 
     fun open(floatText: String) {

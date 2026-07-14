@@ -27,15 +27,19 @@ begin
              'takings',      coalesce((
                  select round(sum(pm.amount), 2) from public.payments pm
                   where pm.booked_session_id = p_session_id and pm.method::text = m.method), 0),
-             -- what has piled up unbanked on THIS DEVICE (cash starts from the drawer float)
-             'accumulation', coalesce((
-                 select csm.float_out
-                   from public.cash_session_methods csm
-                   join public.cash_sessions s2 on s2.id = csm.cash_session_id
-                  where s2.device_id = v_sess.device_id and s2.tenant_id = v_tenant
-                    and s2.status = 'closed' and csm.method = m.method
-                  order by s2.closed_at desc limit 1),
-                 case when m.method = 'cash' then v_sess.opening_float else 0 end)
+             -- What has piled up and NOT gone to the bank.
+             -- CASH is the money physically in this drawer right now — its float. (The owner's
+             -- screen shows CASH 2000.00: the float he counted in, not a chained balance.)
+             -- Everything else chains from the last close on THIS DEVICE: unbanked card/juice
+             -- takings keep accumulating across services until a tick sweeps them.
+             'accumulation', case when m.method = 'cash' then v_sess.opening_float
+                 else coalesce((
+                   select csm.float_out
+                     from public.cash_session_methods csm
+                     join public.cash_sessions s2 on s2.id = csm.cash_session_id
+                    where s2.device_id = v_sess.device_id and s2.tenant_id = v_tenant
+                      and s2.status = 'closed' and csm.method = m.method
+                    order by s2.closed_at desc limit 1), 0) end
            ) as r
       from (
         select unnest(array['cash','card','juice','bank_transfer']) as method
