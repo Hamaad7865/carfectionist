@@ -174,3 +174,47 @@ export async function sendDocumentEmail(i: DocumentEmailInput): Promise<SendResu
     attachments: [{ filename: `${i.number}.pdf`, content: i.pdfBase64, contentType: "application/pdf" }],
   });
 }
+
+export interface StatementEmailInput {
+  to: string;
+  customerName: string;
+  balanceCents: number;
+  refDate: string; // display, e.g. "11 July 2026"
+  pdfBase64: string;
+  studioName: string;
+}
+
+/** "Your statement of account" email with the statement PDF attached. */
+export async function sendStatementEmail(i: StatementEmailInput): Promise<SendResult> {
+  const balance = formatMUR(i.balanceCents);
+  const subject = `Statement of account from ${i.studioName}`;
+  const text =
+    `Dear ${i.customerName},\n\n` +
+    `Please find attached your statement of account from ${i.studioName}, as at ${i.refDate}.\n` +
+    `Balance owed: ${balance}.\n\n` +
+    `Thank you,\n${i.studioName}`;
+  const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f2f4f7;font-family:Arial,Helvetica,sans-serif">
+  <div style="max-width:520px;margin:0 auto;padding:28px 16px">
+    <div style="background:#ffffff;border-radius:14px;padding:32px 28px;border:1px solid #e4e8ee">
+      <div style="text-align:center;font-size:20px;font-weight:800;letter-spacing:0.04em;color:#141b22">${i.studioName.toUpperCase()}</div>
+      <div style="text-align:center;font-size:16px;font-weight:700;color:#2b6cb0;margin-top:10px">Statement of account</div>
+      <p style="text-align:center;font-size:13px;color:#5b6572;line-height:1.6;margin:14px 0 22px">
+        Dear ${i.customerName}, your statement as at ${i.refDate} is attached to this email.
+      </p>
+      <table style="width:100%;font-size:13.5px;color:#1c2733;border-collapse:collapse">
+        <tr><td style="padding:6px 0;color:#5b6572">Balance owed</td><td style="padding:6px 0;text-align:right;font-weight:800;color:#0d8a5f">${balance}</td></tr>
+      </table>
+    </div>
+    <p style="text-align:center;font-size:11px;color:#98a2b0;margin-top:14px">Sent by ${i.studioName} · Mauritius.</p>
+  </div>
+</body></html>`;
+
+  return bindingSend({
+    to: i.to,
+    from: FROM_DOCS,
+    subject,
+    html,
+    text,
+    attachments: [{ filename: "statement.pdf", content: i.pdfBase64, contentType: "application/pdf" }],
+  });
+}

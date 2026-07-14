@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
-import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement } from "@/lib/supabase/queries/reports";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatementPicker } from "@/features/reports/StatementPicker";
+import { StatementSendButton } from "@/features/reports/StatementSendButton";
 import { formatMUR } from "@/lib/money";
+import { muDate } from "@/lib/mu-date";
 
 const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c", juice: "#6a5cff", bank_transfer: "#f5a623" };
 const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer" };
@@ -16,6 +18,7 @@ const REPORTS = [
   { key: "technician", label: "Revenue by technician" },
   { key: "discounts", label: "Discounts given" },
   { key: "receivables", label: "Aged receivables" },
+  { key: "statement-list", label: "Statement of accounts" },
   { key: "statement", label: "Customer statement" },
   // End-of-day cash-up moved to the Point of Sale module (tills live with
   // their devices now); the /api/reports/cash/csv export remains.
@@ -42,8 +45,13 @@ export default async function ReportsPage({
   const discounts = report === "discounts" ? await getDiscountsReport(sp.from, sp.to) : null;
   const statement =
     report === "statement"
-      ? { customers: await getStatementCustomers(), data: sp.c ? await getCustomerStatement(sp.c, sp.from, sp.to) : null }
+      ? {
+          customers: await getStatementCustomers(),
+          data: sp.c ? await getCustomerStatement(sp.c, sp.from, sp.to) : null,
+          aged: sp.c ? await getCustomerAgedStatement(sp.c) : null,
+        }
       : null;
+  const statementList = report === "statement-list" ? await getStatementOfAccounts() : null;
   const rangeLabel = sp.from || sp.to ? `${sp.from ?? "…"} → ${sp.to ?? "…"}` : "All time";
 
   const now = new Date();
@@ -93,7 +101,7 @@ export default async function ReportsPage({
           <div className="mx-1 h-6 w-px bg-line-2" />
           <DateRangeFilter label={false} />
           <div className="flex-1" />
-          {report !== "statement" && (
+          {report !== "statement" && report !== "statement-list" && (
             <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
               <Download size={14} /> CSV
             </a>
@@ -352,16 +360,118 @@ export default async function ReportsPage({
             </div>
           )}
 
-          {report === "statement" && statement && (
+          {report === "statement-list" && statementList && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Customer</span>
-                <StatementPicker customers={statement.customers} current={sp.c} from={sp.from} to={sp.to} />
+              <div className="rounded-[15px] border border-line bg-card p-5">
+                <div className="font-display text-[15px] font-bold text-ink-strong">Statement of accounts</div>
+                <div className="mt-1 text-[12.5px] text-muted">Every customer who owes the shop, as at {muDate(new Date().toISOString())}. Carried-forward figures are the balances brought over from Cashmag.</div>
               </div>
 
-              {!statement.data ? (
+              <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+                <div className="grid grid-cols-[1fr_130px_130px_150px_120px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
+                  <span>Customer</span><span className="text-right">Live</span><span className="text-right">Carried</span><span className="text-right">Balance owed</span><span className="text-right">Statement</span>
+                </div>
+                {statementList.length === 0 ? (
+                  <div className="px-5 py-12 text-center text-[13px] text-faint">No customer owes anything right now.</div>
+                ) : (
+                  statementList.map((c) => (
+                    <div key={c.id} className="grid grid-cols-[1fr_130px_130px_150px_120px] items-center gap-3 border-b border-line px-5 py-2.5 text-[12.5px]">
+                      <Link href={`/reports${qs({ r: "statement", c: c.id })}`} className="font-semibold text-link hover:underline">{c.name}</Link>
+                      <span className="num text-right text-muted">{c.liveCents ? formatMUR(c.liveCents) : "—"}</span>
+                      <span className="num text-right text-muted">{c.carriedCents ? formatMUR(c.carriedCents) : "—"}</span>
+                      <span className="num text-right font-bold text-ink">{formatMUR(c.balanceCents)}</span>
+                      <span className="flex items-center justify-end gap-3">
+                        <a href={`/api/reports/statement/${c.id}/pdf`} target="_blank" rel="noreferrer" className="text-[12px] font-semibold text-link hover:underline">PDF</a>
+                        <StatementSendButton customerId={c.id} customerName={c.name} email={c.email} />
+                      </span>
+                    </div>
+                  ))
+                )}
+                <div className="grid grid-cols-[1fr_130px_130px_150px_120px] items-center gap-3 bg-sub px-5 py-3 text-[13px]">
+                  <span className="font-bold text-ink">{statementList.length} customer{statementList.length === 1 ? "" : "s"}</span>
+                  <span /><span />
+                  <span className="num text-right font-extrabold text-brand">{formatMUR(statementList.reduce((s, c) => s + c.balanceCents, 0))}</span>
+                  <span />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {report === "statement" && statement && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Customer</span>
+                  <StatementPicker customers={statement.customers} current={sp.c} from={sp.from} to={sp.to} />
+                </div>
+                {sp.c && statement.aged && (
+                  <div className="flex items-center gap-3">
+                    <a href={`/api/reports/statement/${sp.c}/pdf`} target="_blank" rel="noreferrer" className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
+                      <Download size={14} /> PDF
+                    </a>
+                    <StatementSendButton customerId={sp.c} customerName={statement.aged.customerName} email={statement.aged.customerEmail} />
+                  </div>
+                )}
+              </div>
+
+              {statement.aged && statement.aged.soldeCents !== 0 && (
+                <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+                  <div className="border-b border-line px-5 py-3.5 font-display text-[14px] font-bold text-ink-strong">Balance — aged</div>
+                  <div className="overflow-x-auto">
+                    <div className="min-w-[640px]">
+                      <div className="grid border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th" style={{ gridTemplateColumns: `130px repeat(${statement.aged.buckets.length}, 1fr)` }}>
+                        <span>Solde</span>
+                        {statement.aged.buckets.map((b) => <span key={b.key} className="text-right">{b.label}</span>)}
+                      </div>
+                      <div className="grid items-center px-5 py-3 text-[12.5px]" style={{ gridTemplateColumns: `130px repeat(${statement.aged.buckets.length}, 1fr)` }}>
+                        <span className="num font-extrabold text-brand">{formatMUR(statement.aged.soldeCents)}</span>
+                        {statement.aged.buckets.map((b) => <span key={b.key} className="num text-right text-body">{b.cents ? formatMUR(b.cents) : "—"}</span>)}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {statement.aged && (statement.aged.invoices.length > 0 || statement.aged.carriedCents !== 0) && (
+                <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+                  <div className="border-b border-line px-5 py-3.5 font-display text-[14px] font-bold text-ink-strong">Credit invoices</div>
+                  <div className="grid grid-cols-[110px_1fr_130px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
+                    <span>Date</span><span>Detail</span><span className="text-right">Debit</span><span className="text-right">Credit</span>
+                  </div>
+                  {statement.aged.carriedCents !== 0 && (
+                    <div className="grid grid-cols-[110px_1fr_130px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[12.5px] text-muted">
+                      <span className="num">Avant</span>
+                      <span className="italic">Carried forward from Cashmag</span>
+                      <span className="num text-right text-body">{statement.aged.carriedCents > 0 ? formatMUR(statement.aged.carriedCents) : "—"}</span>
+                      <span className="num text-right text-mint">{statement.aged.carriedCents < 0 ? formatMUR(-statement.aged.carriedCents) : "—"}</span>
+                    </div>
+                  )}
+                  {statement.aged.invoices.map((inv, i) => (
+                    <div key={i} className="grid grid-cols-[110px_1fr_130px_130px] items-start gap-3 border-b border-line px-5 py-2.5 text-[12.5px]">
+                      <span className="num text-muted">{inv.date ? muDate(`${inv.date}T00:00:00+04:00`) : "—"}</span>
+                      <span className="text-body">
+                        {inv.number && <span className="num font-semibold text-link">{inv.number}</span>}
+                        <span className="mt-0.5 block text-[11.5px] text-muted">
+                          {inv.lines.length ? inv.lines.map((l) => `${l.qty} × ${l.title}${l.discountPct ? ` (−${l.discountPct}%)` : ""}`).join(" · ") : "—"}
+                        </span>
+                      </span>
+                      <span className="num text-right text-body">{formatMUR(inv.debitCents)}</span>
+                      <span className="num text-right text-mint">{inv.creditCents ? formatMUR(inv.creditCents) : "—"}</span>
+                    </div>
+                  ))}
+                  <div className="grid grid-cols-[110px_1fr_130px_130px] items-center gap-3 bg-sub px-5 py-3 text-[13px]">
+                    <span /><span className="font-bold text-ink">Balance owed</span>
+                    <span className="num text-right font-extrabold text-brand">{formatMUR(statement.aged.soldeCents)}</span>
+                    <span />
+                  </div>
+                </div>
+              )}
+
+              {!statement.data && !statement.aged ? (
                 <div className="rounded-[14px] border border-dashed border-line-2 p-10 text-center text-[13px] text-faint">Pick a customer to see their statement of account.</div>
-              ) : (
+              ) : statement.data && statement.data.lines.length > 0 ? (
+                // Live ledger — only when there is real activity in the system, so it
+                // never contradicts the aged view above with a "Balance due Rs 0.00".
                 <>
                   <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
                     <div className="rounded-[15px] border border-line bg-card p-5">
@@ -409,7 +519,7 @@ export default async function ReportsPage({
                     </div>
                   </div>
                 </>
-              )}
+              ) : null}
             </div>
           )}
         </div>

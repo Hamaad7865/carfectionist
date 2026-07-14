@@ -1,7 +1,9 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { fetchAllRows } from "@/lib/supabase/paginate";
-import { muDate, muDateTime } from "@/lib/mu-date";
+import { muDate, muDateTime, muToday } from "@/lib/mu-date";
+import { monthLabel } from "@/features/pos/month-label";
+import { parseLegacyBalance } from "@/lib/legacy-balance";
 
 export interface PaymentReportRow {
   id: string;
@@ -410,6 +412,180 @@ export async function getStatementCustomers(): Promise<{ id: string; name: strin
   const { data } = await sb.from("customers").select("id, name").order("name");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((c) => ({ id: c.id, name: c.name }));
+}
+
+// ── Statement of accounts (Cashmag "STATEMENT OF ACCOUNTS" + "Balance de comptes") ──
+// A receivables document: who owes the shop, aged by calendar month. The live figure
+// is Σ(total_incl − amount_paid) over open invoices; the reset also carried each
+// customer's old Cashmag balance into a note, which seeds the "Avant" (before) column.
+
+const AGING_MONTHS = 4; // current month + 3 back, then everything older = "Avant"
+
+/** yyyy-mm-dd → "yyyy-mm". */
+function monthKey(iso: string): string {
+  return iso.slice(0, 7);
+}
+
+/** The month keys the aging table columns represent, newest first, from a ref date. */
+function agingKeys(refDate: string): string[] {
+  const [y, m] = refDate.split("-").map(Number);
+  const keys: string[] = [];
+  for (let i = 0; i < AGING_MONTHS; i++) {
+    const d = new Date(Date.UTC(y, m - 1 - i, 1));
+    keys.push(`${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`);
+  }
+  return keys;
+}
+
+export interface StatementAccountRow {
+  id: string;
+  name: string;
+  email: string | null;
+  liveCents: number; // outstanding from real invoices
+  carriedCents: number; // net carried from the Cashmag note (owed − store credit)
+  balanceCents: number; // liveCents + carriedCents
+}
+
+/**
+ * View A — every customer who owes the shop, live invoices plus carried Cashmag debt,
+ * sorted by balance. Customers in net credit (store credit > debt) are left off this
+ * "who owes" roster but still have a statement if opened directly.
+ */
+export async function getStatementOfAccounts(): Promise<StatementAccountRow[]> {
+  const sb = await createClient();
+  const [custRows, invRows] = await Promise.all([
+    fetchAllRows(() => sb.from("customers").select("id, name, email, notes")),
+    fetchAllRows(() =>
+      sb.from("documents").select("id, customer_id, doc_type, status, total_incl, amount_paid, source_document_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
+    ),
+  ]);
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const docs = invRows as any[];
+  const creditedIds = new Set(docs.filter((d) => d.doc_type === "credit_note").map((d) => d.source_document_id).filter(Boolean));
+  const liveByCust = new Map<string, number>();
+  for (const d of docs) {
+    if (d.doc_type !== "invoice") continue;
+    if (!["issued", "partly_paid"].includes(d.status)) continue;
+    if (creditedIds.has(d.id)) continue;
+    const owed = rupeesToCents(Number(d.total_incl) - Number(d.amount_paid));
+    if (owed <= 0 || !d.customer_id) continue;
+    liveByCust.set(d.customer_id, (liveByCust.get(d.customer_id) ?? 0) + owed);
+  }
+
+  const rows: StatementAccountRow[] = [];
+  for (const c of custRows as any[]) {
+    const liveCents = liveByCust.get(c.id) ?? 0;
+    const carriedCents = parseLegacyBalance(c.notes)?.netCents ?? 0;
+    const balanceCents = liveCents + carriedCents;
+    if (balanceCents <= 0) continue;
+    rows.push({ id: c.id, name: c.name, email: c.email ?? null, liveCents, carriedCents, balanceCents });
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  return rows.sort((a, b) => b.balanceCents - a.balanceCents);
+}
+
+export interface StatementAgingBucket {
+  key: string; // "2026-07" or "avant"
+  label: string; // "July 2026" or "Avant"
+  cents: number;
+}
+export interface StatementInvoiceLine {
+  title: string;
+  qty: number;
+  discountPct: number;
+}
+export interface StatementCreditInvoice {
+  date: string;
+  number: string | null;
+  lines: StatementInvoiceLine[];
+  debitCents: number; // owed on this invoice
+  creditCents: number; // paid against it so far
+}
+export interface AgedStatement {
+  customerId: string;
+  customerName: string;
+  customerEmail: string | null;
+  refDate: string;
+  soldeCents: number; // total balance across all buckets
+  buckets: StatementAgingBucket[]; // [current … 3 back, Avant]
+  carriedCents: number; // legacy net folded into Avant
+  invoices: StatementCreditInvoice[]; // "Factures en crédit", itemised
+}
+
+/**
+ * View B — one customer's balance aged by calendar month, with the outstanding
+ * ("credit") invoices itemised. The carried Cashmag note seeds the "Avant" column and
+ * appears as a carried-forward line, so a customer with only historical debt still
+ * reads a true balance.
+ */
+export async function getCustomerAgedStatement(customerId: string, refDate = muToday()): Promise<AgedStatement | null> {
+  const sb = await createClient();
+  const { data: cust } = await sb.from("customers").select("id, name, email, notes").eq("id", customerId).maybeSingle();
+  if (!cust) return null;
+
+  const [invRows, lineRows] = await Promise.all([
+    fetchAllRows(() =>
+      sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid, issue_date, source_document_id").eq("customer_id", customerId).in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
+    ),
+    fetchAllRows(() =>
+      sb.from("document_lines").select("document_id, title, qty, discount_pct, sort_order, documents!inner(customer_id)").eq("documents.customer_id", customerId),
+    ),
+  ]);
+
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const docs = invRows as any[];
+  const linesByDoc = new Map<string, StatementInvoiceLine[]>();
+  for (const l of (lineRows as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))) {
+    const arr = linesByDoc.get(l.document_id) ?? [];
+    arr.push({ title: l.title, qty: Number(l.qty), discountPct: Number(l.discount_pct ?? 0) });
+    linesByDoc.set(l.document_id, arr);
+  }
+  const creditedIds = new Set(docs.filter((d) => d.doc_type === "credit_note").map((d) => d.source_document_id).filter(Boolean));
+
+  const keys = agingKeys(refDate);
+  const buckets: StatementAgingBucket[] = keys.map((k) => ({ key: k, label: monthLabel(k), cents: 0 }));
+  const avant: StatementAgingBucket = { key: "avant", label: "Avant", cents: 0 };
+
+  const carried = parseLegacyBalance((cust as any).notes);
+  const carriedCents = carried?.netCents ?? 0;
+  avant.cents += carriedCents; // historical debt is older than any shown month
+
+  const invoices: StatementCreditInvoice[] = [];
+  for (const d of docs) {
+    if (d.doc_type !== "invoice") continue;
+    if (!["issued", "partly_paid"].includes(d.status)) continue;
+    if (creditedIds.has(d.id)) continue;
+    const owed = rupeesToCents(Number(d.total_incl) - Number(d.amount_paid));
+    if (owed <= 0) continue;
+
+    const key = d.issue_date ? monthKey(d.issue_date) : "avant";
+    const bucket = buckets.find((b) => b.key === key) ?? avant;
+    bucket.cents += owed;
+
+    invoices.push({
+      date: d.issue_date ?? "",
+      number: d.number,
+      lines: linesByDoc.get(d.id) ?? [],
+      debitCents: owed,
+      creditCents: rupeesToCents(Number(d.amount_paid)),
+    });
+  }
+  invoices.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+
+  const allBuckets = [...buckets, avant];
+  const soldeCents = allBuckets.reduce((s, b) => s + b.cents, 0);
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  return {
+    customerId,
+    customerName: (cust as any).name,
+    customerEmail: (cust as any).email ?? null,
+    refDate,
+    soldeCents,
+    buckets: allBuckets,
+    carriedCents,
+    invoices,
+  };
 }
 
 export async function getCustomerStatement(customerId: string, from?: string, to?: string): Promise<CustomerStatement | null> {

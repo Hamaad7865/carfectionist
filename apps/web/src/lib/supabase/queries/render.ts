@@ -4,6 +4,47 @@ import { rupeesToCents, formatMUR } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
+import type { StatementA4Props } from "@/components/pdf/StatementA4";
+import { getCustomerAgedStatement } from "@/lib/supabase/queries/reports";
+
+/** Assemble StatementA4 props for a customer — the aged balance plus the business
+ *  header, shared by the statement PDF endpoint and the email path. */
+export async function getStatementProps(customerId: string, sbOverride?: SupabaseClient<any>): Promise<StatementA4Props | null> {
+  const sb = sbOverride ?? (await createClient());
+  const aged = await getCustomerAgedStatement(customerId);
+  if (!aged) return null;
+
+  const { data: bs } = await sb.from("business_settings").select("*").limit(1).single();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const b: any = bs ?? {};
+
+  const fmtDate = (iso: string) =>
+    iso ? new Date(`${iso}T00:00:00+04:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "Indian/Mauritius" }) : "—";
+
+  return {
+    from: {
+      tradingName: b.trading_name ?? "Carfectionist",
+      legalName: b.legal_name ?? "",
+      country: "Mauritius",
+      brn: b.brn ?? "",
+      email: b.email ?? "",
+      phone: b.phone ?? "",
+      vatNo: b.vat_number ?? "",
+    },
+    customerName: aged.customerName,
+    refDate: fmtDate(aged.refDate),
+    soldeCents: aged.soldeCents,
+    buckets: aged.buckets.map((bk) => ({ label: bk.label, cents: bk.cents })),
+    carriedCents: aged.carriedCents,
+    invoices: aged.invoices.map((inv) => ({
+      date: fmtDate(inv.date),
+      number: inv.number,
+      detail: inv.lines.length ? inv.lines.map((l) => `${l.qty} × ${l.title}${l.discountPct ? ` (−${l.discountPct}%)` : ""}`).join(" · ") : "—",
+      debitCents: inv.debitCents,
+      creditCents: inv.creditCents,
+    })),
+  };
+}
 
 /** Assemble DocumentA4 props for a saved document (print route + PDF endpoint).
  *  Pass a client to override the cookie-bound one (the public tokenized PDF
