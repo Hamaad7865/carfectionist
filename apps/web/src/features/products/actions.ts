@@ -101,41 +101,6 @@ function friendly(msg: string): string {
   return msg;
 }
 
-/**
- * Put a price on a product that has none, from wherever it is needed (the counter
- * hits this when someone tries to sell an unpriced part). It writes the price into
- * the CATALOGUE rather than the sale, because the sale reads its prices from the
- * catalogue and would otherwise still charge zero — and because the next person to
- * sell that part should not have to price it again. Owner/manager only, audited
- * like any other price change.
- */
-const priceSchema = z.object({
-  id: z.string().uuid(),
-  sellingPrice: z.union([z.number(), z.string()]).transform((v) => parseNum(v)),
-});
-
-export async function setProductPriceAction(input: z.input<typeof priceSchema>): Promise<Result<{ priceCents: number }>> {
-  const ctx = await requireRole(...ROLES);
-  const p = priceSchema.safeParse(input);
-  if (!p.success) return { ok: false, error: "Enter a price." };
-  const price = p.data.sellingPrice;
-  if (!Number.isFinite(price) || price <= 0) return { ok: false, error: "The price has to be more than zero." };
-
-  const sb = await createClient();
-  const { data: before } = await sb.from("products").select("name, selling_price, cost_price").eq("id", p.data.id).maybeSingle();
-  if (!before) return { ok: false, error: "That product no longer exists." };
-
-  const { error } = await sb.from("products").update({ selling_price: price }).eq("id", p.data.id);
-  if (error) return { ok: false, error: friendly(error.message) };
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const b = before as any;
-  await logPriceChange(sb, ctx, p.data.id, b.name, before, price, Number(b.cost_price ?? 0));
-  revalidatePath("/products");
-  revalidatePath("/sales/counter");
-  return { ok: true, data: { priceCents: Math.round(price * 100) } };
-}
-
 // Categories are a text column, so renaming = bulk-updating every product that
 // carries the exact `from` string. Rename to an existing name → merge; rename
 // to "" → clear (uncategorise). RLS scopes the update to the tenant; the role
