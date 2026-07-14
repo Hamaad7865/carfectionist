@@ -408,11 +408,20 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * null lets the RPC coalesce to the tenant default (Warehouse), which is what the
      * workshop quote→invoice / job→invoice paths want.
      */
-    suspend fun issueDocument(documentId: String, idempotencyKey: String, stockLocationId: String? = null): DocumentDto =
+    // [sessionId] is the service that rang the ticket — it is what puts the sale under
+    // "Service 2" on the cash-up. A ticket issued with no till (a job billed in the
+    // workshop) still lands in the day, just not in a service.
+    suspend fun issueDocument(
+        documentId: String,
+        idempotencyKey: String,
+        stockLocationId: String? = null,
+        sessionId: String? = null,
+    ): DocumentDto =
         client.postgrest.rpc("issue_document", buildJsonObject {
             put("p_document_id", documentId)
             if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
             put("p_idempotency_key", idempotencyKey)
+            if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
         }).decodeAs()
 
     /** Records a payment + recomputes status. Idempotent. */
@@ -526,6 +535,31 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_id", sessionId)
             put("p_closing_count", closingCountRupees)
         }).decodeAs()
+
+    // ── Cashmag close: check the register, close the service, close the day ─────
+    /** "Check your cash register before closing": per method, what was taken and what has piled up. */
+    suspend fun preCloseSummary(sessionId: String): kotlinx.serialization.json.JsonObject =
+        client.postgrest.rpc("pre_close_summary", buildJsonObject {
+            put("p_session_id", sessionId)
+        }).decodeAs()
+
+    /** Closes the service, banks the ticked methods, and cuts the Z. [remit] = ticked methods. */
+    suspend fun closeService(
+        sessionId: String,
+        countedCashRupees: Double,
+        remit: List<String>,
+        note: String?,
+    ): ZReportDto =
+        client.postgrest.rpc("close_service", buildJsonObject {
+            put("p_session_id", sessionId)
+            put("p_counted_cash", countedCashRupees)
+            put("p_remit", kotlinx.serialization.json.JsonArray(remit.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            if (note.isNullOrBlank()) put("p_note", JsonNull) else put("p_note", note)
+        }).decodeAs()
+
+    /** Seals the day. Every till must be closed first; afterwards no money can be taken. */
+    suspend fun closeDay(dayId: String): ZReportDto =
+        client.postgrest.rpc("close_day", buildJsonObject { put("p_day_id", dayId) }).decodeAs()
 
     // ── Till Z-report (Clôture de période) ────────────────────────────────────
     /** Every payment of a till session with its document, lines and product categories. */

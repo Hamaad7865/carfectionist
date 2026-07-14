@@ -75,11 +75,15 @@ export const issueDocument = (
   documentId: string,
   stockLocationId: string | null = null,
   idempotencyKey: string | null = null,
+  // The service that rang this ticket. Without it the sale is money with no till, and the
+  // cash-up cannot say which service it belongs to.
+  sessionId: string | null = null,
 ) =>
   callRpc<DocumentRow>(sb, "issue_document", {
     p_document_id: documentId,
     p_stock_location_id: stockLocationId,
     p_idempotency_key: idempotencyKey,
+    p_session_id: sessionId,
   });
 
 export const convertQuoteToInvoice = (sb: Client, quoteId: string) =>

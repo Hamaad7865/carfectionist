@@ -395,6 +395,21 @@ data class CashSessionDto(
     @SerialName("closing_count") val closingCount: FlexDouble? = null,
     @SerialName("expected_cash") val expectedCash: FlexDouble? = null,
     val variance: FlexDouble? = null,
+    // A service belongs to a trading day and is numbered inside it ("Service 3").
+    @SerialName("trading_day_id") val tradingDayId: String? = null,
+    @SerialName("service_no") val serviceNo: Int? = null,
+)
+
+/** A Z report — the frozen "Clôture de période". Its totals never change. */
+@Serializable
+data class ZReportDto(
+    val id: String,
+    val number: String,
+    val scope: String, // service | day
+    @SerialName("trading_day_id") val tradingDayId: String? = null,
+    val totals: kotlinx.serialization.json.JsonObject,
+    val note: String? = null,
+    @SerialName("closed_at") val closedAt: String? = null,
 )
 
 /** Insert payload for a new customer (RLS scopes the tenant). */

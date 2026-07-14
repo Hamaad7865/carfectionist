@@ -46,7 +46,9 @@ export async function issueDocumentAction(input: z.infer<typeof issueSchema>): P
   if (!parsed.success) return { ok: false, error: "Invalid input" };
   const sb = await createClient();
   try {
-    const doc = await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null);
+    // The desk's till: a ticket issued here belongs to the desk's service on the cash-up.
+    const sessionId = await backOfficeTillId(sb);
+    const doc = await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId);
     revalidatePath("/sales");
     revalidatePath(`/sales/${parsed.data.documentId}`);
     return { ok: true, data: doc };

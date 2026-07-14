@@ -162,12 +162,18 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     // Counter sales draw stock from the Shop (walk-in front), not the Warehouse
     // default; fall back to the tenant default if no Shop location exists.
     const shopLocationId = await resolveShopLocationId(sb);
+    // The DESK's till — never "any open till". Picking the first open session put a
+    // back-office sale into a tablet's drawer and corrupted both cash-ups. The TICKET and
+    // its PAYMENT must land on the same service, or the cash-up shows money with no sale.
+    const cashSessionId: string = await backOfficeTillId(sb);
     // Point of no return: this draws the gapless INV number and fires stock movements. If it
     // throws we cannot tell a lost request from a lost response, so the invoice may exist under
     // `${key}:issue` — and a replay would ignore any new draft we sent it.
     let issued: Awaited<ReturnType<typeof rpc.issueDocument>>;
     try {
-      issued = await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null);
+      // The ticket belongs to the desk's till — that is the service it will appear under
+      // on the cash-up.
+      issued = await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null, cashSessionId);
     } catch (e) {
       return { ok: false, error: (e as Error).message, settle: "uncertain" };
     }
@@ -180,14 +186,8 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
 
       let changeCents = 0;
       if (p.data.method !== "credit") {
-        // Link EVERY payment to the open till session — cash so the end-of-day
-        // cash-up reconciles, card/Juice/bank so the sale is traceable to a
-        // device (Point of Sale module). Drawer math is untouched:
-        // close_cash_session only sums method='cash'.
-        // The DESK's till — never "any open till". Picking the first open session put a
-        // back-office payment into a tablet's drawer and corrupted both cash-ups.
-        const cashSessionId: string = await backOfficeTillId(sb);
-
+        // Every payment is linked to the till it was taken on (resolved above, so the
+        // ticket and the money land on the same service).
         const tenderedRupees =
           p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;
 

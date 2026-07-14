@@ -213,7 +213,9 @@ class SaleRepository @Inject constructor(
         // Resolved before the point of no return, so a failed lookup is safely retryable.
         val shopLocationId = api.fetchShopLocationId()
         val issued = try {
-            api.issueDocument(draft.id, "$saleKey:issue", shopLocationId)
+            // The till that rang it — this is what puts the sale under its service on the
+            // cash-up. Same session the payment is booked to, so money and ticket agree.
+            api.issueDocument(draft.id, "$saleKey:issue", shopLocationId, cashSessionId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

@@ -36,6 +36,16 @@ class TillZReport @Inject constructor(
         printer.printReceipt(render(closed))
     }
 
+    /**
+     * Print a Z from its FROZEN totals — the server's figures, fixed at the moment the till
+     * was closed. This is the one to use: it reprints the same paper however long afterwards,
+     * where the legacy render above recomputes from rows that keep moving.
+     */
+    suspend fun print(z: mu.carfection.pos.core.network.ZReportDto) {
+        val w = if (hw.config.first().paperWidthMm == 58) 32 else 48
+        printer.printReceipt(ZSlip.render(z, catalog.receiptBiz(), w))
+    }
+
     suspend fun render(closed: CashSessionDto): String {
         val w = if (hw.config.first().paperWidthMm == 58) 32 else 48
         val biz = catalog.receiptBiz()

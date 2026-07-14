@@ -34,7 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import mu.carfection.pos.core.money.rupeesToCents
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -62,6 +65,14 @@ import mu.carfection.pos.ui.theme.Warning
 import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
+/** One row of "check your cash register before closing". */
+data class MethodRow(
+    val method: String,
+    val takings: Double,
+    val accumulation: Double,
+    val remit: Boolean = false, // ticked = swept to the bank on validation
+)
+
 data class TillUiState(
     val loading: Boolean = true,
     val session: CashSessionDto? = null,
@@ -70,6 +81,13 @@ data class TillUiState(
     val justClosed: CashSessionDto? = null,
     val notice: String? = null,          // e.g. "Cash out recorded"
     val cashOutDone: Int = 0,            // bumps so the screen clears its fields
+    // ── the Cashmag close ──────────────────────────────────────────────────
+    val preClose: List<MethodRow>? = null,   // non-null = the check-your-register screen is up
+    val expectedCash: Double = 0.0,
+    val serviceNo: Int = 1,
+    val closeChoiceOpen: Boolean = false,    // "Cloture de periode": service or day?
+    val confirmDay: Boolean = false,         // "day closure is final"
+    val z: mu.carfection.pos.core.network.ZReportDto? = null, // the slip, once cut
 )
 
 @HiltViewModel
@@ -109,26 +127,72 @@ class TillViewModel @Inject constructor(
         }
     }
 
-    fun close(countText: String) {
+    // ── Closing, the way the owner's till does it ────────────────────────────
+    /** Step 1: "CHECK YOUR CASH REGISTER BEFORE CLOSING". */
+    fun beginClose() {
         val id = _s.value.session?.id ?: return
-        val cents = parseMoneyToCents(countText) ?: 0
         _s.value = _s.value.copy(busy = true, error = null)
         viewModelScope.launch {
-            runCatching { till.close(id, cents) }
-                .onSuccess { closed ->
-                    _s.value = TillUiState(loading = false, session = null, justClosed = closed)
-                    // Cashmag parity: the "Clôture de période" slip prints the moment the
-                    // till closes. Fire-and-forget — the close itself has committed.
+            runCatching { till.preClose(id) }
+                .onSuccess { (rows, expected, serviceNo) ->
+                    _s.value = _s.value.copy(busy = false, preClose = rows, expectedCash = expected, serviceNo = serviceNo)
+                }
+                .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
+        }
+    }
+
+    fun cancelClose() = run { _s.value = _s.value.copy(preClose = null, closeChoiceOpen = false, confirmDay = false) }
+
+    /** Ticking a method banks its whole accumulation when the close is validated. */
+    fun toggleRemit(method: String) {
+        val rows = _s.value.preClose ?: return
+        _s.value = _s.value.copy(preClose = rows.map { if (it.method == method) it.copy(remit = !it.remit) else it })
+    }
+
+    /** Step 2: "Cloture de periode" — close this service, or seal the whole day? */
+    fun askCloseChoice() = run { _s.value = _s.value.copy(closeChoiceOpen = true) }
+    fun askConfirmDay() = run { _s.value = _s.value.copy(confirmDay = true) }
+    fun cancelConfirmDay() = run { _s.value = _s.value.copy(confirmDay = false) }
+
+    /**
+     * Closes the service: counts the drawer, banks what was ticked, cuts the Z. When
+     * [alsoDay] the day is sealed afterwards — no more money until it is reopened.
+     */
+    fun closeNow(countText: String, note: String, alsoDay: Boolean) {
+        val sess = _s.value.session ?: return
+        val counted = (parseMoneyToCents(countText) ?: 0) / 100.0
+        val remit = _s.value.preClose.orEmpty().filter { it.remit }.map { it.method }
+        _s.value = _s.value.copy(busy = true, error = null, closeChoiceOpen = false, confirmDay = false)
+        viewModelScope.launch {
+            runCatching {
+                val z = till.closeService(sess.id, counted, remit, note)
+                if (alsoDay && sess.tradingDayId != null) till.closeDay(sess.tradingDayId) else z
+            }
+                .onSuccess { z ->
+                    _s.value = TillUiState(loading = false, session = null, z = z, preClose = null)
+                    // The close has COMMITTED. Printing is a separate act that can fail
+                    // without taking the cash-up with it — and the report screen offers Print.
                     launch {
-                        val printed = runCatching { zReport.printFor(closed) }.isSuccess
+                        val printed = runCatching { zReport.print(z) }.isSuccess
                         _s.value = _s.value.copy(
-                            notice = if (printed) "Period-close report printed" else "Till closed — report couldn't reach the printer",
+                            notice = if (printed) "${z.number} printed" else "${z.number} cut — the printer didn't answer. Tap Print to try again.",
                         )
                     }
                 }
                 .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
         }
     }
+
+    /** Reprint the slip from its frozen totals — the same paper, however long after. */
+    fun printZ() {
+        val z = _s.value.z ?: return
+        viewModelScope.launch {
+            val ok = runCatching { zReport.print(z) }.isSuccess
+            _s.value = _s.value.copy(notice = if (ok) "${z.number} printed" else "The printer didn't answer")
+        }
+    }
+
+    fun doneWithZ() = run { _s.value = _s.value.copy(z = null, notice = null) }
 
     /** Petty cash out (Cashmag "Autre"): amount + reason; the server caps it at the drawer. */
     fun cashOut(amountText: String, reason: String) {
@@ -245,9 +309,221 @@ fun TillScreen(
                         Text("Close the till by counting the cash drawer:", color = TextSecondary, fontSize = 13.sp)
                         OutlinedTextField(countText, { countText = it }, label = { Text("Counted cash (Rs)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                         s.error?.let { Text(it, color = Danger, fontSize = 13.sp) }
-                        BigButton(if (s.busy) "Closing…" else "Close till & count", enabled = !s.busy) { viewModel.close(countText) }
+                        BigButton(if (s.busy) "Working…" else "Close till & count", enabled = !s.busy) { viewModel.beginClose() }
                     }
                 }
+            }
+        }
+    }
+
+    // ── Step 1: check your cash register before closing ──────────────────────
+    s.preClose?.let { rows ->
+        CheckRegisterDialog(
+            rows = rows,
+            serviceNo = s.serviceNo,
+            expectedCash = s.expectedCash,
+            countText = countText,
+            onCount = { countText = it },
+            onToggle = viewModel::toggleRemit,
+            onCancel = viewModel::cancelClose,
+            onValidate = viewModel::askCloseChoice,
+        )
+    }
+
+    // ── Step 2: close this service, or seal the whole day ────────────────────
+    if (s.closeChoiceOpen) {
+        var note by remember { mutableStateOf("") }
+        ClosePeriodDialog(
+            serviceNo = s.serviceNo,
+            note = note,
+            onNote = { note = it },
+            busy = s.busy,
+            onCloseService = { viewModel.closeNow(countText, note, alsoDay = false) },
+            onCloseDay = viewModel::askConfirmDay,
+            onBack = viewModel::cancelClose,
+        )
+        if (s.confirmDay) {
+            ConfirmDayDialog(
+                onCancel = viewModel::cancelConfirmDay,
+                onOk = { viewModel.closeNow(countText, note, alsoDay = true) },
+            )
+        }
+    }
+
+    // ── The slip ─────────────────────────────────────────────────────────────
+    s.z?.let { z ->
+        ZReportDialog(z = z, notice = s.notice, onPrint = viewModel::printZ, onDone = {
+            viewModel.doneWithZ(); viewModel.reload()
+        })
+    }
+}
+
+/** "CHECK YOUR CASH REGISTER BEFORE CLOSING" — what each method took, what has piled up,
+ *  and what gets banked when this is validated. */
+@Composable
+private fun CheckRegisterDialog(
+    rows: List<MethodRow>,
+    serviceNo: Int,
+    expectedCash: Double,
+    countText: String,
+    onCount: (String) -> Unit,
+    onToggle: (String) -> Unit,
+    onCancel: () -> Unit,
+    onValidate: () -> Unit,
+) {
+    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.width(720.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text("CHECK YOUR CASH REGISTER BEFORE CLOSING", color = TextPrimary, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+            Text(
+                "Ticked payments are remitted to the bank when you validate. Anything left unticked keeps accumulating in the till.",
+                color = TextSecondary, fontSize = 12.5.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+
+            rows.forEach { r ->
+                Row(
+                    Modifier.fillMaxWidth().background(InsetAlt, RoundedCornerShape(12.dp)).clickable { onToggle(r.method) }.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(r.method.replace('_', ' ').uppercase(), color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.6.sp)
+                        Text(formatMUR(rupeesToCents(r.takings)), color = TextSecondary, fontFamily = Mono, fontSize = 14.sp)
+                    }
+                    Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(end = 14.dp)) {
+                        Text("CASH FLOAT ACCUMULATION", color = TextMuted, fontSize = 9.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                        Text(formatMUR(rupeesToCents(r.accumulation)), color = TextPrimary, fontFamily = Mono, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    }
+                    // The tick: banked on validation.
+                    Box(
+                        Modifier.width(26.dp).height(26.dp)
+                            .background(if (r.remit) Success else Color.Transparent, RoundedCornerShape(6.dp))
+                            .border(1.5.dp, if (r.remit) Success else Hairline, RoundedCornerShape(6.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) { if (r.remit) Text("✓", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                }
+            }
+
+            Spacer(Modifier.height(4.dp))
+            Field2("Expected in the drawer", formatMUR(rupeesToCents(expectedCash)))
+            OutlinedTextField(
+                countText, onCount, label = { Text("Counted cash (Rs)") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth(),
+            )
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onCancel),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Back", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                Box(
+                    Modifier.weight(1.4f).height(50.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onValidate),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Validate", color = AccentInk, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+/** "Cloture de periode" — close THIS service, or seal the whole day. */
+@Composable
+private fun ClosePeriodDialog(
+    serviceNo: Int,
+    note: String,
+    onNote: (String) -> Unit,
+    busy: Boolean,
+    onCloseService: () -> Unit,
+    onCloseDay: () -> Unit,
+    onBack: () -> Unit,
+) {
+    Dialog(onDismissRequest = onBack) {
+        Column(
+            Modifier.width(460.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Clôture de période", color = TextPrimary, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            OutlinedTextField(note, onNote, label = { Text("Note for this service (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+
+            BigButton(if (busy) "Closing…" else "Close service $serviceNo", enabled = !busy, onClick = onCloseService)
+
+            Box(
+                Modifier.fillMaxWidth().height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(enabled = !busy, onClick = onCloseDay),
+                contentAlignment = Alignment.Center,
+            ) { Text("Close the day", color = Warning, fontSize = 14.5.sp, fontWeight = FontWeight.Bold) }
+
+            Box(Modifier.fillMaxWidth().height(40.dp).clickable(onClick = onBack), contentAlignment = Alignment.Center) {
+                Text("Back", color = TextSecondary, fontSize = 14.sp)
+            }
+        }
+    }
+}
+
+/** The day is final. Say so plainly before it is. */
+@Composable
+private fun ConfirmDayDialog(onCancel: () -> Unit, onOk: () -> Unit) {
+    Dialog(onDismissRequest = onCancel) {
+        Column(
+            Modifier.width(420.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Close the day", color = TextPrimary, fontFamily = Condensed, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Day closure is final: no more sales, payments or refunds today. Reopening it needs your PIN.",
+                color = Danger, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onCancel),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Cancel", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                Box(
+                    Modifier.weight(1f).height(50.dp).background(Danger, RoundedCornerShape(13.dp)).clickable(onClick = onOk),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Close the day", color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            }
+        }
+    }
+}
+
+/** The slip, straight from the Z's frozen totals. */
+@Composable
+private fun ZReportDialog(
+    z: mu.carfection.pos.core.network.ZReportDto,
+    notice: String?,
+    onPrint: () -> Unit,
+    onDone: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.width(560.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(if (z.scope == "day") "Day closed" else "Service closed", color = Success, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text(z.number, color = TextPrimary, fontFamily = Mono, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+
+            val t = z.totals
+            fun n(k: String) = t[k]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull() } ?: 0.0
+            Field2("Total incl. tax", formatMUR(rupeesToCents(n("total_incl"))))
+            Field2("Tickets", n("tickets").toInt().toString())
+            Field2("Average basket", formatMUR(rupeesToCents(n("avg_basket"))))
+            if (z.scope != "day") {
+                Field2("Counted", formatMUR(rupeesToCents(n("counted_cash"))))
+                val v = n("variance")
+                Field2("Variance", formatMUR(rupeesToCents(v)), if (v == 0.0) Success else Warning)
+            }
+            notice?.let { Text(it, color = TextSecondary, fontSize = 13.sp) }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onPrint),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Print", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                Box(
+                    Modifier.weight(1f).height(50.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Done", color = AccentInk, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
             }
         }
     }
