@@ -56,12 +56,24 @@ object ZSlip {
             centre("Service ${t.int("service_no")}")
             line("Initial cash float", money(t.num("float_initial")))
             line("Final cash float", money(t.num("float_final")))
+            line("Deleted bills", t.int("voided_bills").toString())
+            line("Canceled orders", "0")
+            line("Delete items", "0")
             rule()
         }
 
         appendTotalsBlock(t, ::line, ::rule)
 
+        // Sale modes — SALES [trading name] restated with its VAT, like the owner's slip.
+        line("Sale modes", "")
+        line("  SALES [${biz.name.uppercase()}]", money(t.num("total_incl")))
+        t["vat"]?.jsonArray?.forEach { v ->
+            val o = v.jsonObject
+            line("  ${o.str("label")}", money(o.num("vat")))
+            line("    excl. ${money(o.num("excl"))}", "incl. ${money(o.num("incl"))}")
+        }
         rule()
+
         appendLine("Closed by ${(t["cashiers"]?.jsonArray?.firstOrNull()?.jsonObject?.str("name")) ?: "—"}")
         z.note?.takeIf { it.isNotBlank() }?.let { appendLine("Note: $it") }
         appendLine()
@@ -78,6 +90,9 @@ object ZSlip {
         centre("Service ${s.int("service_no")}")
         line("Initial cash float", money(s.num("float_initial")))
         line("Final cash float", money(s.num("float_final")))
+        line("Deleted bills", s.int("voided_bills").toString())
+        line("Canceled orders", "0")
+        line("Delete items", "0")
         line("Counted", money(s.num("counted_cash")))
         val variance = s.num("variance")
         if (variance != 0.0) line("Variance", money(variance))
@@ -103,6 +118,7 @@ object ZSlip {
             if (method == "CASH") {
                 line("  CASH", money(o.num("gross")))
                 line("  CHANGE", money(o.num("change")))
+                line("  CASHBACK", money(0.0))
                 line("  CASH NET", money(o.num("net")))
             } else {
                 line("  $count $method", money(o.num("net")))
@@ -127,6 +143,17 @@ object ZSlip {
         val cashiers = t["cashiers"]?.jsonArray
         if (cashiers != null && cashiers.size > 0) {
             line("User as cashier", "")
+            cashiers.forEach { c ->
+                val o = c.jsonObject
+                line("  ${o.str("name")}", money(o.num("total")))
+                o["methods"]?.jsonArray?.forEach { m ->
+                    val mo = m.jsonObject
+                    line("      ${mo.str("method")?.replace('_', ' ')?.uppercase()}", money(mo.num("amount")))
+                }
+            }
+            rule()
+            // Sales person = the same people (the shop's cashier is the salesperson).
+            line("Sales person", "")
             cashiers.forEach { c ->
                 val o = c.jsonObject
                 line("  ${o.str("name")}", money(o.num("total")))
