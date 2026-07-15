@@ -3,8 +3,9 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Search, CalendarDays, Bell, Menu } from "lucide-react";
+import { CalendarDays, Bell, Menu } from "lucide-react";
 import { NAV } from "@/lib/auth/roles";
+import { GlobalSearch } from "./GlobalSearch";
 import type { NotifItem } from "@/lib/supabase/queries/notifications";
 
 const SUBS: Record<string, string> = {
@@ -53,11 +54,7 @@ export function Topbar({
         <div className="mt-px hidden truncate text-[11.5px] font-medium text-muted sm:block">{sub}</div>
       </div>
 
-      <div className="hidden h-10 max-w-[420px] flex-1 items-center gap-2.5 rounded-[11px] border border-line-2 bg-white px-3 md:flex">
-        <Search size={16} className="text-faint" />
-        <input placeholder="Search invoices, customers, vehicles…" className="min-w-0 flex-1 bg-transparent text-[13px] font-medium text-ink outline-none placeholder:text-faint" />
-        <span className="num rounded-[5px] border border-line-2 px-1.5 py-0.5 text-[10px] text-fainter">⌘K</span>
-      </div>
+      <GlobalSearch />
 
       <div className="hidden flex-1 md:block" />
 
