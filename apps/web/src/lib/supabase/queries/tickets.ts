@@ -20,6 +20,7 @@ export interface TicketRow {
   exclCents: number;    // negative for credit notes
   inclCents: number;
   customer: string | null;
+  voidReason: string | null; // why it was voided (shown beside the Void label)
 }
 
 export interface TicketsData {
@@ -38,7 +39,7 @@ export async function getTickets(fromP?: string, toP?: string): Promise<TicketsD
 
   let q = sb
     .from("documents")
-    .select("id, number, doc_type, status, issued_at, job_id, total_incl, subtotal_excl, source_document_id, customers(name), vehicles(plate)")
+    .select("id, number, doc_type, status, issued_at, job_id, total_incl, subtotal_excl, source_document_id, void_reason, customers(name), vehicles(plate)")
     .in("doc_type", ["invoice", "credit_note"])
     .neq("status", "draft")
     .order("issued_at", { ascending: false })
@@ -77,6 +78,7 @@ export async function getTickets(fromP?: string, toP?: string): Promise<TicketsD
       exclCents: sign * rupeesToCents(Number(d.subtotal_excl)),
       inclCents: sign * rupeesToCents(Number(d.total_incl)),
       customer: d.customers?.name ?? null,
+      voidReason: d.status === "void" ? (d.void_reason ?? null) : null,
     };
   });
 

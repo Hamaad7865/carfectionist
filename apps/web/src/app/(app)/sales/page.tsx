@@ -118,6 +118,7 @@ export default async function SalesPage({
                         {r.cancelLabel && <span className="rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">{r.cancelLabel}</span>}
                       </div>
                       <div className="mt-0.5 text-[11.5px] text-muted">{r.date} · {r.hour} · {r.serviceCount} line{r.serviceCount === 1 ? "" : "s"}</div>
+                      {r.voidReason && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-rose" title={r.voidReason}>Voided — {r.voidReason}</div>}
                     </div>
                     <div className="flex shrink-0 flex-col items-end gap-2">
                       <span className={`num text-[14px] font-bold ${r.inclCents < 0 ? "text-rose" : "text-ink-strong"}`}>{formatMUR(r.inclCents)}</span>
@@ -129,6 +130,7 @@ export default async function SalesPage({
                     <span>
                       <span className="num block text-[12.5px] font-bold" style={{ color: r.docType === "credit_note" ? "#d63b50" : "#1e6fe0" }}>{r.number ?? "—"}</span>
                       {r.cancelLabel && <span className="mt-0.5 inline-block rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-rose">{r.cancelLabel}</span>}
+                      {r.voidReason && <span className="mt-0.5 block truncate text-[10.5px] text-rose" title={r.voidReason}>{r.voidReason}</span>}
                     </span>
                     {r.plate ? (
                       <span className={`num inline-block w-fit rounded-[6px] border px-2 py-0.5 text-[11px] font-bold ${r.jobId ? "border-[rgba(43,140,255,0.3)] bg-[rgba(43,140,255,0.07)] text-link" : "border-line-2 bg-sub text-body"}`}>
@@ -198,6 +200,7 @@ export default async function SalesPage({
                       <span className="line-clamp-2">{r.comment}</span>
                     </div>
                   )}
+                  {r.voidReason && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-rose" title={r.voidReason}>Voided — {r.voidReason}</div>}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
                   <div className="num text-[14px] font-bold text-ink-strong">{rs(r.total_incl)}</div>
@@ -215,6 +218,7 @@ export default async function SalesPage({
                       <span className="truncate">{r.comment}</span>
                     </span>
                   )}
+                  {r.voidReason && <span className="mt-0.5 block truncate text-[11px] text-rose" title={r.voidReason}>Voided — {r.voidReason}</span>}
                 </span>
                 <span className="num text-[12px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)}</span>
                 <span className="text-[12px] text-muted">{r.methodLabel}</span>
