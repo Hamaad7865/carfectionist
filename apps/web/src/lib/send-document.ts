@@ -32,6 +32,16 @@ const DOC_TEMPLATE = {
 
 export const DEFAULT_SEND_NOTE = "Thank you for your business.";
 
+// A minimal valid 1-page PDF, used ONLY as the template's header example at
+// creation time (Meta requires a sample document for a DOCUMENT header). The
+// real quote/invoice PDF is fetched from its link at send time.
+const SAMPLE_PDF = new Uint8Array(
+  Buffer.from(
+    "JVBERi0xLjQKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PgplbmRvYmoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PgplbmRvYmoKMyAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL01lZGlhQm94WzAgMCA1OTUgODQyXS9SZXNvdXJjZXM8PC9Gb250PDwvRjEgNCAwIFI+Pj4+L0NvbnRlbnRzIDUgMCBSPj4KZW5kb2JqCjQgMCBvYmoKPDwvVHlwZS9Gb250L1N1YnR5cGUvVHlwZTEvQmFzZUZvbnQvSGVsdmV0aWNhPj4KZW5kb2JqCjUgMCBvYmoKPDwvTGVuZ3RoIDQ0Pj4Kc3RyZWFtCkJUIC9GMSAxOCBUZiA2MCA3ODAgVGQgKENhcmZlY3Rpb25pc3QpIFRqIEVUCmVuZHN0cmVhbQplbmRvYmoKeHJlZgowIDYKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDA5IDAwMDAwIG4gCjAwMDAwMDAwNTQgMDAwMDAgbiAKMDAwMDAwMDEwNSAwMDAwMCBuIAowMDAwMDAwMjE3IDAwMDAwIG4gCjAwMDAwMDAyODAgMDAwMDAgbiAKdHJhaWxlcgo8PC9TaXplIDYvUm9vdCAxIDAgUj4+CnN0YXJ0eHJlZgozNzIKJSVFT0Y=",
+    "base64",
+  ),
+);
+
 export interface SendDocumentInput {
   sb: SupabaseClient; // RLS-scoped client of the operator (cookie or bearer)
   docId: string;
@@ -110,7 +120,11 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       .maybeSingle();
 
     if (!tpl) {
-      const sub = await wa.submitTemplate(DOC_TEMPLATE);
+      // A DOCUMENT-header template must be created WITH an example document
+      // (Meta #100/2388043). Upload a tiny sample once to get a header handle.
+      const sample = await wa.uploadHeaderSample(SAMPLE_PDF, "sample.pdf", "application/pdf");
+      if (!sample.ok) return { ok: false, error: `Couldn't set up the WhatsApp document template: ${sample.error}` };
+      const sub = await wa.submitTemplate({ ...DOC_TEMPLATE, headerHandle: sample.data });
       if (!sub.ok) return sub;
       await admin.from("wa_templates").insert({
         tenant_id: d.tenant_id,

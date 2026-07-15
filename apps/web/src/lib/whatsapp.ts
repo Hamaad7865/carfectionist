@@ -54,9 +54,16 @@ export function buildTemplatePayload(t: {
   body: string;
   variableExamples: string[];
   headerFormat?: "DOCUMENT";
+  headerHandle?: string; // required by Meta for a media header (from uploadHeaderSample)
 }) {
   const components: Record<string, unknown>[] = [];
-  if (t.headerFormat) components.push({ type: "HEADER", format: t.headerFormat });
+  if (t.headerFormat) {
+    // Meta rejects a media-header template at creation unless it carries an
+    // example media handle (error #100/2388043 "HEADER missing example").
+    const header: Record<string, unknown> = { type: "HEADER", format: t.headerFormat };
+    if (t.headerHandle) header.example = { header_handle: [t.headerHandle] };
+    components.push(header);
+  }
   const body: Record<string, unknown> = { type: "BODY", text: t.body };
   if (t.variableExamples.length > 0) body.example = { body_text: [t.variableExamples] };
   components.push(body);
@@ -154,6 +161,7 @@ export async function submitTemplate(t: {
   body: string;
   variableExamples: string[];
   headerFormat?: "DOCUMENT";
+  headerHandle?: string;
 }): Promise<WaResult<{ id: string; status: string }>> {
   const e = waEnv();
   if (!e.token || !e.wabaId) return { ok: false, error: NOT_CONFIGURED };
@@ -164,6 +172,56 @@ export async function submitTemplate(t: {
   );
   if (!r.ok) return r;
   return { ok: true, data: { id: String(r.data.id ?? ""), status: String(r.data.status ?? "PENDING") } };
+}
+
+/** The app id that owns this token — needed to open a resumable upload session.
+ *  Read from the token itself (debug_token) so no extra secret is required. */
+async function appIdFromToken(token: string): Promise<string | null> {
+  const r = await graph(`debug_token?input_token=${encodeURIComponent(token)}`, { method: "GET" }, token);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const id = r.ok ? String((r.data as any)?.data?.app_id ?? "") : "";
+  return id || null;
+}
+
+/** Upload a sample document via Meta's resumable upload API and return a
+ *  header_handle — the example a DOCUMENT-header template must carry at creation.
+ *  Two calls: open a session (Bearer), then POST the bytes (OAuth scheme). */
+export async function uploadHeaderSample(
+  bytes: Uint8Array,
+  filename: string,
+  mime: string,
+): Promise<WaResult<string>> {
+  const e = waEnv();
+  if (!e.token) return { ok: false, error: NOT_CONFIGURED };
+  const appId = await appIdFromToken(e.token);
+  if (!appId) return { ok: false, error: "Couldn't resolve the Meta app id from the token." };
+  try {
+    const q = `file_name=${encodeURIComponent(filename)}&file_length=${bytes.length}&file_type=${encodeURIComponent(mime)}`;
+    const sRes = await fetch(`${GRAPH}/${appId}/uploads?${q}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${e.token}` },
+    });
+    const sJson = (await sRes.json().catch(() => ({}))) as Record<string, unknown>;
+    const sessionId = typeof sJson.id === "string" ? sJson.id : "";
+    if (!sessionId) {
+      console.error("[wa] upload session failed", JSON.stringify(sJson));
+      return { ok: false, error: "Couldn't open the sample upload session." };
+    }
+    const uRes = await fetch(`${GRAPH}/${sessionId}`, {
+      method: "POST",
+      headers: { Authorization: `OAuth ${e.token}`, file_offset: "0" },
+      body: bytes,
+    });
+    const uJson = (await uRes.json().catch(() => ({}))) as Record<string, unknown>;
+    const handle = typeof uJson.h === "string" ? uJson.h : "";
+    if (!handle) {
+      console.error("[wa] upload bytes failed", JSON.stringify(uJson));
+      return { ok: false, error: "Couldn't upload the sample document to Meta." };
+    }
+    return { ok: true, data: handle };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
 }
 
 /** Fetch current approval status for the tenant's templates (by name). */
