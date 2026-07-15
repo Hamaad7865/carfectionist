@@ -628,33 +628,57 @@ private fun AcceptBody(
         // Money on signing. Raising the bill is what gives the deposit something to land in —
         // which also fixes the price, so the panel says so rather than letting the shop find
         // out when a revision is refused.
-        MiniLabel("DEPOSIT ON SIGNING")
-        Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-            val chosen = vm.depositPct(s)
-            Box(
-                Modifier.height(38.dp)
-                    .background(if (s.depositCents <= 0L) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
-                    .border(if (s.depositCents <= 0L) 1.5.dp else 1.dp, if (s.depositCents <= 0L) AccentLine else Hairline, RoundedCornerShape(19.dp))
-                    .clickable { vm.pickDepositPct(null) }.padding(horizontal = 14.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("None", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.depositCents <= 0L) Accent else TextSecondary)
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            MiniLabel("DEPOSIT ON SIGNING")
+            Spacer(Modifier.weight(1f))
+            // % chips or a typed Rs amount — the shop asks for both.
+            listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
+                val on = s.depositMode == m
+                Box(
+                    Modifier.height(28.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(8.dp))
+                        .border(1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(8.dp))
+                        .clickable { vm.setDepositMode(m) }.padding(horizontal = 11.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(lb, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = if (on) Accent else TextSecondary) }
             }
-            QuoteViewModel.DEPOSIT_CHOICES.forEach { pct ->
-                val on = chosen == pct
+        }
+        if (s.depositMode == DiscountMode.PCT) {
+            Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                val chosen = vm.depositPct(s)
                 Box(
                     Modifier.height(38.dp)
-                        .background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
-                        .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp))
-                        .clickable { vm.pickDepositPct(if (on) null else pct) }.padding(horizontal = 14.dp),
+                        .background(if (s.depositCents <= 0L) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
+                        .border(if (s.depositCents <= 0L) 1.5.dp else 1.dp, if (s.depositCents <= 0L) AccentLine else Hairline, RoundedCornerShape(19.dp))
+                        .clickable { vm.pickDepositPct(null) }.padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Text("$pct%", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextSecondary)
+                    Text("None", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.depositCents <= 0L) Accent else TextSecondary)
+                }
+                QuoteViewModel.DEPOSIT_CHOICES.forEach { pct ->
+                    val on = chosen == pct
+                    Box(
+                        Modifier.height(38.dp)
+                            .background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
+                            .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp))
+                            .clickable { vm.pickDepositPct(if (on) null else pct) }.padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("$pct%", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextSecondary)
+                    }
+                }
+                if (s.depositCents > 0) {
+                    Spacer(Modifier.weight(1f))
+                    Text(formatMUR(s.depositCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
                 }
             }
-            if (s.depositCents > 0) {
-                Spacer(Modifier.weight(1f))
-                Text(formatMUR(s.depositCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                FilledInput(
+                    value = s.depositAmtText, onValueChange = vm::setDepositAmtText,
+                    placeholder = "Deposit amount (Rs)", modifier = Modifier.weight(1f), height = 40.dp,
+                    radius = 12.dp, bg = InsetAlt, fontFamily = Mono, fontSize = 14.sp,
+                )
+                if (s.depositCents > 0) Text(formatMUR(s.depositCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
             }
         }
         if (s.depositCents > 0) {

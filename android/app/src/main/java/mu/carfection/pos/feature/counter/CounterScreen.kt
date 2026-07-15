@@ -1161,7 +1161,10 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         if (d.lines.isNotEmpty()) SlipRow("Excl. VAT", rsSlip(d.totalCents - d.vatCents))
         if (d.onAccount) SlipRow("On account", rsSlip(d.totalCents), strong = true)
-        else {
+        else if (d.payments.size > 1) {
+            // Deposit then balance — each dated, so the customer sees the breakdown.
+            d.payments.forEach { p -> SlipRow("${p.method} · ${p.dateTime}", rsSlip(p.amountCents)) }
+        } else {
             SlipRow("Paid · ${d.payLabel?.lowercase()}", rsSlip(d.paidCents))
             SlipRow("Change", rsSlip(d.changeCents))
         }

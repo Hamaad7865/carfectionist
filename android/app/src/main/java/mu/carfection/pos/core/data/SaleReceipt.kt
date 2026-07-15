@@ -3,6 +3,7 @@ package mu.carfection.pos.core.data
 import mu.carfection.pos.core.hardware.ReceiptBiz
 import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
+import mu.carfection.pos.core.hardware.ReceiptPayment
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.SaleHistoryDto
 import mu.carfection.pos.core.network.SaleHistoryLineDto
@@ -21,6 +22,22 @@ fun saleReceiptDoc(h: SaleHistoryDto, biz: ReceiptBiz, vatRatePct: Int): Receipt
     // Discount lines are stored as negative lines: they are the discount total, not items.
     val positives = sorted.filter { incl(it) >= 0 }
     val pay = h.payments.filter { it.reversesPaymentId == null }.maxByOrNull { it.receivedAt ?: "" }
+
+    // Every payment, dated — so a deposit taken earlier and the balance taken later each
+    // show with when they happened. Short date so it fits a 58mm slip.
+    val payFmt = DateTimeFormatter.ofPattern("dd/MM HH:mm")
+    val paymentRows = h.payments
+        .sortedBy { it.receivedAt ?: "" }
+        .map { p ->
+            ReceiptPayment(
+                dateTime = runCatching {
+                    OffsetDateTime.parse(p.receivedAt).atZoneSameInstant(ZoneOffset.ofHours(4)).format(payFmt)
+                }.getOrDefault(p.receivedAt?.take(10) ?: "—"),
+                method = PayMethod.entries.firstOrNull { it.rpcValue == p.method }?.label ?: p.method,
+                amountCents = rupeesToCents(p.amount),
+                isReversal = p.reversesPaymentId != null,
+            )
+        }
 
     return ReceiptDoc(
         biz = biz,
@@ -45,5 +62,6 @@ fun saleReceiptDoc(h: SaleHistoryDto, biz: ReceiptBiz, vatRatePct: Int): Receipt
         // A deposit or a part payment leaves the bill open; the server's amount_paid is the
         // only honest source for what is still owed, so the slip quotes it rather than guessing.
         balanceDueCents = (rupeesToCents(h.totalIncl) - rupeesToCents(h.amountPaid)).coerceAtLeast(0),
+        payments = paymentRows,
     )
 }

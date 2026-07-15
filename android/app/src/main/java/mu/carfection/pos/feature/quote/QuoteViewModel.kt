@@ -92,6 +92,8 @@ data class QuoteState(
     // Money the customer leaves on signing. 0 = none. Taking one raises the bill, so it
     // also fixes the price — a change after that needs a credit note, not a quiet edit.
     val depositCents: Long = 0,
+    val depositMode: DiscountMode = DiscountMode.PCT, // % chips, or a typed Rs amount
+    val depositAmtText: String = "",                  // the typed Rs deposit (AMT mode)
     val depositPending: Boolean = false, // accepted with a deposit → the pad is waiting in Checkout
     val datePickerOpen: Boolean = false,
     val timePickerOpen: Boolean = false,
@@ -175,7 +177,7 @@ class QuoteViewModel @Inject constructor(
             // A deposit % or time estimate picked on the PREVIOUS quote's accept panel must
             // not ride into this fresh one — it would raise a deposit invoice and stamp a job
             // ETA this customer never agreed to (audit #7).
-            estimateMinutes = null, depositCents = 0, depositPending = false,
+            estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
@@ -254,7 +256,7 @@ class QuoteViewModel @Inject constructor(
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
                 lines = emptyList(), acceptOpen = false, techId = null, startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
                 // Don't inherit the last quote's deposit/estimate into this one (audit #7).
-                estimateMinutes = null, depositCents = 0, depositPending = false,
+                estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
                 sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
                 linesLoaded = false, // becomes true only when the lines actually load
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
@@ -413,6 +415,16 @@ class QuoteViewModel @Inject constructor(
     fun pickDepositPct(pct: Int?) = _s.update { st ->
         if (pct == null) st.copy(depositCents = 0)
         else st.copy(depositCents = (totals(st).totalCents * pct / 100) / 100 * 100)
+    }
+
+    /** Switch the deposit input between % chips and a typed Rs amount; clears the current pick. */
+    fun setDepositMode(m: DiscountMode) = _s.update { it.copy(depositMode = m, depositAmtText = "", depositCents = 0) }
+
+    /** A typed Rs deposit — the amount is the source of truth, clamped to the bill total. */
+    fun setDepositAmtText(t: String) = _s.update { st ->
+        val txt = moneyText(t)
+        val cents = (parseMoneyToCents(txt) ?: 0L).coerceIn(0L, totals(st).totalCents)
+        st.copy(depositAmtText = txt, depositCents = cents)
     }
 
     /** The share of the total this deposit represents, for highlighting the chip that set it. */

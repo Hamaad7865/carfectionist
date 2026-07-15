@@ -68,9 +68,15 @@ data class ReceiptDoc(
     // What is still owed after this payment. A deposit or a part payment leaves a balance,
     // and the customer must walk away holding paper that says so.
     val balanceDueCents: Long = 0,
+    // Every payment taken against this bill, dated. When there are two or more — a deposit
+    // then the balance — the slip lists each with its date/time instead of one "Paid" line.
+    val payments: List<ReceiptPayment> = emptyList(),
 ) {
     val footer = "Goods sold are not refundable. Thank you for shopping with us."
 }
+
+/** One dated payment row on the slip (a deposit, the balance, a reversal). */
+data class ReceiptPayment(val dateTime: String, val method: String, val amountCents: Long, val isReversal: Boolean = false)
 
 /**
  * Renders a [ReceiptDoc] to the plain text a thermal printer prints — mirroring
@@ -132,7 +138,10 @@ object ReceiptText {
         appendLine(kv("TOTAL", money(d.totalCents), w))
         if (d.lines.isNotEmpty()) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents), w))
         if (d.onAccount) appendLine(kv("On account", money(d.totalCents), w))
-        else {
+        else if (d.payments.size > 1) {
+            // A deposit then the balance — one dated line per payment.
+            d.payments.forEach { p -> appendLine(kv("${p.method} ${p.dateTime}", money(p.amountCents), w)) }
+        } else {
             appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents), w))
             appendLine(kv("Change", money(d.changeCents), w))
         }
