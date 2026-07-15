@@ -2,10 +2,15 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { serverEnv } from "@/lib/server-env";
 import { sendDocument } from "@/lib/send-document";
 
-// Scheduled-send processor. A pg_cron job POSTs here every few minutes with the
-// shared CRON_SECRET; we claim every due row atomically (claim_due_scheduled_sends
-// flips them to 'sending' under FOR UPDATE SKIP LOCKED, so overlapping runs never
-// double-dispatch) and deliver each through the SAME path as a manual send.
+// Scheduled-send processor. A pg_cron job POSTs here every few minutes; we claim
+// every due row atomically (claim_due_scheduled_sends flips them to 'sending'
+// under FOR UPDATE SKIP LOCKED, so overlapping runs never double-dispatch) and
+// deliver each through the SAME path as a manual send.
+//
+// Auth: the caller must present sha256(SERVICE_ROLE_KEY). That derives from a
+// secret the Worker already holds — no new secret to provision — and the hash
+// itself is one-way (it can't recover the key) and only authorises triggering a
+// run of already-scheduled work.
 //
 // A "reminder" row cancels itself if the invoice was paid or voided in the
 // meantime — the whole point of chasing only what's still owed.
@@ -13,6 +18,11 @@ export const dynamic = "force-dynamic";
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+async function sha256hex(s: string): Promise<string> {
+  const buf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
+  return [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 interface Claimed {
@@ -28,9 +38,10 @@ interface Claimed {
 const ORIGIN = "https://app-carfectionist.com";
 
 export async function POST(req: Request) {
-  const expected = serverEnv("CRON_SECRET");
-  if (!expected) return json({ ok: false, error: "CRON_SECRET not configured" }, 503);
-  if (req.headers.get("x-cron-secret") !== expected) return json({ ok: false, error: "unauthorized" }, 401);
+  const key = serverEnv("SUPABASE_SERVICE_ROLE_KEY");
+  if (!key) return json({ ok: false, error: "server not configured" }, 503);
+  const expected = await sha256hex(key);
+  if (req.headers.get("x-cron-key") !== expected) return json({ ok: false, error: "unauthorized" }, 401);
 
   const admin = createAdminClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
