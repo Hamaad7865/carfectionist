@@ -55,6 +55,7 @@ export function buildTemplatePayload(t: {
   variableExamples: string[];
   headerFormat?: "DOCUMENT";
   headerHandle?: string; // required by Meta for a media header (from uploadHeaderSample)
+  urlButton?: { text: string; urlBase: string; exampleSuffix: string }; // dynamic-URL CTA ("View")
 }) {
   const components: Record<string, unknown>[] = [];
   if (t.headerFormat) {
@@ -67,6 +68,21 @@ export function buildTemplatePayload(t: {
   const body: Record<string, unknown> = { type: "BODY", text: t.body };
   if (t.variableExamples.length > 0) body.example = { body_text: [t.variableExamples] };
   components.push(body);
+  if (t.urlButton) {
+    // A template URL button allows ONE variable, and only as a suffix at the
+    // very end of the URL — hence the /d/<token> redirect route.
+    components.push({
+      type: "BUTTONS",
+      buttons: [
+        {
+          type: "URL",
+          text: t.urlButton.text,
+          url: `${t.urlButton.urlBase}{{1}}`,
+          example: [`${t.urlButton.urlBase}${t.urlButton.exampleSuffix}`],
+        },
+      ],
+    });
+  }
   return { name: t.name, language: t.language, category: t.category, components };
 }
 
@@ -91,11 +107,15 @@ export function buildDocumentSendPayload(
   language: string,
   vars: string[],
   doc: { link: string; filename: string },
+  urlButtonParam?: string, // suffix for the template's dynamic-URL button
 ) {
   const components: Record<string, unknown>[] = [
     { type: "header", parameters: [{ type: "document", document: { link: doc.link, filename: doc.filename } }] },
   ];
   if (vars.length > 0) components.push({ type: "body", parameters: vars.map((v) => ({ type: "text", text: v })) });
+  if (urlButtonParam) {
+    components.push({ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: urlButtonParam }] });
+  }
   return {
     messaging_product: "whatsapp",
     to: phone,
@@ -111,12 +131,13 @@ export async function sendDocumentTemplate(
   language: string,
   vars: string[],
   doc: { link: string; filename: string },
+  urlButtonParam?: string,
 ): Promise<WaResult<{ messageId: string }>> {
   const e = waEnv();
   if (!e.token || !e.phoneNumberId) return { ok: false, error: NOT_CONFIGURED };
   const r = await graph(
     `${e.phoneNumberId}/messages`,
-    { method: "POST", body: JSON.stringify(buildDocumentSendPayload(phone, templateName, language, vars, doc)) },
+    { method: "POST", body: JSON.stringify(buildDocumentSendPayload(phone, templateName, language, vars, doc, urlButtonParam)) },
     e.token,
   );
   if (!r.ok) return r;
@@ -162,6 +183,7 @@ export async function submitTemplate(t: {
   variableExamples: string[];
   headerFormat?: "DOCUMENT";
   headerHandle?: string;
+  urlButton?: { text: string; urlBase: string; exampleSuffix: string };
 }): Promise<WaResult<{ id: string; status: string }>> {
   const e = waEnv();
   if (!e.token || !e.wabaId) return { ok: false, error: NOT_CONFIGURED };

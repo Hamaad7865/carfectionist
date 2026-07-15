@@ -11,7 +11,7 @@ import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
 import { VoidButton } from "@/features/documents/VoidButton";
 import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
-import { SendDocumentButton } from "@/features/documents/SendDocumentButton";
+import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import { CarDiagram } from "@/features/intake/CarDiagram";
 import { StartJobButton } from "@/features/intake/StartJobButton";
 import { markerMeta } from "@/features/intake/damage";
@@ -55,11 +55,12 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                 <Receipt size={15} /> Receipt
               </a>
             )}
-            <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
-              <Printer size={15} /> Print / PDF
-            </a>
-            {doc.number && doc.status !== "void" && (
-              <SendDocumentButton documentId={doc.id} defaultEmail={doc.customerEmail} defaultPhone={doc.customerPhone} />
+            {doc.number && doc.status !== "void" ? (
+              <DocumentShareBar documentId={doc.id} number={doc.number} defaultEmail={doc.customerEmail} defaultPhone={doc.customerPhone} />
+            ) : (
+              <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
+                <Printer size={15} /> Print / PDF
+              </a>
             )}
             {doc.docType === "quote" && <ReviseButton quoteId={doc.id} />}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}

@@ -85,4 +85,33 @@ describe("document-header templates", () => {
     });
     expect(comps[1]).toMatchObject({ type: "body" });
   });
+
+  it("buildTemplatePayload attaches the header example handle and the View URL button", () => {
+    const p = buildTemplatePayload({
+      name: "document_quote", language: "en", category: "UTILITY",
+      body: "Hello {{1}}, your document is attached.", variableExamples: ["Anesh"],
+      headerFormat: "DOCUMENT", headerHandle: "4::abc",
+      urlButton: { text: "View", urlBase: "https://app-carfectionist.com/d/", exampleSuffix: "tok.sig" },
+    });
+    expect(p.components[0]).toEqual({ type: "HEADER", format: "DOCUMENT", example: { header_handle: ["4::abc"] } });
+    expect(p.components[2]).toEqual({
+      type: "BUTTONS",
+      buttons: [{
+        type: "URL", text: "View",
+        url: "https://app-carfectionist.com/d/{{1}}",
+        example: ["https://app-carfectionist.com/d/tok.sig"],
+      }],
+    });
+  });
+
+  it("buildDocumentSendPayload fills the View button's URL suffix when given", () => {
+    const p = buildDocumentSendPayload("23052588854", "document_quote", "en", ["A"], {
+      link: "https://x/pdf", filename: "a.pdf",
+    }, "tok.sig");
+    const comps = (p.template as { components: Record<string, unknown>[] }).components;
+    expect(comps[2]).toEqual({
+      type: "button", sub_type: "url", index: "0",
+      parameters: [{ type: "text", text: "tok.sig" }],
+    });
+  });
 });
