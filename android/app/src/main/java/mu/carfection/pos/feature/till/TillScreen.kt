@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -574,85 +575,48 @@ private fun ZReportDialog(
         Column(
             Modifier.width(600.dp).heightIn(max = 720.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)),
         ) {
-            // header
-            Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 22.dp, bottom = 10.dp)) {
-                Text(if (z.scope == "day") "Day closed" else "Service closed", color = Success, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-                Text("${z.number} · ${z.closedAt?.take(16)?.replace('T', ' ') ?: ""}", color = TextSecondary, fontFamily = Mono, fontSize = 13.sp)
+            // header — the owner's Cashmag "Clôture de période" masthead, centred.
+            Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                Text(bizName.uppercase(), color = TextPrimary, fontFamily = Condensed, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
+                Text("Clôture de période", color = TextSecondary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                t.str("device")?.let { Text("Appareil $it", color = TextMuted, fontFamily = Barlow, fontSize = 12.sp) }
+                Text("${z.number} · ${z.closedAt?.take(16)?.replace('T', ' ') ?: ""}", color = TextMuted, fontFamily = Mono, fontSize = 12.sp)
             }
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
 
-            // the full breakdown — scrollable
-            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            // the full breakdown — scrollable, laid out as Cashmag's service cards + the period
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val services = t.arr("services")
-                if (services.isNotEmpty()) {
-                    services.forEach { s ->
-                        ZSection("Service ${s.int("service_no")}")
-                        ZRow("Initial cash float", mny(s.num("float_initial")))
-                        ZRow("Final cash float", mny(s.num("float_final")))
-                        if (s.num("variance") != 0.0) ZRow("Variance", mny(s.num("variance")), Warning)
-                    }
-                    ZSection("Period")
-                } else {
-                    ZSection("Service ${t.int("service_no")}")
-                    ZRow("Initial cash float", mny(t.num("float_initial")))
-                    ZRow("Final cash float", mny(t.num("float_final")))
-                    if (z.scope != "day") {
-                        ZRow("Counted", mny(t.num("counted_cash")))
-                        val v = t.num("variance")
-                        ZRow("Variance", mny(v), if (v == 0.0) Success else Warning)
-                    }
-                    ZSection("Period")
+                // A day carries every service as its own card; a single service close is one card.
+                val serviceCards = if (services.isNotEmpty()) services else listOf(t)
+                serviceCards.forEach { s -> ServiceCard(s, z.scope) { mny(it) } }
+
+                // For a whole day, a final "Period" card aggregates it; a single service already is the period.
+                if (services.isNotEmpty()) PeriodCard(t) { mny(it) }
+
+                // ── The period's detail, shared by service + day ─────────────────────
+                DetailCard("Categories", t.arr("categories").isNotEmpty()) {
+                    t.arr("categories").forEach { c -> ZRow("${c.int("lines")} ${c.str("name")?.uppercase()}", mny(c.num("incl"))) }
                 }
-
-                ZRow("Total incl. tax", mny(t.num("total_incl")))
-                ZRow("${t.int("tickets")} tickets", "Avg. ${mny(t.num("avg_basket"))}")
-                if (t.int("reversals") > 0) ZRow("${t.int("reversals")} reversals", "")
-                if (t.int("voided_bills") > 0) ZRow("${t.int("voided_bills")} deleted bills", "")
-
-                ZSection("Means of payment")
-                t.arr("methods").forEach { m ->
-                    val name = m.str("method")?.replace('_', ' ')?.uppercase() ?: "?"
-                    if (name == "CASH") {
-                        ZRow("CASH", mny(m.num("gross")), indent = true)
-                        ZRow("CHANGE", mny(m.num("change")), indent = true)
-                        ZRow("CASH NET", mny(m.num("net")), indent = true)
-                    } else {
-                        ZRow("${m.int("count")} $name", mny(m.num("net")), indent = true)
+                DetailCard("User as cashier", t.arr("cashiers").isNotEmpty()) {
+                    t.arr("cashiers").forEach { c ->
+                        ZRow(c.str("name") ?: "—", mny(c.num("total")), strong = true)
+                        c.arr("methods").forEach { m -> ZRow(m.str("method")?.replace('_', ' ')?.uppercase() ?: "?", mny(m.num("amount")), indent = true) }
                     }
                 }
-                (t["customer_credit"] as? JsonObject)?.let { c ->
-                    if (c.num("amount") != 0.0) ZRow("${c.int("count")} CUSTOMER CREDIT", mny(c.num("amount")), indent = true)
+                DetailCard("Sales person", t.arr("cashiers").isNotEmpty()) {
+                    t.arr("cashiers").forEach { c -> ZRow(c.str("name") ?: "—", mny(c.num("total"))) }
                 }
-
-                t.arr("categories").takeIf { it.isNotEmpty() }?.let { cats ->
-                    ZSection("Categories")
-                    cats.forEach { c -> ZRow("${c.int("lines")} ${c.str("name")?.uppercase()}", mny(c.num("incl")), indent = true) }
-                }
-
-                t.arr("cashiers").takeIf { it.isNotEmpty() }?.let { cs ->
-                    ZSection("Cashier / salesperson")
-                    cs.forEach { c -> ZRow(c.str("name") ?: "—", mny(c.num("total")), indent = true) }
-                }
-
-                t.arr("vat").takeIf { it.isNotEmpty() }?.let { vs ->
-                    ZSection("VAT")
-                    vs.forEach { v ->
-                        ZRow(v.str("label") ?: "", mny(v.num("vat")), indent = true)
-                        ZRow("  excl. ${mny(v.num("excl"))}", "incl. ${mny(v.num("incl"))}", TextMuted, indent = true)
+                DetailCard("VAT", t.arr("vat").isNotEmpty()) {
+                    t.arr("vat").forEach { v ->
+                        ZRow(v.str("label") ?: "", mny(v.num("vat")), strong = true)
+                        ZRow("excl. ${mny(v.num("excl"))}", "incl. ${mny(v.num("incl"))}", TextMuted, indent = true)
                     }
                 }
-
-                t.arr("accumulation").takeIf { it.isNotEmpty() }?.let { accs ->
-                    ZSection("Float accumulation")
-                    accs.forEach { a ->
-                        val name = a.str("method")?.replace('_', ' ')?.uppercase() ?: "?"
-                        if (a.num("remitted") > 0.0) ZRow("$name remitted to bank", mny(a.num("remitted")), indent = true)
-                        ZRow("$name carried on", mny(a.num("float_out")), indent = true)
-                    }
+                DetailCard("Sale modes", true) {
+                    ZRow("SALES [${bizName.uppercase()}]", mny(t.num("total_incl")), strong = true)
+                    t.arr("vat").forEach { v -> ZRow(v.str("label") ?: "", mny(v.num("vat")), TextMuted, indent = true) }
                 }
-
-                ZSection("Sale modes")
-                ZRow("SALES [${bizName.uppercase()}]", mny(t.num("total_incl")), indent = true)
             }
 
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
@@ -695,17 +659,97 @@ private fun ZReportDialog(
     }
 }
 
-@Composable
-private fun ZSection(title: String) {
-    Text(title.uppercase(), color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
-}
+// ── Z-report JSON helpers (top-level so the card composables can read the frozen
+//    totals; ZReportDialog keeps its own locals for its inline lambdas) ──────────
+private fun JsonObject.zn(k: String) = this[k]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
+private fun JsonObject.zi(k: String) = zn(k).toInt()
+private fun JsonObject.zs(k: String) = this[k]?.jsonPrimitive?.content?.takeIf { it != "null" }
+private fun JsonObject.za(k: String) = (this[k] as? kotlinx.serialization.json.JsonArray)?.map { it.jsonObject } ?: emptyList()
 
 @Composable
-private fun ZRow(label: String, value: String, valueColor: Color = TextPrimary, indent: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(start = if (indent) 12.dp else 0.dp)) {
-        Text(label, color = if (indent) TextSecondary else TextPrimary, fontFamily = Barlow, fontSize = 13.sp)
+private fun ZRow(label: String, value: String, valueColor: Color = TextPrimary, indent: Boolean = false, strong: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(start = if (indent) 14.dp else 0.dp)) {
+        Text(label, color = if (indent) TextSecondary else TextPrimary, fontFamily = Barlow, fontSize = 13.sp, fontWeight = if (strong) FontWeight.Bold else FontWeight.Normal)
         Spacer(Modifier.weight(1f))
-        Text(value, color = valueColor, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Medium)
+        Text(value, color = valueColor, fontFamily = Mono, fontSize = 13.sp, fontWeight = if (strong) FontWeight.Bold else FontWeight.Medium)
+    }
+}
+
+/** The blue "Service N" pill that heads each card, like the owner's Cashmag screen. */
+@Composable
+private fun ColumnScope.ZPill(text: String) {
+    Box(Modifier.align(Alignment.CenterHorizontally).background(Accent, RoundedCornerShape(16.dp)).padding(horizontal = 20.dp, vertical = 6.dp)) {
+        Text(text, color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 0.5.sp)
+    }
+}
+
+/** A rounded card the Z sections sit in (matches the second screenshot). */
+@Composable
+private fun ZCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp)).padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
+        content = content,
+    )
+}
+
+/** The "Means of payment" block — cash split + each other method, from a service or the day. */
+@Composable
+private fun MeansOfPayment(o: JsonObject, mny: (Double) -> String) {
+    Spacer(Modifier.height(4.dp))
+    Text("Means of payment", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 0.6.sp)
+    o.za("methods").forEach { m ->
+        val name = m.zs("method")?.replace('_', ' ')?.uppercase() ?: "?"
+        if (name == "CASH") {
+            ZRow("CASH", mny(m.zn("gross")), indent = true)
+            ZRow("CHANGE", mny(m.zn("change")), indent = true)
+            ZRow("CASHBACK", mny(0.0), indent = true)
+            ZRow("CASH NET", mny(m.zn("net")), indent = true, strong = true)
+        } else {
+            ZRow("${m.zi("count")} $name", mny(m.zn("net")), indent = true)
+        }
+    }
+    (o["customer_credit"] as? JsonObject)?.let { c ->
+        if (c.zn("amount") != 0.0) ZRow("${c.zi("count")} CUSTOMER CREDIT", mny(c.zn("amount")), indent = true)
+    }
+}
+
+/** One service's card: the Service pill, its floats + totals, and its means of payment. */
+@Composable
+private fun ServiceCard(s: JsonObject, scope: String, mny: (Double) -> String) = ZCard {
+    ZPill("Service ${s.zi("service_no")}")
+    Spacer(Modifier.height(4.dp))
+    ZRow("Initial cash float", mny(s.zn("float_initial")))
+    ZRow("Final cash float", mny(s.zn("float_final")))
+    Spacer(Modifier.height(2.dp))
+    ZRow("Total service incl. tax", mny(s.zn("total_incl")), strong = true)
+    ZRow("${s.zi("tickets")} tickets", "Avg. ${mny(s.zn("avg_basket"))}", TextMuted)
+    ZRow("Delete items", "0", TextMuted)
+    ZRow("Deleted bills", s.zi("voided_bills").toString(), TextMuted)
+    ZRow("Canceled orders", "0", TextMuted)
+    if (scope != "day" && s.zn("variance") != 0.0) ZRow("Variance", mny(s.zn("variance")), Warning)
+    MeansOfPayment(s, mny)
+}
+
+/** For a whole-day close, the aggregated "Period" card after the services. */
+@Composable
+private fun PeriodCard(t: JsonObject, mny: (Double) -> String) = ZCard {
+    ZPill("Period")
+    Spacer(Modifier.height(4.dp))
+    ZRow("Total incl. tax", mny(t.zn("total_incl")), strong = true)
+    ZRow("${t.zi("tickets")} tickets", "Avg. ${mny(t.zn("avg_basket"))}", TextMuted)
+    if (t.zi("reversals") > 0) ZRow("${t.zi("reversals")} reversals", "", TextMuted)
+    MeansOfPayment(t, mny)
+}
+
+/** A titled detail card (Categories, User as cashier, Sales person, VAT, Sale modes). */
+@Composable
+private fun DetailCard(title: String, show: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    if (!show) return
+    ZCard {
+        Text(title.uppercase(), color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(2.dp))
+        content()
     }
 }
 
