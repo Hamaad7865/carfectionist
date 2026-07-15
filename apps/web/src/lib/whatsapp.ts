@@ -125,8 +125,20 @@ async function graph(path: string, init: RequestInit, token: string): Promise<Wa
     });
     const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     if (!res.ok) {
-      const err = (json.error as { message?: string; code?: number } | undefined) ?? {};
-      return { ok: false, error: err.message ? `${err.message}${err.code ? ` (#${err.code})` : ""}` : `Graph API ${res.status}` };
+      // Meta packs the ACTUAL reason for a #100 into error_data.details — e.g.
+      // "the parameter document is not expected" or "Unable to download media".
+      // Surface it (and the subcode), or a #100 is unactionable.
+      const err =
+        (json.error as
+          | { message?: string; code?: number; error_subcode?: number; error_data?: { details?: string } }
+          | undefined) ?? {};
+      // Full object to the Worker log (wrangler tail) — the surfaced string is
+      // trimmed for the operator; this keeps everything for diagnosis.
+      console.error("[wa] graph error", path, JSON.stringify(json.error ?? json));
+      const detail = err.error_data?.details;
+      const parts = [err.message, detail && detail !== err.message ? `— ${detail}` : ""].filter(Boolean).join(" ");
+      const codes = [err.code && `#${err.code}`, err.error_subcode && `/${err.error_subcode}`].filter(Boolean).join("");
+      return { ok: false, error: parts ? `${parts}${codes ? ` (${codes})` : ""}` : `Graph API ${res.status}` };
     }
     return { ok: true, data: json };
   } catch (e) {
