@@ -32,6 +32,7 @@ export interface RpcDraftDoc {
   valid_until: string | null;
   due_date: string | null;
   origin: "standalone" | "from_job";
+  comment?: string | null;
   discount_kind: "percent" | "amount" | null;
   discount_value: number; // percent 0..100, or rupees (VAT-inclusive) for 'amount'
 }

@@ -27,6 +27,7 @@ export interface BuilderState {
   docDiscountValue: number;              // percent: % ; amount: Cents (VAT-inclusive)
   sectionConfig: Partial<SectionFlags>;
   customFields: { label: string; value: string }[];
+  comment: string; // internal note — shown in Sales list + invoice screen, never on a receipt/PDF
   dirty: boolean;
   save: "idle" | "saving" | "saved" | "error";
   saveError: string | null;
@@ -51,6 +52,7 @@ export type BuilderAction =
   | { type: "addCustomField"; field?: { label: string; value: string } }
   | { type: "patchCustomField"; index: number; patch: Partial<{ label: string; value: string }> }
   | { type: "removeCustomField"; index: number }
+  | { type: "setComment"; comment: string }
   | { type: "saveStart" }
   | { type: "saveOk"; docId: string; revision: number; number?: string | null; status?: string; stillDirty?: boolean }
   | { type: "saveError"; error: string }
@@ -83,6 +85,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
       return touched({ ...state, customFields: state.customFields.map((f, i) => (i === action.index ? { ...f, ...action.patch } : f)) });
     case "removeCustomField":
       return touched({ ...state, customFields: state.customFields.filter((_, i) => i !== action.index) });
+    case "setComment":
+      return touched({ ...state, comment: action.comment });
     case "saveStart":
       return { ...state, save: "saving", saveError: null };
     case "saveOk":

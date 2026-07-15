@@ -24,6 +24,7 @@ export default async function NewDocumentPage({
     docDiscountValue: 0,
     sectionConfig: ctx.templateConfig,
     customFields: [],
+    comment: "",
     dirty: false,
     save: "idle",
     saveError: null,

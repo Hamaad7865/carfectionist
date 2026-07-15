@@ -109,6 +109,7 @@ export interface LoadedDraft {
   docDiscountValue: number; // percent: % ; amount: Cents (VAT-inclusive)
   sectionConfig: Partial<SectionFlags>;
   customFields: { label: string; value: string }[];
+  comment: string;
   lines: {
     productId: string | null;
     title: string;
@@ -148,6 +149,7 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     docDiscountValue: d.discount_kind === "amount" ? rupeesToCents(Number(d.discount_value)) : Number(d.discount_value ?? 0),
     sectionConfig: flags as Partial<SectionFlags>,
     customFields: Array.isArray(cf) ? (cf as { label: string; value: string }[]) : [],
+    comment: d.comment ?? "",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       productId: l.product_id,

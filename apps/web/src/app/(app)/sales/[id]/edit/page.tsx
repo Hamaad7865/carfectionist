@@ -21,6 +21,7 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
     docDiscountValue: draft.docDiscountValue,
     sectionConfig: draft.sectionConfig,
     customFields: draft.customFields,
+    comment: draft.comment,
     dirty: false,
     save: "idle",
     saveError: null,

@@ -32,6 +32,7 @@ const state: BuilderState = {
   docDiscountValue: 0,
   sectionConfig: {},
   customFields: [],
+  comment: "",
   dirty: false,
   save: "idle",
   saveError: null,

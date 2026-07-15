@@ -175,6 +175,7 @@ class SaleRepository @Inject constructor(
         basketMode: DiscountMode = DiscountMode.PCT,
         basketPct: Int = 0,
         basketAmtCents: Long = 0,
+        comment: String? = null, // internal note; stored on the invoice, never on the receipt
     ): SaleResult {
         require(cart.isNotEmpty()) { "Add at least one product." }
         if (method == PayMethod.CREDIT) requireNotNull(customerId) { "Pick a customer for a credit sale." }
@@ -193,6 +194,7 @@ class SaleRepository @Inject constructor(
             put("doc_type", "invoice")
             put("customer_id", custId)
             put("origin", "standalone")
+            comment?.trim()?.takeIf { it.isNotEmpty() }?.let { put("comment", it) }
         }
         val specs = expandSaleLines(cart, basketMode, basketPct, basketAmtCents)
         val lines = buildJsonArray {

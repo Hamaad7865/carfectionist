@@ -169,6 +169,14 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           </div>
         )}
 
+        {doc.comment && (
+          <div className="mt-4 rounded-[13px] border border-line bg-card px-4 py-3">
+            <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Internal comment</div>
+            <p className="whitespace-pre-wrap text-[13px] text-body">{doc.comment}</p>
+            <p className="mt-1 text-[11px] text-faint">Internal only — not shown on the customer&rsquo;s receipt or invoice.</p>
+          </div>
+        )}
+
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
           {/* Lines */}
           <div className="overflow-hidden rounded-[15px] border border-line bg-card">

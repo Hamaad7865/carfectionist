@@ -765,6 +765,22 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                 }
             }
 
+            // Internal note on the sale — kept on the invoice for the back office, never
+            // printed on the customer's receipt. Walk-in sales only: a collect settles an
+            // already-issued, frozen invoice that has nowhere to store one.
+            if (s.collect == null) {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    OutlinedTextField(
+                        value = s.comment,
+                        onValueChange = vm::setComment,
+                        placeholder = { Text("Internal note (optional) — e.g. staff discount, collect later", color = TextMuted) },
+                        maxLines = 2,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    Text("Kept for the back office — never printed on the receipt.", color = TextMuted, fontSize = 11.5.sp)
+                }
+            }
+
             s.error?.let { Text(it, color = Danger, fontSize = 13.sp) }
 
             // A dead button with no reason is the worst thing to hand a cashier mid-sale.

@@ -22,6 +22,7 @@ export interface DocListRow {
   customerName: string | null;
   methodLabel: string;
   hasDiscount: boolean;
+  comment: string | null;
 }
 
 export interface DocList {
@@ -51,7 +52,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   const listQ = applyFilters(
     sb
       .from("documents")
-      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, discount_kind, discount_value, payments(method, amount), ${rel}`)
+      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, discount_kind, discount_value, comment, payments(method, amount), ${rel}`)
       .order("created_at", { ascending: false })
       .limit(200),
   );
@@ -77,6 +78,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
       customerName: d.customers?.name ?? null,
       methodLabel,
       hasDiscount: d.discount_kind != null && Number(d.discount_value) > 0,
+      comment: d.comment ?? null,
     };
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

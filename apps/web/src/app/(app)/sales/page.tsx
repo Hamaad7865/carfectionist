@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import Link from "next/link";
-import { Plus, ChevronRight, Store } from "lucide-react";
+import { Plus, ChevronRight, Store, MessageSquareText } from "lucide-react";
 import { listDocuments } from "@/lib/supabase/queries/documents";
 import { getTickets } from "@/lib/supabase/queries/tickets";
 import { getReceipt } from "@/lib/supabase/queries/receipt";
@@ -192,6 +192,12 @@ export default async function SalesPage({
                   </div>
                   <div className="mt-1 truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</div>
                   <div className="mt-0.5 text-[11.5px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)} · {r.methodLabel}</div>
+                  {r.comment && (
+                    <div className="mt-0.5 flex items-start gap-1 text-[11.5px] text-faint">
+                      <MessageSquareText size={12} className="mt-0.5 shrink-0" />
+                      <span className="line-clamp-2">{r.comment}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
                   <div className="num text-[14px] font-bold text-ink-strong">{rs(r.total_incl)}</div>
@@ -201,7 +207,15 @@ export default async function SalesPage({
               {/* Desktop grid */}
               <div className={`hidden md:grid ${COLS} items-center gap-3.5 px-5 py-3`}>
                 <span className="num text-[12.5px] font-bold" style={{ color: r.doc_type === "quote" ? "#6f5cd9" : "#1e6fe0" }}>{r.number ?? "Draft"}</span>
-                <span className="truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</span>
+                <span className="min-w-0">
+                  <span className="block truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</span>
+                  {r.comment && (
+                    <span className="mt-0.5 flex items-center gap-1 text-[11px] text-faint" title={r.comment}>
+                      <MessageSquareText size={11} className="shrink-0" />
+                      <span className="truncate">{r.comment}</span>
+                    </span>
+                  )}
+                </span>
                 <span className="num text-[12px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)}</span>
                 <span className="text-[12px] text-muted">{r.methodLabel}</span>
                 <span className="flex items-center gap-1.5"><StatusPill status={r.status} />{r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}</span>

@@ -83,6 +83,7 @@ data class CounterUiState(
     val payText: String = "",
     val padField: PadField = PadField.TENDER, // which display the numpad is typing into
     val refText: String = "",
+    val comment: String = "", // internal note for the sale — shown in the back office, never on the receipt
     val busy: Boolean = false,
     val error: String? = null,
     val done: SaleResult? = null,
@@ -693,6 +694,7 @@ class CounterViewModel @Inject constructor(
     /** An unresolved settle keeps its message: it is the cashier's only instruction for getting out. */
     private fun settleError(): String? = local.value.error.takeIf { local.value.pendingSettle != null }
     fun setRef(t: String) { if (frozenBySettle()) return; local.value = local.value.copy(refText = t) }
+    fun setComment(t: String) { if (frozenBySettle()) return; local.value = local.value.copy(comment = t) }
     private fun centsToText(cents: Long) =
         (cents / 100).toString() + if (cents % 100 != 0L) "." + (cents % 100).toString().padStart(2, '0') else ""
 
@@ -758,6 +760,7 @@ class CounterViewModel @Inject constructor(
                     basketMode = s.basketMode,
                     basketPct = s.basketPct,
                     basketAmtCents = s.basketAmtCents,
+                    comment = s.comment,
                 )
                 // Sale is committed — printing/drawer are fire-and-forget (can never lose it).
                 // Receipt mirrors the SAVED lines (incl. discount lines) in the studio's slip format.

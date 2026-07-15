@@ -23,7 +23,7 @@ const newKey = () => crypto.randomUUID();
 // Signature of the editable content — used to detect edits made WHILE a save is
 // in flight, so saveOk doesn't clear dirty and silently drop them.
 const editSig = (st: BuilderState) =>
-  JSON.stringify({ l: st.lines, c: st.customerId, d: st.docType, sc: st.sectionConfig, cf: st.customFields, dk: st.docDiscountKind, dv: st.docDiscountValue });
+  JSON.stringify({ l: st.lines, c: st.customerId, d: st.docType, sc: st.sectionConfig, cf: st.customFields, cm: st.comment, dk: st.docDiscountKind, dv: st.docDiscountValue });
 
 /**
  * A money text field that keeps a local editing buffer so a transient "1500."
@@ -87,7 +87,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       const startSig = editSig(s);
       dispatch({ type: "saveStart" });
       const payload: SaveDraftInput = {
-        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue },
+        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, comment: s.comment, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue },
         lines: s.lines.map((l) => ({
           productId: l.productId,
           title: l.title,
@@ -120,7 +120,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (state.status !== "draft" || !state.dirty) return;
     const t = setTimeout(() => void doSave(), 1200);
     return () => clearTimeout(t);
-  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.status, state.docDiscountKind, state.docDiscountValue, doSave]);
+  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.comment, state.status, state.docDiscountKind, state.docDiscountValue, doSave]);
 
   async function onIssue() {
     const s = stateRef.current;
@@ -502,6 +502,27 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                 <Plus size={14} /> Add field
               </button>
               <p className="mt-1.5 text-[11px] text-faint">Extra label/value details shown in the document header. Save reusable ones in Settings → Templates to get one-click buttons here.</p>
+            </div>
+          )}
+
+          {/* internal comment — back-office only, never printed on a receipt/PDF */}
+          {(!readOnly || state.comment) && (
+            <div className="border-t border-line pt-4">
+              <div className={`${label} mb-2.5`}>Internal comment</div>
+              {readOnly ? (
+                <p className="whitespace-pre-wrap rounded-[11px] border border-line bg-sub px-3.5 py-2.5 text-[13px] text-body">{state.comment}</p>
+              ) : (
+                <>
+                  <textarea
+                    value={state.comment}
+                    onChange={(e) => dispatch({ type: "setComment", comment: e.target.value })}
+                    rows={2}
+                    placeholder="A note for the shop — e.g. staff discount approved, collect Friday PM"
+                    className="w-full resize-y rounded-[11px] border border-line-2 bg-sub px-3.5 py-2.5 text-[13px] font-medium text-ink outline-none placeholder:text-faint focus:border-brand"
+                  />
+                  <p className="mt-1.5 text-[11px] text-faint">Shown on the Sales list and the invoice screen. Never printed on the customer&rsquo;s receipt or invoice PDF.</p>
+                </>
+              )}
             </div>
           )}
 

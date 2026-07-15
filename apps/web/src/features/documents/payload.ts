@@ -28,6 +28,7 @@ export const draftDocSchema = z.object({
   validUntil: z.string().nullable().optional(),
   dueDate: z.string().nullable().optional(),
   origin: z.enum(["standalone", "from_job"]).optional(),
+  comment: z.string().nullable().optional(), // internal note; never on a receipt/PDF
   discountKind: z.enum(["percent", "amount"]).nullable().optional(),
   discountValue: z.number().min(0).optional(), // percent: %, amount: Cents (VAT-inclusive)
 }).superRefine((d, ctx) => {
@@ -57,6 +58,7 @@ export function toRpcDoc(doc: SaveDraftInput["doc"]): RpcDraftDoc {
     valid_until: doc.validUntil ?? null,
     due_date: doc.dueDate ?? null,
     origin: doc.origin ?? "standalone",
+    comment: doc.comment ?? null,
     discount_kind: doc.discountKind ?? null,
     // amount is held in cents above the seam; the DB wants rupees (VAT-inclusive)
     discount_value: doc.discountKind === "amount" ? (doc.discountValue ?? 0) / 100 : (doc.discountValue ?? 0),
