@@ -207,10 +207,13 @@ export async function uploadHeaderSample(
       console.error("[wa] upload session failed", JSON.stringify(sJson));
       return { ok: false, error: "Couldn't open the sample upload session." };
     }
+    // fetch's BodyInit type here rejects a Uint8Array — hand it a plain
+    // ArrayBuffer of exactly these bytes (slice() copies to a tight buffer).
+    const body = bytes.slice().buffer as ArrayBuffer;
     const uRes = await fetch(`${GRAPH}/${sessionId}`, {
       method: "POST",
       headers: { Authorization: `OAuth ${e.token}`, file_offset: "0" },
-      body: bytes,
+      body,
     });
     const uJson = (await uRes.json().catch(() => ({}))) as Record<string, unknown>;
     const handle = typeof uJson.h === "string" ? uJson.h : "";
