@@ -1,57 +1,47 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { Monitor, TabletSmartphone } from "lucide-react";
 import {
-  Power, UserRound, Download, Wallet, CalendarCheck, BadgePercent,
-  ReceiptText, FileDown, CircleDot, Coins, Ban, Banknote, Monitor, TabletSmartphone,
-} from "lucide-react";
-import { getDeviceDashboard } from "@/lib/supabase/queries/pos-devices";
+  getDeviceDashboard,
+  getDeviceTraceability,
+} from "@/lib/supabase/queries/pos-devices";
+import { getSessionContext } from "@/lib/auth/session";
 import { DeviceSettings } from "@/features/pos/DeviceSettings";
 import { CashOutButton } from "@/features/pos/CashOutButton";
 import { RefDatePicker } from "@/features/pos/RefDatePicker";
+import { TraceabilityPanel } from "@/features/pos/TraceabilityPanel";
+import {
+  resolveDeviceDashboardRequest,
+  resolveTraceFilter,
+} from "@/features/pos/traceability";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { formatMUR } from "@/lib/money";
 import { muDateTime, muToday } from "@/lib/mu-date";
 
-const TABS = [
-  { key: "general", label: "General" },
-  { key: "settings", label: "Settings" },
-  { key: "cashflow", label: "Cash flow" },
-  { key: "trace", label: "Traceability" },
-] as const;
-
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
-
-// Cashmag-style round icons per traceability event kind.
-const KIND_ICON: Record<string, typeof CircleDot> = {
-  terminal_started: Power,
-  version: Download,
-  operator: UserRound,
-  till_open: Wallet,
-  till_close: CalendarCheck,
-  payment: Coins,
-  discount: BadgePercent,
-  receipt: ReceiptText,
-  export: FileDown,
-  period: CalendarCheck,
-  device_state: Ban,
-  cash_out: Banknote,
-};
 
 export default async function DeviceDashboardPage({
   params,
   searchParams,
 }: {
   params: Promise<{ deviceId: string }>;
-  searchParams: Promise<{ tab?: string; ref?: string; from?: string; to?: string }>;
+  searchParams: Promise<
+    Record<string, string | string[] | undefined>
+  >;
 }) {
   const { deviceId } = await params;
   const sp = await searchParams;
   const code = decodeURIComponent(deviceId);
-  const data = await getDeviceDashboard(code, { ref: sp.ref, from: sp.from, to: sp.to });
+  const session = await getSessionContext();
+  const { visibleTabs, tab, dashboardOptions, traceInput } =
+    resolveDeviceDashboardRequest(session?.role ?? "manager", sp);
+  const data = await getDeviceDashboard(code, dashboardOptions);
   if (!data) notFound();
 
-  const tab = TABS.some((t) => t.key === sp.tab) ? sp.tab! : "general";
-  const { device, sessions, trace, todayCents, cashflow } = data;
+  const traceData = traceInput === null
+    ? null
+    : await getDeviceTraceability(code, traceInput);
+  const { device, sessions, lastActivity, todayCents, cashflow } = data;
   const Icon = device.isBackOffice ? Monitor : TabletSmartphone;
   const todayTotal = todayCents.reduce((s, m) => s + m.cents, 0);
   // Struck rows don't count: totals are NET of cancelled pairs (a reversed
@@ -90,7 +80,7 @@ export default async function DeviceDashboardPage({
 
         {/* tabs */}
         <div className="mt-5 flex gap-1.5 overflow-x-auto border-b border-line pb-px">
-          {TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const on = tab === t.key;
             // Cash Flow AND Traceability are date-picker-driven — seed today so
             // the pickers arrive filled (Cashmag defaults to today–today).
@@ -142,15 +132,15 @@ export default async function DeviceDashboardPage({
                 {/* min-w-0: the truncating one-liner below must not stretch the grid track */}
                 <div className="min-w-0 rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[12px] font-semibold text-muted">Last activity</div>
-                  <div className="num mt-2 text-[15px] font-bold text-ink">{trace[0]?.atLabel ?? "—"}</div>
-                  <div className="mt-1 truncate text-[11px] text-faint">{trace[0] ? `${trace[0].title}${trace[0].detail ? ` — ${trace[0].detail}` : ""}` : "No events recorded yet"}</div>
+                  <div className="num mt-2 text-[15px] font-bold text-ink">{lastActivity?.atLabel ?? "—"}</div>
+                  <div className="mt-1 truncate text-[11px] text-faint">{lastActivity ? `${lastActivity.title}${lastActivity.summary ? ` — ${lastActivity.summary}` : ""}` : "No events recorded yet"}</div>
                 </div>
               </div>
 
               <div className="overflow-hidden rounded-[15px] border border-line bg-card">
                 <div className="border-b border-line px-5 py-3 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Latest sessions</div>
                 {sessions.length === 0 ? (
-                  <div className="px-5 py-10 text-center text-[12.5px] text-faint">This device hasn't opened a till yet.</div>
+                    <div className="px-5 py-10 text-center text-[12.5px] text-faint">This device hasn&apos;t opened a till yet.</div>
                 ) : (
                   sessions.slice(0, 6).map((s) => (
                     <div key={s.id} className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-line px-5 py-3 text-[12.5px] last:border-b-0">
@@ -320,54 +310,14 @@ export default async function DeviceDashboardPage({
             </div>
           )}
 
-          {/* ── TRACEABILITY — date-driven, refs clickable ── */}
-          {tab === "trace" && (
-            <div className="max-w-3xl">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <span className="text-[12px] text-muted">
-                  Everything this device did in the period — operators, tills, sales, discounts, receipts, corrections.
-                </span>
-                <DateRangeFilter label={false} />
-              </div>
-              {trace.length === 0 ? (
-                <div className="rounded-[14px] border border-dashed border-line-2 p-10 text-center text-[13px] text-faint">
-                  Nothing recorded in this period.
-                </div>
-              ) : (
-                <div className="flex flex-col">
-                  {trace.map((e) => {
-                    const K = KIND_ICON[e.kind] ?? CircleDot;
-                    return (
-                      <div key={e.key} className="relative flex gap-3.5 pb-5 last:pb-0">
-                        {/* rail */}
-                        <div className="flex flex-col items-center">
-                          <span className="grid size-9 shrink-0 place-items-center rounded-full border border-line-2 bg-card text-body">
-                            <K size={15} strokeWidth={2.1} />
-                          </span>
-                          <span className="mt-1 w-px flex-1 bg-line" />
-                        </div>
-                        <div className="min-w-0 flex-1 pt-1">
-                          <div className="flex flex-wrap items-baseline gap-x-2.5">
-                            {e.href ? (
-                              <Link href={e.href} className="text-[12.5px] font-bold uppercase tracking-[0.06em] text-link hover:underline">{e.title}</Link>
-                            ) : (
-                              <span className="text-[12.5px] font-bold uppercase tracking-[0.06em] text-ink">{e.title}</span>
-                            )}
-                            <span className="num text-[11px] text-faint">{e.atLabel}</span>
-                          </div>
-                          {e.detail && (
-                            // break-words: long unbroken tokens (emails, refs) must wrap, not overflow
-                            <div className="mt-0.5 break-words text-[12.5px] text-muted">
-                              {e.href ? <Link href={e.href} className="hover:underline">{e.detail}</Link> : e.detail}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
+          {/* ── TRACEABILITY ── */}
+          {tab === "trace" && traceData !== null && (
+            <TraceabilityPanel
+              events={traceData.trace}
+              traceState={traceData.traceState}
+              activeCategory={resolveTraceFilter(sp.traceCategory)}
+              currentQuery={sp}
+            />
           )}
         </div>
       </div>

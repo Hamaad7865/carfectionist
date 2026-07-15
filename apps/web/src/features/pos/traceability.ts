@@ -14,6 +14,19 @@ export type TraceStatus =
   | null;
 export type TraceFilter = "all" | TraceCategory | "exceptions";
 
+export const DEVICE_TABS = [
+  { key: "general", label: "General" },
+  { key: "settings", label: "Settings" },
+  { key: "cashflow", label: "Cash flow" },
+  { key: "trace", label: "Traceability" },
+] as const;
+
+export type DeviceTab = (typeof DEVICE_TABS)[number]["key"];
+
+export type DevicePageQueryParams = Readonly<
+  Record<string, string | string[] | undefined>
+>;
+
 export interface TraceRangeInput {
   from?: string | string[];
   to?: string | string[];
@@ -765,6 +778,40 @@ export function resolveTraceFilter(
   return typeof value === "string" && TRACE_FILTERS.has(value as TraceFilter)
     ? (value as TraceFilter)
     : "all";
+}
+
+export function deviceTabsForRole(role: string) {
+  return role === "owner"
+    ? DEVICE_TABS
+    : DEVICE_TABS.filter((tab) => tab.key !== "trace");
+}
+
+export function resolveDeviceTab(
+  role: string,
+  value: string | readonly string[] | undefined,
+): DeviceTab {
+  if (typeof value !== "string") return "general";
+  return deviceTabsForRole(role).some((tab) => tab.key === value)
+    ? (value as DeviceTab)
+    : "general";
+}
+
+export function resolveDeviceDashboardRequest(
+  role: string,
+  query: DevicePageQueryParams,
+) {
+  const visibleTabs = deviceTabsForRole(role);
+  const tab = resolveDeviceTab(role, query.tab);
+  const dashboardOptions = {
+    ref: typeof query.ref === "string" ? query.ref : undefined,
+    from: typeof query.from === "string" ? query.from : undefined,
+    to: typeof query.to === "string" ? query.to : undefined,
+  };
+  const traceInput = role === "owner" && tab === "trace"
+    ? { from: query.from, to: query.to }
+    : null;
+
+  return { visibleTabs, tab, dashboardOptions, traceInput };
 }
 
 export function sortTraceEvents(events: readonly TraceEvent[]): TraceEvent[] {

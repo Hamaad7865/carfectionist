@@ -109,3 +109,65 @@ There were zero app-origin warnings or errors. Chrome reported eight development
 - [x] Fonts/typography, spacing/layout, colors/tokens, image fidelity, and copy/content were explicitly reviewed.
 
 final result: passed
+
+---
+
+# Traceability Event Cards Design QA
+
+## Evidence
+
+- Source visual truth:
+  - `C:\Users\sheik\AppData\Local\Temp\codex-clipboard-f54e36de-77d1-4f38-a2d9-2cd01ac09ee6.png` (current Carfection Traceability)
+  - `C:\Users\sheik\AppData\Local\Temp\codex-clipboard-12c58bd0-52dc-48aa-a1de-f8e9b463b272.png` (CashMag reference)
+  - `C:\Projects\Carfection\.superpowers\brainstorm\793-1784018982\content\traceability-layouts.html` (approved grouped-audit-cards direction)
+- Implementation screenshot path: unavailable
+- Intended viewport: desktop matching the 1920 x 1080 Carfection reference, tablet, and 320 px mobile; 200% zoom resilience
+- Intended state: authenticated owner, Traceability tab, populated date range with payment, receipt, till, system, reversal, and variance events
+
+## Full-view comparison evidence
+
+Both supplied source screenshots were opened at original detail. A browser-rendered implementation capture could not be produced: the isolated Next.js development server exits with `spawn EPERM` in the managed sandbox, and the required direct run was unavailable after the platform escalation allowance was exhausted. Without a rendered implementation, no honest full-view comparison can be made.
+
+## Focused region comparison evidence
+
+Blocked for the same reason. The summary strip, category chips, date controls, grouped day headings, event-card field grid, warning treatment, and mobile amount/time reflow could not be inspected in a real browser at matching state and viewport.
+
+## Findings
+
+- [P0] Browser-rendered implementation evidence is unavailable
+  - Location: authenticated owner Traceability route.
+  - Evidence: source references are available, but the local implementation server cannot start in the current execution environment and no deployed branch exists because the remaining integration changes cannot be committed or pushed while Git escalation is unavailable.
+  - Impact: typography, spacing, colors, icons, copy, browser interactions, console state, responsive layout, keyboard focus, zoom resilience, and right-edge overflow cannot be visually certified.
+  - Fix: once process and Git access are available, start the isolated app with the existing ignored environment file, capture the owner route in Chrome at desktop/tablet/320 px and 200% zoom, place the implementation capture together with both source screenshots in one comparison input, fix every P0/P1/P2 mismatch, and repeat until clean.
+
+## Required fidelity surfaces
+
+- Fonts and typography: blocked pending browser capture.
+- Spacing and layout rhythm: blocked pending browser capture.
+- Colors and visual tokens: blocked pending browser capture.
+- Image quality and asset fidelity: the target contains no new raster imagery; Lucide icon fidelity remains blocked pending browser capture.
+- Copy and content: exact static state copy is covered by component tests, but visual wrapping and hierarchy remain blocked pending browser capture.
+
+## Primary interactions and browser checks
+
+- Date changes and Clear: not browser-tested.
+- Category chips and preserved query parameters: not browser-tested.
+- Linked event cards and single focus target: not browser-tested.
+- Owner/manager route behavior: statically reviewed and type-checked; not browser-tested.
+- Keyboard traversal, 200% zoom, tablet/mobile reflow: not browser-tested.
+- Console errors: not checked because the implementation could not be opened.
+
+## Comparison history
+
+- No visual QA iteration completed. Source evidence was opened; implementation evidence remained unavailable, so no visual fixes were inferred from code alone.
+
+## Implementation checklist
+
+1. Restore permission to start the local Next.js process and commit/push the working tree.
+2. Open the authenticated owner Traceability route in the user's Chrome.
+3. Capture desktop, tablet, 320 px, and 200% zoom states.
+4. Run a combined source-plus-implementation comparison, including a focused event-card region.
+5. Fix and recapture any P0/P1/P2 findings.
+6. Re-run the full web suite, TypeScript, lint, and production build.
+
+final result: blocked

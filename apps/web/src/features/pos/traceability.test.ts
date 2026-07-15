@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildTraceCategoryHref,
+  deviceTabsForRole,
   filterTraceEvents,
   groupTraceEventsByMauritiusDay,
   mapAuditTraceEvent,
@@ -9,6 +10,8 @@ import {
   mapSessionCloseTraceEvent,
   mapSessionOpenTraceEvent,
   normalizeTraceRange,
+  resolveDeviceTab,
+  resolveDeviceDashboardRequest,
   resolveTraceFilter,
   selectNewestTraceEvents,
   sortTraceEvents,
@@ -1319,5 +1322,143 @@ describe("buildTraceCategoryHref", () => {
     expect(params.get("to")).toBe("2026-07-12");
     expect(params.getAll("tag")).toEqual(["first", "second"]);
     expect(params.has("traceCategory")).toBe(false);
+  });
+});
+
+describe("device tab authorization", () => {
+  it("keeps Traceability available to owners", () => {
+    expect(resolveDeviceTab("owner", "trace")).toBe("trace");
+    expect(deviceTabsForRole("owner").map((tab) => tab.key)).toContain("trace");
+  });
+
+  it("omits Traceability for managers and resolves direct trace URLs to General", () => {
+    expect(resolveDeviceTab("manager", "trace")).toBe("general");
+    expect(deviceTabsForRole("manager").map((tab) => tab.key)).not.toContain(
+      "trace",
+    );
+  });
+
+  it("keeps every non-trace tab available to owners and managers", () => {
+    const expected = ["general", "settings", "cashflow"];
+
+    expect(
+      deviceTabsForRole("owner")
+        .filter((tab) => tab.key !== "trace")
+        .map((tab) => tab.key),
+    ).toEqual(expected);
+    expect(deviceTabsForRole("manager").map((tab) => tab.key)).toEqual(expected);
+    expect(resolveDeviceTab("owner", "settings")).toBe("settings");
+    expect(resolveDeviceTab("manager", "cashflow")).toBe("cashflow");
+  });
+
+  it("defaults unknown, repeated, and missing tab values to General", () => {
+    expect(resolveDeviceTab("owner", "unknown")).toBe("general");
+    expect(resolveDeviceTab("owner", ["trace", "general"])).toBe("general");
+    expect(resolveDeviceTab("manager", undefined)).toBe("general");
+  });
+
+  it.each([
+    {
+      name: "preserves raw trace dates for an owner while scalarizing base options",
+      role: "owner",
+      query: {
+        tab: "trace",
+        ref: "2026-07-10",
+        from: ["2026-07-11", "2026-07-12"],
+        to: "2026-07-14",
+      },
+      expectedTab: "trace",
+      expectedTabs: ["general", "settings", "cashflow", "trace"],
+      expectedDashboardOptions: {
+        ref: "2026-07-10",
+        from: undefined,
+        to: "2026-07-14",
+      },
+      expectedTraceInput: {
+        from: ["2026-07-11", "2026-07-12"],
+        to: "2026-07-14",
+      },
+    },
+    {
+      name: "resolves a manager direct trace URL to General without trace input",
+      role: "manager",
+      query: {
+        tab: "trace",
+        ref: ["2026-07-09", "2026-07-10"],
+        from: "2026-07-11",
+        to: "2026-07-14",
+      },
+      expectedTab: "general",
+      expectedTabs: ["general", "settings", "cashflow"],
+      expectedDashboardOptions: {
+        ref: undefined,
+        from: "2026-07-11",
+        to: "2026-07-14",
+      },
+      expectedTraceInput: null,
+    },
+    {
+      name: "keeps an owner non-trace request on the base dashboard only",
+      role: "owner",
+      query: {
+        tab: "cashflow",
+        ref: "2026-07-09",
+        from: "2026-07-11",
+        to: ["2026-07-13", "2026-07-14"],
+      },
+      expectedTab: "cashflow",
+      expectedTabs: ["general", "settings", "cashflow", "trace"],
+      expectedDashboardOptions: {
+        ref: "2026-07-09",
+        from: "2026-07-11",
+        to: undefined,
+      },
+      expectedTraceInput: null,
+    },
+    {
+      name: "fails a different non-owner role closed",
+      role: "cashier",
+      query: { tab: "trace", from: "2026-07-11", to: "2026-07-14" },
+      expectedTab: "general",
+      expectedTabs: ["general", "settings", "cashflow"],
+      expectedDashboardOptions: {
+        ref: undefined,
+        from: "2026-07-11",
+        to: "2026-07-14",
+      },
+      expectedTraceInput: null,
+    },
+    {
+      name: "fails an unknown role closed",
+      role: "unknown-role",
+      query: { tab: "trace", from: ["2026-07-11"], to: undefined },
+      expectedTab: "general",
+      expectedTabs: ["general", "settings", "cashflow"],
+      expectedDashboardOptions: {
+        ref: undefined,
+        from: undefined,
+        to: undefined,
+      },
+      expectedTraceInput: null,
+    },
+  ])("$name", ({
+    role,
+    query,
+    expectedTab,
+    expectedTabs,
+    expectedDashboardOptions,
+    expectedTraceInput,
+  }) => {
+    const boundary = resolveDeviceDashboardRequest(role, query);
+
+    expect(boundary.tab).toBe(expectedTab);
+    expect(boundary.visibleTabs.map((tab) => tab.key)).toEqual(expectedTabs);
+    expect(boundary.dashboardOptions).toEqual(expectedDashboardOptions);
+    expect(boundary.traceInput).toEqual(expectedTraceInput);
+
+    if (expectedTraceInput !== null) {
+      expect(boundary.traceInput?.from).toBe(query.from);
+      expect(boundary.traceInput?.to).toBe(query.to);
+    }
   });
 });
