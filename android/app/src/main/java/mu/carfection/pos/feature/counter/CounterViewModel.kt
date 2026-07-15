@@ -137,8 +137,10 @@ data class CounterUiState(
             // it otherwise. Owners skip the till gate, so without this they would only find out at
             // the moment of tender, with the customer's money already in their hand.
             PayMethod.CASH -> effectiveTenderCents >= payCents && till != null
-            // On account is the whole bill by definition — you cannot half-owe a counter sale.
-            PayMethod.CREDIT -> collect == null && customerId != null
+            // Credit = leave it on the customer's account. A walk-in needs a chosen customer;
+            // a collect already has one (the invoice's), and leaving the balance owed is exactly
+            // what "take it on credit" means for an existing bill.
+            PayMethod.CREDIT -> (collect == null && customerId != null) || (collect?.customers != null)
             else -> true
         }
 
@@ -505,6 +507,27 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(busy = true, error = null)
         viewModelScope.launch {
             try {
+                // Credit on a collect: the customer takes the balance on their account. Record no
+                // payment — the invoice simply stays outstanding (their receivable, on the
+                // statement). Show the slip with what it was for, stamped "on account".
+                if (s.method == PayMethod.CREDIT) {
+                    val creditSlip = runCatching {
+                        api.fetchInvoice(bill.id)?.let {
+                            saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt()).copy(isPayment = true)
+                        }
+                    }.getOrNull()
+                    launch {
+                        val printed = creditSlip != null && runCatching { printer.printDoc(creditSlip) }.isSuccess
+                        logReceiptOutcome(bill.number, printed)
+                    }
+                    local.value = local.value.copy(
+                        busy = false, padOpen = false, collect = null, pendingSettle = null,
+                        done = SaleResult(bill.id, bill.number, s.dueCents, 0L, onAccount = true),
+                        receipt = creditSlip,
+                    )
+                    loadLists()
+                    return@launch
+                }
                 val result = sales.collectOnInvoice(
                     invoiceId = bill.id,
                     number = bill.number,

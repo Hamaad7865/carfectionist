@@ -110,8 +110,15 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel, onViewJob, onGoCheckout)
     }
-    s.createdJobId?.let { jobId ->
-        // Accepted → offer to send the signed quotation PDF right away (the server
+    // A deposit was agreed → after signing, go STRAIGHT to Checkout to collect it: the
+    // CollectBus request is already latched, so the pad opens on the deposit figure. Leaving
+    // the operator on the quote (or making them find a button) is the illogical flow the owner
+    // hit. The signed quotation can still be sent later from the quote list.
+    LaunchedEffect(s.createdJobId, s.depositPending) {
+        if (s.createdJobId != null && s.depositPending) { viewModel.clearToast(); onGoCheckout() }
+    }
+    if (!s.depositPending) s.createdJobId?.let { jobId ->
+        // Accepted, no deposit → offer to send the signed quotation PDF right away (the server
         // renders + delivers it; WhatsApp needs the Meta connection, email the
         // Cloudflare enable — both fail with a clear message until then).
         var email by remember(s.customerEmail) { mutableStateOf(s.customerEmail ?: "") }

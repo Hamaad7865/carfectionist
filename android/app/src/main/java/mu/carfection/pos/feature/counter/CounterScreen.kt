@@ -654,9 +654,10 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                 Text("Due ${formatMUR(s.dueCents)}", color = Warning, fontFamily = Mono, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
 
-            // method chips (credit is walk-in only — you can't put an existing invoice on account)
+            // method chips — Credit ("leave it on the customer's account") is offered for a
+            // walk-in sale AND for collecting on an invoice (the balance stays owed).
             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                (if (s.collect != null) PayMethod.entries.filter { it != PayMethod.CREDIT } else PayMethod.entries).forEach { m ->
+                PayMethod.entries.forEach { m ->
                     val sel = s.method == m
                     Box(
                         Modifier

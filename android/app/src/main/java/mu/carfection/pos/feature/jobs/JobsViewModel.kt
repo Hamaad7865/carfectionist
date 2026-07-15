@@ -79,6 +79,9 @@ data class JobsState(
     val photos: List<JobPhotoDto> = emptyList(),
     val photoUrls: Map<String, String> = emptyMap(),
     val photoUploading: String? = null, // "before" | "after" while a capture uploads
+    // What the customer actually ordered — the service lines off the job's quote, so the work
+    // order says what to do instead of making the tech open the quote to find out.
+    val detailLines: List<mu.carfection.pos.core.network.QuoteLineDto> = emptyList(),
     // "View invoice": the job's bill, rebuilt from what the server stored — read it here,
     // print it, or send it. It is NOT in checkout's TO COLLECT once it is paid, which is why
     // sending the operator there showed them an empty screen.
@@ -364,7 +367,17 @@ class JobsViewModel @Inject constructor(
 
     // Clear photoUploading too: it isn't job-scoped, so leaving it set would show a phantom
     // "Uploading…" (and a disabled capture button) on the next job opened.
-    fun open(id: String) { _s.update { it.copy(activeJobId = id, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null) }; loadPhotos(id) }
+    fun open(id: String) {
+        _s.update { it.copy(activeJobId = id, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null, detailLines = emptyList()) }
+        loadPhotos(id)
+        // Pull the ordered services off the job's quote so the work order is detailed.
+        _s.value.jobs.firstOrNull { it.id == id }?.sourceQuoteId?.let { quoteId ->
+            viewModelScope.launch {
+                runCatching { api.fetchQuoteLines(quoteId) }
+                    .onSuccess { lines -> _s.update { if (it.activeJobId == id) it.copy(detailLines = lines) else it } }
+            }
+        }
+    }
     fun close() = _s.update { it.copy(activeJobId = null, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null) }
     fun clearToast() = _s.update { it.copy(toast = null, error = null) }
     fun note(msg: String) = _s.update { it.copy(toast = msg) }

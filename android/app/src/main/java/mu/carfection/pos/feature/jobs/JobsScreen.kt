@@ -470,6 +470,27 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                     PlateBadge(j.vehicles?.plate ?: "—", big = true)
                     Text(listOfNotNull(vehLabel(j), j.vehicles?.colour).joinToString(" · "), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary)
                 }
+                // What the customer ordered — the services off the job's quote, so the work order
+                // is detailed here instead of making the tech open the quote to find out.
+                if (s.detailLines.isNotEmpty()) {
+                    Column(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(12.dp)).padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("WORK ORDERED", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, letterSpacing = 1.2.sp, color = TextMuted)
+                        s.detailLines.forEach { l ->
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.Top) {
+                                Text("${l.qty.toInt()}×", fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextMuted)
+                                Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+                            }
+                        }
+                    }
+                }
+                // When the car is booked in — the scheduled time, shown on the work order.
+                j.scheduledAt?.let {
+                    Row(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(12.dp)).padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Scheduled", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextMuted)
+                        Spacer(Modifier.weight(1f))
+                        Text(scheduleLabel(it), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                    }
+                }
                 if (j.damageMarkers.isNotEmpty()) {
                     val n = j.damageMarkers.size
                     Text("⚠ $n pre-existing damage mark${if (n > 1) "s" else ""} recorded at intake", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Warning)
