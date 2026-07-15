@@ -147,6 +147,10 @@ class QuoteViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
+        // Pull the latest catalogue so SERVICES (and any newly-added products) show in the
+        // grid even when the on-device cache predates them — stale-while-revalidate, the
+        // observed flow above updates the grid the moment the fetch lands.
+        viewModelScope.launch { runCatching { catalog.refresh() } }
         loadQuotes()
         viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
         // Reception hands over a customer+vehicle (+condition) — open a fresh builder on it.
@@ -390,6 +394,18 @@ class QuoteViewModel @Inject constructor(
     /** How long the work should take. Null clears it — "we don't know yet" is a real answer. */
     fun pickEstimate(minutes: Int?) = _s.update { it.copy(estimateMinutes = minutes) }
 
+    // ── days + hours estimate picker ──────────────────────────────────────────────
+    fun estimateDays(s: QuoteState): Int = (s.estimateMinutes ?: 0) / 1440
+    fun estimateHours(s: QuoteState): Int = ((s.estimateMinutes ?: 0) % 1440) / 60
+
+    /** Set the estimate from a days + hours pick. 0/0 clears it. Capped at the DB's 30 days. */
+    fun setEstimate(days: Int, hours: Int) = _s.update {
+        val mins = (days.coerceIn(0, 30) * 1440) + (hours.coerceIn(0, 23) * 60)
+        it.copy(estimateMinutes = if (mins <= 0) null else mins.coerceAtMost(43200))
+    }
+    fun bumpEstimateDays(s: QuoteState, delta: Int) = setEstimate(estimateDays(s) + delta, estimateHours(s))
+    fun bumpEstimateHours(s: QuoteState, delta: Int) = setEstimate(estimateDays(s), estimateHours(s) + delta)
+
     /**
      * What the customer leaves on signing. Tapping the chosen share again clears it — no
      * deposit is the normal case, and the shop must never be nudged into asking for one.
@@ -413,15 +429,16 @@ class QuoteViewModel @Inject constructor(
         /** The splits a detailing shop actually asks for on signing. */
         val DEPOSIT_CHOICES = listOf(25, 50, 75)
 
-        /** 90 → "1h 30m". Nobody books a car in for "ninety minutes". */
+        /** 90 → "1h 30m"; 1560 → "1d 2h". Spoken in days/hours, never "ninety minutes". */
         fun estimateLabel(minutes: Int): String {
-            val h = minutes / 60
+            val d = minutes / 1440
+            val h = (minutes % 1440) / 60
             val m = minutes % 60
-            return when {
-                h == 0 -> "${m}m"
-                m == 0 -> "${h}h"
-                else -> "${h}h ${m}m"
-            }
+            return listOfNotNull(
+                if (d > 0) "${d}d" else null,
+                if (h > 0) "${h}h" else null,
+                if (m > 0 && d == 0) "${m}m" else null,
+            ).joinToString(" ").ifEmpty { "0" }
         }
     }
 

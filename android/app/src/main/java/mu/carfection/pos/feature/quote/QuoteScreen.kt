@@ -313,8 +313,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             LazyVerticalGrid(columns = GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxSize()) {
                 items(vm.filteredProducts(s), key = { it.id }) { p ->
                     val count = s.lines.firstOrNull { it.productId == p.id }?.qty
-                    Box(Modifier.height(84.dp).background(Tile, RoundedCornerShape(13.dp)).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.addProduct(p) }.padding(horizontal = 13.dp, vertical = 12.dp)) {
-                        Column {
+                    Box(Modifier.height(96.dp).background(Tile, RoundedCornerShape(13.dp)).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.addProduct(p) }.padding(horizontal = 13.dp, vertical = 10.dp)) {
+                        // fillMaxHeight so the weight actually distributes — without it a 2-line
+                        // name overflowed the tile and clipped the price off the bottom.
+                        Column(Modifier.fillMaxHeight()) {
                             Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 18.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp))
                             Spacer(Modifier.weight(1f))
                             Text(formatMUR(p.sellingPriceCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextSecondary)
@@ -323,7 +325,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     }
                 }
                 item {
-                    Column(Modifier.height(84.dp).fillMaxWidth().dashedBorder(Color(0x40101A24), 13.dp).clickable { vm.openAdhoc() }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                    Column(Modifier.height(96.dp).fillMaxWidth().dashedBorder(Color(0x40101A24), 13.dp).clickable { vm.openAdhoc() }, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         Text("+", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 20.sp, color = TextSecondary)
                         Spacer(Modifier.height(6.dp))
                         Text("Ad-hoc line — typed", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, letterSpacing = 0.4.sp, color = TextSecondary)
@@ -551,7 +553,15 @@ private fun AcceptBody(
     modifier: Modifier = Modifier,
 ) {
     val signed = strokes.any { it.size > 1 }
-    Column(modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(modifier.fillMaxWidth()) {
+        // The config scrolls, so adding rows (Takes about, Deposit) can never crowd the
+        // signature off the panel again — the signature is pinned below at a fixed height,
+        // always reachable however short the screen.
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
         MiniLabel("ASSIGN TECHNICIAN")
         if (s.technicians.isEmpty()) Text("No active technicians — assign later from the job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
         Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -583,24 +593,13 @@ private fun AcceptBody(
         // thing that can answer "when will my car be ready?". Optional: an unestimated job
         // simply shows no ETA rather than a made-up one.
         MiniLabel("TAKES ABOUT")
-        Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
-            QuoteViewModel.ESTIMATE_CHOICES.forEach { mins ->
-                val on = s.estimateMinutes == mins
-                Box(
-                    Modifier.height(38.dp)
-                        .background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
-                        .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp))
-                        // Tapping the chosen one again clears it — no estimate is a valid answer.
-                        .clickable { vm.pickEstimate(if (on) null else mins) }
-                        .padding(horizontal = 14.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        QuoteViewModel.estimateLabel(mins),
-                        fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
-                        color = if (on) Accent else TextSecondary,
-                    )
-                }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            EstStepper("Days", vm.estimateDays(s), onMinus = { vm.bumpEstimateDays(s, -1) }, onPlus = { vm.bumpEstimateDays(s, +1) })
+            EstStepper("Hours", vm.estimateHours(s), onMinus = { vm.bumpEstimateHours(s, -1) }, onPlus = { vm.bumpEstimateHours(s, +1) })
+            Spacer(Modifier.weight(1f))
+            if (s.estimateMinutes != null) {
+                Text(QuoteViewModel.estimateLabel(s.estimateMinutes!!), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
+                Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary, modifier = Modifier.clickable { vm.pickEstimate(null) }.padding(start = 8.dp))
             }
         }
 
@@ -643,7 +642,14 @@ private fun AcceptBody(
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
             )
         }
+        } // ── end of the scrolling config column ──
 
+        // Signature — pinned below the config at a fixed height, so it is ALWAYS on screen
+        // and signable no matter how many options sit above it.
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             MiniLabel("CLIENT SIGNATURE")
             Spacer(Modifier.weight(1f))
@@ -655,7 +661,7 @@ private fun AcceptBody(
         // A signature is a legal artefact, not a formality — give it room to be written with a
         // finger. It takes the leftover height and never drops below a comfortable pad.
         Box(
-            Modifier.fillMaxWidth().weight(1f).heightIn(min = 190.dp)
+            Modifier.fillMaxWidth().height(160.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.White)
                 .border(1.dp, Hairline, RoundedCornerShape(12.dp))
@@ -690,6 +696,22 @@ private fun AcceptBody(
                     }
                 }
             }
+        }
+        } // ── end of the pinned signature column ──
+    }
+}
+
+/** Days / hours estimate stepper: [−] value [+] with a caption. Reuses the shared StepBtn. */
+@Composable
+private fun EstStepper(caption: String, value: Int, onMinus: () -> Unit, onPlus: () -> Unit) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Text(caption, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, letterSpacing = 0.8.sp, color = TextMuted)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            StepBtn("−") { onMinus() }
+            Box(Modifier.width(46.dp).height(40.dp), contentAlignment = Alignment.Center) {
+                Text(value.toString(), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+            }
+            StepBtn("+") { onPlus() }
         }
     }
 }
