@@ -39,6 +39,7 @@ Thumbs.db
 .idea/
 .worktrees/
 .superpowers/sdd/
+.superpowers/brainstorm/
 .vscode/*
 !.vscode/extensions.json
 
