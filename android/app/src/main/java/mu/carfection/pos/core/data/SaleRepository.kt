@@ -120,6 +120,10 @@ data class SaleResult(
     val totalCents: Long,
     val changeCents: Long,
     val onAccount: Boolean,
+    // Set only when this result is a COLLECT on an existing invoice (a deposit / part or
+    // full payment). Lets the done panel reverse just this payment instead of credit-noting
+    // the whole live invoice (audit #6). Null for a walk-in sale.
+    val paymentId: String? = null,
 )
 
 /**
@@ -270,7 +274,7 @@ class SaleRepository @Inject constructor(
         // The invoice already exists; a lost response after record_payment lands is
         // indistinguishable from a lost request. Surface it as SalePaymentUncertain (like
         // completeSale) so the caller freezes and the retry replays under "$payKey:collect".
-        try {
+        val payment = try {
             api.recordPayment(
                 invoiceId = invoiceId,
                 method = requireNotNull(method.rpcValue),
@@ -287,6 +291,6 @@ class SaleRepository @Inject constructor(
             throw SalePaymentUncertain(invoiceId, number, e)
         }
         val change = if (method == PayMethod.CASH && tendered != null) (tendered - amountCents).coerceAtLeast(0) else 0
-        return SaleResult(invoiceId, number, amountCents, change, onAccount = false)
+        return SaleResult(invoiceId, number, amountCents, change, onAccount = false, paymentId = payment.id)
     }
 }

@@ -112,7 +112,7 @@ fun CounterScreen(
             Spacer(Modifier.width(16.dp))
             val till = s.till
             Chip(
-                text = if (till != null) "Till open · float ${formatMUR((till.openingFloat * 100).toLong())}" else "Till closed — open it",
+                text = if (till != null) "Till open · float ${formatMUR(mu.carfection.pos.core.money.rupeesToCents(till.openingFloat))}" else "Till closed — open it",
                 color = if (till != null) Success else Warning,
                 onClick = onOpenTill,
             )
@@ -529,7 +529,9 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                 Text(if (s.listBusy) "Loading…" else "Nothing awaiting payment.", color = TextMuted, fontSize = 13.sp, modifier = Modifier.padding(vertical = 18.dp))
             } else LazyColumn(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 items(s.bills, key = { it.id }) { b ->
-                    val remaining = ((b.totalIncl - b.amountPaid) * 100).toLong()
+                    // HALF_UP via rupeesToCents, not truncation — a Rs .13 balance must not
+                    // read as .12 a cent below what the pad actually collects (audit #12).
+                    val remaining = mu.carfection.pos.core.money.rupeesToCents(b.totalIncl) - mu.carfection.pos.core.money.rupeesToCents(b.amountPaid)
                     val partly = b.status == "partly_paid"
                     Row(
                         Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(12.dp))
@@ -581,7 +583,7 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                         Text(p.documents?.number ?: "—", color = TextMuted, fontFamily = Mono, fontSize = 11.sp)
                         Spacer(Modifier.width(8.dp))
                         Text(p.documents?.customers?.name ?: "—", color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Text(formatMUR((p.amount * 100).toLong()), color = TextPrimary, fontFamily = Mono, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text(formatMUR(mu.carfection.pos.core.money.rupeesToCents(p.amount)), color = TextPrimary, fontFamily = Mono, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -817,7 +819,7 @@ private fun PaymentActionDialog(p: mu.carfection.pos.core.network.TodayPaymentDt
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Correct this payment", color = TextPrimary, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
-            Text("${p.documents?.number ?: "Invoice"} · ${p.documents?.customers?.name ?: "—"} · ${formatMUR((p.amount * 100).toLong())}", color = TextSecondary, fontSize = 13.sp)
+            Text("${p.documents?.number ?: "Invoice"} · ${p.documents?.customers?.name ?: "—"} · ${formatMUR(mu.carfection.pos.core.money.rupeesToCents(p.amount))}", color = TextSecondary, fontSize = 13.sp)
             Spacer(Modifier.height(2.dp))
             when {
                 isReversalRow -> Text("This entry IS a reversal — there's nothing further to undo on it.", color = TextMuted, fontSize = 13.sp)

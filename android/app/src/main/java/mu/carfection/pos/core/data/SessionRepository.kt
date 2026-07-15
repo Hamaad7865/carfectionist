@@ -49,6 +49,11 @@ class SessionRepository @Inject constructor(
         when (status) {
             is SessionStatus.Initializing -> null
             is SessionStatus.Authenticated -> true
+            // A refresh failure (a network blip on the hourly token refresh) keeps the
+            // tokens and retries — it is NOT a sign-out. Collapsing it to false wiped the
+            // cashier's in-progress cart mid-sale (audit #8). Only a real NotAuthenticated
+            // is a sign-out.
+            is SessionStatus.RefreshFailure -> true
             else -> false
         }
     }

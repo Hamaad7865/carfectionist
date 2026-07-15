@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, MessageCircle, Mail, Send, Check, Eye, RefreshCw } from "lucide-react";
-import { sendDocumentAction, getSendContextAction, type SendContext } from "./actions";
+import { X, MessageCircle, Mail, Send, Check, Eye, RefreshCw, Clock, Bell } from "lucide-react";
+import { deliverDocumentAction, getSendContextAction, type SendContext } from "./actions";
 
 // The "Send to customer" sheet, modelled on the owner's Refrens reference: a
 // titled WhatsApp/Email sheet with the client's name, the recipient field, the
@@ -37,8 +37,13 @@ export function SendDocumentDialog({
   const [to, setTo] = useState("");
   const [note, setNote] = useState(NOTE_PRESETS[0].text);
   const [busy, setBusy] = useState(false);
-  const [done, setDone] = useState(false);
+  const [done, setDone] = useState<null | string>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // schedule-for-later + auto-reminders (matches the reference dialog)
+  const [scheduleOn, setScheduleOn] = useState(false);
+  const [scheduleAt, setScheduleAt] = useState("");
+  const [remindersOn, setRemindersOn] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -61,10 +66,24 @@ export function SendDocumentDialog({
   async function send() {
     setBusy(true);
     setError(null);
-    const r = await sendDocumentAction({ documentId, channel, to, note: note.trim() || undefined });
+    const r = await deliverDocumentAction({
+      documentId,
+      channel,
+      to,
+      note: note.trim() || undefined,
+      scheduleAt: scheduleOn && scheduleAt ? scheduleAt : undefined,
+      autoReminders: remindersOn || undefined,
+    });
     setBusy(false);
-    if (r.ok) setDone(true);
-    else setError(r.error);
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    const bits = [
+      r.scheduled ? "Scheduled" : "Sent — the customer will receive the PDF",
+      r.reminders > 0 ? `${r.reminders} reminder${r.reminders === 1 ? "" : "s"} set` : "",
+    ].filter(Boolean);
+    setDone(bits.join(" · ") + ".");
   }
 
   const isWa = channel === "whatsapp";
@@ -122,7 +141,7 @@ export function SendDocumentDialog({
                     <input
                       className="h-10 flex-1 bg-transparent px-3 text-[13px] text-ink outline-none"
                       value={to}
-                      onChange={(e) => { setTo(e.target.value); setDone(false); }}
+                      onChange={(e) => { setTo(e.target.value); setDone(null); }}
                       placeholder="5XXX XXXX"
                       inputMode="tel"
                     />
@@ -131,7 +150,7 @@ export function SendDocumentDialog({
                   <input
                     className="h-10 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand"
                     value={to}
-                    onChange={(e) => { setTo(e.target.value); setDone(false); }}
+                    onChange={(e) => { setTo(e.target.value); setDone(null); }}
                     placeholder="customer@email.com"
                     inputMode="email"
                   />
@@ -157,7 +176,7 @@ export function SendDocumentDialog({
                       <button
                         key={p.label}
                         type="button"
-                        onClick={() => { setNote(p.text); setDone(false); }}
+                        onClick={() => { setNote(p.text); setDone(null); }}
                         className={`h-7 rounded-[8px] px-2.5 text-[11.5px] font-semibold ${note === p.text ? "grad-brand text-white" : "border border-line-2 bg-sub text-body"}`}
                       >
                         {p.label}
@@ -166,7 +185,7 @@ export function SendDocumentDialog({
                   </div>
                   <textarea
                     value={note}
-                    onChange={(e) => { setNote(e.target.value.slice(0, 300)); setDone(false); }}
+                    onChange={(e) => { setNote(e.target.value.slice(0, 300)); setDone(null); }}
                     rows={2}
                     className="w-full resize-none rounded-[11px] border border-line-2 bg-sub px-3 py-2 text-[13px] leading-snug text-ink outline-none focus:border-brand"
                     placeholder="Message to the customer…"
@@ -174,10 +193,27 @@ export function SendDocumentDialog({
                 </div>
               </Field>
 
+              {/* schedule for later */}
+              <div className="flex flex-col gap-2 rounded-[11px] border border-line-2 bg-sub/40 p-1">
+                <Toggle icon={<Clock size={15} />} label="Schedule for later" on={scheduleOn} onChange={setScheduleOn} />
+                {scheduleOn && (
+                  <input
+                    type="datetime-local"
+                    value={scheduleAt}
+                    min={minLocal()}
+                    onChange={(e) => { setScheduleAt(e.target.value); setDone(null); }}
+                    className="mx-1 mb-1 h-10 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] text-ink outline-none focus:border-brand"
+                  />
+                )}
+                {ctx?.kind === "invoice" && (
+                  <Toggle icon={<Bell size={15} />} label="Auto reminders" hint="if unpaid, chase 3 & 7 days after due" on={remindersOn} onChange={setRemindersOn} />
+                )}
+              </div>
+
               {error && <p className="rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
               {done && (
                 <p className="inline-flex items-center gap-1.5 rounded-[9px] bg-[rgba(13,167,124,0.1)] px-3 py-2 text-[12.5px] font-semibold text-mint">
-                  <Check size={14} /> Sent — the customer will receive the PDF.
+                  <Check size={14} /> {done}
                 </p>
               )}
             </>
@@ -200,10 +236,11 @@ export function SendDocumentDialog({
             </a>
             <button
               onClick={send}
-              disabled={busy || done || loading || !to.trim()}
+              disabled={busy || !!done || loading || !to.trim() || (scheduleOn && !scheduleAt)}
               className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-50"
             >
-              <Send size={15} /> {busy ? "Sending…" : done ? "Sent ✓" : "Send"}
+              {scheduleOn ? <Clock size={15} /> : <Send size={15} />}{" "}
+              {busy ? "Working…" : done ? "Done ✓" : scheduleOn ? "Schedule" : "Send"}
             </button>
           </div>
         </div>
@@ -219,4 +256,38 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </label>
   );
+}
+
+function Toggle({
+  icon,
+  label,
+  hint,
+  on,
+  onChange,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  hint?: string;
+  on: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <button type="button" onClick={() => onChange(!on)} className="flex items-center gap-2.5 rounded-[9px] px-2 py-1.5 text-left hover:bg-sub">
+      <span className={`${on ? "text-link" : "text-faint"}`}>{icon}</span>
+      <span className="flex-1">
+        <span className="block text-[13px] font-semibold text-body">{label}</span>
+        {hint && <span className="block text-[11px] text-faint">{hint}</span>}
+      </span>
+      <span className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${on ? "bg-brand" : "bg-line-2"}`}>
+        <span className={`absolute top-[3px] size-4 rounded-full bg-white shadow transition-all ${on ? "left-[19px]" : "left-[3px]"}`} />
+      </span>
+    </button>
+  );
+}
+
+/** "now" as a datetime-local min (the browser's local clock = Mauritius time). */
+function minLocal(): string {
+  const n = new Date(Date.now() + 60_000);
+  const p = (x: number) => String(x).padStart(2, "0");
+  return `${n.getFullYear()}-${p(n.getMonth() + 1)}-${p(n.getDate())}T${p(n.getHours())}:${p(n.getMinutes())}`;
 }

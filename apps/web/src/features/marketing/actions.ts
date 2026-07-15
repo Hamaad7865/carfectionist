@@ -187,12 +187,11 @@ export async function sendBatchAction(campaignId: string): Promise<{ ok: true; r
 
   await sb.from("campaigns").update({ status: "sending" }).eq("id", campaignId).eq("status", "draft");
 
-  const { data: batch } = await sb
-    .from("campaign_recipients")
-    .select("id, phone_e164, variables")
-    .eq("campaign_id", campaignId)
-    .eq("status", "pending")
-    .limit(BATCH);
+  // Atomically CLAIM this batch (flip to 'sending' under FOR UPDATE SKIP LOCKED) before
+  // sending, so a second overlapping invocation — a double-click, a second tab, an
+  // overlapping drain — takes a DISJOINT set and no customer is messaged twice (audit #5).
+  const { data: batch, error: claimErr } = await sb.rpc("claim_campaign_batch", { p_campaign_id: campaignId, p_limit: BATCH });
+  if (claimErr) return { ok: false, error: claimErr.message };
   const pending = (batch ?? []) as { id: string; phone_e164: string | null; variables: string[] }[];
 
   let sentNow = 0;

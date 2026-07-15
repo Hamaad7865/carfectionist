@@ -436,8 +436,18 @@ class CounterViewModel @Inject constructor(
     fun voidCompletedSale() {
         val r = local.value.done ?: return
         newSale() // clear the finished cart first; the sale itself is already committed
-        if (r.onAccount) correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, "Voided at POS") }
-        else correction("Refunded — credit note issued for ${r.number ?: "the sale"}") { api.issueCreditNote(r.invoiceId, restock = true, stockLocationId = api.fetchShopLocationId()) }
+        when {
+            // A COLLECT (deposit / part payment on an existing invoice): reverse just THIS
+            // payment. Credit-noting the whole invoice here would refund and restock an
+            // entire live job after only a deposit was taken (audit #6).
+            r.paymentId != null -> correction("Payment reversed — ${r.number ?: "invoice"}") {
+                // 2-arg form: reverse_payment falls back to the device's open till for a cash
+                // refund, which is the till this collect was just taken on.
+                api.reversePayment(r.paymentId, "Reversed at POS")
+            }
+            r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, "Voided at POS") }
+            else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") { api.issueCreditNote(r.invoiceId, restock = true, stockLocationId = api.fetchShopLocationId()) }
+        }
     }
 
     fun voidInvoice(bill: OutstandingInvoiceDto) = correction("${bill.number ?: "Invoice"} voided") { api.voidDocument(bill.id, "Voided at POS") }

@@ -168,6 +168,10 @@ class QuoteViewModel @Inject constructor(
             who = h.customerName, vehPlate = h.plate, veh = h.vehLabel,
             customerId = h.customerId, vehicleId = h.vehicleId,
             lines = emptyList(), acceptOpen = false, techId = null, startAt = null,
+            // A deposit % or time estimate picked on the PREVIOUS quote's accept panel must
+            // not ride into this fresh one — it would raise a deposit invoice and stamp a job
+            // ETA this customer never agreed to (audit #7).
+            estimateMinutes = null, depositCents = 0, depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
@@ -245,6 +249,8 @@ class QuoteViewModel @Inject constructor(
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
                 lines = emptyList(), acceptOpen = false, techId = null, startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
+                // Don't inherit the last quote's deposit/estimate into this one (audit #7).
+                estimateMinutes = null, depositCents = 0, depositPending = false,
                 sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
                 linesLoaded = false, // becomes true only when the lines actually load
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,

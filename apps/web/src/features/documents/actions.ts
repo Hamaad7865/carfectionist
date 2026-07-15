@@ -208,6 +208,116 @@ export async function sendDocumentAction(input: z.infer<typeof sendDocSchema>): 
   return sendDocument({ sb, docId: p.data.documentId, channel: p.data.channel, to: p.data.to, note: p.data.note, origin: `${proto}://${host}` });
 }
 
+const deliverSchema = z.object({
+  documentId: z.string().uuid(),
+  channel: z.enum(["email", "whatsapp"]),
+  to: z.string().min(1).max(200),
+  note: z.string().max(300).optional(),
+  scheduleAt: z.string().min(1).optional(), // datetime-local (Mauritius time), e.g. "2026-07-16T14:30"
+  autoReminders: z.boolean().optional(),
+});
+
+const REMINDER_DAYS = [3, 7]; // after the due date
+const REMINDER_NOTE = "A friendly reminder that this invoice is still outstanding. Please let us know if you have any questions.";
+
+/** The web send sheet's one entry point: send now, or schedule for later, plus
+ *  optional auto-reminders on an unpaid invoice. */
+export async function deliverDocumentAction(
+  input: z.infer<typeof deliverSchema>,
+): Promise<{ ok: true; scheduled: boolean; reminders: number } | { ok: false; error: string }> {
+  await requireRole(...WRITE_ROLES);
+  const p = deliverSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Invalid input" };
+  const { documentId, channel, to, note, scheduleAt, autoReminders } = p.data;
+
+  const sb = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: doc } = await (sb as any)
+    .from("documents")
+    .select("id, tenant_id, doc_type, number, due_date, issue_date")
+    .eq("id", documentId)
+    .maybeSingle();
+  if (!doc) return { ok: false, error: "Document not found." };
+  if (!doc.number) return { ok: false, error: "This document is still a draft — issue it first." };
+
+  // Normalise / validate the recipient the same way an immediate send would, so
+  // a scheduled row can never hold an unsendable address.
+  let toAddr = to.trim();
+  if (channel === "whatsapp") {
+    const { normalizePhoneMU } = await import("@/lib/phone");
+    const n = normalizePhoneMU(toAddr);
+    if (!n) return { ok: false, error: "That phone number doesn't look right." };
+    toAddr = n;
+  } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(toAddr)) {
+    return { ok: false, error: "That email address doesn't look right." };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: me } = await sb.auth.getUser();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: appUser } = me?.user
+    ? await (sb as any).from("app_users").select("id").eq("auth_user_id", me.user.id).maybeSingle()
+    : { data: null };
+  const createdBy = appUser?.id ?? null;
+
+  // ── the primary action: schedule for later, or send now ──
+  let scheduled = false;
+  if (scheduleAt) {
+    // Interpret the naive datetime-local as Mauritius time (UTC+4, no DST).
+    const when = new Date(`${scheduleAt}:00+04:00`);
+    if (isNaN(when.getTime())) return { ok: false, error: "That date and time isn't valid." };
+    if (when.getTime() <= Date.now() + 30_000) return { ok: false, error: "Pick a time at least a minute in the future." };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (sb as any).from("scheduled_sends").insert({
+      tenant_id: doc.tenant_id, document_id: documentId, channel, to_addr: toAddr,
+      note: note ?? null, kind: "send", scheduled_at: when.toISOString(), created_by: createdBy,
+    });
+    if (error) return { ok: false, error: `Couldn't schedule: ${error.message}` };
+    scheduled = true;
+  } else {
+    const { sendDocument } = await import("@/lib/send-document");
+    const { headers } = await import("next/headers");
+    const host = (await headers()).get("host") ?? "app-carfectionist.com";
+    const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+    const r = await sendDocument({ sb, docId: documentId, channel, to, note, origin: `${proto}://${host}` });
+    if (!r.ok) return r;
+  }
+
+  // ── optional: auto-reminders on an unpaid invoice ──
+  let reminders = 0;
+  if (autoReminders && doc.doc_type === "invoice") {
+    const baseIso = doc.due_date ?? doc.issue_date;
+    const base = baseIso ? new Date(`${baseIso}T09:00:00+04:00`) : null; // 9am Mauritius
+    if (base && !isNaN(base.getTime())) {
+      const rows = REMINDER_DAYS
+        .map((d) => new Date(base.getTime() + d * 86_400_000))
+        .filter((when) => when.getTime() > Date.now() + 60_000)
+        .map((when) => ({
+          tenant_id: doc.tenant_id, document_id: documentId, channel, to_addr: toAddr,
+          note: REMINDER_NOTE, kind: "reminder", scheduled_at: when.toISOString(),
+          only_if_unpaid: true, created_by: createdBy,
+        }));
+      if (rows.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (sb as any).from("scheduled_sends").insert(rows);
+        if (!error) reminders = rows.length;
+      }
+    }
+  }
+
+  return { ok: true, scheduled, reminders };
+}
+
+/** Cancel a still-pending scheduled send. */
+export async function cancelScheduledSendAction(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireRole(...WRITE_ROLES);
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return { ok: false, error: "Invalid id." };
+  const sb = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (sb as any).rpc("cancel_scheduled_send", { p_id: id });
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
 export interface SendContext {
   number: string | null;
   kind: "quotation" | "invoice" | "credit note" | "document";
