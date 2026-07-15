@@ -96,8 +96,10 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
         {row("TOTAL", formatMUR(r.totalCents), { strong: true })}
         {row("Excl. VAT", formatMUR(r.totalCents - r.vatCents), { muted: true })}
         {!r.voided && r.isInvoice && (
-          r.payments.length > 1
-            ? r.payments.map((pmt, i) => <div key={i}>{row(`Paid · ${pmt.method.toLowerCase()}`, formatMUR(pmt.amountCents), { muted: true })}</div>)
+          // 2+ payment events (a deposit taken first, the balance later) — list each
+          // dated, so the customer sees the breakdown. One payment keeps the summary.
+          r.paymentDetail.length > 1
+            ? r.paymentDetail.map((pd, i) => <div key={i}>{row(`${pd.method.toLowerCase()} · ${pd.at}`, formatMUR(pd.amountCents), { muted: true, color: pd.isReversal ? RED : undefined })}</div>)
             : r.paidCents > 0 && row(`Paid · ${r.methodLabel}`, formatMUR(r.paidCents), { muted: true })
         )}
         {!r.voided && r.changeCents > 0 && row("Change", formatMUR(r.changeCents), { muted: true })}

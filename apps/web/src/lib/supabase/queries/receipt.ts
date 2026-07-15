@@ -161,7 +161,9 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   const paymentDetail: ReceiptPaymentDetail[] = payRows.map((pmt) => {
     const at = muDate(pmt.received_at);
     return {
-      at: at ? `${p2(at.getUTCDate())}/${p2(at.getUTCMonth() + 1)}/${at.getUTCFullYear()}` : "",
+      // Date + time, so a deposit taken earlier and the balance taken later are
+      // each stamped when they happened (the owner's deposit breakdown).
+      at: at ? `${p2(at.getUTCDate())}/${p2(at.getUTCMonth() + 1)}/${at.getUTCFullYear()} ${p2(at.getUTCHours())}:${p2(at.getUTCMinutes())}` : "",
       method: METHOD_UPPER[pmt.method] ?? String(pmt.method).toUpperCase(),
       amountCents: rupeesToCents(Number(pmt.amount)),
       isReversal: pmt.reverses_payment_id != null,

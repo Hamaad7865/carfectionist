@@ -56,10 +56,15 @@ export function ReceiptThermal({ r }: { r: ReceiptData }) {
       <div style={{ ...center, fontWeight: 700, marginTop: 5 }}>excl. VAT : {n(r.subtotalCents)}Rs</div>
       {hr}
 
-      {/* Tender */}
-      {r.payments.map((p, i) => (
-        <div key={i}>1&nbsp;&nbsp;&nbsp;{p.method} : {n(p.amountCents)}Rs</div>
-      ))}
+      {/* Tender — 2+ payments (deposit then balance) list each dated; else the
+          aggregated tender line. */}
+      {r.paymentDetail.length > 1
+        ? r.paymentDetail.map((pd, i) => (
+            <div key={i}>{pd.method} {pd.at} : {n(pd.amountCents)}Rs</div>
+          ))
+        : r.payments.map((p, i) => (
+            <div key={i}>1&nbsp;&nbsp;&nbsp;{p.method} : {n(p.amountCents)}Rs</div>
+          ))}
       {r.payments.length > 0 && hr}
 
       {/* VAT breakdown */}
