@@ -11,7 +11,7 @@ export const draftLineSchema = z.object({
   title: z.string(),
   description: z.string().nullable().optional(),
   qty: z.number().positive(),
-  unitCents: z.number().int(),
+  unitCents: z.number().int().min(0), // a line can't carry a negative price (audit #10)
   discountPct: z.number().min(0).max(100).optional(),
   discountKind: z.enum(["percent", "amount"]).optional(),
   discountAmountCents: z.number().int().min(0).optional(), // VAT-inclusive

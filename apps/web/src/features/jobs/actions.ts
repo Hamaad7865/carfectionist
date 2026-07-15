@@ -149,10 +149,12 @@ export async function recordPaymentAction(
   amountRupees: number,
   method: "card" | "juice" | "bank_transfer",
   externalRef: string,
+  token: string,
 ): Promise<Result> {
   await requireRole(...ROLES);
   if (!(amountRupees > 0)) return { ok: false, error: "Enter an amount." };
   if (!externalRef.trim()) return { ok: false, error: "A card, Juice or transfer payment needs its reference." };
+  if (!token) return { ok: false, error: "Missing payment token — reopen the form and try again." };
 
   const sb = await createClient();
   try {
@@ -161,9 +163,11 @@ export async function recordPaymentAction(
       method,
       amount: amountRupees,
       externalRef: externalRef.trim(),
-      // Keyed on the invoice AND the amount so a double-click cannot take the money twice,
-      // while a genuine second instalment of a different size still goes through.
-      idempotencyKey: `web-pay:${invoiceId}:${amountRupees.toFixed(2)}:${externalRef.trim()}`,
+      // A per-attempt token from the client, NOT the payment's content (audit #4): keying
+      // on invoice+amount+ref silently swallowed a genuine second instalment of the same
+      // size and reference. The client keeps one token per opened form, so a double-click
+      // stays idempotent while a real second payment records.
+      idempotencyKey: `web-pay:${token}`,
     });
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : "Could not record the payment." };

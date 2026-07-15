@@ -81,6 +81,10 @@ function PartPayment({
   const [ref, setRef] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // One idempotency token per opened form (audit #4): a double-click reuses it and stays
+  // safe, while a genuine second instalment — a fresh open — gets a fresh token so it is
+  // never mistaken for a replay of the first.
+  const [token, setToken] = useState("");
 
   const outstanding = outstandingCents / 100;
   const typed = Number(amount);
@@ -91,7 +95,7 @@ function PartPayment({
   async function submit() {
     setBusy(true);
     setErr(null);
-    const r = await recordPaymentAction(jobId, invoiceId, typed, method, ref);
+    const r = await recordPaymentAction(jobId, invoiceId, typed, method, ref, token);
     setBusy(false);
     if (!r.ok) return setErr(r.error);
     setOpen(false);
@@ -102,7 +106,7 @@ function PartPayment({
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="mt-1.5 text-[12px] font-semibold text-link hover:underline">
+      <button onClick={() => { setToken(crypto.randomUUID()); setOpen(true); }} className="mt-1.5 text-[12px] font-semibold text-link hover:underline">
         Record a payment
       </button>
     );

@@ -208,6 +208,58 @@ export async function sendDocumentAction(input: z.infer<typeof sendDocSchema>): 
   return sendDocument({ sb, docId: p.data.documentId, channel: p.data.channel, to: p.data.to, note: p.data.note, origin: `${proto}://${host}` });
 }
 
+export interface SendContext {
+  number: string | null;
+  kind: "quotation" | "invoice" | "credit note" | "document";
+  customerName: string;
+  customerPhone: string | null;
+  customerEmail: string | null;
+  replyToNumber: string | null; // the studio's own WhatsApp number (where replies land)
+  connected: boolean;
+}
+
+const KIND_MAP: Record<string, SendContext["kind"]> = { quote: "quotation", invoice: "invoice", credit_note: "credit note" };
+
+/** Everything the "Send to customer" sheet needs, for a document reached from
+ *  anywhere — a list row, the builder, the detail page. */
+export async function getSendContextAction(documentId: string): Promise<{ ok: true; ctx: SendContext } | { ok: false; error: string }> {
+  await requireRole(...WRITE_ROLES);
+  if (!/^[0-9a-f-]{36}$/i.test(documentId)) return { ok: false, error: "Invalid document." };
+  const sb = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data } = await (sb as any)
+    .from("documents")
+    .select("doc_type, number, customers(name, phone, email)")
+    .eq("id", documentId)
+    .maybeSingle();
+  if (!data) return { ok: false, error: "Document not found." };
+
+  const { isConfigured, probeConnection } = await import("@/lib/whatsapp");
+  const connected = isConfigured();
+  let replyToNumber: string | null = null;
+  if (connected) {
+    try {
+      const probe = await probeConnection();
+      replyToNumber = probe?.phone.ok ? probe.phone.number ?? null : null;
+    } catch {
+      /* best-effort — the sheet still works without it */
+    }
+  }
+
+  return {
+    ok: true,
+    ctx: {
+      number: data.number ?? null,
+      kind: KIND_MAP[data.doc_type] ?? "document",
+      customerName: data.customers?.name ?? "",
+      customerPhone: data.customers?.phone ?? null,
+      customerEmail: data.customers?.email ?? null,
+      replyToNumber,
+      connected,
+    },
+  };
+}
+
 /** A public, unguessable link to this document's PDF — for the "Share" action
  *  (copy and paste anywhere). Possession of the token is the authorisation. */
 export async function publicDocLinkAction(documentId: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {

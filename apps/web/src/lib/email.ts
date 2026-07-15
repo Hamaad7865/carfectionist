@@ -27,6 +27,11 @@ async function bindingSend(msg: {
   html: string;
   text: string;
   attachments?: EmailAttachment[];
+  // When the attachment IS the deliverable and the body carries no download-link
+  // fallback (statements, Z-reports), a send that only succeeded by dropping the
+  // attachment is a failure, not a success (audit #11). Document emails leave this
+  // false — their body always links to the tokenized PDF, so a drop is recoverable.
+  requireAttachment?: boolean;
 }): Promise<SendResult> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const env = getCloudflareContext().env as any;
@@ -58,6 +63,11 @@ async function bindingSend(msg: {
   for (const shape of shapes) {
     try {
       await env.EMAIL.send(shape);
+      // If the only shape that went through was the attachment-less fallback, and the
+      // caller needs the attachment delivered, treat it as a failure so it surfaces.
+      if (msg.attachments?.length && !("attachments" in shape) && msg.requireAttachment) {
+        return { ok: false, error: "The email service rejected the attachment — nothing was delivered." };
+      }
       return { ok: true };
     } catch (e) {
       lastErr = (e as Error).message;
@@ -216,6 +226,7 @@ export async function sendStatementEmail(i: StatementEmailInput): Promise<SendRe
     html,
     text,
     attachments: [{ filename: "statement.pdf", content: i.pdfBase64, contentType: "application/pdf" }],
+    requireAttachment: true, // no download-link fallback in this body (audit #11)
   });
 }
 
@@ -262,5 +273,6 @@ export async function sendZReportEmail(i: ZReportEmailInput): Promise<SendResult
     html,
     text,
     attachments: [{ filename: `${i.number}.pdf`, content: i.pdfBase64, contentType: "application/pdf" }],
+    requireAttachment: true, // the Z-report body carries no download link (audit #11)
   });
 }

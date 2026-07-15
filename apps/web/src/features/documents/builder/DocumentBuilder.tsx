@@ -198,7 +198,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const custFiltered = ctx.customers.filter((c) => c.name.toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8);
 
   function addAdhoc() {
-    const cents = parseMoneyInput(adPrice) ?? 0;
+    // Clamp at zero like MoneyField — a typed "-500" must not build a negative-total
+    // invoice (audit #10). The schema and a DB CHECK back this up.
+    const cents = Math.max(0, parseMoneyInput(adPrice) ?? 0);
     if (!adName.trim()) return;
     dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 } });
     setAdName("");

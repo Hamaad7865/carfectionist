@@ -5,6 +5,7 @@ import { listDocuments } from "@/lib/supabase/queries/documents";
 import { getTickets } from "@/lib/supabase/queries/tickets";
 import { getReceipt } from "@/lib/supabase/queries/receipt";
 import { DocumentsFilterBar } from "@/features/documents/DocumentsFilterBar";
+import { RowSendButton } from "@/features/documents/RowSendButton";
 import { TicketPopup } from "@/features/tickets/TicketPopup";
 import { EmailReceiptButton } from "@/features/tickets/EmailReceiptButton";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
@@ -118,7 +119,10 @@ export default async function SalesPage({
                       </div>
                       <div className="mt-0.5 text-[11.5px] text-muted">{r.date} · {r.hour} · {r.serviceCount} line{r.serviceCount === 1 ? "" : "s"}</div>
                     </div>
-                    <span className={`num shrink-0 text-[14px] font-bold ${r.inclCents < 0 ? "text-rose" : "text-ink-strong"}`}>{formatMUR(r.inclCents)}</span>
+                    <div className="flex shrink-0 flex-col items-end gap-2">
+                      <span className={`num text-[14px] font-bold ${r.inclCents < 0 ? "text-rose" : "text-ink-strong"}`}>{formatMUR(r.inclCents)}</span>
+                      {r.number && r.docType !== "credit_note" && !r.cancelLabel && <RowSendButton documentId={r.id} />}
+                    </div>
                   </div>
                   {/* Desktop grid */}
                   <div className={`hidden md:grid ${TCOLS} items-center gap-3 px-5 py-3`}>
@@ -140,7 +144,10 @@ export default async function SalesPage({
                     <span className="num text-[12px] text-muted">{r.serviceCount}</span>
                     <span className={`num text-right text-[12.5px] ${r.exclCents < 0 ? "font-bold text-rose" : "text-body"}`}>{formatMUR(r.exclCents)}</span>
                     <span className={`num text-right text-[13px] font-bold ${r.inclCents < 0 ? "text-rose" : "text-ink-strong"}`}>{formatMUR(r.inclCents)}</span>
-                    <span className="flex justify-end text-faint"><ChevronRight size={16} /></span>
+                    <span className="flex items-center justify-end gap-1.5 text-faint">
+                      {r.number && r.docType !== "credit_note" && !r.cancelLabel && <RowSendButton documentId={r.id} />}
+                      <ChevronRight size={16} />
+                    </span>
                   </div>
                 </Link>
               ))
@@ -186,8 +193,9 @@ export default async function SalesPage({
                   <div className="mt-1 truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</div>
                   <div className="mt-0.5 text-[11.5px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)} · {r.methodLabel}</div>
                 </div>
-                <div className="shrink-0 text-right">
+                <div className="flex shrink-0 flex-col items-end gap-2">
                   <div className="num text-[14px] font-bold text-ink-strong">{rs(r.total_incl)}</div>
+                  {r.number && <RowSendButton documentId={r.id} />}
                 </div>
               </div>
               {/* Desktop grid */}
@@ -198,7 +206,10 @@ export default async function SalesPage({
                 <span className="text-[12px] text-muted">{r.methodLabel}</span>
                 <span className="flex items-center gap-1.5"><StatusPill status={r.status} />{r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}</span>
                 <span className="num text-right text-[13px] font-bold text-ink-strong">{rs(r.total_incl)}</span>
-                <span className="flex justify-end text-faint"><ChevronRight size={16} /></span>
+                <span className="flex items-center justify-end gap-1.5 text-faint">
+                  {r.number && <RowSendButton documentId={r.id} />}
+                  <ChevronRight size={16} />
+                </span>
               </div>
             </Link>
           ))
