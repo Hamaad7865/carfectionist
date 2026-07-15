@@ -220,7 +220,7 @@ export default async function DeviceDashboardPage({
                             </>
                           )}
                           {s.cashOutCents !== 0 && (
-                            <span>{s.nonCash.length > 0 ? " · " : ""}<span className="font-bold text-rose">Petty cash out</span> {formatMUR(s.cashOutCents)}</span>
+                            <span>{s.nonCash.length > 0 ? " · " : ""}<span className="font-bold text-rose">Disbursement</span> {formatMUR(s.cashOutCents)}</span>
                           )}
                         </div>
                       )}

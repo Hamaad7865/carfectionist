@@ -248,7 +248,7 @@ export interface OutflowRow {
   byName: string | null;
   method: string;
   amountCents: number; // negative
-  type: string;    // "Bank deposit" | "Payment reversed" | "Petty cash"
+  type: string;    // "Bank deposit" | "Payment reversed" | "Disbursement"
   comment: string; // "Automatic bank deposit" | invoice number | reason
   docId: string | null; // → /sales/[id] for reversals
   /** True when this reversal's ORIGINAL is also in view — the pair cancels, so
@@ -512,7 +512,7 @@ export async function getDeviceDashboard(
       byName: nameById.get(m.created_by) ?? null,
       method: "cash",
       amountCents: rupeesToCents(Number(m.amount)),
-      type: "Petty cash",
+      type: "Disbursement",
       comment: m.reason ?? "",
       docId: null,
       cancelled: false,
@@ -585,7 +585,7 @@ export async function getDeviceDashboard(
           nameById.get(a.actor_id) ?? null);
         break;
       case "till_cash_out":
-        push(`a${a.id}`, a.created_at, "cash_out", "Petty cash out",
+        push(`a${a.id}`, a.created_at, "cash_out", "Disbursement",
           [pl.amount != null ? `Rs ${Number(pl.amount).toLocaleString("en-US")}` : null, pl.reason].filter(Boolean).join(" · ") || null);
         break;
       case "payment_reversed":

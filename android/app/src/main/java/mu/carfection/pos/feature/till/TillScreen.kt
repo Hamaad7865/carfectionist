@@ -219,6 +219,16 @@ class TillViewModel @Inject constructor(
 
     fun doneWithZ() = run { _s.value = _s.value.copy(z = null, notice = null, emailOpen = false, emailTo = "", emailResult = null) }
 
+    /**
+     * Hand the till over. The shift is closed, so sign out and drop to the roster login — the
+     * next person picks their own name and PIN instead of inheriting whoever closed. Without
+     * this, re-opening the till carried on as the previous operator.
+     */
+    fun signOutAndHandOver() = viewModelScope.launch {
+        _s.value = _s.value.copy(z = null, notice = null, emailOpen = false, emailResult = null)
+        runCatching { session.signOut() }
+    }
+
     fun openEmailZ() = run { _s.value = _s.value.copy(emailOpen = true, emailResult = null) }
     fun setEmailTo(t: String) = run { _s.value = _s.value.copy(emailTo = t, emailResult = null) }
     fun closeEmailZ() = run { _s.value = _s.value.copy(emailOpen = false, emailResult = null) }
@@ -337,7 +347,7 @@ fun TillScreen(
                         sess.openedAt?.let { Field2("Opened", it.take(16).replace("T", " ")) }
 
                         Spacer(Modifier.height(4.dp))
-                        Text("PETTY CASH OUT", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                        Text("DISBURSEMENT", color = TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
                         Text("Take cash from the drawer for a small purchase — it comes off the expected count.", color = TextSecondary, fontSize = 13.sp)
                         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             OutlinedTextField(outAmount, { outAmount = it }, label = { Text("Amount (Rs)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.width(150.dp))
@@ -398,6 +408,7 @@ fun TillScreen(
             emailOpen = s.emailOpen, emailTo = s.emailTo, emailBusy = s.emailBusy, emailResult = s.emailResult,
             onPrint = viewModel::printZ,
             onOpenEmail = viewModel::openEmailZ, onEmailTo = viewModel::setEmailTo, onSendEmail = viewModel::emailZ, onCancelEmail = viewModel::closeEmailZ,
+            onHandOver = viewModel::signOutAndHandOver,
             onDone = { viewModel.doneWithZ(); viewModel.reload() },
         )
     }
@@ -547,6 +558,7 @@ private fun ZReportDialog(
     onEmailTo: (String) -> Unit,
     onSendEmail: () -> Unit,
     onCancelEmail: () -> Unit,
+    onHandOver: () -> Unit,
     onDone: () -> Unit,
 ) {
     // Read the frozen totals defensively — every figure was fixed at close, so nothing is
@@ -667,9 +679,15 @@ private fun ZReportDialog(
                         Box(Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onOpenEmail), contentAlignment = Alignment.Center) {
                             Text("Email", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
                         }
-                        Box(Modifier.weight(1f).height(50.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone), contentAlignment = Alignment.Center) {
-                            Text("Done", color = AccentInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-                        }
+                    }
+                    // The till is closed — the next person should sign in as themselves, so hand
+                    // over is the headline. "Stay signed in" is the escape hatch when the same
+                    // operator is carrying straight on.
+                    Box(Modifier.fillMaxWidth().height(50.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onHandOver), contentAlignment = Alignment.Center) {
+                        Text("Sign out — hand over the till", color = AccentInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    }
+                    Box(Modifier.fillMaxWidth().height(40.dp).clickable(onClick = onDone), contentAlignment = Alignment.Center) {
+                        Text("Stay signed in", color = TextSecondary, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                     }
                 }
             }

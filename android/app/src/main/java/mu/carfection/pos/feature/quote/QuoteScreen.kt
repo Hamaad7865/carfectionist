@@ -271,6 +271,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
     var padSize by remember { mutableStateOf(IntSize.Zero) }
     val strokePx = with(LocalDensity.current) { 4.dp.toPx() }
     val signed = strokes.any { it.size > 1 }
+    // Accepting is two steps on the tablet: step 0 sets up the job (technician, booking,
+    // estimate, deposit); step 1 is the signature alone, given the whole panel so a finger
+    // has room. Reset whenever the panel opens or the quote changes.
+    var acceptStep by remember(s.quoteId, s.acceptOpen) { mutableStateOf(0) }
 
     // header
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -346,7 +350,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             // what used to push the buttons off the bottom of the screen. The signature pad then
             // sizes itself to whatever room is left, so it can never be clipped either.
             if (s.acceptOpen) {
-                AcceptBody(s, vm, strokes, { padSize = it }, strokePx, Modifier.weight(1f))
+                AcceptBody(s, vm, strokes, { padSize = it }, strokePx, acceptStep, Modifier.weight(1f))
             } else
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 if (s.lines.isEmpty()) {
@@ -513,23 +517,40 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             Text(if (s.busy) "Working…" else "Bill now — create invoice", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.lines.isNotEmpty()) Accent else TextMuted)
                         }
                     }
-                    // Pinned to the foot of the card — never pushed off the screen by the
-                    // signature pad above it, which is what used to happen.
+                    // Pinned to the foot of the card. Step 0 sets up the job and hands off to the
+                    // signature; step 1 is the signing itself. Back on step 1 returns to setup,
+                    // not out of the whole flow — the setup is easy to lose by accident otherwise.
                     else -> Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeAccept() }
-                        Box(
-                            Modifier.weight(1.6f).height(52.dp)
-                                .background(if (s.busy || !signed) InsetAlt else Accent, RoundedCornerShape(13.dp))
-                                .clickable(enabled = !s.busy && signed) {
-                                    vm.create(strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx))
-                                },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                if (s.busy) "Creating…" else if (!signed) "Sign to create job" else "Create job",
-                                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                                color = if (s.busy || !signed) TextMuted else AccentInk,
-                            )
+                        if (acceptStep == 0) {
+                            OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeAccept() }
+                            Box(
+                                Modifier.weight(1.6f).height(52.dp)
+                                    .background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                                    .clickable(enabled = !s.busy) { acceptStep = 1 },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    "Continue to signature →",
+                                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                                    color = if (s.busy) TextMuted else AccentInk,
+                                )
+                            }
+                        } else {
+                            OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) acceptStep = 0 }
+                            Box(
+                                Modifier.weight(1.6f).height(52.dp)
+                                    .background(if (s.busy || !signed) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                                    .clickable(enabled = !s.busy && signed) {
+                                        vm.create(strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx))
+                                    },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text(
+                                    if (s.busy) "Creating…" else if (!signed) "Sign to create job" else "Create job",
+                                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                                    color = if (s.busy || !signed) TextMuted else AccentInk,
+                                )
+                            }
                         }
                     }
                 }
@@ -550,13 +571,14 @@ private fun AcceptBody(
     strokes: androidx.compose.runtime.snapshots.SnapshotStateList<List<Offset>>,
     onPadSize: (IntSize) -> Unit,
     strokePx: Float,
+    step: Int,
     modifier: Modifier = Modifier,
 ) {
     val signed = strokes.any { it.size > 1 }
+    if (step == 1) { SignStep(s, vm, strokes, onPadSize, strokePx, signed, modifier); return }
     Column(modifier.fillMaxWidth()) {
-        // The config scrolls, so adding rows (Takes about, Deposit) can never crowd the
-        // signature off the panel again — the signature is pinned below at a fixed height,
-        // always reachable however short the screen.
+        // Step 0 — set up the job. Scrolls, so adding rows (Takes about, Deposit) can never
+        // crowd the panel; signing is a screen of its own now, reached with "Continue".
         Column(
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp, vertical = 10.dp),
@@ -642,26 +664,51 @@ private fun AcceptBody(
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
             )
         }
-        } // ── end of the scrolling config column ──
+        } // ── end of the setup column ──
+    }
+}
 
-        // Signature — pinned below the config at a fixed height, so it is ALWAYS on screen
-        // and signable no matter how many options sit above it.
+/**
+ * Step 1 of accepting — the signature, on a screen of its own. With nothing competing for the
+ * panel the pad fills it, so there is real room to sign with a finger. A short recap sits above
+ * so the client sees exactly what they're agreeing to before they put pen to glass.
+ */
+@Composable
+private fun SignStep(
+    s: QuoteState,
+    vm: QuoteViewModel,
+    strokes: androidx.compose.runtime.snapshots.SnapshotStateList<List<Offset>>,
+    onPadSize: (IntSize) -> Unit,
+    strokePx: Float,
+    signed: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val techName = s.technicians.firstOrNull { it.id == s.techId }?.displayName?.replace(Regex("\\s*\\(.*\\)$"), "")
+    Column(
+        modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        // A one-glance recap of the setup they're signing off on.
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            Modifier.fillMaxWidth().background(InsetAlt, RoundedCornerShape(12.dp)).padding(horizontal = 13.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
+            RecapRow("Technician", techName ?: "Assign later")
+            RecapRow("Booked in", vm.startDateLabel(s) + " · " + vm.startTimeLabel(s))
+            if (s.estimateMinutes != null) RecapRow("Ready in about", QuoteViewModel.estimateLabel(s.estimateMinutes!!))
+            if (s.depositCents > 0) RecapRow("Deposit on signing", formatMUR(s.depositCents))
+        }
+
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             MiniLabel("CLIENT SIGNATURE")
             Spacer(Modifier.weight(1f))
             if (signed) Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { strokes.clear() }.padding(horizontal = 4.dp))
         }
-        // The pad takes the room that is left, and CLIPS: a signature that runs past the edge
+        // The pad takes all the room that's left, and CLIPS: a signature that runs past the edge
         // stops at the edge instead of being drawn across the card. Points are clamped to the
         // pad's bounds too, so the PNG that gets stored is exactly what the client saw.
-        // A signature is a legal artefact, not a formality — give it room to be written with a
-        // finger. It takes the leftover height and never drops below a comfortable pad.
         Box(
-            Modifier.fillMaxWidth().height(160.dp)
+            Modifier.fillMaxWidth().weight(1f).heightIn(min = 200.dp)
                 .clip(RoundedCornerShape(12.dp))
                 .background(Color.White)
                 .border(1.dp, Hairline, RoundedCornerShape(12.dp))
@@ -697,7 +744,14 @@ private fun AcceptBody(
                 }
             }
         }
-        } // ── end of the pinned signature column ──
+    }
+}
+
+@Composable private fun RecapRow(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(label, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+        Spacer(Modifier.weight(1f))
+        Text(value, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 

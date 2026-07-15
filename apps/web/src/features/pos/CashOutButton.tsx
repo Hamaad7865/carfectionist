@@ -50,7 +50,7 @@ export function CashOutButton({ sessionId, expectedCents }: { sessionId: string;
         open={open}
         onClose={() => setOpen(false)}
         title="Take cash out of the till"
-        subtitle={`Petty cash for small purchases. ${formatMUR(expectedCents)} is in the drawer right now.`}
+        subtitle={`Disbursement for small purchases. ${formatMUR(expectedCents)} is in the drawer right now.`}
         footer={
           <div className="flex justify-end gap-2">
             <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
