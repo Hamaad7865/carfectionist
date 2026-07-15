@@ -162,6 +162,11 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
     val loggedIn by rootViewModel.isLoggedIn.collectAsState(initial = null)
     val splashShown by rootViewModel.splashShown.collectAsState()
 
+    // Check for a newer build once when the app opens; the overlay below shows the offer
+    // if there is one. Silent otherwise.
+    val updateVm: mu.carfection.pos.feature.update.UpdateViewModel = hiltViewModel()
+    LaunchedEffect(Unit) { updateVm.check() }
+
     Box(Modifier.fillMaxSize()) {
         when (loggedIn) {
             null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
@@ -226,6 +231,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 }
             }
         }
+        mu.carfection.pos.feature.update.UpdateOverlay(updateVm)
         if (!splashShown) SplashOverlay(onDone = rootViewModel::markSplashShown)
     }
 }

@@ -16,6 +16,24 @@ val localProps = Properties().apply {
 }
 fun prop(key: String) = localProps.getProperty(key) ?: ""
 
+// Release signing comes from keystore.properties (gitignored). Absent on a fresh
+// checkout / CI without the secret → release builds fall back to debug signing.
+val keystoreProps = Properties().apply {
+    val f = rootProject.file("keystore.properties")
+    if (f.exists()) f.inputStream().use { load(it) }
+}
+val hasReleaseKey = keystoreProps.getProperty("storeFile") != null
+
+// versionCode auto-increments off the git commit count, so every published build
+// outranks the one before it and the in-app updater can compare reliably. Uses the
+// config-cache-safe providers.exec; falls back to 1 if git isn't available.
+val gitVersionCode: Int = try {
+    providers.exec {
+        commandLine("git", "rev-list", "--count", "HEAD")
+        workingDir = rootProject.projectDir
+    }.standardOutput.asText.get().trim().toIntOrNull() ?: 1
+} catch (_: Exception) { 1 }
+
 android {
     namespace = "mu.carfection.pos"
     compileSdk = 35
@@ -24,8 +42,8 @@ android {
         applicationId = "mu.carfection.pos"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = gitVersionCode
+        versionName = "0.1.$gitVersionCode"
         buildConfigField("String", "SUPABASE_URL", "\"${prop("supabase.url")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${prop("supabase.anonKey")}\"")
         // Staff-PIN login and "Send to customer" talk to the web app's server-side routes
@@ -38,10 +56,24 @@ android {
         buildConfigField("String", "POS_DEVICE_KEY", "\"${prop("pos.deviceKey")}\"")
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            create("release") {
+                storeFile = rootProject.file(keystoreProps.getProperty("storeFile"))
+                storePassword = keystoreProps.getProperty("storePassword")
+                keyAlias = keystoreProps.getProperty("keyAlias")
+                keyPassword = keystoreProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // The stable release identity — every update must be signed with this same
+            // key to install over the last one. Falls back to debug when the key is absent.
+            signingConfig = if (hasReleaseKey) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
     compileOptions {

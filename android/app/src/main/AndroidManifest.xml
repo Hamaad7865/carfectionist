@@ -12,6 +12,10 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- Self-update: the app downloads a newer signed APK and hands it to the system
+         installer. The tablet must also allow "install unknown apps" for this app once. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <application
         android:name=".PosApplication"
         android:allowBackup="false"

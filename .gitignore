@@ -48,3 +48,8 @@ Thumbs.db
 npm-debug.log*
 pnpm-debug.log*
 backups/
+
+# Android release signing — the keystore IS the app's identity. Never commit it;
+# losing it means no more updates can ever install over the shop's app.
+android/keystore/
+android/keystore.properties

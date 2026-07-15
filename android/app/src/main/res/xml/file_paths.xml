@@ -2,4 +2,6 @@
 <paths>
     <!-- Temp files the camera writes into before we upload them to Supabase Storage. -->
     <cache-path name="job_photos" path="job_photos/" />
+    <!-- The downloaded update APK, handed to the system installer via a content:// URI. -->
+    <cache-path name="updates" path="updates/" />
 </paths>
