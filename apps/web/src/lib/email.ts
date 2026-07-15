@@ -218,3 +218,49 @@ export async function sendStatementEmail(i: StatementEmailInput): Promise<SendRe
     attachments: [{ filename: "statement.pdf", content: i.pdfBase64, contentType: "application/pdf" }],
   });
 }
+
+export interface ZReportEmailInput {
+  to: string;
+  number: string;
+  scope: string; // "service" | "day"
+  totalCents: number;
+  closedAt: string; // display
+  pdfBase64: string;
+  studioName: string;
+}
+
+/** "Till close" email with the Z-report PDF attached — an internal record for the owner. */
+export async function sendZReportEmail(i: ZReportEmailInput): Promise<SendResult> {
+  const total = formatMUR(i.totalCents);
+  const scopeLabel = i.scope === "day" ? "Day" : "Service";
+  const subject = `Till close ${i.number} — ${i.studioName}`;
+  const text =
+    `Till close ${i.number} (${scopeLabel}) from ${i.studioName}.\n` +
+    (i.closedAt ? `Closed: ${i.closedAt}.\n` : "") +
+    `Total incl. tax: ${total}.\n\n` +
+    `The full breakdown is attached as a PDF.`;
+  const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f2f4f7;font-family:Arial,Helvetica,sans-serif">
+  <div style="max-width:520px;margin:0 auto;padding:28px 16px">
+    <div style="background:#ffffff;border-radius:14px;padding:32px 28px;border:1px solid #e4e8ee">
+      <div style="text-align:center;font-size:20px;font-weight:800;letter-spacing:0.04em;color:#141b22">${i.studioName.toUpperCase()}</div>
+      <div style="text-align:center;font-size:16px;font-weight:700;color:#2b6cb0;margin-top:10px">Till close ${i.number}</div>
+      <p style="text-align:center;font-size:13px;color:#5b6572;line-height:1.6;margin:14px 0 22px">
+        ${scopeLabel} close${i.closedAt ? ` · ${i.closedAt}` : ""}. The full breakdown is attached.
+      </p>
+      <table style="width:100%;font-size:13.5px;color:#1c2733;border-collapse:collapse">
+        <tr><td style="padding:6px 0;color:#5b6572">Total incl. tax</td><td style="padding:6px 0;text-align:right;font-weight:800;color:#0d8a5f">${total}</td></tr>
+      </table>
+    </div>
+    <p style="text-align:center;font-size:11px;color:#98a2b0;margin-top:14px">Sent by ${i.studioName} · Mauritius.</p>
+  </div>
+</body></html>`;
+
+  return bindingSend({
+    to: i.to,
+    from: FROM_DOCS,
+    subject,
+    html,
+    text,
+    attachments: [{ filename: `${i.number}.pdf`, content: i.pdfBase64, contentType: "application/pdf" }],
+  });
+}

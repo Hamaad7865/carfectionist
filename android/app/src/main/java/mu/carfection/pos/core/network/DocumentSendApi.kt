@@ -26,6 +26,9 @@ private data class SendDocumentBody(
 @Serializable
 private data class SendDocumentResponse(val ok: Boolean = false, val error: String? = null)
 
+@Serializable
+private data class SendZReportBody(val to: String, val deviceCode: String? = null)
+
 /**
  * "Send to customer" — posts to the web app's /api/documents/{id}/send with the
  * operator's own Supabase access token, so the server renders + delivers the
@@ -48,6 +51,43 @@ class DocumentSendApi @Inject constructor(private val client: SupabaseClient) {
                 requestMethod = "POST"
                 connectTimeout = 15_000
                 readTimeout = 60_000 // PDF render + delivery can take a few seconds
+                doOutput = true
+                setRequestProperty("authorization", "Bearer $token")
+                setRequestProperty("content-type", "application/json")
+                setRequestProperty("accept", "application/json")
+            }
+            try {
+                conn.outputStream.use { it.write(body.toByteArray()) }
+                val code = conn.responseCode
+                val text = (if (code in 200..299) conn.inputStream else conn.errorStream)
+                    ?.bufferedReader()?.use(BufferedReader::readText) ?: ""
+                val parsed = runCatching { json.decodeFromString<SendDocumentResponse>(text) }.getOrNull()
+                when {
+                    parsed?.ok == true -> null
+                    parsed?.error != null -> parsed.error
+                    else -> "Send failed (HTTP $code)"
+                }
+            } catch (e: Exception) {
+                e.message ?: "Network error"
+            } finally {
+                conn.disconnect()
+            }
+        }
+
+    /**
+     * Email a closed Z-report as a PDF. Same trust model as send(): the Worker renders
+     * the report from its frozen totals and delivers it AS the operator. Returns null on
+     * success, or a human-readable error.
+     */
+    suspend fun sendZReport(zReportId: String, to: String, deviceCode: String?): String? =
+        withContext(Dispatchers.IO) {
+            val token = client.auth.currentAccessTokenOrNull()
+                ?: return@withContext "Not signed in — sign in again and retry."
+            val body = json.encodeToString(SendZReportBody(to, deviceCode))
+            val conn = (URL("$base/api/z-reports/$zReportId/send").openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                connectTimeout = 15_000
+                readTimeout = 60_000
                 doOutput = true
                 setRequestProperty("authorization", "Bearer $token")
                 setRequestProperty("content-type", "application/json")

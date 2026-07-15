@@ -11,10 +11,17 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -48,12 +55,15 @@ import mu.carfection.pos.core.data.TillRepository
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.network.CashSessionDto
+import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
+import mu.carfection.pos.ui.theme.Barlow
 import mu.carfection.pos.ui.theme.CardBg
 import mu.carfection.pos.ui.theme.Condensed
 import mu.carfection.pos.ui.theme.Danger
 import mu.carfection.pos.ui.theme.Hairline
+import mu.carfection.pos.ui.theme.Inset
 import mu.carfection.pos.ui.theme.InsetAlt
 import mu.carfection.pos.ui.theme.Mono
 import mu.carfection.pos.ui.theme.ScreenBg
@@ -88,12 +98,21 @@ data class TillUiState(
     val closeChoiceOpen: Boolean = false,    // "Cloture de periode": service or day?
     val confirmDay: Boolean = false,         // "day closure is final"
     val z: mu.carfection.pos.core.network.ZReportDto? = null, // the slip, once cut
+    val bizName: String = "Carfectionist",   // for the "Sale modes" line
+    // ── emailing the Z ──────────────────────────────────────────────────────
+    val emailOpen: Boolean = false,
+    val emailTo: String = "",
+    val emailBusy: Boolean = false,
+    val emailResult: String? = null,         // "Sent" or an error
 )
 
 @HiltViewModel
 class TillViewModel @Inject constructor(
     private val till: TillRepository,
     private val zReport: mu.carfection.pos.core.data.TillZReport,
+    private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
+    private val session: mu.carfection.pos.core.data.SessionRepository,
+    private val catalog: mu.carfection.pos.core.data.CatalogRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(TillUiState())
     val state = _s.asStateFlow()
@@ -174,7 +193,8 @@ class TillViewModel @Inject constructor(
                 if (alsoDay && sess.tradingDayId != null) till.closeDay(sess.tradingDayId) else z
             }
                 .onSuccess { z ->
-                    _s.value = TillUiState(loading = false, session = null, z = z, preClose = null)
+                    val biz = runCatching { catalog.receiptBiz().name }.getOrNull() ?: "Carfectionist"
+                    _s.value = TillUiState(loading = false, session = null, z = z, preClose = null, bizName = biz)
                     // The close has COMMITTED. Printing is a separate act that can fail
                     // without taking the cash-up with it — and the report screen offers Print.
                     launch {
@@ -197,7 +217,23 @@ class TillViewModel @Inject constructor(
         }
     }
 
-    fun doneWithZ() = run { _s.value = _s.value.copy(z = null, notice = null) }
+    fun doneWithZ() = run { _s.value = _s.value.copy(z = null, notice = null, emailOpen = false, emailTo = "", emailResult = null) }
+
+    fun openEmailZ() = run { _s.value = _s.value.copy(emailOpen = true, emailResult = null) }
+    fun setEmailTo(t: String) = run { _s.value = _s.value.copy(emailTo = t, emailResult = null) }
+    fun closeEmailZ() = run { _s.value = _s.value.copy(emailOpen = false, emailResult = null) }
+
+    /** Email the just-closed Z-report as a PDF, through the web send pipeline. */
+    fun emailZ() {
+        val z = _s.value.z ?: return
+        val to = _s.value.emailTo.trim()
+        if (to.isEmpty()) return
+        _s.value = _s.value.copy(emailBusy = true, emailResult = null)
+        viewModelScope.launch {
+            val err = runCatching { sendApi.sendZReport(z.id, to, session.deviceId()) }.getOrElse { it.message }
+            _s.value = _s.value.copy(emailBusy = false, emailResult = err ?: "Sent", emailOpen = err != null)
+        }
+    }
 
     /** Petty cash out (Cashmag "Autre"): amount + reason; the server caps it at the drawer. */
     fun cashOut(amountText: String, reason: String) {
@@ -357,9 +393,13 @@ fun TillScreen(
 
     // ── The slip ─────────────────────────────────────────────────────────────
     s.z?.let { z ->
-        ZReportDialog(z = z, notice = s.notice, onPrint = viewModel::printZ, onDone = {
-            viewModel.doneWithZ(); viewModel.reload()
-        })
+        ZReportDialog(
+            z = z, bizName = s.bizName, notice = s.notice,
+            emailOpen = s.emailOpen, emailTo = s.emailTo, emailBusy = s.emailBusy, emailResult = s.emailResult,
+            onPrint = viewModel::printZ,
+            onOpenEmail = viewModel::openEmailZ, onEmailTo = viewModel::setEmailTo, onSendEmail = viewModel::emailZ, onCancelEmail = viewModel::closeEmailZ,
+            onDone = { viewModel.doneWithZ(); viewModel.reload() },
+        )
     }
 }
 
@@ -496,41 +536,158 @@ private fun ConfirmDayDialog(onCancel: () -> Unit, onOk: () -> Unit) {
 @Composable
 private fun ZReportDialog(
     z: mu.carfection.pos.core.network.ZReportDto,
+    bizName: String,
     notice: String?,
+    emailOpen: Boolean,
+    emailTo: String,
+    emailBusy: Boolean,
+    emailResult: String?,
     onPrint: () -> Unit,
+    onOpenEmail: () -> Unit,
+    onEmailTo: (String) -> Unit,
+    onSendEmail: () -> Unit,
+    onCancelEmail: () -> Unit,
     onDone: () -> Unit,
 ) {
+    // Read the frozen totals defensively — every figure was fixed at close, so nothing is
+    // recomputed. Mirrors ZSlip.kt so the screen, the paper and the emailed PDF agree.
+    fun JsonObject.num(k: String) = this[k]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
+    fun JsonObject.int(k: String) = num(k).toInt()
+    fun JsonObject.str(k: String) = this[k]?.jsonPrimitive?.content?.takeIf { it != "null" }
+    fun JsonObject.arr(k: String) = (this[k] as? kotlinx.serialization.json.JsonArray)?.map { it.jsonObject } ?: emptyList()
+    fun mny(r: Double) = formatMUR(rupeesToCents(r))
+
+    val t = z.totals
     Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.width(560.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            Modifier.width(600.dp).heightIn(max = 720.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)),
         ) {
-            Text(if (z.scope == "day") "Day closed" else "Service closed", color = Success, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
-            Text(z.number, color = TextPrimary, fontFamily = Mono, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-
-            val t = z.totals
-            fun n(k: String) = t[k]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull() } ?: 0.0
-            Field2("Total incl. tax", formatMUR(rupeesToCents(n("total_incl"))))
-            Field2("Tickets", n("tickets").toInt().toString())
-            Field2("Average basket", formatMUR(rupeesToCents(n("avg_basket"))))
-            if (z.scope != "day") {
-                Field2("Counted", formatMUR(rupeesToCents(n("counted_cash"))))
-                val v = n("variance")
-                Field2("Variance", formatMUR(rupeesToCents(v)), if (v == 0.0) Success else Warning)
+            // header
+            Column(Modifier.padding(start = 24.dp, end = 24.dp, top = 22.dp, bottom = 10.dp)) {
+                Text(if (z.scope == "day") "Day closed" else "Service closed", color = Success, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("${z.number} · ${z.closedAt?.take(16)?.replace('T', ' ') ?: ""}", color = TextSecondary, fontFamily = Mono, fontSize = 13.sp)
             }
-            notice?.let { Text(it, color = TextSecondary, fontSize = 13.sp) }
+            Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
 
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(
-                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onPrint),
-                    contentAlignment = Alignment.Center,
-                ) { Text("Print", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
-                Box(
-                    Modifier.weight(1f).height(50.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone),
-                    contentAlignment = Alignment.Center,
-                ) { Text("Done", color = AccentInk, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            // the full breakdown — scrollable
+            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 24.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                val services = t.arr("services")
+                if (services.isNotEmpty()) {
+                    services.forEach { s ->
+                        ZSection("Service ${s.int("service_no")}")
+                        ZRow("Initial cash float", mny(s.num("float_initial")))
+                        ZRow("Final cash float", mny(s.num("float_final")))
+                        if (s.num("variance") != 0.0) ZRow("Variance", mny(s.num("variance")), Warning)
+                    }
+                    ZSection("Period")
+                } else {
+                    ZSection("Service ${t.int("service_no")}")
+                    ZRow("Initial cash float", mny(t.num("float_initial")))
+                    ZRow("Final cash float", mny(t.num("float_final")))
+                    if (z.scope != "day") {
+                        ZRow("Counted", mny(t.num("counted_cash")))
+                        val v = t.num("variance")
+                        ZRow("Variance", mny(v), if (v == 0.0) Success else Warning)
+                    }
+                    ZSection("Period")
+                }
+
+                ZRow("Total incl. tax", mny(t.num("total_incl")))
+                ZRow("${t.int("tickets")} tickets", "Avg. ${mny(t.num("avg_basket"))}")
+                if (t.int("reversals") > 0) ZRow("${t.int("reversals")} reversals", "")
+                if (t.int("voided_bills") > 0) ZRow("${t.int("voided_bills")} deleted bills", "")
+
+                ZSection("Means of payment")
+                t.arr("methods").forEach { m ->
+                    val name = m.str("method")?.replace('_', ' ')?.uppercase() ?: "?"
+                    if (name == "CASH") {
+                        ZRow("CASH", mny(m.num("gross")), indent = true)
+                        ZRow("CHANGE", mny(m.num("change")), indent = true)
+                        ZRow("CASH NET", mny(m.num("net")), indent = true)
+                    } else {
+                        ZRow("${m.int("count")} $name", mny(m.num("net")), indent = true)
+                    }
+                }
+                (t["customer_credit"] as? JsonObject)?.let { c ->
+                    if (c.num("amount") != 0.0) ZRow("${c.int("count")} CUSTOMER CREDIT", mny(c.num("amount")), indent = true)
+                }
+
+                t.arr("categories").takeIf { it.isNotEmpty() }?.let { cats ->
+                    ZSection("Categories")
+                    cats.forEach { c -> ZRow("${c.int("lines")} ${c.str("name")?.uppercase()}", mny(c.num("incl")), indent = true) }
+                }
+
+                t.arr("cashiers").takeIf { it.isNotEmpty() }?.let { cs ->
+                    ZSection("Cashier / salesperson")
+                    cs.forEach { c -> ZRow(c.str("name") ?: "—", mny(c.num("total")), indent = true) }
+                }
+
+                t.arr("vat").takeIf { it.isNotEmpty() }?.let { vs ->
+                    ZSection("VAT")
+                    vs.forEach { v ->
+                        ZRow(v.str("label") ?: "", mny(v.num("vat")), indent = true)
+                        ZRow("  excl. ${mny(v.num("excl"))}", "incl. ${mny(v.num("incl"))}", TextMuted, indent = true)
+                    }
+                }
+
+                t.arr("accumulation").takeIf { it.isNotEmpty() }?.let { accs ->
+                    ZSection("Float accumulation")
+                    accs.forEach { a ->
+                        val name = a.str("method")?.replace('_', ' ')?.uppercase() ?: "?"
+                        if (a.num("remitted") > 0.0) ZRow("$name remitted to bank", mny(a.num("remitted")), indent = true)
+                        ZRow("$name carried on", mny(a.num("float_out")), indent = true)
+                    }
+                }
+
+                ZSection("Sale modes")
+                ZRow("SALES [${bizName.uppercase()}]", mny(t.num("total_incl")), indent = true)
+            }
+
+            Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+            Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                notice?.let { Text(it, color = TextSecondary, fontSize = 12.5.sp) }
+                if (emailOpen) {
+                    FilledInput(value = emailTo, onValueChange = onEmailTo, placeholder = "Email address", modifier = Modifier.fillMaxWidth(), bg = Inset)
+                    emailResult?.let { Text(it, color = if (it == "Sent") Success else Danger, fontSize = 12.5.sp) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onCancelEmail), contentAlignment = Alignment.Center) {
+                            Text("Cancel", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                        val ok = emailTo.isNotBlank() && !emailBusy
+                        Box(Modifier.weight(1.4f).height(50.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ok, onClick = onSendEmail), contentAlignment = Alignment.Center) {
+                            Text(if (emailBusy) "Sending…" else "Send PDF", color = if (ok) AccentInk else TextMuted, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                } else {
+                    emailResult?.let { Text(it, color = if (it == "Sent") Success else Danger, fontSize = 12.5.sp) }
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Box(Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onPrint), contentAlignment = Alignment.Center) {
+                            Text("Print", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onOpenEmail), contentAlignment = Alignment.Center) {
+                            Text("Email", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                        Box(Modifier.weight(1f).height(50.dp).background(Accent, RoundedCornerShape(13.dp)).clickable(onClick = onDone), contentAlignment = Alignment.Center) {
+                            Text("Done", color = AccentInk, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun ZSection(title: String) {
+    Text(title.uppercase(), color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp, modifier = Modifier.padding(top = 10.dp, bottom = 2.dp))
+}
+
+@Composable
+private fun ZRow(label: String, value: String, valueColor: Color = TextPrimary, indent: Boolean = false) {
+    Row(Modifier.fillMaxWidth().padding(start = if (indent) 12.dp else 0.dp)) {
+        Text(label, color = if (indent) TextSecondary else TextPrimary, fontFamily = Barlow, fontSize = 13.sp)
+        Spacer(Modifier.weight(1f))
+        Text(value, color = valueColor, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Medium)
     }
 }
 

@@ -5,7 +5,35 @@ import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 import type { StatementA4Props } from "@/components/pdf/StatementA4";
+import type { ZReportA4Props } from "@/components/pdf/ZReportA4";
 import { getCustomerAgedStatement } from "@/lib/supabase/queries/reports";
+
+/** Assemble ZReportA4 props for a closed till's Z-report — the frozen totals plus the
+ *  business header. Shared by the Z-report PDF endpoint and the email path. */
+export async function getZReportProps(id: string, sbOverride?: SupabaseClient<any>): Promise<ZReportA4Props | null> {
+  const sb = sbOverride ?? (await createClient());
+  const { data: z } = await sb.from("z_reports").select("number, scope, totals, note, closed_at").eq("id", id).maybeSingle();
+  if (!z) return null;
+  const { data: bs } = await sb.from("business_settings").select("*").limit(1).single();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const b: any = bs ?? {};
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const d: any = z;
+  return {
+    from: {
+      tradingName: b.trading_name ?? "Carfectionist",
+      address: b.address ?? "",
+      brn: b.brn ?? "",
+      vatNo: b.vat_number ?? "",
+      phone: b.phone ?? "",
+    },
+    number: d.number,
+    scope: d.scope,
+    closedAt: d.closed_at ?? null,
+    note: d.note ?? null,
+    totals: d.totals ?? {},
+  };
+}
 
 /** Assemble StatementA4 props for a customer — the aged balance plus the business
  *  header, shared by the statement PDF endpoint and the email path. */
