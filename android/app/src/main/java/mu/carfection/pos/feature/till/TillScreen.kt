@@ -587,35 +587,39 @@ private fun ZReportDialog(
             // the full breakdown — scrollable, laid out as Cashmag's service cards + the period
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 val services = t.arr("services")
-                // A day carries every service as its own card; a single service close is one card.
+                // The aggregate (Period + detail) figures: a service close that carries the whole
+                // day has a `period` block; a day close is already the aggregate at the top level.
+                val periodT = (t["period"] as? JsonObject) ?: t
+                // A day (or a service close carrying the day) shows every service as its own card;
+                // a lone single-service close is one card.
                 val serviceCards = if (services.isNotEmpty()) services else listOf(t)
                 serviceCards.forEach { s -> ServiceCard(s, z.scope) { mny(it) } }
 
-                // For a whole day, a final "Period" card aggregates it; a single service already is the period.
-                if (services.isNotEmpty()) PeriodCard(t) { mny(it) }
+                // The Period card aggregates the services; a lone single-service close already is it.
+                if (services.isNotEmpty()) PeriodCard(periodT) { mny(it) }
 
-                // ── The period's detail, shared by service + day ─────────────────────
-                DetailCard("Categories", t.arr("categories").isNotEmpty()) {
-                    t.arr("categories").forEach { c -> ZRow("${c.int("lines")} ${c.str("name")?.uppercase()}", mny(c.num("incl"))) }
+                // ── The period's detail, from the aggregate ──────────────────────────
+                DetailCard("Categories", periodT.arr("categories").isNotEmpty()) {
+                    periodT.arr("categories").forEach { c -> ZRow("${c.int("lines")} ${c.str("name")?.uppercase()}", mny(c.num("incl"))) }
                 }
-                DetailCard("User as cashier", t.arr("cashiers").isNotEmpty()) {
-                    t.arr("cashiers").forEach { c ->
+                DetailCard("User as cashier", periodT.arr("cashiers").isNotEmpty()) {
+                    periodT.arr("cashiers").forEach { c ->
                         ZRow(c.str("name") ?: "—", mny(c.num("total")), strong = true)
                         c.arr("methods").forEach { m -> ZRow(m.str("method")?.replace('_', ' ')?.uppercase() ?: "?", mny(m.num("amount")), indent = true) }
                     }
                 }
-                DetailCard("Sales person", t.arr("cashiers").isNotEmpty()) {
-                    t.arr("cashiers").forEach { c -> ZRow(c.str("name") ?: "—", mny(c.num("total"))) }
+                DetailCard("Sales person", periodT.arr("cashiers").isNotEmpty()) {
+                    periodT.arr("cashiers").forEach { c -> ZRow(c.str("name") ?: "—", mny(c.num("total"))) }
                 }
-                DetailCard("VAT", t.arr("vat").isNotEmpty()) {
-                    t.arr("vat").forEach { v ->
+                DetailCard("VAT", periodT.arr("vat").isNotEmpty()) {
+                    periodT.arr("vat").forEach { v ->
                         ZRow(v.str("label") ?: "", mny(v.num("vat")), strong = true)
                         ZRow("excl. ${mny(v.num("excl"))}", "incl. ${mny(v.num("incl"))}", TextMuted, indent = true)
                     }
                 }
                 DetailCard("Sale modes", true) {
-                    ZRow("SALES [${bizName.uppercase()}]", mny(t.num("total_incl")), strong = true)
-                    t.arr("vat").forEach { v -> ZRow(v.str("label") ?: "", mny(v.num("vat")), TextMuted, indent = true) }
+                    ZRow("SALES [${bizName.uppercase()}]", mny(periodT.num("total_incl")), strong = true)
+                    periodT.arr("vat").forEach { v -> ZRow(v.str("label") ?: "", mny(v.num("vat")), TextMuted, indent = true) }
                 }
             }
 

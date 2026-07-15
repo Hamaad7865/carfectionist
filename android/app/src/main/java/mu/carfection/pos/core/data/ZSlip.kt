@@ -31,6 +31,9 @@ object ZSlip {
 
     fun render(z: ZReportDto, biz: ReceiptBiz, width: Int = 48): String = buildString {
         val t = z.totals
+        // The aggregate (Period) figures: for a service close that carries the whole day,
+        // its `period` block; otherwise the top-level totals themselves.
+        val periodTotals = (t["period"] as? JsonObject) ?: t
         fun line(left: String, right: String) {
             val room = (width - left.length - right.length).coerceAtLeast(1)
             appendLine(left + " ".repeat(room) + right)
@@ -62,12 +65,12 @@ object ZSlip {
             rule()
         }
 
-        appendTotalsBlock(t, ::line, ::rule)
+        appendTotalsBlock(periodTotals, ::line, ::rule)
 
         // Sale modes — SALES [trading name] restated with its VAT, like the owner's slip.
         line("Sale modes", "")
-        line("  SALES [${biz.name.uppercase()}]", money(t.num("total_incl")))
-        t["vat"]?.jsonArray?.forEach { v ->
+        line("  SALES [${biz.name.uppercase()}]", money(periodTotals.num("total_incl")))
+        periodTotals["vat"]?.jsonArray?.forEach { v ->
             val o = v.jsonObject
             line("  ${o.str("label")}", money(o.num("vat")))
             line("    excl. ${money(o.num("excl"))}", "incl. ${money(o.num("incl"))}")
