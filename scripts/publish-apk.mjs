@@ -28,7 +28,7 @@ function findAapt2() {
 // Build unless a fresh APK is already present (pass --no-build to always skip). The
 // gradle wrapper differs by OS, so use the right one.
 if (!process.argv.includes("--no-build") || !existsSync(APK)) {
-  console.log(`Building signed release APK (versionCode ${versionCode})…`);
+  console.log("Building signed release APK…");
   const gradlew = process.platform === "win32" ? "gradlew.bat" : "./gradlew";
   try {
     execSync(`${gradlew} :app:assembleRelease --no-daemon -q`, { cwd: "android", stdio: "inherit" });
