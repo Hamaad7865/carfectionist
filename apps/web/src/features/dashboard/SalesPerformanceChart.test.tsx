@@ -44,6 +44,7 @@ const invoice: SalesDocumentRow = {
   status: 'issued',
   total_incl: 123.45,
   origin: 'standalone',
+  job_id: null,
   issued_at: '2026-07-12T20:30:00.000Z',
 };
 

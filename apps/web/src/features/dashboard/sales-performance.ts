@@ -66,7 +66,7 @@ export interface SalesPeriod {
 }
 
 export interface SalesQuerySpec {
-  columns: 'id, doc_type, status, total_incl, origin, issued_at';
+  columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at';
   docTypes: ['invoice', 'credit_note'];
   statuses: ['issued', 'partly_paid', 'paid'];
   startIso: string;
@@ -79,6 +79,7 @@ export interface SalesDocumentRow {
   status: 'draft' | 'issued' | 'partly_paid' | 'paid' | 'void';
   total_incl: number | string;
   origin: 'standalone' | 'from_job';
+  job_id: string | null;
   issued_at: string | null;
 }
 
@@ -200,7 +201,7 @@ export function resolveSalesPeriod(
 
 export function salesQuerySpec(period: SalesPeriod): SalesQuerySpec {
   return {
-    columns: 'id, doc_type, status, total_incl, origin, issued_at',
+    columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at',
     docTypes: ['invoice', 'credit_note'],
     statuses: ['issued', 'partly_paid', 'paid'],
     startIso: period.startIso,
@@ -281,7 +282,11 @@ export function buildSalesPerformance(
     if (!point) continue;
 
     hasSales = true;
-    if (row.origin === 'from_job') point.workshopCents += cents;
+    // A sale tied to a workshop job counts as Workshop revenue — whether it was
+    // flagged from_job or reached the invoice via intake (job_id set, origin left
+    // 'standalone' by the intake path). Classifying on job_id fixes the intake
+    // mis-count for past and future without rewriting frozen invoices' origin.
+    if (row.origin === 'from_job' || row.job_id != null) point.workshopCents += cents;
     else point.counterCents += cents;
     point.totalCents = point.counterCents + point.workshopCents;
   }

@@ -105,6 +105,7 @@ function row(overrides: Partial<SalesDocumentRow> = {}): SalesDocumentRow {
     status: 'issued',
     total_incl: 100,
     origin: 'standalone',
+    job_id: null,
     issued_at: '2026-07-12T20:30:00.000Z', // 13 Jul 00:30 MU
     ...overrides,
   };
@@ -180,6 +181,20 @@ describe('buildSalesPerformance', () => {
       totalCents: 25_050,
     });
     expect(data.totalCents).toBe(35_050);
+  });
+
+  it('counts an intake sale (job_id set, origin still standalone) as Workshop', () => {
+    const period = resolveSalesPeriod({ salesRange: 'today' }, NOW);
+    const data = buildSalesPerformance(period, [
+      row({
+        id: 'intake',
+        origin: 'standalone', // intake path leaves origin standalone…
+        job_id: 'job-1', // …but links a job, so it's a workshop sale
+        total_incl: 300,
+        issued_at: '2026-07-13T05:15:00.000Z',
+      }),
+    ]);
+    expect(data.points[9]).toMatchObject({ counterCents: 0, workshopCents: 30_000 });
   });
 
   it('includes live invoice statuses and excludes draft and void rows', () => {
@@ -266,7 +281,7 @@ describe('salesQuerySpec', () => {
     const period = resolveSalesPeriod({ salesRange: 'today' }, NOW);
 
     expect(salesQuerySpec(period)).toEqual({
-      columns: 'id, doc_type, status, total_incl, origin, issued_at',
+      columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at',
       docTypes: ['invoice', 'credit_note'],
       statuses: ['issued', 'partly_paid', 'paid'],
       startIso: '2026-07-12T20:00:00.000Z',
