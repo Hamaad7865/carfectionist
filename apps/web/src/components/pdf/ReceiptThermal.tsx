@@ -37,7 +37,7 @@ export function ReceiptThermal({ r }: { r: ReceiptData }) {
       {/* Lines */}
       <div style={{ display: "flex", fontWeight: 700, fontSize: 11 }}>
         <span style={{ width: 22 }}>Qty</span>
-        <span style={{ flex: 1 }}>Designation</span>
+        <span style={{ flex: 1 }}>Description</span>
         <span style={{ width: 54, textAlign: "right" }}>UP</span>
         <span style={{ width: 58, textAlign: "right" }}>Total</span>
       </div>
@@ -70,7 +70,7 @@ export function ReceiptThermal({ r }: { r: ReceiptData }) {
       {/* VAT breakdown */}
       {r.vatGroups.map((g, i) => (
         <div key={i} style={{ marginBottom: i < r.vatGroups.length - 1 ? 4 : 0 }}>
-          <div>TAUX NORMAL {g.rate.toFixed(1)}% : {n(g.vatCents)}Rs</div>
+          <div>VAT {g.rate.toFixed(1)}% : {n(g.vatCents)}Rs</div>
           <div style={{ fontSize: 11 }}>excl. VAT = {n(g.baseCents)}Rs / Incl. tax = {n(g.inclCents)}Rs</div>
         </div>
       ))}

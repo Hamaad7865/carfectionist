@@ -10,7 +10,7 @@ import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.ZReportDto
 
 /**
- * The "Clôture de période" slip, rendered from the Z report's FROZEN totals.
+ * The "Period close" (Z report) slip, rendered from the Z report's FROZEN totals.
  *
  * Nothing is recomputed here — every figure was fixed by the server at the moment the till
  * was closed. That is what makes a reprint next month identical to the paper in the file,
@@ -29,6 +29,11 @@ object ZSlip {
 
     private fun money(rupees: Double) = formatMUR(rupeesToCents(rupees))
 
+    /** VAT rate labels are frozen in the owner's Cashmag French — show them in English. */
+    private fun enVat(label: String?): String = (label ?: "")
+        .replace("TAUX NORMAL", "STANDARD").replace("EXONERE", "EXEMPT").replace("EXONÉRÉ", "EXEMPT")
+        .replaceFirst(Regex("^TAUX "), "RATE ")
+
     fun render(z: ZReportDto, biz: ReceiptBiz, width: Int = 48): String = buildString {
         val t = z.totals
         // The aggregate (Period) figures: for a service close that carries the whole day,
@@ -42,7 +47,7 @@ object ZSlip {
         fun rule() = appendLine("-".repeat(width))
 
         centre(biz.name.uppercase())
-        centre("Cloture de periode")
+        centre("Period close")
         biz.address?.takeIf { it.isNotBlank() }?.let { centre(it) }
         centre(z.number)
         z.closedAt?.let { centre(it.take(16).replace('T', ' ')) }
@@ -72,7 +77,7 @@ object ZSlip {
         line("  SALES [${biz.name.uppercase()}]", money(periodTotals.num("total_incl")))
         periodTotals["vat"]?.jsonArray?.forEach { v ->
             val o = v.jsonObject
-            line("  ${o.str("label")}", money(o.num("vat")))
+            line("  ${enVat(o.str("label"))}", money(o.num("vat")))
             line("    excl. ${money(o.num("excl"))}", "incl. ${money(o.num("incl"))}")
         }
         rule()
@@ -169,7 +174,7 @@ object ZSlip {
             line("VAT", "")
             vat.forEach { v ->
                 val o = v.jsonObject
-                line("  ${o.str("label")}", money(o.num("vat")))
+                line("  ${enVat(o.str("label"))}", money(o.num("vat")))
                 line("    excl. ${money(o.num("excl"))}", "incl. ${money(o.num("incl"))}")
             }
             rule()

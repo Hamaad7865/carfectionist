@@ -500,7 +500,7 @@ private fun ClosePeriodDialog(
             Modifier.width(460.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("Clôture de période", color = TextPrimary, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Text("Close the till", color = TextPrimary, fontFamily = Condensed, fontSize = 22.sp, fontWeight = FontWeight.Bold)
             OutlinedTextField(note, onNote, label = { Text("Note for this service (optional)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
 
             BigButton(if (busy) "Closing…" else "Close service $serviceNo", enabled = !busy, onClick = onCloseService)
@@ -578,8 +578,8 @@ private fun ZReportDialog(
             // header — the owner's Cashmag "Clôture de période" masthead, centred.
             Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {
                 Text(bizName.uppercase(), color = TextPrimary, fontFamily = Condensed, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
-                Text("Clôture de période", color = TextSecondary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                t.str("device")?.let { Text("Appareil $it", color = TextMuted, fontFamily = Barlow, fontSize = 12.sp) }
+                Text("Period close", color = TextSecondary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                t.str("device")?.let { Text("Device $it", color = TextMuted, fontFamily = Barlow, fontSize = 12.sp) }
                 Text("${z.number} · ${z.closedAt?.take(16)?.replace('T', ' ') ?: ""}", color = TextMuted, fontFamily = Mono, fontSize = 12.sp)
             }
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
@@ -613,13 +613,13 @@ private fun ZReportDialog(
                 }
                 DetailCard("VAT", periodT.arr("vat").isNotEmpty()) {
                     periodT.arr("vat").forEach { v ->
-                        ZRow(v.str("label") ?: "", mny(v.num("vat")), strong = true)
+                        ZRow(enVatLabel(v.str("label")), mny(v.num("vat")), strong = true)
                         ZRow("excl. ${mny(v.num("excl"))}", "incl. ${mny(v.num("incl"))}", TextMuted, indent = true)
                     }
                 }
                 DetailCard("Sale modes", true) {
                     ZRow("SALES [${bizName.uppercase()}]", mny(periodT.num("total_incl")), strong = true)
-                    periodT.arr("vat").forEach { v -> ZRow(v.str("label") ?: "", mny(v.num("vat")), TextMuted, indent = true) }
+                    periodT.arr("vat").forEach { v -> ZRow(enVatLabel(v.str("label")), mny(v.num("vat")), TextMuted, indent = true) }
                 }
             }
 
@@ -665,6 +665,10 @@ private fun ZReportDialog(
 
 // ── Z-report JSON helpers (top-level so the card composables can read the frozen
 //    totals; ZReportDialog keeps its own locals for its inline lambdas) ──────────
+/** VAT rate labels are frozen in the owner's Cashmag French — show them in English. */
+private fun enVatLabel(l: String?): String = (l ?: "")
+    .replace("TAUX NORMAL", "STANDARD").replace("EXONERE", "EXEMPT").replace("EXONÉRÉ", "EXEMPT")
+    .replaceFirst(Regex("^TAUX "), "RATE ")
 private fun JsonObject.zn(k: String) = this[k]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
 private fun JsonObject.zi(k: String) = zn(k).toInt()
 private fun JsonObject.zs(k: String) = this[k]?.jsonPrimitive?.content?.takeIf { it != "null" }

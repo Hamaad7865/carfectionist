@@ -28,6 +28,9 @@ const HEAD = "#eef2f6";
 
 const money = (rupees: unknown) => formatMUR(rupeesToCents(Number(rupees) || 0));
 const int = (v: unknown) => Math.round(Number(v) || 0);
+// VAT rate labels are frozen in the owner's Cashmag French — show them in English.
+const enVat = (label: unknown) =>
+  String(label ?? "").replace("TAUX NORMAL", "STANDARD").replace(/EXON[ÉE]RE/g, "EXEMPT").replace(/^TAUX /, "RATE ");
 
 export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZReportA4Props) {
   const methods: Totals[] = Array.isArray(t.methods) ? t.methods : [];
@@ -120,7 +123,7 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
           <div style={sec}>VAT</div>
           {vat.map((v, i) => (
             <div key={i}>
-              <Kv l={String(v.label ?? "")} r={money(v.vat)} indent />
+              <Kv l={enVat(v.label)} r={money(v.vat)} indent />
               <div style={{ ...sub, fontSize: 10 }}><span>excl. {money(v.excl)}</span><span>incl. {money(v.incl)}</span></div>
             </div>
           ))}
