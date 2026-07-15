@@ -15,7 +15,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * The "Clôture de période" slip — Cashmag parity, printed the moment the till
+ * The "Period close" slip — Cashmag parity, printed the moment the till
  * closes so the owner gets the same end-of-day paper the studio is used to:
  * floats, period totals, sales by category, per-cashier takings split by
  * payment method, means of payment, drawer reconciliation, on-account credit
@@ -117,10 +117,10 @@ class TillZReport @Inject constructor(
             appendLine(center(biz.name.uppercase()))
             biz.address?.takeIf { it.isNotBlank() }?.let { appendLine(center(it)) }
             appendLine(rule())
-            appendLine(center("Cloture de periode"))
+            appendLine(center("Period close"))
             appendLine(center(dayLine))
             appendLine(center(stampLine))
-            appendLine(center("Appareil 1 / Device $device"))
+            appendLine(center("Device 1 · $device"))
             appendLine(rule())
             appendLine(center("Service"))
             appendLine(kv("Initial cash float", formatMUR(floatCents)))
@@ -166,7 +166,7 @@ class TillZReport @Inject constructor(
             }
             appendLine(rule())
             appendLine(center("VAT rate"))
-            appendLine(kv("TAUX NORMAL 15.00%", formatMUR(vatCents)))
+            appendLine(kv("STANDARD 15.00%", formatMUR(vatCents)))
             appendLine(kv("excl. VAT", formatMUR(exclCents)))
             appendLine(kv("Incl. tax", formatMUR(inclCents)))
             appendLine(rule())
