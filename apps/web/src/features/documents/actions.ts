@@ -207,3 +207,15 @@ export async function sendDocumentAction(input: z.infer<typeof sendDocSchema>): 
   const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
   return sendDocument({ sb, docId: p.data.documentId, channel: p.data.channel, to: p.data.to, note: p.data.note, origin: `${proto}://${host}` });
 }
+
+/** A public, unguessable link to this document's PDF — for the "Share" action
+ *  (copy and paste anywhere). Possession of the token is the authorisation. */
+export async function publicDocLinkAction(documentId: string): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  await requireRole(...WRITE_ROLES);
+  if (!/^[0-9a-f-]{36}$/i.test(documentId)) return { ok: false, error: "Invalid document." };
+  const { docToken } = await import("@/lib/receipt-token");
+  const { headers } = await import("next/headers");
+  const host = (await headers()).get("host") ?? "app-carfectionist.com";
+  const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
+  return { ok: true, url: `${proto}://${host}/api/public/doc/${encodeURIComponent(await docToken(documentId))}/pdf` };
+}

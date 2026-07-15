@@ -10,7 +10,7 @@ import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
 import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
-import { SendDocumentButton } from "@/features/documents/SendDocumentButton";
+import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext } from "@/lib/supabase/queries/builder";
 import { reducer, type BuilderState } from "./state";
@@ -239,13 +239,18 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <ArrowRight size={16} />
           </button>
         )}
-        {readOnly && state.docId && (
+        {readOnly && state.docId && state.number && (
+          <DocumentShareBar
+            documentId={state.docId}
+            number={state.number}
+            defaultEmail={customer?.email ?? null}
+            defaultPhone={customer?.phone ?? null}
+          />
+        )}
+        {readOnly && state.docId && !state.number && (
           <a href={`/print/doc/${state.docId}`} target="_blank" rel="noreferrer" className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
             <FileDown size={15} /> Print / PDF
           </a>
-        )}
-        {readOnly && state.docId && state.number && (
-          <SendDocumentButton documentId={state.docId} defaultEmail={customer?.email ?? null} defaultPhone={customer?.phone ?? null} />
         )}
         {readOnly && state.docType === "quote" && (
           <button onClick={onConvert} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center justify-center rounded-[10px] px-4 font-display text-[13px] font-extrabold text-white disabled:opacity-60">

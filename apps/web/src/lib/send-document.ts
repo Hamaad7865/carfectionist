@@ -18,15 +18,20 @@ import * as wa from "@/lib/whatsapp";
 // on first use: insert the wa_templates row + submit to Meta, and tell the
 // operator to retry once it's approved (usually minutes).
 
-// {{4}} carries the operator's message (picked from the presets or edited
-// freely) — Meta only delivers pre-approved templates, so the free text rides
-// as a variable inside the one approved template rather than as its own body.
+// {{2}} carries the operator's message (preset or edited freely) — Meta only
+// delivers pre-approved templates, so the free text rides as a variable inside
+// the one approved template rather than as its own body.
+//
+// Template body rules Meta enforces at creation: no variable may sit at the very
+// start or end, none may be adjacent to another, and there must be enough fixed
+// words per variable ("params words ratio"). So: three variables, well spaced,
+// with the message ending on fixed text.
 const DOC_TEMPLATE = {
   name: "document_delivery",
   language: "en",
   category: "UTILITY",
-  body: "Hello {{1}}, here is your {{2}} {{3}} from Carfectionist. {{4}}",
-  variableExamples: ["Anesh", "quotation", "A00120", "Thank you for your business."],
+  body: "Hello {{1}}, thank you for choosing Carfectionist. {{2}} Please find your {{3}} attached to this message.",
+  variableExamples: ["Anesh", "Thank you for your business.", "quotation A00120"],
   headerFormat: "DOCUMENT" as const,
 };
 
@@ -132,7 +137,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
         language: DOC_TEMPLATE.language,
         category: DOC_TEMPLATE.category,
         body: DOC_TEMPLATE.body,
-        variable_count: 4,
+        variable_count: 3,
         status: "pending",
         meta_template_id: sub.data.id,
       });
@@ -147,7 +152,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       phone,
       DOC_TEMPLATE.name,
       DOC_TEMPLATE.language,
-      [firstName(customerName) || "there", kind, d.number, note],
+      [firstName(customerName) || "there", note, `${kind} ${d.number}`],
       { link, filename: `${d.number}.pdf` },
     );
     if (!r.ok) return r;
