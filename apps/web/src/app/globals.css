@@ -102,3 +102,16 @@
   font-family: var(--font-mono);
   letter-spacing: -0.01em;
 }
+
+/* "Sent" flourish for the document send dialog — a checkmark that pops in. */
+@keyframes pop-check {
+  0% { transform: scale(0.4); opacity: 0; }
+  60% { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-pop-check {
+  animation: pop-check 0.4s cubic-bezier(0.2, 0.9, 0.3, 1.2) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-pop-check { animation: none; }
+}

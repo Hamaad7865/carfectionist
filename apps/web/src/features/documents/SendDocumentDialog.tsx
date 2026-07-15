@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, MessageCircle, Mail, Send, Check, Eye, RefreshCw, Clock, Bell } from "lucide-react";
+import { createPortal } from "react-dom";
+import { X, MessageCircle, Mail, Send, Check, Eye, RefreshCw, Clock, Bell, Loader2 } from "lucide-react";
 import { deliverDocumentAction, getSendContextAction, type SendContext } from "./actions";
 
 // The "Send to customer" sheet, modelled on the owner's Refrens reference: a
@@ -38,12 +39,28 @@ export function SendDocumentDialog({
   const [note, setNote] = useState(NOTE_PRESETS[0].text);
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState<null | string>(null);
+  const [sentScheduled, setSentScheduled] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // schedule-for-later + auto-reminders (matches the reference dialog)
   const [scheduleOn, setScheduleOn] = useState(false);
   const [scheduleAt, setScheduleAt] = useState("");
   const [remindersOn, setRemindersOn] = useState(false);
+
+  // The list row is a <Link> (an <a>); rendering this modal inline makes it a DOM
+  // descendant of that anchor, so a re-render (e.g. the token-refresh router.refresh)
+  // could activate the row link and navigate away mid-edit. Portal to <body> so the
+  // dialog lives outside every row link.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  // Let the "sent" flourish be seen, then close on its own so the operator isn't
+  // left clicking Cancel.
+  useEffect(() => {
+    if (!done) return;
+    const t = setTimeout(onClose, 1900);
+    return () => clearTimeout(t);
+  }, [done, onClose]);
 
   useEffect(() => {
     let alive = true;
@@ -80,9 +97,10 @@ export function SendDocumentDialog({
       return;
     }
     const bits = [
-      r.scheduled ? "Scheduled" : "Sent — the customer will receive the PDF",
+      r.scheduled ? "The customer will receive it at the scheduled time" : "The customer will receive the PDF",
       r.reminders > 0 ? `${r.reminders} reminder${r.reminders === 1 ? "" : "s"} set` : "",
     ].filter(Boolean);
+    setSentScheduled(!!r.scheduled);
     setDone(bits.join(" · ") + ".");
   }
 
@@ -90,7 +108,8 @@ export function SendDocumentDialog({
   const kindCap = ctx ? ctx.kind.charAt(0).toUpperCase() + ctx.kind.slice(1) : "Document";
   const title = `${isWa ? "WhatsApp" : "Email"} ${kindCap}`;
 
-  return (
+  if (!mounted) return null;
+  return createPortal(
     <div
       className="fixed inset-0 z-[70] grid place-items-center bg-black/45 p-4"
       onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -123,6 +142,16 @@ export function SendDocumentDialog({
           {loading ? (
             <div className="flex items-center gap-2 py-6 text-[13px] text-muted">
               <RefreshCw size={15} className="animate-spin" /> Loading…
+            </div>
+          ) : done ? (
+            <div className="flex flex-col items-center gap-3 py-8 text-center">
+              <span className="animate-pop-check grid size-16 place-items-center rounded-full bg-[rgba(13,167,124,0.12)] text-mint">
+                {sentScheduled ? <Clock size={30} strokeWidth={2.4} /> : <Check size={34} strokeWidth={3} />}
+              </span>
+              <div className="font-display text-[17px] font-extrabold text-ink-strong">
+                {sentScheduled ? "Scheduled" : isWa ? "Message sent" : "Email sent"}
+              </div>
+              <p className="max-w-[16rem] text-[12.5px] leading-snug text-muted">{done}</p>
             </div>
           ) : (
             <>
@@ -211,16 +240,12 @@ export function SendDocumentDialog({
               </div>
 
               {error && <p className="rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
-              {done && (
-                <p className="inline-flex items-center gap-1.5 rounded-[9px] bg-[rgba(13,167,124,0.1)] px-3 py-2 text-[12.5px] font-semibold text-mint">
-                  <Check size={14} /> {done}
-                </p>
-              )}
             </>
           )}
         </div>
 
         {/* footer */}
+        {!done && (
         <div className="flex items-center justify-between gap-2 border-t border-line px-5 py-3.5">
           <button onClick={onClose} className="text-[13px] font-semibold text-muted hover:text-body">
             Cancel
@@ -236,16 +261,18 @@ export function SendDocumentDialog({
             </a>
             <button
               onClick={send}
-              disabled={busy || !!done || loading || !to.trim() || (scheduleOn && !scheduleAt)}
+              disabled={busy || loading || !to.trim() || (scheduleOn && !scheduleAt)}
               className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-50"
             >
-              {scheduleOn ? <Clock size={15} /> : <Send size={15} />}{" "}
-              {busy ? "Working…" : done ? "Done ✓" : scheduleOn ? "Schedule" : "Send"}
+              {busy ? <Loader2 size={15} className="animate-spin" /> : scheduleOn ? <Clock size={15} /> : <Send size={15} />}{" "}
+              {busy ? (scheduleOn ? "Scheduling…" : isWa ? "Sending…" : "Emailing…") : scheduleOn ? "Schedule" : "Send"}
             </button>
           </div>
         </div>
+        )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
