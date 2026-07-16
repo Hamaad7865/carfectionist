@@ -201,8 +201,10 @@ export const undoOnAccount = (sb: Client, invoiceId: string) =>
 export const voidDocument = (sb: Client, id: string, reason: string) =>
   callRpc<DocumentRow>(sb, "void_document", { p_id: id, p_reason: reason });
 
-export const createCreditNote = (sb: Client, invoiceId: string, restock: boolean, location: string | null = null) =>
-  callRpc<DocumentRow>(sb, "create_and_issue_credit_note", { p_invoice_id: invoiceId, p_stock_location_id: location, p_restock: restock });
+export const createCreditNote = (sb: Client, invoiceId: string, restock: boolean, location: string | null = null, sessionId: string | null = null) =>
+  // sessionId = the till the refund is booked to: a paid invoice's credit note writes
+  // negative payment mirrors there so the drawer count and the Z see the money leave.
+  callRpc<DocumentRow>(sb, "create_and_issue_credit_note", { p_invoice_id: invoiceId, p_stock_location_id: location, p_restock: restock, p_session_id: sessionId });
 
 // ── Operations (migration 0004) ──────────────────────────────────────────────
 export const completeJob = (sb: Client, jobId: string, consumptions: { product_id: string; qty: number }[], location: string | null = null) =>

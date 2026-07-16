@@ -160,7 +160,10 @@ export async function createCreditNoteAction(invoiceId: string, restock: boolean
     // Restocked units return to the Shop — the same on-hand the counter sale drew
     // from — matching the Android POS refund path (PosApi.issueCreditNote).
     const location = restock ? await resolveShopLocationId(sb) : null;
-    const cn = await rpc.createCreditNote(sb, invoiceId, restock, location);
+    // A paid invoice's refund is booked to the desk till (negative mirrors on the
+    // CN) so the drawer and the Z see the money leave — same rule as the tablet.
+    const sessionId = await backOfficeTillId(sb);
+    const cn = await rpc.createCreditNote(sb, invoiceId, restock, location, sessionId);
     revalidatePath("/sales");
     revalidatePath(`/sales/${invoiceId}`);
     return { ok: true, data: cn };

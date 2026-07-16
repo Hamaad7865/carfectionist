@@ -14,7 +14,7 @@ export function AppShell({
   children,
 }: {
   ctx: SessionContext;
-  notifications: NotifItem[];
+  notifications: Promise<NotifItem[]>;
   fiscalYears: { label: string; from: string; to: string }[];
   children: React.ReactNode;
 }) {

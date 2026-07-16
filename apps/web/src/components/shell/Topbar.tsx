@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, use, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, Bell, Menu } from "lucide-react";
@@ -26,11 +26,11 @@ const TONE: Record<string, string> = { warn: "#b07c14", danger: "#d63b50", info:
 
 export function Topbar({
   onMenu,
-  notifications = [],
+  notifications,
   fiscalYears = [],
 }: {
   onMenu?: () => void;
-  notifications?: NotifItem[];
+  notifications: Promise<NotifItem[]>;
   fiscalYears?: { label: string; from: string; to: string }[];
 }) {
   const pathname = usePathname();
@@ -87,31 +87,51 @@ export function Topbar({
           className={`relative grid size-9 place-items-center rounded-[10px] border bg-white text-muted md:size-[38px] ${menu === "notif" ? "border-brand" : "border-line-2"}`}
         >
           <Bell size={17} />
-          {notifications.length > 0 && (
-            <span className="absolute -right-1 -top-1 grid min-w-[16px] place-items-center rounded-full bg-pink px-1 text-[9px] font-bold text-white">{notifications.length}</span>
-          )}
+          <Suspense fallback={null}>
+            <NotifBadge promise={notifications} />
+          </Suspense>
         </button>
         {menu === "notif" && (
           <div className="absolute right-0 top-[46px] w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-[13px] border border-line bg-card shadow-[0_20px_50px_-15px_rgba(15,23,32,0.35)]">
             <div className="border-b border-line px-4 py-2.5 font-display text-[13px] font-bold text-ink-strong">Notifications</div>
-            {notifications.length === 0 ? (
-              <div className="px-4 py-8 text-center text-[12.5px] text-faint">You&apos;re all caught up ✨</div>
-            ) : (
-              notifications.map((n) => (
-                <Link key={n.key} href={n.href} onClick={() => setMenu(null)} className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-b-0 hover:bg-sub">
-                  <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: TONE[n.tone] }} />
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-semibold text-ink">{n.label}</div>
-                    <div className="text-[11.5px] text-muted">{n.detail}</div>
-                  </div>
-                </Link>
-              ))
-            )}
+            <Suspense fallback={<div className="px-4 py-8 text-center text-[12.5px] text-faint">Checking…</div>}>
+              <NotifList promise={notifications} onGo={() => setMenu(null)} />
+            </Suspense>
           </div>
         )}
       </div>
 
       {menu && <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />}
     </header>
+  );
+}
+
+/** The count badge. Suspends alone, so the bell button is on screen immediately. */
+function NotifBadge({ promise }: { promise: Promise<NotifItem[]> }) {
+  const items = use(promise);
+  if (items.length === 0) return null;
+  return (
+    <span className="absolute -right-1 -top-1 grid min-w-[16px] place-items-center rounded-full bg-pink px-1 text-[9px] font-bold text-white">
+      {items.length}
+    </span>
+  );
+}
+
+/** The dropdown's contents — only resolved once you actually open it. */
+function NotifList({ promise, onGo }: { promise: Promise<NotifItem[]>; onGo: () => void }) {
+  const items = use(promise);
+  if (items.length === 0) return <div className="px-4 py-8 text-center text-[12.5px] text-faint">You&apos;re all caught up ✨</div>;
+  return (
+    <>
+      {items.map((n) => (
+        <Link key={n.key} href={n.href} onClick={onGo} className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-b-0 hover:bg-sub">
+          <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: TONE[n.tone] }} />
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold text-ink">{n.label}</div>
+            <div className="text-[11.5px] text-muted">{n.detail}</div>
+          </div>
+        </Link>
+      ))}
+    </>
   );
 }
