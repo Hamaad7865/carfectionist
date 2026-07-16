@@ -462,7 +462,10 @@ class CounterViewModel @Inject constructor(
             // that had already left (and the job stayed delivered).
             r.onAccount && r.fromCollect -> correction("Handover walked back — ${r.number ?: "the bill"} stays owed") { api.undoOnAccount(r.invoiceId) }
             r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, why ?: "Voided at POS") }
-            else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") { api.issueCreditNote(r.invoiceId, restock = true, stockLocationId = api.fetchShopLocationId()) }
+            else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") {
+                // This till takes the refund out of its drawer (booked mirrors on the CN).
+                api.issueCreditNote(r.invoiceId, restock = true, stockLocationId = api.fetchShopLocationId(), sessionId = local.value.till?.id)
+            }
         }
     }
 
@@ -470,7 +473,9 @@ class CounterViewModel @Inject constructor(
         correction("${bill.number ?: "Invoice"} voided") { api.voidDocument(bill.id, reason.trim().ifEmpty { "Voided at POS" }) }
     /** Reason is REQUIRED — the owner reads it in Activity/Traceability/Cash Flow. */
     fun reverseThisPayment(p: TodayPaymentDto, reason: String) = correction("Payment reversed") { api.reversePayment(p.id, reason) }
-    fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") { api.issueCreditNote(p.documentId, restock = true, stockLocationId = api.fetchShopLocationId()) }
+    fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") {
+        api.issueCreditNote(p.documentId, restock = true, stockLocationId = api.fetchShopLocationId(), sessionId = local.value.till?.id)
+    }
 
     /** Tap an outstanding invoice → open the pad to collect its balance. */
     fun collectOn(bill: OutstandingInvoiceDto, amountCents: Long? = null) {

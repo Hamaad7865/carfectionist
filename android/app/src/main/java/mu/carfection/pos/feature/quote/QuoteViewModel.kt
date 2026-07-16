@@ -123,8 +123,9 @@ data class QuoteState(
     val linesLoaded: Boolean = true,
 )
 
-/** A quote whose car has already been handed over is finished business — off the working list. */
-private fun QuoteRowDto.isDelivered(): Boolean = job?.status == "delivered"
+/** A quote whose car was handed over — or whose job was CANCELLED — is finished
+ *  business, off the working list. (Cancelled used to linger here forever.) */
+private fun QuoteRowDto.isDelivered(): Boolean = job?.status == "delivered" || job?.status == "cancelled"
 
 private fun QuoteRowDto.matches(q: String): Boolean {
     val hay = listOfNotNull(

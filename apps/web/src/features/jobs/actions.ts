@@ -212,6 +212,24 @@ export async function setJobStatusAction(jobId: string, status: "scheduled" | "i
   return { ok: true };
 }
 
+/** Cancel a scheduled/in-progress job. The RPC (owner/manager) resolves its bill in the
+ *  same transaction: a draft is deleted, an unpaid bill voided, money already taken comes
+ *  back as a credit note with the refund booked to a till. */
+export async function cancelJobAction(jobId: string, reason: string): Promise<Result> {
+  await requireRole("owner", "manager");
+  const clean = reason.trim();
+  if (!clean) return { ok: false, error: "A cancel reason is required." };
+  const sb = await createClient();
+  const { error } = await sb.rpc("cancel_job", {
+    p_job_id: jobId, p_reason: clean, p_restock: true, p_session_id: null,
+  });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/jobs");
+  revalidatePath("/sales"); // its bill was voided / credit-noted
+  return { ok: true };
+}
+
 export async function toggleTimerAction(jobId: string): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const sb = await createClient();

@@ -557,6 +557,30 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 Box(Modifier.fillMaxWidth().height(56.dp).background(if (muted || s.busy) InsetAlt else Accent, RoundedCornerShape(14.dp)).clickable(enabled = !s.busy) { action() }, contentAlignment = Alignment.Center) {
                     Text(if (s.busy) "Working…" else label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (muted || s.busy) TextSecondary else AccentInk)
                 }
+                // A booking that won't happen can be cancelled (owner/manager) — the server
+                // resolves the bill in the same stroke: drafts go, unpaid bills void, money
+                // already taken is refunded through a booked credit note.
+                if (j.status == "scheduled" || j.status == "in_progress") {
+                    var cancelOpen by remember(j.id) { mutableStateOf(false) }
+                    var cancelWhy by remember(j.id) { mutableStateOf("") }
+                    Box(Modifier.fillMaxWidth().clickable { cancelOpen = !cancelOpen }.padding(top = 4.dp), contentAlignment = Alignment.Center) {
+                        Text("Cancel job…", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                    }
+                    if (cancelOpen) {
+                        FilledInput(cancelWhy, { cancelWhy = it }, placeholder = "Reason for cancelling (required)", modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                        Box(
+                            Modifier.fillMaxWidth().height(44.dp).padding(top = 6.dp)
+                                .background(if (cancelWhy.isBlank()) InsetAlt else Danger, RoundedCornerShape(11.dp))
+                                .clickable(enabled = cancelWhy.isNotBlank() && !s.busy) { vm.cancelJob(cancelWhy.trim()); cancelOpen = false },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (cancelWhy.isBlank()) "Enter the reason above first" else "Cancel job — bill resolves automatically",
+                                color = if (cancelWhy.isBlank()) TextMuted else Color.White, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp,
+                            )
+                        }
+                    }
+                }
             }
         }
     }

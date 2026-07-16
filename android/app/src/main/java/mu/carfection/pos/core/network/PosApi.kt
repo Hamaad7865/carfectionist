@@ -505,6 +505,20 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_job_id", jobId)
         }).decodeAs()
 
+    /**
+     * Cancel a scheduled/in-progress job (owner/manager). The server resolves its bill in
+     * the same transaction: a draft is deleted, an unpaid bill voided, money already taken
+     * comes back as a credit note with the refund booked to a till.
+     */
+    suspend fun cancelJob(jobId: String, reason: String) {
+        client.postgrest.rpc("cancel_job", buildJsonObject {
+            put("p_job_id", jobId)
+            put("p_reason", reason)
+            put("p_restock", true)
+            put("p_session_id", JsonNull) // refund falls back to the till that took the money
+        })
+    }
+
     /** Walk back a MISTAKEN on-account handover: job returns to READY, the bill stays open. */
     suspend fun undoOnAccount(invoiceId: String): Boolean =
         client.postgrest.rpc("undo_on_account", buildJsonObject {
@@ -518,9 +532,10 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, customers(name), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "invoice"); isIn("status", listOf("issued", "partly_paid")) }
                 order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
-                // Auto-invoicing on "ready" makes outstanding invoices longer-lived;
-                // 40 silently hid the oldest (most overdue) ones once exceeded.
-                limit(200)
+                // Auto-invoicing on "ready" makes outstanding invoices longer-lived; a low
+                // cap silently hid the OLDEST (most overdue) bills once exceeded. 1000 is
+                // PostgREST's page ceiling — far above any plausible open-bill count here.
+                limit(1000)
             }
             .decodeList()
 
@@ -581,11 +596,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * [stockLocationId] is where restocked units land — counter refunds pass the Shop so
      * they return to the same on-hand the sale drew from; null falls back to the tenant default.
      */
-    suspend fun issueCreditNote(invoiceId: String, restock: Boolean, stockLocationId: String? = null) {
+    suspend fun issueCreditNote(invoiceId: String, restock: Boolean, stockLocationId: String? = null, sessionId: String? = null) {
         client.postgrest.rpc("create_and_issue_credit_note", buildJsonObject {
             put("p_invoice_id", invoiceId)
             if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
             put("p_restock", restock)
+            // The till the refund comes out of — a paid invoice's credit note books
+            // negative payment mirrors here so the drawer and the Z see the money leave.
+            if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
         })
     }
 

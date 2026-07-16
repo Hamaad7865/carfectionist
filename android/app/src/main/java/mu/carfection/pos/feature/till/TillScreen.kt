@@ -617,6 +617,12 @@ private fun ZReportDialog(
                         ZRow("excl. ${mny(v.num("excl"))}", "incl. ${mny(v.num("incl"))}", TextMuted, indent = true)
                     }
                 }
+                // Petty cash paid OUT of the drawer — the drawer maths always knew; now the screen does.
+                (periodT["movements"] as? JsonObject)?.takeIf { it.int("count") > 0 }?.let { mvz ->
+                    DetailCard("Paid out", true) {
+                        ZRow("${mvz.int("count")} movement${if (mvz.int("count") == 1) "" else "s"}", mny(mvz.num("total")), strong = true)
+                    }
+                }
                 DetailCard("Sale modes", true) {
                     ZRow("SALES [${bizName.uppercase()}]", mny(periodT.num("total_incl")), strong = true)
                     periodT.arr("vat").forEach { v -> ZRow(enVatLabel(v.str("label")), mny(v.num("vat")), TextMuted, indent = true) }

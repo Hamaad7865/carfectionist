@@ -180,6 +180,14 @@ object ZSlip {
             rule()
         }
 
+        // Petty cash paid OUT of the drawer — the drawer maths always knew; now the paper does.
+        val mv = t["movements"] as? JsonObject
+        if (mv != null && mv.int("count") > 0) {
+            line("Paid out", "")
+            line("  ${mv.int("count")} movement${if (mv.int("count") == 1) "" else "s"}", money(mv.num("total")))
+            rule()
+        }
+
         // What went to the bank on this close, and what is still piling up in the drawer.
         val acc = t["accumulation"]?.jsonArray
         if (acc != null && acc.size > 0) {

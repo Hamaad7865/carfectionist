@@ -40,6 +40,7 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
   const accumulation: Totals[] = Array.isArray(t.accumulation) ? t.accumulation : [];
   const services: Totals[] = Array.isArray(t.services) ? t.services : [];
   const credit = t.customer_credit as Totals | undefined;
+  const movements = t.movements as Totals | undefined;
 
   const sec: React.CSSProperties = { marginTop: 18, fontSize: 12, fontWeight: 800, borderBottom: `1px solid ${LINE}`, paddingBottom: 4 };
   const row: React.CSSProperties = { display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: INK };
@@ -127,6 +128,14 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
               <div style={{ ...sub, fontSize: 10 }}><span>excl. {money(v.excl)}</span><span>incl. {money(v.incl)}</span></div>
             </div>
           ))}
+        </>
+      )}
+
+      {/* petty cash paid out of the drawer */}
+      {movements && int(movements.count) > 0 && (
+        <>
+          <div style={sec}>Paid out</div>
+          <Kv l={`${int(movements.count)} movement${int(movements.count) === 1 ? "" : "s"}`} r={money(movements.total)} indent />
         </>
       )}
 

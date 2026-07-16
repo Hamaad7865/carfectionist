@@ -470,6 +470,22 @@ class JobsViewModel @Inject constructor(
     }
 
     /**
+     * Cancel a scheduled/in-progress job (owner/manager — the server enforces it). The
+     * bill resolves in the same transaction: draft deleted, unpaid voided, paid money
+     * refunded by a booked credit note.
+     */
+    fun cancelJob(reason: String) {
+        val id = _s.value.activeJobId ?: return
+        if (_s.value.busy) return
+        _s.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            runCatching { api.cancelJob(id, reason) }
+                .onSuccess { _s.update { it.copy(busy = false, toast = "Job cancelled — bill resolved") }; load() }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
+    /**
      * Prepaid pickup: the bill was settled while the car was still being worked on, so
      * checkout has nothing left to collect — the handover is recorded straight from the
      * card. The server refuses unless the job is READY and its invoice is PAID.

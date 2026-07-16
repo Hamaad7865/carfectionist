@@ -19,6 +19,7 @@ import {
   setJobDepartmentAction,
   updateChecklistAction,
   setJobStatusAction,
+  cancelJobAction,
   completeJobAction,
   createDocumentFromJobAction,
   recordPaymentAction,
@@ -217,6 +218,8 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   // top is invisible when the Billing/Complete buttons are below the fold.
   const [error, setError] = useState<{ at: "top" | "photos" | "billing" | "bottom"; msg: string } | null>(null);
   const [docBusy, setDocBusy] = useState<null | "quote" | "invoice">(null);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
   const creatingRef = useRef(false);
   const readOnly = job.status === "ready" || job.status === "delivered";
 
@@ -638,6 +641,41 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
           </button>
           {errNote("bottom")}
         </>
+      )}
+
+      {/* a booking that won't happen — cancelling resolves the bill in the same stroke:
+          a draft goes, an unpaid bill voids, money already taken is refunded by credit note */}
+      {(job.status === "scheduled" || job.status === "in_progress") && (
+        <div className="mt-5">
+          {!cancelOpen ? (
+            <button onClick={() => setCancelOpen(true)} className="w-full text-center text-[13px] font-bold text-pink">
+              Cancel job…
+            </button>
+          ) : (
+            <div className="flex flex-col gap-2 rounded-[13px] border border-[rgba(255,84,104,0.35)] bg-card p-3">
+              <input
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Reason for cancelling (required)"
+                className={field}
+              />
+              <div className="text-[11.5px] text-muted">
+                The bill resolves automatically — a draft is deleted, an unpaid bill is voided, money already taken is refunded by credit note.
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setCancelOpen(false); setCancelReason(""); }} className="h-10 flex-1 rounded-[11px] text-[13px] font-semibold text-muted">Keep job</button>
+                <button
+                  onClick={() => run(() => cancelJobAction(job.id, cancelReason), "bottom")}
+                  disabled={busy || !cancelReason.trim()}
+                  className="h-10 flex-[2] rounded-[11px] bg-pink text-[13px] font-bold text-white disabled:opacity-50"
+                >
+                  Cancel job
+                </button>
+              </div>
+              {errNote("bottom")}
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
