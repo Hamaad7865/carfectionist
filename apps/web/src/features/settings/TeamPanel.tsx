@@ -7,7 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import {
   createStaffAction, setRoleAction, setActiveAction, setStaffPinAction, clearStaffPinAction,
-  setModulesAction, resetPasswordAction, deleteStaffAction,
+  setModulesAction, resetPasswordAction, deleteStaffAction, updateStaffIdentityAction,
 } from "./team-actions";
 import { TOGGLEABLE_MODULES, effectiveModules, type Role } from "@/lib/auth/roles";
 import type { TeamMember } from "@/lib/supabase/queries/settings";
@@ -44,6 +44,9 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
   const [mBusy, setMBusy] = useState(false);
   const [mError, setMError] = useState<string | null>(null);
   const [mMsg, setMMsg] = useState<string | null>(null);
+  // identity draft (name + login email), seeded when the dialog opens
+  const [idName, setIdName] = useState("");
+  const [idEmail, setIdEmail] = useState("");
 
   async function create() {
     setError(null);
@@ -80,6 +83,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
     setManage(m);
     setModSel(effectiveModules(m.role as Role, m.modules).filter((h) => TOGGLEABLE_MODULES.some((t) => t.href === h)));
     setPw(""); setMError(null); setMMsg(null);
+    setIdName(m.name); setIdEmail(m.email ?? "");
   }
   function toggleMod(href: string) {
     setModSel((s) => (s.includes(href) ? s.filter((h) => h !== href) : [...s, href]));
@@ -105,6 +109,19 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
     setMBusy(false);
     if (r.ok) { setPw(""); setMMsg("Password updated."); } else setMError(r.error);
   }
+  async function saveIdentity() {
+    if (!manage) return;
+    setMError(null); setMMsg(null); setMBusy(true);
+    const r = await updateStaffIdentityAction({ id: manage.id, displayName: idName, email: idEmail });
+    setMBusy(false);
+    if (r.ok) {
+      // Keep the open dialog honest — its header still shows the old name.
+      setManage({ ...manage, name: idName, email: idEmail });
+      setMMsg("Name and email saved.");
+      router.refresh();
+    } else setMError(r.error);
+  }
+  const identityDirty = !!manage && (idName.trim() !== manage.name || idEmail.trim() !== (manage.email ?? ""));
   async function del() {
     if (!manage) return;
     if (!confirm(`Delete ${manage.name}? This removes their login permanently.`)) return;
@@ -247,8 +264,35 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
             {mError && <FormError error={mError} />}
             {mMsg && <p className="rounded-[9px] bg-[rgba(13,167,124,0.1)] px-3 py-2 text-[12.5px] font-semibold text-mint">{mMsg}</p>}
 
-            {/* Module access */}
+            {/* Name & login email */}
             <section>
+              <span className="text-[11px] font-bold uppercase tracking-wide text-faint">Name &amp; login</span>
+              <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <Field label="Display name">
+                  <input className={inputCls} value={idName} onChange={(e) => setIdName(e.target.value)} maxLength={60} />
+                </Field>
+                <Field label="Login email">
+                  <input className={inputCls} value={idEmail} onChange={(e) => setIdEmail(e.target.value)} type="email" autoComplete="off" spellCheck={false} />
+                </Field>
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <p className="text-[11px] text-faint">
+                  {manage.isSelf
+                    ? "This is your own login — changing the email changes how YOU sign in."
+                    : "They sign in with this email. It changes straight away; no confirmation email is sent."}
+                </p>
+                <button
+                  onClick={saveIdentity}
+                  disabled={mBusy || !identityDirty || idName.trim() === "" || idEmail.trim() === ""}
+                  className="grad-brand shadow-brand inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] px-4 text-[12.5px] font-bold text-white disabled:opacity-50"
+                >
+                  Save details
+                </button>
+              </div>
+            </section>
+
+            {/* Module access */}
+            <section className="border-t border-line pt-4">
               <div className="mb-2 flex items-center justify-between">
                 <span className="text-[11px] font-bold uppercase tracking-wide text-faint">Module access</span>
                 {isOwnerMember ? (

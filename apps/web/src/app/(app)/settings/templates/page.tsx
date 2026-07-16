@@ -2,9 +2,18 @@ import Link from "next/link";
 import { getDefaultTemplate } from "@/lib/supabase/queries/templates";
 import { TemplateEditor } from "@/features/settings/TemplateEditor";
 import { SettingsNav } from "@/features/settings/SettingsNav";
+import { requireSession } from "@/lib/auth/session";
+import { createClient } from "@/lib/supabase/server";
+import { isStoredAsset, signBrandAssets } from "@/lib/pdf/assets";
 
 export default async function TemplatesSettingsPage() {
-  const template = await getDefaultTemplate();
+  const [session, template] = await Promise.all([requireSession(), getDefaultTemplate()]);
+
+  // brand-assets is private, so the editor can't show uploaded artwork from the
+  // stored path alone — sign it here, the same way the renderer does.
+  const stored = [template?.headerBannerPath, template?.footerBannerPath, template?.logoPath].filter(isStoredAsset);
+  const signed = stored.length ? await signBrandAssets(await createClient(), stored) : {};
+  const preview = (v: string | null | undefined) => (isStoredAsset(v) ? (signed[v] ?? null) : (v || null));
 
   return (
     <div className="p-4 sm:p-6">
@@ -15,7 +24,15 @@ export default async function TemplatesSettingsPage() {
 
         <div className="mt-6">
           {template ? (
-            <TemplateEditor template={template} />
+            <TemplateEditor
+              template={template}
+              tenantId={session.tenantId}
+              previews={{
+                header: preview(template.headerBannerPath),
+                footer: preview(template.footerBannerPath),
+                logo: preview(template.logoPath),
+              }}
+            />
           ) : (
             <p className="text-sm text-muted">
               No default template found. Reseed the database (<Link href="/dashboard" className="text-link">dashboard</Link>).

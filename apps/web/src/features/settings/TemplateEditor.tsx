@@ -4,13 +4,32 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2 } from "lucide-react";
 import { updateTemplateAction } from "./actions";
+import { BrandImageField } from "./BrandImageField";
 import type { TemplateData } from "@/lib/supabase/queries/templates";
 
 const field =
   "h-9 w-full rounded-[10px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand";
 const lbl = "mb-1 block text-[11px] font-bold uppercase tracking-wider text-faint";
 
-export function TemplateEditor({ template }: { template: TemplateData }) {
+// The artwork a document falls back to when a slot is left blank. Mirrors the
+// constants in components/pdf/DocumentA4.tsx, so the preview here shows what
+// would actually print rather than an empty box.
+const DEFAULTS = {
+  header: "/brand/covered-by-diamonds.png",
+  footer: "/brand/diamondbrite-forever.png",
+  logo: "/brand/diamondbrite-logo.png",
+};
+
+export function TemplateEditor({
+  template,
+  tenantId,
+  previews,
+}: {
+  template: TemplateData;
+  tenantId: string;
+  /** Signed URLs for artwork already uploaded — the bucket is private. */
+  previews: { header: string | null; footer: string | null; logo: string | null };
+}) {
   const router = useRouter();
   const [name, setName] = useState(template.name);
   const [terms, setTerms] = useState<string[]>(template.terms.length ? template.terms : [""]);
@@ -121,19 +140,41 @@ export function TemplateEditor({ template }: { template: TemplateData }) {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <label className="block">
-          <span className={lbl}>Header banner URL</span>
-          <input className={field} value={headerBannerPath} onChange={(e) => setHeader(e.target.value)} placeholder="optional" />
-        </label>
-        <label className="block">
-          <span className={lbl}>Footer banner URL</span>
-          <input className={field} value={footerBannerPath} onChange={(e) => setFooter(e.target.value)} placeholder="optional" />
-        </label>
-        <label className="block">
-          <span className={lbl}>Logo URL</span>
-          <input className={field} value={logoPath} onChange={(e) => setLogo(e.target.value)} placeholder="optional" />
-        </label>
+      <div>
+        <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-faint">Letterhead artwork</p>
+        <p className="mb-3 text-[11px] text-muted">
+          What prints at the top and bottom of every quote and invoice. Upload your own to replace the built-in Diamondbrite artwork — PNG, JPEG, WEBP or SVG, up to 5 MB. Changes apply once you save.
+        </p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <BrandImageField
+            label="Header banner"
+            hint="Full width, across the top"
+            tenantId={tenantId}
+            value={headerBannerPath}
+            previewUrl={previews.header}
+            defaultPreview={DEFAULTS.header}
+            onChange={setHeader}
+          />
+          <BrandImageField
+            label="Footer banner"
+            hint="Full width, across the bottom"
+            tenantId={tenantId}
+            value={footerBannerPath}
+            previewUrl={previews.footer}
+            defaultPreview={DEFAULTS.footer}
+            onChange={setFooter}
+          />
+          <BrandImageField
+            label="Logo"
+            hint="Top right, beside the title"
+            tenantId={tenantId}
+            value={logoPath}
+            previewUrl={previews.logo}
+            defaultPreview={DEFAULTS.logo}
+            onChange={setLogo}
+            aspect="aspect-[6/1]"
+          />
+        </div>
       </div>
 
       {error && <p className="text-[12px] text-rose">{error}</p>}

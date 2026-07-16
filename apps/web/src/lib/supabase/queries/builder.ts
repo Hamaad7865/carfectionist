@@ -76,7 +76,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (config.custom_fields as any[]).map((f) => ({ label: String(f?.label ?? ""), value: String(f?.value ?? "") })).filter((f) => f.label.length > 0)
       : [],
-    assets: resolveDocAssets(config),
+    assets: await resolveDocAssets(sb, config),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     products: (prodRes.data ?? []).map((p: any) => ({
       id: p.id,

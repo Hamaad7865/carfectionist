@@ -187,6 +187,10 @@ const ADMIN_TITLE: Record<string, string> = {
   staff_deleted: "Deleted staff",
   staff_pin_set: "Set POS PIN",
   staff_pin_cleared: "Cleared POS PIN",
+  staff_renamed: "Renamed staff",
+  // Changing someone's login is a security event — it must be in the feed, and
+  // an unmapped event_type is silently dropped by mapAudit below.
+  staff_email_changed: "Changed login email",
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

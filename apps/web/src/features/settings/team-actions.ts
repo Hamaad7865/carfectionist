@@ -199,3 +199,71 @@ export async function setActiveAction(id: string, active: boolean): Promise<Resu
   revalidatePath("/settings/team");
   return { ok: true };
 }
+
+// ── Edit a staff member's name and login email (owner-only) ──────────────────
+// The two fields live in different places, which is why this is one action and
+// not two: display_name is a column on app_users (RLS lets an owner update it),
+// while the email exists ONLY in auth.users and needs the service-role client.
+// Doing them together means the owner presses Save once and both move.
+const identitySchema = z.object({
+  id: z.string().min(1),
+  displayName: z.string().trim().min(1, "Name is required").max(60, "That name is too long"),
+  email: z.string().trim().email("Enter a valid email"),
+});
+
+export async function updateStaffIdentityAction(input: z.input<typeof identitySchema>): Promise<Result> {
+  const ctx = await requireRole("owner");
+  const p = identitySchema.safeParse(input);
+  if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Check the details" };
+  const { id, displayName, email } = p.data;
+
+  const admin = createAdminClient();
+  // Tenant-scope the service-role lookup — it bypasses RLS, so without this an
+  // owner could rename or re-email ANOTHER business's staff by passing its id.
+  const { data: row } = await admin
+    .from("app_users")
+    .select("auth_user_id, display_name")
+    .eq("id", id)
+    .eq("tenant_id", ctx.tenantId)
+    .maybeSingle();
+  const target = row as { auth_user_id: string; display_name: string | null } | null;
+  if (!target?.auth_user_id) return { ok: false, error: "User not found." };
+
+  const { data: authUser } = await admin.auth.admin.getUserById(target.auth_user_id);
+  const oldEmail = authUser?.user?.email ?? null;
+  const emailChanged = oldEmail?.toLowerCase() !== email.toLowerCase();
+  const nameChanged = (target.display_name ?? "") !== displayName;
+  if (!emailChanged && !nameChanged) return { ok: true }; // nothing to do — don't write an audit event for a no-op
+
+  const sbOwner = await createClient();
+
+  if (emailChanged) {
+    // Ask FIRST whether the address is free. On a collision GoTrue answers with
+    // an opaque 500 whose message is the string "{}" — nothing to match on, so
+    // the owner would just see "{}". Verified: scripts/_verify-staff-identity.mjs.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: taken } = await (sbOwner as any).rpc("auth_email_taken", { p_email: email, p_exclude: target.auth_user_id });
+    if (taken === true) return { ok: false, error: "That email already has an account." };
+
+    // email_confirm marks the new address confirmed straight away. Without it
+    // the account would sit waiting on a confirmation link sent to an address
+    // the owner picked on their behalf — locking the staff member out of their
+    // own login. The owner making the change IS the confirmation.
+    const { error } = await admin.auth.admin.updateUserById(target.auth_user_id, { email, email_confirm: true });
+    if (error) return { ok: false, error: "Could not change the login email. Check the address and try again." };
+  }
+
+  if (nameChanged) {
+    const { error } = await sbOwner.from("app_users").update({ display_name: displayName }).eq("id", id);
+    if (error) return { ok: false, error: "Could not save the name." };
+    // Keep the auth copy in step — createStaffAction seeds it, and a stale one
+    // would disagree with the roster.
+    await admin.auth.admin.updateUserById(target.auth_user_id, { user_metadata: { ...(authUser?.user?.user_metadata ?? {}), display_name: displayName } });
+  }
+
+  const sb = await createClient();
+  if (nameChanged) await auditAdmin(sb, ctx, "staff_renamed", id, { name: displayName, from: target.display_name ?? "" });
+  if (emailChanged) await auditAdmin(sb, ctx, "staff_email_changed", id, { name: displayName, from: oldEmail ?? "", to: email });
+  revalidatePath("/settings/team");
+  return { ok: true };
+}

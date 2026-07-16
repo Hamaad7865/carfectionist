@@ -170,7 +170,7 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
       bankName: b.bank_name ?? "",
     },
     terms: Array.isArray(config.terms) ? config.terms : [],
-    assets: resolveDocAssets(config),
+    assets: await resolveDocAssets(sb, config),
     sectionConfig: d.template_overrides ?? {},
     customFields: Array.isArray(d.template_overrides?.customFields) ? d.template_overrides.customFields : [],
     accepted,
