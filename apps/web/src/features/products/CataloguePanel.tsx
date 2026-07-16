@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Barcode, Search } from "lucide-react";
 import { formatMUR } from "@/lib/money";
@@ -34,6 +34,16 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
           (p.category ?? "").toLowerCase().includes(s)),
     );
   }, [products, q, cat]);
+
+  // Render a WINDOW of the matches, not all of them. The whole catalogue still
+  // lives in memory (so search stays instant and offline-quick), but drawing all
+  // ~800 rows — each one a mobile card AND a desktop row — produced 1.7MB of HTML
+  // on every visit. Sixty is more than a screenful; "Show more" reveals the rest.
+  const PAGE = 60;
+  const [limit, setLimit] = useState(PAGE);
+  useEffect(() => setLimit(PAGE), [q, cat]); // a new filter starts at the top again
+  const shown = useMemo(() => filtered.slice(0, limit), [filtered, limit]);
+  const hidden = filtered.length - shown.length;
 
   // When the business prices VAT-inclusive, show the gross sell price (what the
   // customer pays) rather than the ex-VAT figure we store.
@@ -84,7 +94,7 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
             {products.length === 0 ? "No products. Add your first with “New product”." : "No products match your filter."}
           </div>
         ) : (
-          filtered.map((r) => (
+          shown.map((r) => (
             <button key={r.id} onClick={() => edit(r)} className={`block w-full border-b border-line text-left hover:bg-sub ${r.isActive ? "" : "opacity-55"}`}>
               {/* Mobile card */}
               <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
@@ -126,6 +136,25 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
               </div>
             </button>
           ))
+        )}
+
+        {hidden > 0 && (
+          <div className="flex items-center justify-center gap-3 bg-band px-5 py-3">
+            <span className="text-[12px] text-muted">
+              Showing {shown.length} of {filtered.length}
+            </span>
+            <button
+              onClick={() => setLimit((l) => l + PAGE)}
+              className="inline-flex h-8 items-center rounded-[9px] border border-line-2 bg-card px-3 text-[12px] font-bold text-body hover:border-brand"
+            >
+              Show {Math.min(hidden, PAGE)} more
+            </button>
+            {hidden > PAGE && (
+              <button onClick={() => setLimit(filtered.length)} className="text-[12px] font-semibold text-link hover:underline">
+                Show all {filtered.length}
+              </button>
+            )}
+          </div>
         )}
       </div>
 
