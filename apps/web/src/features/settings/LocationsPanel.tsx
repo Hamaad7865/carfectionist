@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveLocationAction, deleteLocationAction } from "./location-actions";
 import type { LocationAdminRow } from "@/lib/supabase/queries/stock-locations";
+import { btn as btnCls } from "@/components/ui/button";
 
 // Two flags do all the work here, and both are facts about the business rather
 // than positions in a list:
@@ -27,7 +28,7 @@ function Badge({ tone, children }: { tone: "brand" | "mint" | "faint"; children:
   return <span className={`shrink-0 rounded-[5px] px-1.5 py-0.5 text-[9px] font-bold tracking-wide ${cls}`}>{children}</span>;
 }
 
-const btn = "inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-2.5 text-[12px] font-bold text-body hover:border-brand disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-line-2";
+const btn = btnCls("ghost", "sm");
 
 export function LocationsPanel({ locations, canManage }: { locations: LocationAdminRow[]; canManage: boolean }) {
   const router = useRouter();
@@ -141,7 +142,7 @@ export function LocationsPanel({ locations, canManage }: { locations: LocationAd
       </div>
 
       {canManage && (
-        <button onClick={openNew} className="grad-brand shadow-brand mt-4 inline-flex h-10 items-center gap-1.5 rounded-[11px] px-4 text-[13px] font-bold text-white">
+        <button onClick={openNew} className={btnCls("primary", "lg", "mt-4")}>
           <Plus size={15} strokeWidth={2.4} /> New location
         </button>
       )}
@@ -153,13 +154,13 @@ export function LocationsPanel({ locations, canManage }: { locations: LocationAd
         subtitle={editing ? editing.name : "A second warehouse, another shop, a container — anywhere stock sits"}
         footer={
           <div className="flex items-center gap-2">
-            <button onClick={() => { setCreating(false); setEditing(null); }} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">
+            <button onClick={() => { setCreating(false); setEditing(null); }} className={btnCls("quiet", "lg")}>
               Cancel
             </button>
             <button
               onClick={() => run(() => saveLocationAction({ id: editing?.id ?? null, name }))}
               disabled={busy || name.trim() === ""}
-              className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60"
+              className={btnCls("primary", "lg", "px-5")}
             >
               {busy ? "Saving…" : editing ? "Save name" : "Create location"}
             </button>

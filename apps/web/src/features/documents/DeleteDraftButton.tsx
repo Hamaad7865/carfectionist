@@ -6,6 +6,7 @@ import { Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { FormError } from "@/components/ui/form";
 import { deleteDraftAction } from "./actions";
+import { btn, btnBase } from "@/components/ui/button";
 
 /** Discard an unissued draft. Draft-only by design — issued documents carry a
  *  fiscal number and can only be voided or credited, never deleted. */
@@ -43,8 +44,8 @@ export function DeleteDraftButton({ documentId, docType }: { documentId: string;
         subtitle="It hasn’t been issued, so nothing in the ledger changes."
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={confirmDelete} disabled={busy} className="inline-flex h-10 items-center justify-center rounded-[11px] bg-rose px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={confirmDelete} disabled={busy} className={btnBase("lg", "bg-rose px-5 font-bold text-white")}>
               {busy ? "Deleting…" : "Delete draft"}
             </button>
           </div>

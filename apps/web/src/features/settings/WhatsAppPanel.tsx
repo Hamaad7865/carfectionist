@@ -6,6 +6,7 @@ import { Check, X, Copy, Send, RefreshCw, MessageCircle, ExternalLink } from "lu
 import type { WaSecretState, WaProbe } from "@/lib/whatsapp";
 import type { WaTemplateRow } from "@/lib/supabase/queries/marketing";
 import { sendTestMessageAction } from "./wa-actions";
+import { btnBase } from "@/components/ui/button";
 
 // A self-testing connection page: rather than trust that a value is present, it
 // asks Meta who we are. Green here means the credentials genuinely work.
@@ -169,7 +170,7 @@ export function WhatsAppPanel({
             onClick={test}
             disabled={busy || !to.trim() || !live}
             title={!live ? "Connect WhatsApp first" : undefined}
-            className="inline-flex h-10 items-center gap-2 rounded-[11px] bg-[#25D366] px-4 text-[13px] font-bold text-[#06231A] disabled:opacity-50"
+            className={btnBase("lg", "gap-2 bg-[#25D366] font-bold text-[#06231A]")}
           >
             {busy ? <RefreshCw size={15} className="animate-spin" /> : <Send size={15} />} {busy ? "Sending…" : "Send test"}
           </button>

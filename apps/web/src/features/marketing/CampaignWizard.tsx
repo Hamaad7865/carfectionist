@@ -8,6 +8,7 @@ import { renderVariables, renderBodyPreview } from "./render";
 import { WaBubble } from "./WaBubble";
 import { formatPhone } from "@/lib/phone";
 import type { WaTemplateRow, AudienceContact } from "@/lib/supabase/queries/marketing";
+import { btn } from "@/components/ui/button";
 
 const field = "h-10 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 const VAR_SOURCES = [
@@ -219,12 +220,12 @@ export function CampaignWizard({ templates, audience, onClose }: { templates: Wa
         {/* footer nav */}
         <div className="flex items-center justify-between border-t border-line px-5 py-3.5">
           {step > 1 ? (
-            <button onClick={() => setStep(step - 1)} className="inline-flex h-10 items-center gap-1.5 rounded-[11px] border border-line-2 bg-card px-4 text-[13px] font-semibold text-body"><ArrowLeft size={15} /> Back</button>
+            <button onClick={() => setStep(step - 1)} className={btn("ghost", "lg")}><ArrowLeft size={15} /> Back</button>
           ) : <span />}
           {step < 3 ? (
-            <button onClick={() => setStep(step + 1)} disabled={step === 1 ? !canNext1 : !canNext2} className="grad-brand shadow-brand inline-flex h-10 items-center gap-1.5 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-50">Continue <ArrowRight size={15} /></button>
+            <button onClick={() => setStep(step + 1)} disabled={step === 1 ? !canNext1 : !canNext2} className={btn("primary", "lg")}>Continue <ArrowRight size={15} /></button>
           ) : (
-            <button onClick={create} disabled={busy || !canCreate} className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-50">
+            <button onClick={create} disabled={busy || !canCreate} className={btn("primary", "lg", "gap-2 px-5")}>
               <Send size={15} /> {busy ? "Creating…" : `Create campaign · ${selectedReachable.length}`}
             </button>
           )}

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Copy } from "lucide-react";
 import { duplicateDocumentAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 export function DuplicateButton({ documentId }: { documentId: string }) {
   const router = useRouter();
@@ -25,7 +26,7 @@ export function DuplicateButton({ documentId }: { documentId: string }) {
         onClick={duplicate}
         disabled={busy}
         title="Create a new editable draft copy of this document"
-        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3.5 text-[13px] font-bold text-body hover:border-brand disabled:opacity-60"
+        className={btn()}
       >
         <Copy size={15} /> {busy ? "Duplicating…" : "Duplicate"}
       </button>

@@ -11,6 +11,7 @@ import {
 } from "./team-actions";
 import { TOGGLEABLE_MODULES, effectiveModules, type Role } from "@/lib/auth/roles";
 import type { TeamMember } from "@/lib/supabase/queries/settings";
+import { btn, btnBase } from "@/components/ui/button";
 
 const ROLES = ["owner", "manager", "cashier", "technician", "accountant"] as const;
 const ROLE_LABEL: Record<string, string> = { owner: "Owner", manager: "Manager", cashier: "Cashier", technician: "Technician", accountant: "Accountant" };
@@ -135,7 +136,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
     <div className="flex flex-col gap-3">
       {canManage && (
         <div className="flex justify-end">
-          <button onClick={() => { setError(null); setOpen(true); }} className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white">
+          <button onClick={() => { setError(null); setOpen(true); }} className={btn("primary", "lg", "gap-2")}>
             <Plus size={16} strokeWidth={2.4} /> Add staff
           </button>
         </div>
@@ -198,8 +199,8 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
         subtitle="Creates a login and adds them to your team."
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={create} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center gap-1.5 rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={create} disabled={busy} className={btn("primary", "lg", "px-5")}>
               <UserPlus size={15} /> {busy ? "Creating…" : "Create login"}
             </button>
           </div>
@@ -235,8 +236,8 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
               <button onClick={clearPin} disabled={pinBusy} className="text-[12.5px] font-semibold text-rose hover:underline disabled:opacity-50">Remove PIN</button>
             ) : <span />}
             <div className="flex gap-2">
-              <button onClick={() => setPinFor(null)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-              <button onClick={savePin} disabled={pinBusy || !/^[0-9]{4}$/.test(pinDraft)} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center gap-1.5 rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-50">
+              <button onClick={() => setPinFor(null)} className={btn("quiet", "lg")}>Cancel</button>
+              <button onClick={savePin} disabled={pinBusy || !/^[0-9]{4}$/.test(pinDraft)} className={btn("primary", "lg", "px-5")}>
                 <KeyRound size={15} /> {pinBusy ? "Saving…" : "Save PIN"}
               </button>
             </div>
@@ -257,7 +258,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
         onClose={() => setManage(null)}
         title={manage ? `Manage — ${manage.name}` : "Manage"}
         subtitle={manage ? `${ROLE_LABEL[manage.role]} · ${manage.email ?? ""}` : undefined}
-        footer={<div className="flex justify-end"><button onClick={() => setManage(null)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Done</button></div>}
+        footer={<div className="flex justify-end"><button onClick={() => setManage(null)} className={btn("quiet", "lg")}>Done</button></div>}
       >
         {manage && (
           <div className="flex flex-col gap-5">
@@ -284,7 +285,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
                 <button
                   onClick={saveIdentity}
                   disabled={mBusy || !identityDirty || idName.trim() === "" || idEmail.trim() === ""}
-                  className="grad-brand shadow-brand inline-flex h-9 shrink-0 items-center gap-1.5 rounded-[10px] px-4 text-[12.5px] font-bold text-white disabled:opacity-50"
+                  className={btn("primary")}
                 >
                   Save details
                 </button>
@@ -320,7 +321,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
                   </div>
                   <div className="mt-2.5 flex items-center justify-between">
                     <p className="text-[11px] text-faint">Dashboard is always available. Financial data stays limited by role.</p>
-                    <button onClick={() => saveModules(false)} disabled={mBusy} className="grad-brand shadow-brand inline-flex h-9 items-center gap-1.5 rounded-[10px] px-4 text-[12.5px] font-bold text-white disabled:opacity-50">Save access</button>
+                    <button onClick={() => saveModules(false)} disabled={mBusy} className={btn("primary")}>Save access</button>
                   </div>
                 </>
               )}
@@ -331,7 +332,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
               <span className="text-[11px] font-bold uppercase tracking-wide text-faint">Reset web password</span>
               <div className="mt-2 flex gap-2">
                 <input className={inputCls} value={pw} onChange={(e) => setPw(e.target.value)} placeholder="New password (min 8)" type="text" />
-                <button onClick={savePassword} disabled={mBusy || pw.length < 8} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[11px] border border-line-2 bg-sub px-4 text-[13px] font-bold text-body hover:border-brand disabled:opacity-50">
+                <button onClick={savePassword} disabled={mBusy || pw.length < 8} className={btn("subtle", "lg")}>
                   <KeyRound size={15} /> Set password
                 </button>
               </div>
@@ -340,10 +341,10 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
             {/* Activate / delete */}
             {!manage.isSelf && (
               <section className="flex items-center justify-between border-t border-line pt-4">
-                <button onClick={() => saveActive(!manage.active)} disabled={mBusy} className="inline-flex h-10 items-center rounded-[11px] border border-line-2 bg-sub px-4 text-[13px] font-semibold text-body hover:border-brand disabled:opacity-50">
+                <button onClick={() => saveActive(!manage.active)} disabled={mBusy} className={btn("subtle", "lg")}>
                   {manage.active ? "Deactivate user" : "Activate user"}
                 </button>
-                <button onClick={del} disabled={mBusy} className="inline-flex h-10 items-center gap-1.5 rounded-[11px] border border-[rgba(214,59,80,0.35)] bg-[rgba(214,59,80,0.06)] px-4 text-[13px] font-bold text-rose hover:border-rose disabled:opacity-50">
+                <button onClick={del} disabled={mBusy} className={btnBase("lg", "border border-[rgba(214,59,80,0.35)] bg-[rgba(214,59,80,0.06)] font-bold text-rose hover:border-rose")}>
                   <Trash2 size={15} /> Delete
                 </button>
               </section>

@@ -6,6 +6,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveProductAction } from "./actions";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
+import { btn } from "@/components/ui/button";
 
 const KINDS = ["service", "product", "consumable"] as const;
 const UNITS = ["piece", "ml", "l", "g", "kg", "m2", "service"] as const;
@@ -115,8 +116,8 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
               Active
             </label>
           )}
-          <button onClick={onClose} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-          <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+          <button onClick={onClose} className={btn("quiet", "lg")}>Cancel</button>
+          <button onClick={submit} disabled={busy} className={btn("primary", "lg", "px-5")}>
             {busy ? "Saving…" : editing ? "Save changes" : `Create ${noun}`}
           </button>
         </div>

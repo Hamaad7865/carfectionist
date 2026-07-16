@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, ArrowRight } from "lucide-react";
 import type { Transfer, TransfersRef } from "@/lib/supabase/queries/transfers";
 import { createTransferAction, dispatchTransferAction, receiveTransferAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 const field = "h-10 rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 const qfmt = (n: number) => (Number.isInteger(n) ? String(n) : String(n));
@@ -113,11 +114,11 @@ export function TransfersPanel({ transfers, refData }: { transfers: Transfer[]; 
         )}
 
         <div className="flex items-center gap-2">
-          <button onClick={addLine} className="flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-3 text-[12.5px] font-semibold text-body">
+          <button onClick={addLine} className={btn("subtle")}>
             <Plus size={14} /> Add product
           </button>
           <div className="flex-1" />
-          <button onClick={create} disabled={busy || lines.length === 0} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={create} disabled={busy || lines.length === 0} className={btn("primary")}>
             {busy ? "Saving…" : "Create draft"}
           </button>
         </div>
@@ -201,12 +202,12 @@ function TransferCard({
       {(t.status === "draft" || t.status === "dispatched") && (
         <div className="flex justify-end gap-2 border-t border-line bg-sub px-5 py-3">
           {t.status === "draft" && (
-            <button onClick={onDispatch} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+            <button onClick={onDispatch} disabled={busy} className={btn("primary")}>
               Dispatch
             </button>
           )}
           {t.status === "dispatched" && (
-            <button onClick={receive} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+            <button onClick={receive} disabled={busy} className={btn("primary")}>
               Receive into {t.toName}
             </button>
           )}

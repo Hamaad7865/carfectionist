@@ -11,6 +11,7 @@ import { counterSaleAction, type CounterResult } from "./actions";
 import { setProductPriceAction } from "@/features/products/actions";
 import { getReceiptDataAction } from "./receipt-action";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
+import { btn, btnBase } from "@/components/ui/button";
 import {
   EMPTY_BASKET,
   addProduct,
@@ -214,13 +215,13 @@ export function CounterSale({
           <div className="mt-2 text-[13px] text-muted">{subtitle}</div>
 
           <div className="mt-6 flex flex-wrap gap-2.5">
-            <button onClick={() => window.open(`/print/receipt/${done.invoiceId}`, "_blank")} className="grad-brand shadow-brand inline-flex h-11 items-center gap-2 rounded-[12px] px-5 text-[14px] font-bold text-white">
+            <button onClick={() => window.open(`/print/receipt/${done.invoiceId}`, "_blank")} className={btn("primary", "lg", "gap-2 text-[14px] px-5")}>
               <Printer size={17} /> Print receipt
             </button>
-            <button onClick={shareWhatsApp} className="inline-flex h-11 items-center gap-2 rounded-[12px] border border-line-2 bg-sub px-4 text-[13.5px] font-bold text-body hover:border-brand">
+            <button onClick={shareWhatsApp} className={btn("subtle", "lg", "gap-2")}>
               <MessageCircle size={16} /> SMS / WhatsApp
             </button>
-            <a href={`/api/documents/${done.invoiceId}/pdf`} target="_blank" rel="noreferrer" className="inline-flex h-11 items-center gap-2 rounded-[12px] border border-line-2 bg-sub px-4 text-[13.5px] font-bold text-body hover:border-brand">
+            <a href={`/api/documents/${done.invoiceId}/pdf`} target="_blank" rel="noreferrer" className={btn("subtle", "lg", "gap-2")}>
               <Download size={16} /> PDF
             </a>
           </div>
@@ -233,7 +234,7 @@ export function CounterSale({
                 <div className="truncate text-[11.5px] text-muted">Start the next walk-in sale</div>
               </div>
             </div>
-            <button onClick={reset} className="inline-flex h-10 shrink-0 items-center gap-1.5 rounded-[11px] bg-ink px-4 text-[13px] font-bold text-white">
+            <button onClick={reset} className={btnBase("lg", "bg-ink font-bold text-white")}>
               Start <ArrowRight size={15} />
             </button>
           </div>

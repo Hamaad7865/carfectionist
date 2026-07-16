@@ -6,6 +6,7 @@ import { Car } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { FormError } from "@/components/ui/form";
 import { deliverOnAccountAction } from "./actions";
+import { btn, btnBase } from "@/components/ui/button";
 
 /** Open bill + READY job: hand the car over ON ACCOUNT — the job delivers, the
  *  balance stays owed on the customer's statement. Same flow as the tablet's
@@ -36,7 +37,7 @@ export function HandOverButton({ invoiceId, number, customerName, outstanding }:
     <>
       <button
         onClick={() => { setError(null); setOpen(true); }}
-        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-[rgba(255,176,32,0.4)] bg-card px-3.5 text-[13px] font-bold text-amber-ink hover:bg-[rgba(255,176,32,0.06)]"
+        className={btn("danger", "md", "border-[rgba(255,176,32,0.4)] text-amber-ink hover:bg-[rgba(255,176,32,0.06)]")}
       >
         <Car size={15} /> Hand over on account
       </button>
@@ -48,8 +49,8 @@ export function HandOverButton({ invoiceId, number, customerName, outstanding }:
         subtitle={`${number ?? "This bill"} stays open — ${outstanding} remains owed by ${customerName ?? "the customer"} (shows on their statement and in TO COLLECT). The job moves to Delivered.`}
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={confirm} disabled={busy} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[11px] bg-amber px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={confirm} disabled={busy} className={btnBase("lg", "bg-amber px-5 font-bold text-white")}>
               <Car size={15} /> {busy ? "Recording…" : "Car collected — on account"}
             </button>
           </div>

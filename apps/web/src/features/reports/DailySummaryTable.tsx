@@ -3,6 +3,7 @@ import { Check, Download } from "lucide-react";
 import { formatMUR } from "@/lib/money";
 import type { DailySummary, DailySummaryRow } from "@/lib/supabase/queries/daily-summary";
 import { SECTIONS, ALL_SECTIONS, columnDefs, groupSpans, type SectionKey } from "./daily-summary-sections";
+import { btn } from "@/components/ui/button";
 
 // The Cashmag "Synthèse quotidienne" table: a two-row grouped header, one row per
 // business day, a totals row, and five sections you can switch off. Sections are
@@ -59,7 +60,7 @@ export function DailySummaryTable({
         <div className="flex-1" />
         <a
           href={exportHref}
-          className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-2.5 text-[12px] font-bold text-body hover:border-brand"
+          className={btn("ghost", "sm")}
         >
           <Download size={14} /> Excel file
         </a>

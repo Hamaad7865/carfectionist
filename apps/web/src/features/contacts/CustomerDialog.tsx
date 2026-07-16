@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveCustomerAction } from "./actions";
 import type { CustomerSummary } from "@/lib/supabase/queries/contacts";
+import { btn } from "@/components/ui/button";
 
 type FormState = { name: string; email: string; phone: string; address: string; brn: string; vatNumber: string; notes: string };
 const seed = (c?: CustomerSummary): FormState => ({
@@ -54,7 +55,7 @@ export function CustomerDialog({ customer }: { customer?: CustomerSummary }) {
           <Pencil size={14} /> Edit
         </button>
       ) : (
-        <button onClick={launch} className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white">
+        <button onClick={launch} className={btn("primary", "lg", "gap-2")}>
           <Plus size={16} strokeWidth={2.4} /> New customer
         </button>
       )}
@@ -66,8 +67,8 @@ export function CustomerDialog({ customer }: { customer?: CustomerSummary }) {
         subtitle={editing ? customer!.name : "Add a customer to the address book"}
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={submit} disabled={busy} className={btn("primary", "lg", "px-5")}>
               {busy ? "Saving…" : editing ? "Save changes" : "Create customer"}
             </button>
           </div>

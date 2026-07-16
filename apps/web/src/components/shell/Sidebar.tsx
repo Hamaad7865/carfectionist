@@ -6,6 +6,7 @@ import { Plus, LogOut, ChevronDown } from "lucide-react";
 import { navForUser, ROLE_LABEL, type Role } from "@/lib/auth/roles";
 import { signOut } from "@/lib/auth/actions";
 import { Brand } from "./Brand";
+import { btn } from "@/components/ui/button";
 
 function initials(name: string): string {
   const clean = name.replace(/\s*\(.*\)\s*$/, "").trim();
@@ -30,7 +31,7 @@ export function Sidebar({ role, displayName, modules }: { role: Role; displayNam
 
       <Link
         href="/sales/new?type=invoice"
-        className="grad-brand shadow-brand mx-0.5 mb-3.5 flex h-11 items-center justify-center gap-2 rounded-[11px] text-[14px] font-bold text-white"
+        className={btn("primary", "lg", "mx-0.5 mb-3.5 gap-2 text-[14px]")}
       >
         <Plus size={17} strokeWidth={2.4} />
         New document

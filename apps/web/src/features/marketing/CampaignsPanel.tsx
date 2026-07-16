@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Plus, Megaphone, ChevronRight } from "lucide-react";
 import { CampaignWizard } from "./CampaignWizard";
 import type { CampaignRow, WaTemplateRow, AudienceContact } from "@/lib/supabase/queries/marketing";
+import { btn } from "@/components/ui/button";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   draft: { label: "Ready to send", cls: "bg-band text-body" },
@@ -26,7 +27,7 @@ export function CampaignsPanel({ campaigns, templates, audience }: { campaigns: 
           onClick={() => setWizard(true)}
           disabled={approved.length === 0}
           title={approved.length === 0 ? "Approve a template first" : undefined}
-          className="grad-brand shadow-brand inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-bold text-white disabled:opacity-50"
+          className={btn("primary")}
         >
           <Plus size={15} /> New campaign
         </button>

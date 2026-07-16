@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveBusinessProfileAction } from "./business-actions";
 import type { BusinessProfile } from "@/lib/supabase/queries/settings";
+import { btn } from "@/components/ui/button";
 
 type BForm = {
   legalName: string; tradingName: string; brn: string; vatNumber: string;
@@ -89,7 +90,7 @@ export function BusinessProfileForm({ profile }: { profile: BusinessProfile }) {
         </div>
         <div className="flex items-center gap-3">
           {saved && <span className="text-[12px] font-semibold text-mint">Saved</span>}
-          <button onClick={save} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+          <button onClick={save} disabled={busy} className={btn("primary", "lg", "px-5")}>
             {busy ? "Saving…" : "Save changes"}
           </button>
         </div>

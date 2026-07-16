@@ -6,10 +6,11 @@ import { Download, Upload, X, Check, AlertTriangle } from "lucide-react";
 import { parseCsv } from "@/lib/csv";
 import type { ImportReport } from "@/lib/supabase/rpc";
 import { importCustomersAction, importProductsAction } from "./actions";
+import { btn as btnCls } from "@/components/ui/button";
 
 type Kind = "customers" | "products";
 
-const btn = "inline-flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3.5 text-[13px] font-bold text-body hover:border-brand";
+const btn = btnCls();
 
 export function ImportExport({ kind }: { kind: Kind }) {
   const router = useRouter();

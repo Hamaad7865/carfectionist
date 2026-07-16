@@ -6,6 +6,7 @@ import { BellPlus, Check, Send, X } from "lucide-react";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { createReminderAction, setReminderStatusAction } from "./actions";
 import type { RemindersData } from "@/lib/supabase/queries/reminders";
+import { btn } from "@/components/ui/button";
 
 const KINDS = ["Ceramic coating top-up", "Annual inspection", "Wash membership renewal", "Tint warranty check", "PPF maintenance"];
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
@@ -75,7 +76,7 @@ export function RemindersPanel({ data, today }: { data: RemindersData; today: st
           </Field>
           <Field label="Due date"><input type="date" className={inputCls} value={dueDate} onChange={(e) => setDueDate(e.target.value)} /></Field>
           <Field label="Notes (optional)"><input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" /></Field>
-          <button onClick={create} disabled={busy} className="grad-brand shadow-brand inline-flex h-11 items-center justify-center gap-2 rounded-[12px] font-bold text-white disabled:opacity-60">
+          <button onClick={create} disabled={busy} className={btn("primary", "lg", "gap-2")}>
             <BellPlus size={16} /> {busy ? "Saving…" : "Add reminder"}
           </button>
         </div>

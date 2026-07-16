@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { login, type LoginState } from "./actions";
+import { btn } from "@/components/ui/button";
 
 const initial: LoginState = {};
 
@@ -36,7 +37,7 @@ export function LoginForm() {
       <button
         type="submit"
         disabled={pending}
-        className="grad-brand shadow-brand flex h-11 w-full items-center justify-center rounded-[10px] font-bold text-white disabled:opacity-60"
+        className={btn("primary", "lg", "w-full")}
       >
         {pending ? "Signing in…" : "Sign in"}
       </button>

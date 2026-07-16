@@ -6,6 +6,7 @@ import { Plus, Trash2, PackagePlus } from "lucide-react";
 import type { POData, PurchaseOrder } from "@/lib/supabase/queries/purchases";
 import { formatMUR } from "@/lib/money";
 import { createSupplierAction, createPurchaseOrderAction, receivePurchaseOrderAction } from "./po-actions";
+import { btn } from "@/components/ui/button";
 
 const field = "h-10 rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 
@@ -102,7 +103,7 @@ export function PurchaseOrdersPanel({ data }: { data: POData }) {
               <span className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Add supplier</span>
               <input className={`${field} w-[170px]`} value={newSupplier} onChange={(e) => setNewSupplier(e.target.value)} placeholder="New supplier name" />
             </label>
-            <button onClick={addSupplier} disabled={!newSupplier.trim()} className="flex h-10 items-center rounded-[11px] border border-line-2 bg-sub px-3 text-[12.5px] font-semibold text-body disabled:opacity-50">
+            <button onClick={addSupplier} disabled={!newSupplier.trim()} className={btn("subtle", "lg")}>
               Save
             </button>
           </div>
@@ -163,12 +164,12 @@ export function PurchaseOrdersPanel({ data }: { data: POData }) {
         )}
 
         <div className="flex items-center gap-2">
-          <button onClick={addLine} className="flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-3 text-[12.5px] font-semibold text-body">
+          <button onClick={addLine} className={btn("subtle")}>
             <Plus size={14} /> Add product
           </button>
           <div className="flex-1" />
           {lines.length > 0 && <span className="num mr-2 text-[13px] font-bold text-ink">{formatMUR(Math.round(draftTotal * 100))}</span>}
-          <button onClick={create} disabled={busy || lines.length === 0} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={create} disabled={busy || lines.length === 0} className={btn("primary")}>
             {busy ? "Saving…" : "Create order"}
           </button>
         </div>
@@ -284,7 +285,7 @@ function POCard({
           <select className={`${field} h-9`} value={locId} onChange={(e) => setLocId(e.target.value)}>
             {locations.map((loc) => <option key={loc.id} value={loc.id}>{loc.name}</option>)}
           </select>
-          <button onClick={receive} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={receive} disabled={busy} className={btn("primary")}>
             Receive stock
           </button>
         </div>

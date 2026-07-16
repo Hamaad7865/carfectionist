@@ -12,7 +12,7 @@ const STYLES: Record<string, string> = {
 export function StatusPill({ status }: { status: string }) {
   const cls = STYLES[status] ?? STYLES.draft;
   return (
-    <span className={`inline-flex items-center rounded-[7px] px-2.5 py-1 text-[11px] font-semibold capitalize ${cls}`}>
+    <span className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-[7px] px-2.5 py-1 text-[11px] font-semibold capitalize ${cls}`}>
       {status.replace(/_/g, " ")}
     </span>
   );

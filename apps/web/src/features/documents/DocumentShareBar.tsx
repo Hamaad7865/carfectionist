@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Printer, Download, Share2, ChevronDown, Mail, MessageCircle, Link2, Check } from "lucide-react";
+import { btn } from "@/components/ui/button";
 import { publicDocLinkAction } from "./actions";
 import { SendDocumentDialog } from "./SendDocumentDialog";
 
@@ -56,16 +57,13 @@ export function DocumentShareBar({
     }
   }
 
-  const ghost =
-    "flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body hover:border-brand";
-
   return (
     <>
-      <div className="flex items-center gap-1.5">
-        <a href={`/print/doc/${documentId}`} target="_blank" rel="noreferrer" className={ghost}>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <a href={`/print/doc/${documentId}`} target="_blank" rel="noreferrer" className={btn()}>
           <Printer size={15} /> Print
         </a>
-        <a href={`/api/documents/${documentId}/pdf`} download={`${number ?? "document"}.pdf`} className={ghost}>
+        <a href={`/api/documents/${documentId}/pdf`} download={`${number ?? "document"}.pdf`} className={btn()}>
           <Download size={15} /> Download
         </a>
 
@@ -74,7 +72,7 @@ export function DocumentShareBar({
             onClick={() => setMenuOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            className="grad-brand shadow-brand flex h-[38px] items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-bold text-white"
+            className={btn("primary")}
           >
             <Share2 size={15} /> Email / WhatsApp
             <ChevronDown size={14} className={`transition-transform ${menuOpen ? "rotate-180" : ""}`} />

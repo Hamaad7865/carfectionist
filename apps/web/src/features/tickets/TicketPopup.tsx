@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 import type { ReactNode } from "react";
+import { btn } from "@/components/ui/button";
 
 /** The Cashmag-style ticket popup: the receipt card + Print (A4 ticket) —
  *  opened by ?t=<id> on the tickets view, closed by dropping the param. */
@@ -30,7 +31,7 @@ export function TicketPopup({ r, docId, emailSlot }: { r: ReceiptData; docId: st
       subtitle={`${r.dateLabel}${r.customerName ? ` · ${r.customerName}` : ""}`}
       footer={
         <div className="flex flex-wrap items-center justify-end gap-2">
-          <Link href={`/sales/${docId}`} className="mr-auto inline-flex h-10 items-center gap-1.5 rounded-[11px] px-3 text-[12.5px] font-semibold text-muted hover:text-body">
+          <Link href={`/sales/${docId}`} className={btn("quiet", "lg", "mr-auto")}>
             <ExternalLink size={14} /> Open sale
           </Link>
           {emailSlot}
@@ -38,7 +39,7 @@ export function TicketPopup({ r, docId, emailSlot }: { r: ReceiptData; docId: st
             href={`/print/ticket/${docId}`}
             target="_blank"
             rel="noreferrer"
-            className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-5 text-[13px] font-bold text-white"
+            className={btn("primary", "lg", "gap-2 px-5")}
           >
             <Printer size={15} /> Print
           </a>

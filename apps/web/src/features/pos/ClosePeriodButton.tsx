@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { FormError } from "@/components/ui/form";
 import { closePeriodAction } from "./actions";
 import { monthLabel } from "./month-label";
+import { btn } from "@/components/ui/button";
 
 /** Owner-only monthly close: snapshots the month's totals + logs the event. */
 export function ClosePeriodButton({ period }: { period: string }) {
@@ -27,7 +28,7 @@ export function ClosePeriodButton({ period }: { period: string }) {
     <>
       <button
         onClick={() => { setError(null); setOpen(true); }}
-        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3.5 text-[12.5px] font-bold text-body hover:border-brand"
+        className={btn()}
       >
         <CalendarCheck size={15} /> Close {monthLabel(period)}
       </button>
@@ -39,8 +40,8 @@ export function ClosePeriodButton({ period }: { period: string }) {
         subtitle="Snapshots the month's totals (sales, VAT, takings by method and device) and records it in the trail. A month can only be closed once."
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={confirm} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={confirm} disabled={busy} className={btn("primary", "lg", "px-5")}>
               {busy ? "Closing…" : "Close the month"}
             </button>
           </div>

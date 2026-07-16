@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import Link from "next/link";
 import { requestPasswordReset, type ForgotState } from "./actions";
+import { btn } from "@/components/ui/button";
 
 const initial: ForgotState = {};
 
@@ -24,7 +25,7 @@ export function ForgotForm() {
         <p className="mt-3 text-xs leading-relaxed text-faint">
           The link works once and expires in about an hour. Check spam if it hasn&apos;t arrived in a couple of minutes.
         </p>
-        <Link href="/login" className="mt-5 flex h-11 w-full items-center justify-center rounded-[10px] border border-line-2 bg-card text-sm font-bold text-body hover:border-brand">
+        <Link href="/login" className={btn("ghost", "lg", "mt-5 w-full")}>
           Back to sign in
         </Link>
       </div>
@@ -45,7 +46,7 @@ export function ForgotForm() {
       <button
         type="submit"
         disabled={pending}
-        className="grad-brand shadow-brand flex h-11 w-full items-center justify-center rounded-[10px] font-bold text-white disabled:opacity-60"
+        className={btn("primary", "lg", "w-full")}
       >
         {pending ? "Sending…" : "Send me a link"}
       </button>

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus, Trash2, FlaskConical } from "lucide-react";
 import type { RecipesData } from "@/lib/supabase/queries/recipes";
 import { addRecipeComponentAction, deleteRecipeComponentAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 const field = "h-10 rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 
@@ -66,7 +67,7 @@ export function RecipesPanel({ data }: { data: RecipesData }) {
             <span className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Qty</span>
             <input className={`${field} w-[100px] text-right`} value={qty} onChange={(e) => setQty(e.target.value)} inputMode="decimal" placeholder="0" />
           </label>
-          <button onClick={add} disabled={busy} className="grad-brand shadow-brand flex h-10 items-center gap-1.5 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={add} disabled={busy} className={btn("primary", "lg")}>
             <Plus size={15} /> Add
           </button>
         </div>

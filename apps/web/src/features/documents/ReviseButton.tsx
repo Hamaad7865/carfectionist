@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PencilLine } from "lucide-react";
 import { reviseQuoteAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 export function ReviseButton({ quoteId }: { quoteId: string }) {
   const router = useRouter();
@@ -25,7 +26,7 @@ export function ReviseButton({ quoteId }: { quoteId: string }) {
         onClick={revise}
         disabled={busy}
         title="Create an editable copy as a new draft quote"
-        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3.5 text-[13px] font-bold text-body hover:border-brand disabled:opacity-60"
+        className={btn()}
       >
         <PencilLine size={15} /> {busy ? "Revising…" : "Revise"}
       </button>

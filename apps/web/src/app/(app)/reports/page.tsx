@@ -9,6 +9,7 @@ import { StatementPicker } from "@/features/reports/StatementPicker";
 import { StatementSendButton } from "@/features/reports/StatementSendButton";
 import { formatMUR } from "@/lib/money";
 import { muDate } from "@/lib/mu-date";
+import { btn } from "@/components/ui/button";
 
 const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c", juice: "#6a5cff", bank_transfer: "#f5a623" };
 const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer" };
@@ -113,7 +114,7 @@ export default async function ReportsPage({
           <DateRangeFilter label={false} />
           <div className="flex-1" />
           {report !== "statement" && report !== "statement-list" && (
-            <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
+            <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className={btn("ghost", "sm")}>
               <Download size={14} /> CSV
             </a>
           )}
@@ -434,7 +435,7 @@ export default async function ReportsPage({
                 </div>
                 {sp.c && statement.aged && (
                   <div className="flex items-center gap-3">
-                    <a href={`/api/reports/statement/${sp.c}/pdf`} target="_blank" rel="noreferrer" className="flex h-8 items-center gap-1.5 rounded-lg border border-line-2 bg-card px-3 text-[12px] font-semibold text-body hover:border-brand">
+                    <a href={`/api/reports/statement/${sp.c}/pdf`} target="_blank" rel="noreferrer" className={btn("ghost", "sm")}>
                       <Download size={14} /> PDF
                     </a>
                     <StatementSendButton customerId={sp.c} customerName={statement.aged.customerName} email={statement.aged.customerEmail} />

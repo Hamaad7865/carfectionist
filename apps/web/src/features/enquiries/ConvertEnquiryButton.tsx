@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { convertEnquiryAction } from "./actions";
+import { btnBase } from "@/components/ui/button";
 
 export function ConvertEnquiryButton({ enquiryId, converted }: { enquiryId: string; converted: boolean }) {
   const router = useRouter();
@@ -21,7 +22,7 @@ export function ConvertEnquiryButton({ enquiryId, converted }: { enquiryId: stri
     <button
       onClick={go}
       disabled={busy}
-      className="inline-flex h-9 shrink-0 items-center justify-center rounded-[9px] border border-[rgba(43,140,255,0.4)] bg-[rgba(43,140,255,0.1)] px-3.5 text-[12px] font-bold text-[#2f78de] disabled:opacity-60"
+      className={btnBase("md", "border border-[rgba(43,140,255,0.4)] bg-[rgba(43,140,255,0.1)] font-bold text-[#2f78de]")}
     >
       {busy ? "…" : "Convert →"}
     </button>

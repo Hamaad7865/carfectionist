@@ -7,6 +7,7 @@ import { Send, Check, CheckCheck, Clock, AlertTriangle, Archive, MessageCircle, 
 import type { ConversationRow, ThreadDetail } from "@/lib/supabase/queries/inbox";
 import type { WaTemplateRow } from "@/lib/supabase/queries/marketing";
 import { sendReplyAction, sendTemplateReplyAction, markThreadReadAction, archiveThreadAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 // The studio's WhatsApp conversations. New messages arrive by webhook, so the
 // page polls while open (a websocket would be nicer; polling is bulletproof).
@@ -163,7 +164,7 @@ export function InboxPanel({
               </div>
               <button
                 onClick={async () => { await archiveThreadAction(thread.id); router.push("/messages"); }}
-                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12px] font-semibold text-muted hover:text-body"
+                className={btn("subtle", "sm")}
               >
                 <Archive size={13} /> Archive
               </button>

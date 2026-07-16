@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { convertQuoteToInvoiceAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 export function ConvertButton({ quoteId }: { quoteId: string }) {
   const router = useRouter();
@@ -24,7 +25,7 @@ export function ConvertButton({ quoteId }: { quoteId: string }) {
       <button
         onClick={convert}
         disabled={busy}
-        className="grad-brand shadow-brand inline-flex h-9 items-center rounded-[10px] px-3.5 text-[13px] font-bold text-white disabled:opacity-60"
+        className={btn("primary")}
       >
         {busy ? "Converting…" : "Convert to invoice"}
       </button>

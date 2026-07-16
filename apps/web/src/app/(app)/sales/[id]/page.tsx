@@ -5,6 +5,7 @@ import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { getDealFlow } from "@/lib/supabase/queries/flow";
 import { FlowStepper } from "@/components/flow/FlowStepper";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { btn } from "@/components/ui/button";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
@@ -50,16 +51,18 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               {doc.customerName ?? "—"} · {doc.issueDate ?? doc.createdAt.slice(0, 10)}
             </p>
           </div>
-          <div className="flex items-center gap-2">
+          {/* flex-wrap: when the row runs out of room, whole buttons move to the
+              next line — labels never break mid-text (the screenshotted bug). */}
+          <div className="flex flex-wrap items-center justify-end gap-2">
             {doc.docType === "invoice" && (
-              <a href={`/print/receipt/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
+              <a href={`/print/receipt/${doc.id}`} target="_blank" rel="noreferrer" className={btn()}>
                 <Receipt size={15} /> Receipt
               </a>
             )}
             {doc.number && doc.status !== "void" ? (
               <DocumentShareBar documentId={doc.id} number={doc.number} defaultEmail={doc.customerEmail} defaultPhone={doc.customerPhone} />
             ) : (
-              <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
+              <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className={btn()}>
                 <Printer size={15} /> Print / PDF
               </a>
             )}

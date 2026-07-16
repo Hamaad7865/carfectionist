@@ -5,6 +5,7 @@ import { Mail } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { sendReceiptEmailAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 /** "Email" on the ticket popup: sends the branded receipt mail with the
  *  hosted-ticket link. Prefills the customer's address when we have it. */
@@ -28,7 +29,7 @@ export function EmailReceiptButton({ docId, defaultEmail }: { docId: string; def
     <>
       <button
         onClick={() => { setError(null); setSentTo(null); setOpen(true); }}
-        className="inline-flex h-10 items-center gap-1.5 rounded-[11px] border border-line-2 bg-card px-4 text-[13px] font-bold text-body hover:border-brand"
+        className={btn("ghost", "lg")}
       >
         <Mail size={15} /> Email
       </button>
@@ -40,11 +41,11 @@ export function EmailReceiptButton({ docId, defaultEmail }: { docId: string; def
         subtitle="The customer gets a branded mail with the ticket details and a link to view it."
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>
               {sentTo ? "Done" : "Cancel"}
             </button>
             {!sentTo && (
-              <button onClick={send} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center gap-2 rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+              <button onClick={send} disabled={busy} className={btn("primary", "lg", "gap-2 px-5")}>
                 <Mail size={15} /> {busy ? "Sending…" : "Send"}
               </button>
             )}

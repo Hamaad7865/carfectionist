@@ -7,6 +7,7 @@ import { BadgeCheck, Check, Plus, ShieldCheck, X } from "lucide-react";
 import type { CertificatesData } from "@/lib/supabase/queries/certificates";
 import { createCertificateAction } from "./actions";
 import { CertificateCard } from "./CertificateCard";
+import { btn } from "@/components/ui/button";
 
 const field = "h-10 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 const WARRANTIES = [12, 24, 36, 60];
@@ -61,7 +62,7 @@ export function CertificatesPanel({ data, today }: { data: CertificatesData; tod
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body hover:border-brand"
+          className={btn()}
         >
           {showForm ? <X size={15} /> : <Plus size={15} />} {showForm ? "Cancel" : "Issue certificate"}
         </button>
@@ -108,7 +109,7 @@ export function CertificatesPanel({ data, today }: { data: CertificatesData; tod
             </label>
           </div>
           {error && <p className="mt-3 rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
-          <button onClick={create} disabled={busy} className="grad-brand shadow-brand mt-4 flex h-11 items-center justify-center gap-2 rounded-[12px] px-5 font-bold text-white disabled:opacity-50">
+          <button onClick={create} disabled={busy} className={btn("primary", "lg", "mt-4 gap-2 px-5")}>
             <BadgeCheck size={17} /> {busy ? "Issuing…" : "Issue certificate"}
           </button>
         </div>
@@ -157,7 +158,7 @@ export function CertificatesPanel({ data, today }: { data: CertificatesData; tod
             <>
               {selected.jobId && (
                 <div className="mb-2.5 flex justify-end">
-                  <Link href={`/jobs/${selected.jobId}`} className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-3 text-[12px] font-bold text-body hover:border-brand">
+                  <Link href={`/jobs/${selected.jobId}`} className={btn("ghost", "sm")}>
                     View job & flow →
                   </Link>
                 </div>

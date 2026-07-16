@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { parseMoneyInput } from "@/lib/money";
 import { addExpenseAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 const CATS = ["Supplies", "Rent", "Utilities", "Salaries", "Marketing", "Equipment", "Insurance", "Other"];
 const field = "h-9 w-full rounded-[10px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand";
@@ -47,7 +48,7 @@ export function NewExpenseForm({ today }: { today: string }) {
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="grad-brand shadow-brand flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white">
+      <button onClick={() => setOpen(true)} className={btn("primary", "lg", "gap-2")}>
         <Plus size={16} strokeWidth={2.4} /> New expense
       </button>
     );
@@ -88,10 +89,10 @@ export function NewExpenseForm({ today }: { today: string }) {
       </div>
       {error && <p className="mt-2 text-[12px] text-rose">{error}</p>}
       <div className="mt-3 flex gap-2">
-        <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
+        <button onClick={submit} disabled={busy} className={btn("primary")}>
           {busy ? "Saving…" : "Save expense"}
         </button>
-        <button onClick={() => setOpen(false)} className="inline-flex h-9 items-center justify-center rounded-[10px] px-3 text-[13px] font-semibold text-muted">Cancel</button>
+        <button onClick={() => setOpen(false)} className={btn("quiet")}>Cancel</button>
       </div>
     </div>
   );

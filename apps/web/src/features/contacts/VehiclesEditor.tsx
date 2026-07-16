@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveVehicleAction, deleteVehicleAction } from "./actions";
 import type { ContactVehicle } from "@/lib/supabase/queries/contacts";
+import { btn } from "@/components/ui/button";
 
 type VForm = { plate: string; make: string; model: string; year: string; color: string; vin: string };
 const seed = (v?: ContactVehicle): VForm => ({
@@ -59,7 +60,7 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
     <>
       <div className="mb-2.5 flex items-center justify-between">
         <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]">Vehicles</div>
-        <button onClick={() => launch()} className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-2.5 text-[12px] font-bold text-body hover:border-brand">
+        <button onClick={() => launch()} className={btn("ghost", "sm")}>
           <Plus size={13} /> Add vehicle
         </button>
       </div>
@@ -84,8 +85,8 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
         title={editId ? "Edit vehicle" : "Add vehicle"}
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={submit} disabled={busy} className={btn("primary", "lg", "px-5")}>
               {busy ? "Saving…" : editId ? "Save changes" : "Add vehicle"}
             </button>
           </div>

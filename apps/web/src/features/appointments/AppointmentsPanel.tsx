@@ -8,6 +8,7 @@ import { Field, inputCls, FormError } from "@/components/ui/form";
 import { DEPARTMENTS } from "@/lib/departments";
 import { createAppointmentAction, setAppointmentStatusAction, convertAppointmentToJobAction } from "./actions";
 import type { AppointmentsData } from "@/lib/supabase/queries/appointments";
+import { btn } from "@/components/ui/button";
 
 const STATUS_STYLE: Record<string, { label: string; cls: string }> = {
   scheduled: { label: "Scheduled", cls: "bg-[rgba(43,140,255,0.12)] text-link" },
@@ -113,7 +114,7 @@ export function AppointmentsPanel({ data }: { data: AppointmentsData }) {
           </div>
           <Field label="Service"><input className={inputCls} value={service} onChange={(e) => setService(e.target.value)} placeholder="e.g. Full detail + ceramic" /></Field>
           <Field label="Notes (optional)"><input className={inputCls} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" /></Field>
-          <button onClick={create} disabled={busy} className="grad-brand shadow-brand inline-flex h-11 items-center justify-center gap-2 rounded-[12px] font-bold text-white disabled:opacity-60">
+          <button onClick={create} disabled={busy} className={btn("primary", "lg", "gap-2")}>
             <CalendarPlus size={16} /> {busy ? "Saving…" : "Book appointment"}
           </button>
         </div>

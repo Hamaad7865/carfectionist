@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { formatMUR, parseMoneyInput } from "@/lib/money";
 import { recordPaymentAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 const METHODS = [
   { value: "cash", label: "Cash" },
@@ -99,7 +100,7 @@ export function RecordPaymentForm({ invoiceId, outstandingCents }: { invoiceId: 
       <button
         onClick={submit}
         disabled={busy}
-        className="grad-brand shadow-brand mt-4 flex h-9 w-full items-center justify-center rounded-[10px] text-[13px] font-bold text-white disabled:opacity-60"
+        className={btn("primary", "md", "mt-4 w-full")}
       >
         {busy ? "Recording…" : `Record ${formatMUR(amountCents)}`}
       </button>

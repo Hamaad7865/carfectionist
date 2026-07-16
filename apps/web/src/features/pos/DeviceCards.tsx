@@ -11,6 +11,7 @@ import { muDateTime } from "@/lib/mu-date";
 import { powerOffAction } from "./actions";
 import { openTillAction } from "@/features/cash/actions";
 import type { PosDevice } from "@/lib/supabase/queries/pos-devices";
+import { btn } from "@/components/ui/button";
 
 const field = "h-10 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[14px] text-ink outline-none focus:border-brand";
 
@@ -52,7 +53,7 @@ function PowerOffButton({ device }: { device: PosDevice }) {
         subtitle="Counts the drawer and closes this till. Sales stay untouched."
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
             <button onClick={confirm} disabled={busy} className="inline-flex h-10 items-center justify-center gap-2 rounded-[11px] bg-rose px-5 text-[13px] font-bold text-white disabled:opacity-60">
               <Power size={15} /> {busy ? "Closing…" : "Power off"}
             </button>

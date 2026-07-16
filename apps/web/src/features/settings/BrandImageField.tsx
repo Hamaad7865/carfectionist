@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import { ImageUp, Loader2, RotateCcw } from "lucide-react";
 import { createClient } from "@/lib/supabase/browser";
+import { btn } from "@/components/ui/button";
 
 // Upload artwork for the letterhead. Uploads go straight from the browser to
 // Supabase Storage (same as the intake photos) — the file never passes through
@@ -125,7 +126,7 @@ export function BrandImageField({
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={busy}
-          className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-2.5 text-[12px] font-bold text-body hover:border-brand disabled:opacity-60"
+          className={btn("ghost", "sm")}
         >
           <ImageUp size={13} /> {busy ? "Uploading…" : "Upload"}
         </button>
@@ -134,7 +135,7 @@ export function BrandImageField({
             type="button"
             onClick={reset}
             disabled={busy}
-            className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-2.5 text-[12px] font-semibold text-muted hover:border-brand hover:text-body"
+            className={btn("ghost", "sm")}
           >
             <RotateCcw size={12} /> Use built-in
           </button>

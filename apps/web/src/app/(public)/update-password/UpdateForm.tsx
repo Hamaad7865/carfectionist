@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { Eye, EyeOff } from "lucide-react";
 import { updateMyPassword, type UpdateState } from "./actions";
+import { btn } from "@/components/ui/button";
 
 const initial: UpdateState = {};
 
@@ -51,7 +52,7 @@ export function UpdateForm() {
       <button
         type="submit"
         disabled={pending}
-        className="grad-brand shadow-brand flex h-11 w-full items-center justify-center rounded-[10px] font-bold text-white disabled:opacity-60"
+        className={btn("primary", "lg", "w-full")}
       >
         {pending ? "Saving…" : "Save password and sign in"}
       </button>

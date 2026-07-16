@@ -6,6 +6,7 @@ import { Plus, Minus, SlidersHorizontal } from "lucide-react";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { recordAdjustmentAction } from "./actions";
 import type { InventoryOpsData } from "@/lib/supabase/queries/movements";
+import { btn } from "@/components/ui/button";
 
 const REF_STYLE: Record<string, { label: string; cls: string }> = {
   adjustment: { label: "Adjustment", cls: "bg-[rgba(140,150,161,0.16)] text-muted" },
@@ -113,7 +114,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
           <Field label="Reason / note">
             <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. stock count correction" />
           </Field>
-          <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
+          <button onClick={submit} disabled={busy} className={btn("primary", "lg")}>
             {busy ? "Saving…" : "Record"}
           </button>
         </div>

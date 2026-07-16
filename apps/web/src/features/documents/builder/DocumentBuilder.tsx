@@ -15,6 +15,7 @@ import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext } from "@/lib/supabase/queries/builder";
 import { reducer, type BuilderState } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
+import { btn } from "@/components/ui/button";
 
 // UUID keys so the builder's line keys can never collide with those minted
 // server-side in state.ts (both previously used an l<N> counter from 0).
@@ -220,7 +221,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     <div className="flex h-full flex-col bg-app">
       {/* Toolbar */}
       <div className="flex min-h-14 shrink-0 flex-wrap items-center gap-2 border-b border-line bg-sub px-4 py-2 md:gap-3 md:px-[22px]">
-        <Link href="/sales" className="flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[12.5px] font-semibold text-body">
+        <Link href="/sales" className={btn()}>
           <ChevronLeft size={15} /> Back
         </Link>
         <span className="font-display text-[15px] font-extrabold text-ink-strong">Document builder</span>
@@ -519,7 +520,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   ))}
                 </div>
               )}
-              <button onClick={() => dispatch({ type: "addCustomField" })} className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-3 text-[12.5px] font-semibold text-body">
+              <button onClick={() => dispatch({ type: "addCustomField" })} className={btn("subtle")}>
                 <Plus size={14} /> Add field
               </button>
               <p className="mt-1.5 text-[11px] text-faint">Extra label/value details shown in the document header. Save reusable ones in Settings → Templates to get one-click buttons here.</p>

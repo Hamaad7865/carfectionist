@@ -7,6 +7,7 @@ import { formatMUR } from "@/lib/money";
 import { ProductFormModal } from "./ProductFormModal";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 import type { StockLocation } from "@/lib/supabase/locations";
+import { btn } from "@/components/ui/button";
 
 const qty = (n: number | null | undefined) => (n == null ? "—" : String(n));
 const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
@@ -114,7 +115,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <input className={`${field} w-full pl-9 sm:w-[240px]`} placeholder="Search products, barcode, SKU…" value={q} onChange={(e) => setQ(e.target.value)} />
         </div>
-        <div className="inline-flex h-9 items-center gap-0.5 rounded-[10px] border border-line-2 bg-sub p-0.5">
+        <div className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-[10px] border border-line-2 bg-sub p-0.5">
           {KINDS.map((k) => (
             <button
               key={k.key}
@@ -147,11 +148,11 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
         <div className="flex-1" />
         <Link
           href={showArchived ? "/products" : "/products?archived=1"}
-          className="inline-flex h-9 items-center rounded-[10px] border border-line-2 bg-card px-3 text-[12.5px] font-semibold text-body hover:border-brand"
+          className={btn()}
         >
           {showArchived ? "Hide archived" : "Show archived"}
         </Link>
-        <button onClick={newProduct} className="grad-brand shadow-brand inline-flex h-9 items-center gap-1.5 rounded-[10px] px-4 text-[13px] font-bold text-white">
+        <button onClick={newProduct} className={btn("primary")}>
           <Plus size={15} strokeWidth={2.4} /> {kind === "service" ? "New service" : "New product"}
         </button>
       </div>
@@ -245,7 +246,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
             </span>
             <button
               onClick={() => setLimit((l) => l + PAGE)}
-              className="inline-flex h-8 items-center rounded-[9px] border border-line-2 bg-card px-3 text-[12px] font-bold text-body hover:border-brand"
+              className={btn("ghost", "sm")}
             >
               Show {Math.min(hidden, PAGE)} more
             </button>

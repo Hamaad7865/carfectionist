@@ -7,6 +7,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveSupplierAction } from "./actions";
 import type { SupplierRow } from "@/lib/supabase/queries/contacts";
+import { btn } from "@/components/ui/button";
 
 type SForm = { name: string; phone: string; email: string; address: string; brn: string; vatNumber: string; notes: string };
 const seed = (s?: SupplierRow): SForm => ({
@@ -49,7 +50,7 @@ export function SuppliersPanel({ suppliers }: { suppliers: SupplierRow[] }) {
   return (
     <div className="flex flex-col gap-3">
       <div className="flex justify-end">
-        <button onClick={() => launch()} className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white">
+        <button onClick={() => launch()} className={btn("primary", "lg", "gap-2")}>
           <Plus size={16} strokeWidth={2.4} /> New supplier
         </button>
       </div>
@@ -78,8 +79,8 @@ export function SuppliersPanel({ suppliers }: { suppliers: SupplierRow[] }) {
         title={editId ? "Edit supplier" : "New supplier"}
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={submit} disabled={busy} className={btn("primary", "lg", "px-5")}>
               {busy ? "Saving…" : editId ? "Save changes" : "Create supplier"}
             </button>
           </div>

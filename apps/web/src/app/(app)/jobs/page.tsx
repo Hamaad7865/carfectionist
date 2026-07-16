@@ -4,6 +4,7 @@ import { getJobsBoard, getIntakeRef, listJobs } from "@/lib/supabase/queries/job
 import { JOB_COLUMNS } from "@/features/jobs/columns";
 import { NewJobForm } from "@/features/jobs/NewJobForm";
 import { JobsList } from "@/features/jobs/JobsList";
+import { btn } from "@/components/ui/button";
 
 const tabCls = (on: boolean) =>
   `h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${on ? "bg-card text-ink shadow-sm" : "text-muted"}`;
@@ -34,10 +35,10 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             </Link>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/jobs/intake"
-            className="inline-flex h-10 items-center gap-2 rounded-[11px] border border-line-2 bg-card px-4 text-[13.5px] font-bold text-body hover:border-brand"
+            className={btn("ghost", "lg", "gap-2")}
           >
             <ClipboardCheck size={16} strokeWidth={2.2} /> New intake
           </Link>

@@ -8,6 +8,7 @@ import { sendBatchAction, archiveCampaignAction } from "./actions";
 import { WaBubble } from "./WaBubble";
 import { renderBodyPreview } from "./render";
 import type { CampaignDetail } from "@/lib/supabase/queries/marketing";
+import { btn } from "@/components/ui/button";
 
 const ROW_STATUS: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
   pending: { label: "Pending", cls: "text-muted", icon: <Clock size={13} /> },
@@ -80,14 +81,14 @@ export function CampaignProgress({ campaign }: { campaign: CampaignDetail }) {
             <span className="num">{campaign.templateName}</span><span className="text-faint">·</span><span>{campaign.createdAt}</span>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {canSend && (
-            <button onClick={runSend} disabled={sending} className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={runSend} disabled={sending} className={btn("primary", "lg", "gap-2 px-5")}>
               <Send size={15} /> {sending ? "Sending…" : campaign.status === "draft" ? `Send now · ${outstanding}` : `Resume · ${outstanding}`}
             </button>
           )}
           {(campaign.status === "done" || campaign.status === "failed") && (
-            <button onClick={archive} className="inline-flex h-10 items-center gap-1.5 rounded-[11px] border border-line-2 bg-card px-3.5 text-[13px] font-semibold text-body"><Archive size={15} /> Archive</button>
+            <button onClick={archive} className={btn("ghost", "lg")}><Archive size={15} /> Archive</button>
           )}
         </div>
       </div>

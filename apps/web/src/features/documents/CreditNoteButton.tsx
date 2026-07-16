@@ -6,6 +6,7 @@ import { FileMinus } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { FormError } from "@/components/ui/form";
 import { createCreditNoteAction } from "./actions";
+import { btn, btnBase } from "@/components/ui/button";
 
 export function CreditNoteButton({ invoiceId, number }: { invoiceId: string; number: string | null }) {
   const router = useRouter();
@@ -29,7 +30,7 @@ export function CreditNoteButton({ invoiceId, number }: { invoiceId: string; num
     <>
       <button
         onClick={() => { setRestock(true); setError(null); setOpen(true); }}
-        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-[rgba(255,84,104,0.35)] bg-card px-3.5 text-[13px] font-bold text-pink hover:bg-[rgba(255,84,104,0.06)]"
+        className={btn("danger")}
       >
         <FileMinus size={15} /> Credit note
       </button>
@@ -41,8 +42,8 @@ export function CreditNoteButton({ invoiceId, number }: { invoiceId: string; num
         subtitle="Issues a credit note (own CN- number) mirroring this invoice — for a refund or correction after payment."
         footer={
           <div className="flex justify-end gap-2">
-            <button onClick={() => setOpen(false)} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
-            <button onClick={confirm} disabled={busy} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-[11px] bg-pink px-5 text-[13px] font-bold text-white disabled:opacity-60">
+            <button onClick={() => setOpen(false)} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={confirm} disabled={busy} className={btnBase("lg", "bg-pink px-5 font-bold text-white")}>
               <FileMinus size={15} /> {busy ? "Issuing…" : "Issue credit note"}
             </button>
           </div>

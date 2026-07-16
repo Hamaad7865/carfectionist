@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Wrench } from "lucide-react";
 import { createJobFromDocumentAction } from "./actions";
+import { btn } from "@/components/ui/button";
 
 export function StartJobButton({ documentId, quote = false }: { documentId: string; quote?: boolean }) {
   const router = useRouter();
@@ -26,7 +27,7 @@ export function StartJobButton({ documentId, quote = false }: { documentId: stri
       <button
         onClick={go}
         disabled={busy}
-        className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-60"
+        className={btn("primary", "lg", "gap-2")}
       >
         {/* Accepting a quote issues + numbers it — say so (same wording as the POS). */}
         <Wrench size={15} /> {busy ? "Starting job…" : quote ? "Accept → create job" : "Start job →"}

@@ -12,6 +12,7 @@ import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 import { muToday } from "@/lib/mu-date";
+import { btn } from "@/components/ui/button";
 
 const rs = (v: string) => formatMUR(Math.round(Number(v) * 100));
 const COLS = "grid-cols-[120px_1fr_90px_90px_120px_130px_36px]";
@@ -60,16 +61,16 @@ export default async function SalesPage({
             <Link href={`/sales?view=tickets&from=${today}&to=${today}`} className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "tickets" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Tickets</Link>
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Link
             href="/sales/counter"
-            className="flex h-10 flex-1 items-center justify-center gap-2 rounded-[11px] border border-line-2 bg-card px-4 text-[13.5px] font-bold text-body hover:border-brand sm:flex-none"
+            className={btn("ghost", "lg", "flex-1 gap-2 sm:flex-none")}
           >
             <Store size={16} strokeWidth={2.2} /> Counter sale
           </Link>
           <Link
             href="/sales/new?type=invoice"
-            className="grad-brand shadow-brand flex h-10 flex-1 items-center justify-center gap-2 rounded-[11px] px-[18px] text-[13.5px] font-bold text-white sm:flex-none"
+            className={btn("primary", "lg", "flex-1 gap-2 px-[18px] sm:flex-none")}
           >
             <Plus size={16} strokeWidth={2.4} /> New document
           </Link>

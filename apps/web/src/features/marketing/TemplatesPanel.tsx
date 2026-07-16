@@ -7,6 +7,7 @@ import { TemplateComposer } from "./TemplateComposer";
 import { submitTemplateAction, syncTemplatesAction, deleteTemplateAction } from "./actions";
 import { countVariables } from "./render";
 import type { WaTemplateRow } from "@/lib/supabase/queries/marketing";
+import { btn } from "@/components/ui/button";
 
 const STATUS: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
   draft: { label: "Draft", cls: "bg-band text-body", icon: <FileText size={12} /> },
@@ -38,11 +39,11 @@ export function TemplatesPanel({ templates }: { templates: WaTemplateRow[] }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-center justify-between">
         <div className="text-[12.5px] text-muted">{templates.length} template{templates.length === 1 ? "" : "s"} · approved templates can be sent as campaigns</div>
-        <div className="flex items-center gap-2">
-          <button onClick={sync} disabled={busy === "sync"} className="inline-flex h-9 items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body hover:border-brand disabled:opacity-60">
+        <div className="flex flex-wrap items-center gap-2">
+          <button onClick={sync} disabled={busy === "sync"} className={btn()}>
             <RefreshCw size={14} className={busy === "sync" ? "animate-spin" : ""} /> Sync approvals
           </button>
-          <button onClick={() => setComposing("new")} className="grad-brand shadow-brand inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-bold text-white">
+          <button onClick={() => setComposing("new")} className={btn("primary")}>
             <Plus size={15} /> New template
           </button>
         </div>
@@ -134,7 +135,7 @@ function SubmitDialog({ template, onClose, onDone }: { template: WaTemplateRow; 
         {error && <p className="mt-3 rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onClose} className="h-10 rounded-[11px] border border-line-2 bg-sub px-4 text-[13px] font-semibold text-body">Cancel</button>
-          <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-50">
+          <button onClick={submit} disabled={busy} className={btn("primary", "lg", "gap-2")}>
             <Send size={14} /> {busy ? "Submitting…" : "Submit to WhatsApp"}
           </button>
         </div>

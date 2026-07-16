@@ -7,6 +7,7 @@ import { saveTemplateAction } from "./actions";
 import { countVariables, renderBodyPreview } from "./render";
 import { WaBubble } from "./WaBubble";
 import type { WaTemplateRow } from "@/lib/supabase/queries/marketing";
+import { btn } from "@/components/ui/button";
 
 const EMOJI = ["😀", "😍", "🎉", "🚗", "✨", "🔥", "💧", "🧼", "⭐", "👍", "🙏", "📅", "📍", "💬", "🎁", "💯", "🏆", "✅", "❤️", "😎", "🕒", "📞", "🚀", "🤝"];
 const field = "h-10 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
@@ -128,7 +129,7 @@ export function TemplateComposer({ template, onDone }: { template: WaTemplateRow
           {error && <p className="rounded-[9px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12.5px] text-rose">{error}</p>}
 
           <div className="flex items-center gap-2">
-            <button onClick={save} disabled={busy || !name.trim() || !body.trim() || overLimit} className="grad-brand shadow-brand inline-flex h-11 items-center gap-2 rounded-[12px] px-5 font-bold text-white disabled:opacity-50">
+            <button onClick={save} disabled={busy || !name.trim() || !body.trim() || overLimit} className={btn("primary", "lg", "gap-2 px-5")}>
               <Save size={16} /> {busy ? "Saving…" : "Save draft"}
             </button>
             <span className="text-[11.5px] text-faint">Drafts go to WhatsApp for approval before they can be sent.</span>

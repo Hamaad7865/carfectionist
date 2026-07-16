@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, MessageCircle, Mail, Send, Check, Eye, RefreshCw, Clock, Bell, Loader2 } from "lucide-react";
 import { deliverDocumentAction, getSendContextAction, type SendContext } from "./actions";
+import { btn } from "@/components/ui/button";
 
 // The "Send to customer" sheet, modelled on the owner's Refrens reference: a
 // titled WhatsApp/Email sheet with the client's name, the recipient field, the
@@ -255,14 +256,14 @@ export function SendDocumentDialog({
               href={`/print/doc/${documentId}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex h-10 items-center gap-1.5 rounded-[11px] border border-line-2 bg-card px-3.5 text-[13px] font-bold text-body hover:border-brand"
+              className={btn("ghost", "lg")}
             >
               <Eye size={15} /> Preview
             </a>
             <button
               onClick={send}
               disabled={busy || loading || !to.trim() || (scheduleOn && !scheduleAt)}
-              className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-50"
+              className={btn("primary", "lg", "gap-2")}
             >
               {busy ? <Loader2 size={15} className="animate-spin" /> : scheduleOn ? <Clock size={15} /> : <Send size={15} />}{" "}
               {busy ? (scheduleOn ? "Scheduling…" : isWa ? "Sending…" : "Emailing…") : scheduleOn ? "Schedule" : "Send"}

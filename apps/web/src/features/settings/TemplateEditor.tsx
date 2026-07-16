@@ -6,6 +6,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { updateTemplateAction } from "./actions";
 import { BrandImageField } from "./BrandImageField";
 import type { TemplateData } from "@/lib/supabase/queries/templates";
+import { btn } from "@/components/ui/button";
 
 const field =
   "h-9 w-full rounded-[10px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand";
@@ -106,7 +107,7 @@ export function TemplateEditor({
             </div>
           ))}
         </div>
-        <button onClick={() => setTerms([...terms, ""])} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-2.5 text-[12px] font-semibold text-body">
+        <button onClick={() => setTerms([...terms, ""])} className={btn("subtle", "sm", "mt-2")}>
           <Plus size={14} /> Add term
         </button>
       </div>
@@ -135,7 +136,7 @@ export function TemplateEditor({
             </div>
           ))}
         </div>
-        <button onClick={() => setCustomFields([...customFields, { label: "", value: "" }])} className="mt-2 inline-flex h-8 items-center gap-1.5 rounded-[10px] border border-line-2 bg-sub px-2.5 text-[12px] font-semibold text-body">
+        <button onClick={() => setCustomFields([...customFields, { label: "", value: "" }])} className={btn("subtle", "sm", "mt-2")}>
           <Plus size={14} /> Add custom field
         </button>
       </div>
@@ -180,7 +181,7 @@ export function TemplateEditor({
       {error && <p className="text-[12px] text-rose">{error}</p>}
 
       <div className="flex items-center gap-3">
-        <button onClick={save} disabled={state === "saving"} className="grad-brand shadow-brand inline-flex h-9 items-center justify-center rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
+        <button onClick={save} disabled={state === "saving"} className={btn("primary")}>
           {state === "saving" ? "Saving…" : "Save template"}
         </button>
         {state === "saved" && <span className="text-[12px] font-semibold text-mint">Saved · default for quotes &amp; invoices</span>}

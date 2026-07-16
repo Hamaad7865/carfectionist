@@ -26,6 +26,7 @@ import {
   setJobScheduleAction,
 } from "./actions";
 import { estimatedFinish } from "./clock";
+import { btn } from "@/components/ui/button";
 
 const DOC_LABEL: Record<string, string> = { quote: "Quotation", invoice: "Invoice", credit_note: "Credit note" };
 
@@ -526,14 +527,14 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
             <button
               onClick={() => createDoc("quote")}
               disabled={docBusy !== null}
-              className="inline-flex h-8 items-center gap-1.5 rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12.5px] font-bold text-body disabled:opacity-60"
+              className={btn("subtle", "sm")}
             >
               <Plus size={14} strokeWidth={2.6} /> {docBusy === "quote" ? "Creating…" : "Quote"}
             </button>
             <button
               onClick={() => createDoc("invoice")}
               disabled={docBusy !== null}
-              className="grad-brand shadow-brand inline-flex h-8 items-center gap-1.5 rounded-[9px] px-2.5 text-[12.5px] font-bold text-white disabled:opacity-60"
+              className={btn("primary", "sm")}
             >
               <FilePlus2 size={14} strokeWidth={2.4} /> {docBusy === "invoice" ? "Creating…" : "Invoice"}
             </button>
@@ -594,7 +595,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         {!readOnly && (
           <div className="mt-2 flex gap-2">
             <input className={`${field} flex-1`} value={newItem} onChange={(e) => setNewItem(e.target.value)} placeholder="Add a checklist item…" onKeyDown={(e) => e.key === "Enter" && addCheck()} />
-            <button onClick={addCheck} className="inline-flex h-9 items-center justify-center rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] font-semibold text-body">Add</button>
+            <button onClick={addCheck} className={btn("subtle")}>Add</button>
           </div>
         )}
       </div>
@@ -636,7 +637,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
 
       {job.status === "ready" && (
         <>
-          <button onClick={() => run(() => setJobStatusAction(job.id, "delivered"), "bottom")} disabled={busy} className="mt-5 flex h-11 w-full items-center justify-center rounded-[12px] border border-line-2 bg-card text-[14px] font-bold text-body">
+          <button onClick={() => run(() => setJobStatusAction(job.id, "delivered"), "bottom")} disabled={busy} className={btn("ghost", "lg", "mt-5 w-full text-[14px]")}>
             Mark delivered
           </button>
           {errNote("bottom")}
