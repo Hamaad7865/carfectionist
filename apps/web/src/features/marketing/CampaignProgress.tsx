@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Send, Archive, CheckCheck, Check, Clock, XCircle, Ban, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Send, Archive, CheckCheck, Check, Clock, XCircle, Ban, AlertTriangle, Loader2 } from "lucide-react";
 import { sendBatchAction, archiveCampaignAction } from "./actions";
 import { WaBubble } from "./WaBubble";
 import { renderBodyPreview } from "./render";
@@ -11,6 +11,9 @@ import type { CampaignDetail } from "@/lib/supabase/queries/marketing";
 
 const ROW_STATUS: Record<string, { label: string; cls: string; icon: React.ReactNode }> = {
   pending: { label: "Pending", cls: "text-muted", icon: <Clock size={13} /> },
+  // Claimed by a batch that's in flight. Brief in the normal case; it lingers
+  // only if a send died halfway, and then it's exactly what needs to be visible.
+  sending: { label: "Sending…", cls: "text-link", icon: <Loader2 size={13} className="animate-spin" /> },
   sent: { label: "Sent", cls: "text-link", icon: <Check size={13} /> },
   delivered: { label: "Delivered", cls: "text-mint", icon: <CheckCheck size={13} /> },
   read: { label: "Read", cls: "text-mint", icon: <CheckCheck size={13} /> },
@@ -26,7 +29,12 @@ export function CampaignProgress({ campaign }: { campaign: CampaignDetail }) {
 
   const counts = campaign.counts;
   const total = campaign.recipients.length;
+  // Rows a batch has claimed but not yet resolved. Normally momentary — but if a
+  // send died halfway they sit here, and they are still owed a message, so they
+  // count as outstanding, not as finished.
+  const inFlight = counts.sending ?? 0;
   const pending = counts.pending ?? 0;
+  const outstanding = pending + inFlight;
   const done = (counts.sent ?? 0) + (counts.delivered ?? 0) + (counts.read ?? 0);
   const failed = counts.failed ?? 0;
   const pct = total > 0 ? Math.round(((done + failed + (counts.invalid ?? 0) + (counts.skipped ?? 0)) / total) * 100) : 0;
@@ -54,7 +62,12 @@ export function CampaignProgress({ campaign }: { campaign: CampaignDetail }) {
   }
 
   const previewText = renderBodyPreview(campaign.templateBody, campaign.recipients[0] ? ["Anesh", "20%", "Saturday"] : []);
-  const canSend = pending > 0 && campaign.status !== "archived";
+  // Offer Resume while ANYTHING is outstanding, in-flight rows included. Keying
+  // this on `pending` alone deadlocked a half-finished send: its rows sit in
+  // 'sending', so pending reads 0, the button vanishes — and the only thing that
+  // returns stuck rows to the queue is the sweep inside claim_campaign_batch,
+  // which only runs when this button is pressed.
+  const canSend = outstanding > 0 && campaign.status !== "archived";
 
   return (
     <div className="mx-auto flex max-w-4xl flex-col gap-5 p-4 sm:p-6">
@@ -70,7 +83,7 @@ export function CampaignProgress({ campaign }: { campaign: CampaignDetail }) {
         <div className="flex items-center gap-2">
           {canSend && (
             <button onClick={runSend} disabled={sending} className="grad-brand shadow-brand inline-flex h-10 items-center gap-2 rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
-              <Send size={15} /> {sending ? "Sending…" : campaign.status === "draft" ? `Send now · ${pending}` : `Resume · ${pending}`}
+              <Send size={15} /> {sending ? "Sending…" : campaign.status === "draft" ? `Send now · ${outstanding}` : `Resume · ${outstanding}`}
             </button>
           )}
           {(campaign.status === "done" || campaign.status === "failed") && (
@@ -92,7 +105,9 @@ export function CampaignProgress({ campaign }: { campaign: CampaignDetail }) {
         </div>
         <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Stat label="Delivered" value={done} tone="text-mint" />
-          <Stat label="Pending" value={pending} tone="text-muted" />
+          {/* In-flight rows read as pending here on purpose: to the owner they
+              are simply not sent yet, and the row chip says "Sending…". */}
+          <Stat label="Pending" value={outstanding} tone="text-muted" />
           <Stat label="Failed" value={failed} tone="text-rose" />
           <Stat label="Skipped" value={(counts.invalid ?? 0) + (counts.skipped ?? 0)} tone="text-amber-ink" />
         </div>

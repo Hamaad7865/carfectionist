@@ -209,6 +209,9 @@ export async function sendBatchAction(campaignId: string): Promise<{ ok: true; r
     }
   }
 
+  // What the caller drains on: rows this or another invocation can still CLAIM.
+  // Deliberately 'pending' only — counting in-flight rows here would spin the
+  // client forever against a batch it cannot claim.
   const { count: remaining } = await sb
     .from("campaign_recipients")
     .select("id", { count: "exact", head: true })
@@ -216,7 +219,17 @@ export async function sendBatchAction(campaignId: string): Promise<{ ok: true; r
     .eq("status", "pending");
   const left = remaining ?? 0;
 
-  if (left === 0) {
+  // Finishing the campaign is a different question: a row still 'sending' is one
+  // an overlapping batch holds, or the wreckage of a send that died. Either way
+  // it is not done, and calling the campaign done would strand it — the Resume
+  // button is what reclaims it.
+  const { count: inFlight } = await sb
+    .from("campaign_recipients")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", campaignId)
+    .eq("status", "sending");
+
+  if (left === 0 && (inFlight ?? 0) === 0) {
     // Any failures → campaign 'failed', else 'done'.
     const { count: failed } = await sb.from("campaign_recipients").select("id", { count: "exact", head: true }).eq("campaign_id", campaignId).eq("status", "failed");
     await sb.from("campaigns").update({ status: (failed ?? 0) > 0 ? "failed" : "done" }).eq("id", campaignId);
