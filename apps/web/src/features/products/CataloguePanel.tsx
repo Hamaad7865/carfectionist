@@ -11,18 +11,27 @@ const COLS = "grid-cols-[1fr_160px_90px_90px_70px_100px_100px]";
 const qty = (n: number | null) => (n == null ? "—" : String(n));
 const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 
+// Services and goods share one catalogue — a job is billed from the same list a
+// counter sale is. But the studio sells ~570 products and ~70 services, so
+// without this switch the services are unfindable, which is exactly how it felt.
+type KindFilter = "all" | "service" | "product";
+const isService = (p: InventoryRow) => p.kind === "service";
+
 export function CataloguePanel({ products, showArchived, vatDefault, pricesInclVat }: { products: InventoryRow[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryRow | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
+  const [kind, setKind] = useState<KindFilter>("all");
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
     [products],
   );
 
-  const filtered = useMemo(() => {
+  // Text + category first, so each switch can be labelled with what it would
+  // actually show you right now rather than a catalogue-wide total.
+  const matched = useMemo(() => {
     const s = q.trim().toLowerCase();
     return products.filter(
       (p) =>
@@ -35,13 +44,23 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
     );
   }, [products, q, cat]);
 
+  const counts = useMemo(() => {
+    const service = matched.filter(isService).length;
+    return { all: matched.length, service, product: matched.length - service };
+  }, [matched]);
+
+  const filtered = useMemo(
+    () => (kind === "all" ? matched : matched.filter((p) => (kind === "service" ? isService(p) : !isService(p)))),
+    [matched, kind],
+  );
+
   // Render a WINDOW of the matches, not all of them. The whole catalogue still
   // lives in memory (so search stays instant and offline-quick), but drawing all
   // ~800 rows — each one a mobile card AND a desktop row — produced 1.7MB of HTML
   // on every visit. Sixty is more than a screenful; "Show more" reveals the rest.
   const PAGE = 60;
   const [limit, setLimit] = useState(PAGE);
-  useEffect(() => setLimit(PAGE), [q, cat]); // a new filter starts at the top again
+  useEffect(() => setLimit(PAGE), [q, cat, kind]); // a new filter starts at the top again
   const shown = useMemo(() => filtered.slice(0, limit), [filtered, limit]);
   const hidden = filtered.length - shown.length;
 
@@ -52,12 +71,30 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
   function newProduct() { setEditing(null); setOpen(true); }
   function edit(p: InventoryRow) { setEditing(p); setOpen(true); }
 
+  const KINDS: { key: KindFilter; label: string; n: number }[] = [
+    { key: "all", label: "All", n: counts.all },
+    { key: "service", label: "Services", n: counts.service },
+    { key: "product", label: "Products", n: counts.product },
+  ];
+
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative w-full sm:w-auto">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-faint" />
           <input className={`${field} w-full pl-9 sm:w-[240px]`} placeholder="Search products, barcode, SKU…" value={q} onChange={(e) => setQ(e.target.value)} />
+        </div>
+        <div className="inline-flex h-9 items-center gap-0.5 rounded-[10px] border border-line-2 bg-sub p-0.5">
+          {KINDS.map((k) => (
+            <button
+              key={k.key}
+              onClick={() => setKind(k.key)}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-[8px] px-2.5 text-[12px] font-bold ${kind === k.key ? "bg-card text-ink shadow-[0_1px_3px_rgba(15,23,32,0.12)]" : "text-muted hover:text-body"}`}
+            >
+              {k.label}
+              <span className="num text-[10.5px] font-semibold opacity-60">{k.n}</span>
+            </button>
+          ))}
         </div>
         <select className={field} value={cat} onChange={(e) => setCat(e.target.value)}>
           <option value="">All categories</option>
@@ -75,7 +112,7 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
           {showArchived ? "Hide archived" : "Show archived"}
         </Link>
         <button onClick={newProduct} className="grad-brand shadow-brand inline-flex h-9 items-center gap-1.5 rounded-[10px] px-4 text-[13px] font-bold text-white">
-          <Plus size={15} strokeWidth={2.4} /> New product
+          <Plus size={15} strokeWidth={2.4} /> {kind === "service" ? "New service" : "New product"}
         </button>
       </div>
 
@@ -91,7 +128,9 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
         </div>
         {filtered.length === 0 ? (
           <div className="px-5 py-14 text-center text-[13px] text-faint">
-            {products.length === 0 ? "No products. Add your first with “New product”." : "No products match your filter."}
+            {products.length === 0
+              ? "Nothing in the catalogue yet. Add your first with “New product”."
+              : `No ${kind === "service" ? "services" : kind === "product" ? "products" : "items"} match your filter.`}
           </div>
         ) : (
           shown.map((r) => (
@@ -101,6 +140,7 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-[13px] font-semibold text-body">{r.name}</span>
+                    {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold text-[#5b45b0]">SERVICE</span>}
                     {r.barcode && <Barcode size={12} className="shrink-0 text-faint" />}
                     {r.low && <span className="shrink-0 rounded-[5px] bg-[rgba(245,166,35,0.14)] px-1.5 py-0.5 text-[9px] font-bold text-amber-ink">LOW</span>}
                     {!r.isActive && <span className="shrink-0 rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold text-faint">ARCHIVED</span>}
@@ -121,6 +161,9 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
               <div className={`hidden md:grid ${COLS} items-center gap-2.5 px-5 py-3`}>
                 <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-body">
                   <span className="min-w-0 truncate" title={r.name}>{r.name}</span>
+                  {/* Purple = workshop work, the same colour the dashboard uses
+                      to split workshop revenue from counter revenue. */}
+                  {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[#5b45b0]">SERVICE</span>}
                   {r.barcode && <Barcode size={13} className="shrink-0 text-faint" />}
                   {r.low && <span className="shrink-0 rounded-[5px] bg-[rgba(245,166,35,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-amber-ink">LOW</span>}
                   {!r.isActive && <span className="shrink-0 rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-faint">ARCHIVED</span>}
@@ -158,7 +201,17 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
         )}
       </div>
 
-      <ProductFormModal open={open} onClose={() => setOpen(false)} product={editing} vatDefault={vatDefault} pricesInclVat={pricesInclVat} categories={categories} />
+      {/* Creating from the Services view starts the form as a service — the
+          thing you asked for is the thing you get. */}
+      <ProductFormModal
+        open={open}
+        onClose={() => setOpen(false)}
+        product={editing}
+        defaultKind={kind === "service" ? "service" : undefined}
+        vatDefault={vatDefault}
+        pricesInclVat={pricesInclVat}
+        categories={categories}
+      />
     </>
   );
 }

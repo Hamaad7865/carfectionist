@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Bell, Menu } from "lucide-react";
+import { CalendarDays, Bell, Menu, X } from "lucide-react";
 import { NAV } from "@/lib/auth/roles";
 import { GlobalSearch } from "./GlobalSearch";
+import { dismissNotificationAction, dismissAllNotificationsAction } from "@/features/shell/notification-actions";
 import type { NotifItem } from "@/lib/supabase/queries/notifications";
 
 const SUBS: Record<string, string> = {
@@ -33,7 +34,7 @@ export function Topbar({
 }) {
   const pathname = usePathname();
   const [menu, setMenu] = useState<null | "notif" | "fy">(null);
-  const notifications = useLiveNotifications(pathname);
+  const { items: notifications, dismiss, dismissAll } = useLiveNotifications(pathname);
   const match = NAV.filter((n) => pathname === n.href || pathname.startsWith(`${n.href}/`)).sort((a, b) => b.href.length - a.href.length)[0];
   const title = match?.label ?? "Carfectionist";
   const sub = match ? (SUBS[match.href] ?? "") : "";
@@ -93,20 +94,51 @@ export function Topbar({
           )}
         </button>
         {menu === "notif" && (
-          <div className="absolute right-0 top-[46px] w-[min(320px,calc(100vw-24px))] overflow-hidden rounded-[13px] border border-line bg-card shadow-[0_20px_50px_-15px_rgba(15,23,32,0.35)]">
-            <div className="border-b border-line px-4 py-2.5 font-display text-[13px] font-bold text-ink-strong">Notifications</div>
+          <div className="absolute right-0 top-[46px] w-[min(340px,calc(100vw-24px))] overflow-hidden rounded-[13px] border border-line bg-card shadow-[0_20px_50px_-15px_rgba(15,23,32,0.35)]">
+            <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
+              <span className="font-display text-[13px] font-bold text-ink-strong">Notifications</span>
+              <div className="flex-1" />
+              {notifications.length > 0 && (
+                <button onClick={() => void dismissAll()} className="text-[11.5px] font-semibold text-link hover:underline">
+                  Clear all
+                </button>
+              )}
+            </div>
             {notifications.length === 0 ? (
               <div className="px-4 py-8 text-center text-[12.5px] text-faint">You&apos;re all caught up ✨</div>
             ) : (
-              notifications.map((n) => (
-                <Link key={n.key} href={n.href} onClick={() => setMenu(null)} className="flex items-start gap-3 border-b border-line px-4 py-3 last:border-b-0 hover:bg-sub">
-                  <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: TONE[n.tone] }} />
-                  <div className="min-w-0">
-                    <div className="text-[13px] font-semibold text-ink">{n.label}</div>
-                    <div className="text-[11.5px] text-muted">{n.detail}</div>
+              <>
+                {notifications.map((n) => (
+                  <div key={n.key} className="flex items-start border-b border-line last:border-b-0 hover:bg-sub">
+                    {/* Opening it counts as seeing it — that is what "I clicked
+                        it, why is it still there?" was asking for. */}
+                    <Link
+                      href={n.href}
+                      onClick={() => {
+                        setMenu(null);
+                        void dismiss(n.key);
+                      }}
+                      className="flex min-w-0 flex-1 items-start gap-3 py-3 pl-4"
+                    >
+                      <span className="mt-1.5 size-2 shrink-0 rounded-full" style={{ background: TONE[n.tone] }} />
+                      <div className="min-w-0">
+                        <div className="text-[13px] font-semibold text-ink">{n.label}</div>
+                        <div className="text-[11.5px] text-muted">{n.detail}</div>
+                      </div>
+                    </Link>
+                    <button
+                      onClick={() => void dismiss(n.key)}
+                      aria-label={`Clear: ${n.label}`}
+                      className="mx-1.5 mt-2.5 grid size-7 shrink-0 place-items-center rounded-[8px] text-faint hover:bg-band hover:text-body"
+                    >
+                      <X size={13} strokeWidth={2.5} />
+                    </button>
                   </div>
-                </Link>
-              ))
+                ))}
+                <p className="bg-band px-4 py-2 text-[10.5px] leading-snug text-faint">
+                  Cleared alerts come back tomorrow if they are still true — or sooner if they grow.
+                </p>
+              </>
             )}
           </div>
         )}
@@ -119,42 +151,59 @@ export function Topbar({
 
 /** Keeps the bell honest.
  *
- *  These are LIVE conditions, not messages: "11 products low at the shop" is true
- *  until you restock, so clicking it can't dismiss it — fixing the stock does.
- *  What was broken is that nothing re-asked: the alerts were computed in the app
- *  layout, and a layout doesn't re-run on client navigation, so the badge froze
- *  at whatever it said on first load and stayed there until a hard refresh.
+ *  These are LIVE conditions, not messages: "11 products low at the shop" is
+ *  true until someone restocks. So the alerts are recomputed from the ledger
+ *  every time, and a dismissal is remembered separately — it says "I have seen
+ *  this today", and it lapses tomorrow or as soon as the alert grows.
  *
- *  So: ask on mount, ask again on every navigation (you just did something —
- *  billed, restocked, replied — so the answer may have changed), and ask on a
- *  slow timer for the screen someone leaves open at the desk all day.
+ *  Asking happens on mount, on every navigation (you just did something —
+ *  billed, restocked, replied — so the answer may have changed), and on a slow
+ *  timer for the screen someone leaves open at the desk all day. This used to
+ *  live in the app layout, which does NOT re-run on client navigation: that is
+ *  why the badge froze at whatever it said on first load.
  */
-function useLiveNotifications(pathname: string): NotifItem[] {
+function useLiveNotifications(pathname: string) {
   const [items, setItems] = useState<NotifItem[]>([]);
 
+  const reload = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch("/api/notifications", { signal, cache: "no-store" });
+      if (!res.ok) return;
+      const data = (await res.json()) as { items?: NotifItem[] };
+      setItems(data.items ?? []);
+    } catch {
+      /* offline or aborted — keep showing the last known answer */
+    }
+  }, []);
+
   useEffect(() => {
-    let alive = true;
     const controller = new AbortController();
-
-    const load = async () => {
-      try {
-        const res = await fetch("/api/notifications", { signal: controller.signal, cache: "no-store" });
-        if (!res.ok) return;
-        const data = (await res.json()) as { items?: NotifItem[] };
-        if (alive) setItems(data.items ?? []);
-      } catch {
-        /* offline or aborted — keep showing the last known answer */
-      }
-    };
-
-    void load();
+    const load = () => void reload(controller.signal);
+    load();
     const timer = setInterval(load, 90_000);
     return () => {
-      alive = false;
       controller.abort();
       clearInterval(timer);
     };
-  }, [pathname]); // re-ask whenever the route changes
+  }, [pathname, reload]); // re-ask whenever the route changes
 
-  return items;
+  // Clear optimistically — the badge must drop the instant you click, not a
+  // round trip later. Then re-ask: if the write failed, the alert comes back,
+  // which is the honest outcome.
+  const dismiss = useCallback(
+    async (key: string) => {
+      setItems((cur) => cur.filter((i) => i.key !== key));
+      await dismissNotificationAction({ key });
+      await reload();
+    },
+    [reload],
+  );
+
+  const dismissAll = useCallback(async () => {
+    setItems([]);
+    await dismissAllNotificationsAction();
+    await reload();
+  }, [reload]);
+
+  return { items, dismiss, dismissAll };
 }

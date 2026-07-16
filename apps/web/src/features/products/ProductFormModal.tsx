@@ -17,11 +17,11 @@ type PForm = {
   isStocked: boolean; threshold: string; isActive: boolean;
 };
 const grossPrice = (p: InventoryRow, vatDefault: number) => (p.sellingPrice * (1 + (p.vatRatePct ?? vatDefault) / 100)).toFixed(2);
-const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number): PForm => ({
+const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number, defaultKind?: PForm["kind"]): PForm => ({
   name: p?.name ?? "",
   sku: p?.sku ?? "",
   description: p?.description ?? "",
-  kind: (p?.kind as PForm["kind"]) ?? "consumable",
+  kind: (p?.kind as PForm["kind"]) ?? defaultKind ?? "consumable",
   category: p?.category ?? "",
   unit: (p?.unit as PForm["unit"]) ?? "piece",
   sellingPrice: p ? (inclVat ? grossPrice(p, vatDefault) : String(p.sellingPrice)) : "",
@@ -33,18 +33,18 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number)
   isActive: p?.isActive ?? true,
 });
 
-export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[] }) {
+export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], defaultKind }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; defaultKind?: (typeof KINDS)[number] }) {
   const router = useRouter();
   const editing = !!product;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [priceInclVat, setPriceInclVat] = useState(pricesInclVat);
-  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, pricesInclVat, vatDefault));
+  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, pricesInclVat, vatDefault, defaultKind));
 
   // Re-seed whenever the modal opens for a (different) product.
   const [seededFor, setSeededFor] = useState<string | null | undefined>(undefined);
   if (open && seededFor !== (product?.id ?? null)) {
-    setF(seed(product ?? undefined, pricesInclVat, vatDefault));
+    setF(seed(product ?? undefined, pricesInclVat, vatDefault, defaultKind));
     setSeededFor(product?.id ?? null);
     setPriceInclVat(pricesInclVat);
     setError(null);
@@ -53,6 +53,9 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
 
   const set = <K extends keyof PForm>(k: K, v: PForm[K]) => setF((s) => ({ ...s, [k]: v }));
   const isService = f.kind === "service";
+  // Call the thing what it is — a service is not a "product" to the person
+  // typing it in, even though they share one table.
+  const noun = isService ? "service" : "product";
 
   // Effective VAT rate (product override else business default) and the net
   // price we'll store when the entered sell price is VAT-inclusive. Prices may
@@ -102,7 +105,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
       open={open}
       onClose={onClose}
       wide
-      title={editing ? "Edit product" : "New product"}
+      title={editing ? `Edit ${noun}` : `New ${noun}`}
       subtitle={editing ? product!.name : "Add a service, product or consumable"}
       footer={
         <div className="flex items-center gap-2">
@@ -114,7 +117,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
           )}
           <button onClick={onClose} className="inline-flex h-10 items-center justify-center rounded-[11px] px-4 text-[13px] font-semibold text-muted">Cancel</button>
           <button onClick={submit} disabled={busy} className="grad-brand shadow-brand inline-flex h-10 items-center justify-center rounded-[11px] px-5 text-[13px] font-bold text-white disabled:opacity-60">
-            {busy ? "Saving…" : editing ? "Save changes" : "Create product"}
+            {busy ? "Saving…" : editing ? "Save changes" : `Create ${noun}`}
           </button>
         </div>
       }
