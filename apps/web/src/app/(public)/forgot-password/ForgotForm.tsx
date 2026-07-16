@@ -12,13 +12,14 @@ const input =
 export function ForgotForm() {
   const [state, action, pending] = useActionState(requestPasswordReset, initial);
 
-  // Deliberately says the same thing whether or not that address has an account —
-  // otherwise this form would tell a stranger who works here.
+  // Only shown once the email has actually gone out, so it can name the address
+  // it went to — the hedged "if that address has an account…" is gone, along with
+  // the wait it caused after a typo.
   if (state.sent) {
     return (
       <div className="mt-7">
         <div className="rounded-[10px] border border-[rgba(13,167,124,.3)] bg-[rgba(13,167,124,.08)] px-4 py-3 text-sm text-mint">
-          If that address has an account, a link to set a new password is on its way.
+          Sent. Check <span className="font-semibold">{state.sentTo}</span> for a link to set a new password.
         </div>
         <p className="mt-3 text-xs leading-relaxed text-faint">
           The link works once and expires in about an hour. Check spam if it hasn&apos;t arrived in a couple of minutes.
