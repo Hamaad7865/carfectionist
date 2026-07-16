@@ -134,23 +134,41 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
-    suspend fun fetchStockOnHand(): List<StockOnHandDto> =
+    /**
+     * On-hand per product. Pass [locationId] to see what is actually THERE.
+     *
+     * This used to sum every location, which reads as a bigger number than the
+     * cashier can reach: the tablet sells from — and adjusts — the selling floor
+     * only, so 5 at the Shop and 35 in the Warehouse showed as 40, and the
+     * oversell warning stayed quiet while the Shop went negative. A second
+     * warehouse would only widen that gap.
+     */
+    suspend fun fetchStockOnHand(locationId: String? = null): List<StockOnHandDto> =
         client.postgrest.from("stock_on_hand")
-            .select(Columns.raw("product_id, qty_on_hand"))
+            .select(Columns.raw("product_id, location_id, qty_on_hand")) {
+                if (locationId != null) filter { eq("location_id", locationId) }
+            }
             .decodeList()
 
     /**
-     * The Shop (walk-in front) location id — the single resolver the counter write
-     * path AND the shop-floor stock screen share, so every client moves the SAME
-     * on-hand. Prefer the location named 'Shop', else the first non-default location,
-     * else the tenant default (Warehouse) as a last resort. Mirrors the web resolver
-     * in apps/web/src/features/counter/actions.ts.
+     * The selling-floor location id — the single resolver the counter write path
+     * AND the shop-floor stock screen share, so every client moves the SAME
+     * on-hand.
+     *
+     * is_sales_floor is asked FIRST because it is the only answer that is a fact:
+     * matching the name 'Shop' meant renaming the location in the back office
+     * would silently redirect the till's stock, and "the first non-default one"
+     * became a coin flip the moment a second warehouse existed. Both survive
+     * behind it only as fallbacks for a tenant whose flag was never set.
+     *
+     * Mirrors the web resolver in apps/web/src/lib/supabase/locations.ts.
      */
     suspend fun fetchShopLocationId(): String? {
         val locs = client.postgrest.from("stock_locations")
-            .select(Columns.raw("id, name, is_default"))
+            .select(Columns.raw("id, name, is_default, is_sales_floor, is_active"))
             .decodeList<StockLocationDto>()
-        return (locs.firstOrNull { it.name == "Shop" }
+        return (locs.firstOrNull { it.isSalesFloor }
+            ?: locs.firstOrNull { it.name == "Shop" }
             ?: locs.firstOrNull { !it.isDefault }
             ?: locs.firstOrNull { it.isDefault })?.id
     }

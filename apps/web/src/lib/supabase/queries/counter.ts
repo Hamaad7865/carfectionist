@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { getStockLocations, pickSalesFloor } from "@/lib/supabase/locations";
 import { rupeesToCents } from "@/lib/money";
 
 export interface CounterProduct {
@@ -11,8 +12,8 @@ export interface CounterProduct {
   vatRate: number;
   barcode: string | null;
   isStocked: boolean;
-  shopQty: number;      // on-hand at the Shop, where counter sales draw from
-  warehouseQty: number; // on-hand at the Warehouse (shown as a restock hint)
+  shopQty: number;      // on-hand at the selling floor, where counter sales draw from
+  warehouseQty: number; // on-hand everywhere else, summed (shown as a restock hint)
 }
 
 export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number }> {
@@ -22,21 +23,20 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
     sb.from("business_settings").select("vat_rate").limit(1).maybeSingle(),
     fetchAllRows(() => sb.from("customers").select("id, name").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
-    sb.from("stock_locations").select("id, name, is_default"),
+    getStockLocations(sb),
   ]);
 
-  // Counter sales draw from the Shop; the Warehouse figure rides along as a
-  // restock hint so a shop shortfall reads differently from a true stock-out.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const locs = (locRes.data ?? []) as any[];
-  const shopId = locs.find((l) => l.name === "Shop")?.id ?? locs.find((l) => !l.is_default)?.id ?? null;
-  const warehouseId = locs.find((l) => l.is_default)?.id ?? locs.find((l) => l.name === "Warehouse")?.id ?? null;
+  // Counter sales draw from the selling floor; everything NOT on the floor rides
+  // along as a restock hint, so a shop shortfall reads differently from a true
+  // stock-out. Summing every other location (not just the default) is what makes
+  // "none in the warehouse either" honest once a second warehouse exists.
+  const shopId = pickSalesFloor(locRes)?.id ?? null;
   const shopByProduct = new Map<string, number>();
   const whByProduct = new Map<string, number>();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const r of ohData as any[]) {
     if (shopId && r.location_id === shopId) shopByProduct.set(r.product_id, (shopByProduct.get(r.product_id) ?? 0) + Number(r.qty_on_hand));
-    if (warehouseId && r.location_id === warehouseId) whByProduct.set(r.product_id, (whByProduct.get(r.product_id) ?? 0) + Number(r.qty_on_hand));
+    else whByProduct.set(r.product_id, (whByProduct.get(r.product_id) ?? 0) + Number(r.qty_on_hand));
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -72,10 +72,14 @@ const buildXlsx = (name, rows) => zip([
 /* ── the data ────────────────────────────────────────────────────────────── */
 const c = new pg.Client({ connectionString: DB_URL });
 await c.connect();
+// Follow the flags, not the names: 'Shop'/'Warehouse' are labels the owner can
+// change, and a filter on them silently reports zero the day he does. "In shop"
+// = the selling floor; "in warehouse" = everywhere else, so a second warehouse
+// is counted rather than dropped.
 const { rows } = await c.query(`
   select p.name, p.kind::text, coalesce(p.category,'—') category, p.selling_price::numeric price,
-         coalesce(sum(s.qty_on_hand) filter (where l.name='Shop'), 0)::numeric shop,
-         coalesce(sum(s.qty_on_hand) filter (where l.name='Warehouse'), 0)::numeric warehouse
+         coalesce(sum(s.qty_on_hand) filter (where l.is_sales_floor), 0)::numeric shop,
+         coalesce(sum(s.qty_on_hand) filter (where not l.is_sales_floor), 0)::numeric warehouse
   from products p
   left join stock_on_hand s on s.product_id = p.id
   left join stock_locations l on l.id = s.location_id

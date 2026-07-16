@@ -60,7 +60,7 @@ data class CounterUiState(
     val categories: List<String> = listOf("All"),
     val catCounts: Map<String, Int> = emptyMap(), // category → product count (rail scanning aid)
     val railOpen: Boolean = true, // category rail expanded / collapsed to a slim strip
-    val onHand: Map<String, Int> = emptyMap(), // productId → stock on hand (all locations)
+    val onHand: Map<String, Int> = emptyMap(), // productId → stock at the selling floor, where this till sells from
     val adhocOpen: Boolean = false,
     val products: List<ProductEntity> = emptyList(),
     val cart: List<CartLine> = emptyList(),
@@ -323,9 +323,16 @@ class CounterViewModel @Inject constructor(
         newSale(); local.value = local.value.copy(mode = CheckoutMode.LIST); loadLists()
     }
 
-    /** On-hand counts for the product tiles (stock line + low-stock badge). */
+    /** On-hand counts for the product tiles (stock line + low-stock badge) and
+     *  the oversell prompt — counted at the SELLING FLOOR, because that is the
+     *  only stock this till can actually sell. Cached: the floor doesn't move
+     *  between refreshes. */
+    private var salesFloorId: String? = null
     private fun refreshStock() = viewModelScope.launch {
-        runCatching { api.fetchStockOnHand() }.onSuccess { rows ->
+        runCatching {
+            val floor = salesFloorId ?: api.fetchShopLocationId()?.also { salesFloorId = it }
+            api.fetchStockOnHand(floor)
+        }.onSuccess { rows ->
             val map = rows.groupBy { it.productId }.mapValues { (_, r) -> r.sumOf { it.qtyOnHand }.toInt() }
             local.value = local.value.copy(onHand = map)
         }

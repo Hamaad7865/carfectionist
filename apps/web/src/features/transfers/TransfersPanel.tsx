@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Trash2, ArrowRight } from "lucide-react";
 import type { Transfer, TransfersRef } from "@/lib/supabase/queries/transfers";
@@ -22,16 +22,15 @@ export function TransfersPanel({ transfers, refData }: { transfers: Transfer[]; 
 
   // ── new-transfer builder ──────────────────────────────────────────────────
   const [fromId, setFromId] = useState(refData.locations.find((l) => l.isDefault)?.id ?? refData.locations[0]?.id ?? "");
-  const [toId, setToId] = useState(refData.locations.find((l) => !l.isDefault)?.id ?? refData.locations[1]?.id ?? "");
+  const [toId, setToId] = useState(refData.locations.find((l) => l.isSalesFloor)?.id ?? refData.locations.find((l) => !l.isDefault)?.id ?? refData.locations[1]?.id ?? "");
   const [lines, setLines] = useState<{ key: number; productId: string; qty: string }[]>([]);
   const [nextKey, setNextKey] = useState(1);
 
-  const fromIsWarehouse = useMemo(() => refData.locations.find((l) => l.id === fromId)?.isDefault ?? false, [fromId, refData.locations]);
-  const availAt = (pid: string) => {
-    const p = refData.products.find((x) => x.id === pid);
-    if (!p) return 0;
-    return fromIsWarehouse ? p.warehouse : p.shop;
-  };
+  // Read what's actually at the location you picked. This used to be
+  // `fromIsWarehouse ? p.warehouse : p.shop` — a binary that answered "not the
+  // default?" with the Shop's stock, so sending from a second warehouse would
+  // have shown you the Shop's quantity and let you over-send.
+  const availAt = (pid: string) => refData.products.find((x) => x.id === pid)?.stock[fromId] ?? 0;
 
   function addLine() {
     setLines((ls) => [...ls, { key: nextKey, productId: refData.products[0]?.id ?? "", qty: "" }]);

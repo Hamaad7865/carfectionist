@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
+import { getStockLocations, pickSalesFloor } from "@/lib/supabase/locations";
 import { rupeesToCents, formatMUR } from "@/lib/money";
 import { muToday, muNow } from "@/lib/mu-date";
 
@@ -101,14 +102,16 @@ async function maintenanceDue(sb: SB, today: string): Promise<NotifItem | null> 
   }
 }
 
-/** Low stock at the shop (only for items actually carried, to avoid noise). */
+/** Low stock on the selling floor (only for items actually carried, to avoid noise). */
 async function lowStock(sb: SB): Promise<NotifItem | null> {
   try {
     // The locations lookup gates the rest, but the two big reads run together.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const locs = ((await sb.from("stock_locations").select("id, is_default")).data ?? []) as any[];
-    const shopId = locs.find((l) => !l.is_default)?.id;
-    if (!shopId) return null;
+    // Ask which floor the till sells from rather than guessing "the one that
+    // isn't the default" — with a second warehouse that guess was a coin flip,
+    // and this alert would quietly start reporting on the wrong building.
+    const floor = pickSalesFloor(await getStockLocations(sb));
+    if (!floor) return null;
+    const shopId = floor.id;
     const [prods, oh] = await Promise.all([
       fetchAllRows(() => sb.from("products").select("id, low_stock_threshold").eq("is_stocked", true).eq("is_active", true).not("low_stock_threshold", "is", null)),
       fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
@@ -126,7 +129,8 @@ async function lowStock(sb: SB): Promise<NotifItem | null> {
       if ((totalQty.get(p.id) ?? 0) > 0 && (shopQty.get(p.id) ?? 0) < Number(p.low_stock_threshold)) low += 1;
     }
     if (low === 0) return null;
-    return { key: "lowstock", label: `${low} product${low === 1 ? "" : "s"} low at the shop`, detail: "Restock from the warehouse", href: "/products?tab=inventory", tone: "warn", count: low };
+    // Name the floor: with more than one, "at the shop" would be ambiguous.
+    return { key: "lowstock", label: `${low} product${low === 1 ? "" : "s"} low at ${floor.name}`, detail: "Restock from the warehouse", href: "/products?tab=inventory", tone: "warn", count: low };
   } catch {
     return null;
   }

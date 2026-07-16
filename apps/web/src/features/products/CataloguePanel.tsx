@@ -6,10 +6,16 @@ import { Plus, Barcode, Search } from "lucide-react";
 import { formatMUR } from "@/lib/money";
 import { ProductFormModal } from "./ProductFormModal";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
+import type { StockLocation } from "@/lib/supabase/locations";
 
-const COLS = "grid-cols-[1fr_160px_90px_90px_70px_100px_100px]";
-const qty = (n: number | null) => (n == null ? "—" : String(n));
+const qty = (n: number | null | undefined) => (n == null ? "—" : String(n));
 const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
+
+// One stock column per location, so a third location has somewhere to land.
+// Tailwind can't build a class name at runtime, so the track list is a style.
+const gridCols = (locationCount: number) => ({
+  gridTemplateColumns: `minmax(0,1fr) 160px 90px 90px 70px ${"100px ".repeat(locationCount).trim()}`,
+});
 
 // Services and goods share one catalogue — a job is billed from the same list a
 // counter sale is. But the studio sells ~570 products and ~70 services, so
@@ -17,7 +23,7 @@ const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] t
 type KindFilter = "all" | "service" | "product";
 const isService = (p: InventoryRow) => p.kind === "service";
 
-export function CataloguePanel({ products, showArchived, vatDefault, pricesInclVat }: { products: InventoryRow[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean }) {
+export function CataloguePanel({ products, locations, showArchived, vatDefault, pricesInclVat }: { products: InventoryRow[]; locations: StockLocation[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryRow | null>(null);
   const [q, setQ] = useState("");
@@ -117,14 +123,17 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
       </div>
 
       <div className="mt-3 overflow-hidden rounded-[14px] border border-line bg-card">
-        <div className={`hidden md:grid ${COLS} gap-2.5 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-th`}>
+        <div className="hidden gap-2.5 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-th md:grid" style={gridCols(locations.length)}>
           <span>Product</span>
           <span>Category</span>
           <span className="text-right">Cost</span>
           <span className="text-right">{pricesInclVat ? "Sell inc VAT" : "Sell"}</span>
           <span className="text-right">Margin</span>
-          <span className="text-right">Warehouse</span>
-          <span className="text-right">Shop</span>
+          {locations.map((l) => (
+            <span key={l.id} className="truncate text-right" title={l.name}>
+              {l.name}
+            </span>
+          ))}
         </div>
         {filtered.length === 0 ? (
           <div className="px-5 py-14 text-center text-[13px] text-faint">
@@ -147,7 +156,7 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
                     {r.category && <span className="rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 font-semibold text-link">{r.category}</span>}
-                    <span>Whse {qty(r.warehouse)} · Shop {qty(r.shop)}</span>
+                    {r.stock && <span>{locations.map((l) => `${l.name} ${qty(r.stock![l.id])}`).join(" · ")}</span>}
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
@@ -158,7 +167,7 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
               {/* Desktop grid — min-w-0 everywhere a 1fr cell truncates: a grid
                   track's min width is its CONTENT width, and the imported names
                   are long enough to shove the money columns into each other. */}
-              <div className={`hidden md:grid ${COLS} items-center gap-2.5 px-5 py-3`}>
+              <div className="hidden items-center gap-2.5 px-5 py-3 md:grid" style={gridCols(locations.length)}>
                 <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-body">
                   <span className="min-w-0 truncate" title={r.name}>{r.name}</span>
                   {/* Purple = workshop work, the same colour the dashboard uses
@@ -174,8 +183,22 @@ export function CataloguePanel({ products, showArchived, vatDefault, pricesInclV
                 <span className="num text-right text-[12px] text-muted">{formatMUR(r.costCents)}</span>
                 <span className="num text-right text-[12px] font-semibold text-body">{formatMUR(sellOf(r))}</span>
                 <span className="num text-right text-[12px] font-semibold text-mint">{r.marginPct}%</span>
-                <span className="num text-right text-[12px] text-muted">{qty(r.warehouse)}</span>
-                <span className="num text-right text-[14px] font-extrabold" style={{ color: r.low ? "#b07c14" : r.shop == null ? "#8c96a1" : "#172130" }}>{qty(r.shop)}</span>
+                {/* The selling floor is the number that decides whether a
+                    customer goes home happy, so it carries the weight and the
+                    low-stock colour; the stores are context. */}
+                {locations.map((l) => {
+                  const n = r.stock ? r.stock[l.id] : null;
+                  const isFloor = l.isSalesFloor;
+                  return (
+                    <span
+                      key={l.id}
+                      className={`num text-right ${isFloor ? "text-[14px] font-extrabold" : "text-[12px] text-muted"}`}
+                      style={isFloor ? { color: r.low ? "#b07c14" : n == null ? "#8c96a1" : "#172130" } : undefined}
+                    >
+                      {qty(n)}
+                    </span>
+                  );
+                })}
               </div>
             </button>
           ))

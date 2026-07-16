@@ -261,3 +261,29 @@ export const recordTillCashOut = (sb: Client, sessionId: string, amount: number,
     p_reason: reason,
     p_idempotency_key: idempotencyKey,
   });
+
+export interface StockLocationRow {
+  id: string;
+  name: string;
+  is_default: boolean;
+  is_sales_floor: boolean;
+  is_active: boolean;
+}
+
+/** Create (id null) or update a location. Null flags mean "leave alone", so a
+ *  rename can't accidentally hand over the default. The RPC owns the rules —
+ *  one default, one sales floor, no switching off stock that's still there. */
+export const saveStockLocation = (
+  sb: Client,
+  input: { id?: string | null; name: string; isDefault?: boolean | null; isSalesFloor?: boolean | null; isActive?: boolean | null },
+) =>
+  callRpc<StockLocationRow>(sb, "save_stock_location", {
+    p_id: input.id ?? null,
+    p_name: input.name,
+    p_is_default: input.isDefault ?? null,
+    p_is_sales_floor: input.isSalesFloor ?? null,
+    p_is_active: input.isActive ?? null,
+  });
+
+export const deleteStockLocation = (sb: Client, id: string) =>
+  callRpc<void>(sb, "delete_stock_location", { p_id: id });

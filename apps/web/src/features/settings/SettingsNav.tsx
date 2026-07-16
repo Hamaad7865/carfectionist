@@ -4,6 +4,7 @@ const ITEMS = [
   { key: "business", label: "Business profile", href: "/settings" },
   { key: "templates", label: "Document template", href: "/settings/templates" },
   { key: "team", label: "Team & roles", href: "/settings/team" },
+  { key: "locations", label: "Stock locations", href: "/settings/locations" },
   { key: "whatsapp", label: "WhatsApp", href: "/settings/whatsapp" },
 ];
 

@@ -67,9 +67,12 @@ class StockViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val products = api.fetchStockProducts()
-                val onHand = api.fetchStockOnHand().groupBy { it.productId }
-                    .mapValues { (_, rows) -> rows.sumOf { it.qtyOnHand }.roundToInt() }
+                // Count the same location this screen ADJUSTS. It used to sum
+                // every location while writing its adjustments to the selling
+                // floor, so the number on screen was never the one you changed.
                 val loc = api.fetchShopLocationId()
+                val onHand = api.fetchStockOnHand(loc).groupBy { it.productId }
+                    .mapValues { (_, rows) -> rows.sumOf { it.qtyOnHand }.roundToInt() }
                 val tenant = catalog.tenantId()
                 Quad(products, onHand, loc, tenant)
             }.onSuccess { (products, onHand, loc, tenant) ->

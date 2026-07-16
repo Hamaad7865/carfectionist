@@ -328,13 +328,21 @@ data class StockProductDto(
 @Serializable
 data class StockOnHandDto(
     @SerialName("product_id") val productId: String,
+    @SerialName("location_id") val locationId: String? = null,
     @SerialName("qty_on_hand") val qtyOnHand: FlexDouble = 0.0,
 )
 
 @Serializable data class StockLocationDto(
     val id: String,
     val name: String? = null,
+    /** Where stock lands when nobody names a location — the bulk store. */
     @SerialName("is_default") val isDefault: Boolean = false,
+    /** Where the till debits. The structural answer to "which one is the Shop?",
+     *  so renaming it in the back office can't redirect the tablet's stock. */
+    @SerialName("is_sales_floor") val isSalesFloor: Boolean = false,
+    /** Retired locations are empty by construction — they can only be switched
+     *  off at zero stock — so the tablet never needs to offer them. */
+    @SerialName("is_active") val isActive: Boolean = true,
 )
 
 /**
