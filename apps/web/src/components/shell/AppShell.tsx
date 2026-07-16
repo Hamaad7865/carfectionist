@@ -3,18 +3,15 @@
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { SessionContext } from "@/lib/auth/session";
-import type { NotifItem } from "@/lib/supabase/queries/notifications";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
 
 export function AppShell({
   ctx,
-  notifications,
   fiscalYears,
   children,
 }: {
   ctx: SessionContext;
-  notifications: Promise<NotifItem[]>;
   fiscalYears: { label: string; from: string; to: string }[];
   children: React.ReactNode;
 }) {
@@ -41,7 +38,7 @@ export function AppShell({
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <Topbar onMenu={() => setNavOpen(true)} notifications={notifications} fiscalYears={fiscalYears} />
+        <Topbar onMenu={() => setNavOpen(true)} fiscalYears={fiscalYears} />
         <main
           className="flex-1 overflow-y-auto"
           style={{ background: "radial-gradient(900px 500px at 100% 0%, rgba(43,140,255,.045), transparent 60%)" }}
