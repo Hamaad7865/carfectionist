@@ -60,6 +60,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [busy, setBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [catQuery, setCatQuery] = useState("");
+  const [catKind, setCatKind] = useState<"all" | "service" | "product">("all");
   const [custQuery, setCustQuery] = useState("");
   const [adName, setAdName] = useState("");
   const [adPrice, setAdPrice] = useState("");
@@ -194,7 +195,12 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const fitWidth = () => { setFitMode(true); setZoom(computeFit()); };
   const resetZoom = () => { setFitMode(false); setZoom(1); };
 
-  const filtered = ctx.products.filter((p) => p.name.toLowerCase().includes(catQuery.toLowerCase())).slice(0, 5);
+  // Catalogue picker: filter by kind as well as text. With ~800 products and only
+  // ~70 services, "show me the services" is the common ask at the desk — searching
+  // by name first meant knowing the name.
+  const filtered = ctx.products
+    .filter((p) => (catKind === "all" || p.kind === catKind) && p.name.toLowerCase().includes(catQuery.toLowerCase()))
+    .slice(0, catQuery ? 8 : 12);
   const custFiltered = ctx.customers.filter((c) => c.name.toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8);
 
   function addAdhoc() {
@@ -339,11 +345,26 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <div className={`${label} mb-2.5`}>Line items</div>
             {!readOnly && (
               <>
-                <div className="relative mb-2.5">
+                <div className="relative mb-2">
                   <Search size={16} className="absolute left-3.5 top-3.5 text-faint" />
                   <input value={catQuery} onChange={(e) => setCatQuery(e.target.value)} placeholder="Search catalogue — services and products…" className={`${inputCls} pl-[38px]`} />
                 </div>
-                {catQuery && (
+                <div className="mb-2.5 flex items-center gap-1.5">
+                  {([["all", "All"], ["service", "Services"], ["product", "Products"]] as const).map(([k, label]) => (
+                    <button
+                      key={k}
+                      type="button"
+                      onClick={() => setCatKind(k)}
+                      className={`h-7 rounded-[8px] px-2.5 text-[11.5px] font-bold ${catKind === k ? "grad-brand text-white" : "border border-line-2 bg-sub text-body hover:border-brand"}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                  <span className="ml-auto text-[11px] text-faint">
+                    {ctx.products.filter((p) => catKind === "all" || p.kind === catKind).length} in catalogue
+                  </span>
+                </div>
+                {(catQuery || catKind !== "all") && (
                   <div className="mb-3 flex flex-col gap-1.5">
                     {filtered.map((p) => (
                       <button

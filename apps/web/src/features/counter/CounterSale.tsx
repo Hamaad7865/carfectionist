@@ -54,6 +54,7 @@ export function CounterSale({
   const [cat, setCat] = useState("");
   const [catOpen, setCatOpen] = useState(true); // the vertical category rail
   const [catQuery, setCatQuery] = useState("");
+  const [kind, setKind] = useState<"all" | "service" | "product">("all");
   // The cart, its discounts and the customer are one value: everything a settle sends. Once an
   // attempt reaches issue_document they freeze together, so a retry re-sends the same request.
   const [basket, setBasket] = useState<Basket>(EMPTY_BASKET);
@@ -103,9 +104,19 @@ export function CounterSale({
   const filtered = useMemo(() => {
     const s = q.trim().toLowerCase();
     return products.filter(
-      (p) => (!cat || p.category === cat) && (!s || p.name.toLowerCase().includes(s) || (p.barcode ?? "").includes(s)),
+      (p) =>
+        (kind === "all" || p.kind === kind) &&
+        (!cat || p.category === cat) &&
+        (!s || p.name.toLowerCase().includes(s) || (p.barcode ?? "").includes(s)),
     );
-  }, [q, cat, products]);
+  }, [q, cat, kind, products]);
+
+  // How many of each kind exist, so the chips can show what's behind them.
+  const kindCounts = useMemo(() => {
+    let service = 0, product = 0;
+    for (const p of products) (p.kind === "service" ? service++ : product++);
+    return { all: products.length, service, product };
+  }, [products]);
 
   const totals = useMemo(
     () => computeTotals(
@@ -315,6 +326,21 @@ export function CounterSale({
                 onChange={(e) => setQ(e.target.value)}
                 autoFocus
               />
+            </div>
+            {/* Services vs products. The catalogue is ~800 products to ~70 services,
+                so without this a service is a needle in a haystack at the till. */}
+            <div className="mt-2 flex items-center gap-1.5">
+              {([["all", "All"], ["service", "Services"], ["product", "Products"]] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  type="button"
+                  onClick={() => setKind(k)}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-[9px] px-3 text-[12.5px] font-bold ${kind === k ? "grad-brand text-white" : "border border-line-2 bg-card text-body hover:border-brand"}`}
+                >
+                  {label}
+                  <span className={`text-[10.5px] font-semibold ${kind === k ? "text-white/70" : "text-faint"}`}>{kindCounts[k]}</span>
+                </button>
+              ))}
             </div>
             {/* Small screens have no rail — a compact dropdown keeps categories reachable. */}
             {categories.length > 0 && (
