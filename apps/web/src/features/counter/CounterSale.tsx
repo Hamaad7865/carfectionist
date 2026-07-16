@@ -377,7 +377,19 @@ export function CounterSale({
               >
                 <span className="flex w-full items-center justify-between gap-1">
                   <span className="text-[9px] font-bold uppercase tracking-wide text-faint">{KIND_LABEL[p.kind] ?? p.kind}</span>
-                  {p.isStocked && p.shopQty <= 0 && <span className="rounded-[4px] bg-[rgba(214,59,80,0.14)] px-1.5 py-0.5 text-[8.5px] font-bold uppercase tracking-wide text-rose">0 left</span>}
+                  {/* Shop-floor count, plain number — the tablet's tiles already
+                      show it this way. Red at zero; oversold reads 0, not "-1"
+                      (same clamp as the tablet). nowrap because the old "0 left"
+                      used to stack into two lines on narrow tiles. */}
+                  {p.isStocked && (
+                    <span
+                      className={`num shrink-0 whitespace-nowrap rounded-[4px] px-1.5 py-0.5 text-[9.5px] font-bold ${
+                        p.shopQty <= 0 ? "bg-[rgba(214,59,80,0.14)] text-rose" : "bg-[rgba(15,23,32,0.07)] text-muted"
+                      }`}
+                    >
+                      {Math.max(0, p.shopQty)}
+                    </span>
+                  )}
                 </span>
                 <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
                 {unpriced ? (
