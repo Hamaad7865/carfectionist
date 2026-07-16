@@ -19,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -141,8 +142,26 @@ fun DashScreen(viewModel: DashViewModel = hiltViewModel()) {
                             }
                         }
                     }
+                    Spacer(Modifier.height(4.dp))
+                    HorizontalDivider(color = InsetAlt)
+                    Spacer(Modifier.height(4.dp))
+
+                    // Where the money came FROM, as opposed to how it was paid.
+                    Label("COUNTER VS WORKSHOP — TODAY")
+                    d.split.forEach { m ->
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(m.label, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary)
+                                Text(m.value, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, color = TextPrimary)
+                            }
+                            Box(Modifier.fillMaxWidth().height(5.dp).background(InsetAlt, RoundedCornerShape(3.dp))) {
+                                Box(Modifier.fillMaxWidth(m.pct / 100f).height(5.dp).background(Color(m.colorArgb), RoundedCornerShape(3.dp)))
+                            }
+                        }
+                    }
+
                     Spacer(Modifier.weight(1f))
-                    Text("Card & Juice are settled on the bank terminal — the POS records references.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp, color = TextMuted)
+                    Text("Workshop = work done to a car — a job card, an intake, or any service sold. Counter = goods off the shelf.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 16.sp, color = TextMuted)
                 }
             }
         }

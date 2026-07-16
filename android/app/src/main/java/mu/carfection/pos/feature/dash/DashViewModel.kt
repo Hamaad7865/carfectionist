@@ -38,6 +38,7 @@ data class DashData(
     val top: List<TopSeller> = emptyList(),
     val techs: List<TechRow> = emptyList(),
     val mix: List<MixRow> = emptyList(),
+    val split: List<MixRow> = emptyList(),
 )
 
 data class DashState(val loading: Boolean = true, val data: DashData = DashData(), val error: String? = null)
@@ -110,6 +111,19 @@ class DashViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
         // ── outstanding ──
         val outstanding = open.sumOf { (cents(it.totalIncl) - cents(it.amountPaid)).coerceAtLeast(0) }
 
+        // ── counter vs workshop (today) ──
+        // Same rule as the web dashboard: workshop is work done to a car, whether
+        // or not there was paperwork. A service rung up at the till with no job
+        // card still counts — only the paperwork is missing, not the work.
+        val todaysInvoices = paid.filter { it.issuedAt?.let { at -> muDay(at) == today } == true }
+        val workshopCents = todaysInvoices.filter { it.isWorkshop }.sumOf { cents(it.totalIncl) }
+        val counterCents = todaysInvoices.filterNot { it.isWorkshop }.sumOf { cents(it.totalIncl) }
+        val splitTotal = (workshopCents + counterCents).coerceAtLeast(1L)
+        val split = listOf(
+            MixRow("Workshop", formatMUR(workshopCents), (workshopCents * 100 / splitTotal).toInt(), 0xFF7C5CE8L),
+            MixRow("Counter", formatMUR(counterCents), (counterCents * 100 / splitTotal).toInt(), 0xFF2A6FDBL),
+        )
+
         // ── jobs ──
         val jobsDone = jobs.count { it.status == "delivered" }
         val inProgress = jobs.count { it.status == "in_progress" }
@@ -154,7 +168,7 @@ class DashViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
             Kpi("OUTSTANDING", formatMUR(outstanding), "${open.size} unpaid invoice${if (open.size == 1) "" else "s"}", warn = outstanding > 0),
             Kpi("JOBS COMPLETED", jobsDone.toString(), "$inProgress in progress now"),
         )
-        return DashData(kpis, barRows, top, techRowsOut, mix)
+        return DashData(kpis, barRows, top, techRowsOut, mix, split)
     }
 
     private fun elapsedSecs(j: JobBoardDto): Long {

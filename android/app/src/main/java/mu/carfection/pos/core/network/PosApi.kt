@@ -104,7 +104,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchPaidInvoicesWithLines(sinceIso: String): List<PaidInvoiceDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("total_incl, job_id, document_lines(title, qty, unit_price, discount_pct)")) {
+            .select(Columns.raw("total_incl, job_id, origin, issued_at, document_lines(title, qty, unit_price, discount_pct, products(kind))")) {
                 filter { eq("doc_type", "invoice"); eq("status", "paid"); gte("issued_at", sinceIso) }
             }
             .decodeList()

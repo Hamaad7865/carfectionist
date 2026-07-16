@@ -254,17 +254,31 @@ data class TodayPaymentDto(
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
     @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
 )
+/** A product's kind on an embedded line. PostgREST returns the to-one embed as an
+ *  object, so this decodes as an object — absent for an ad-hoc typed line. */
+@Serializable data class LineProductDto(val kind: String? = null)
+
 @Serializable data class DashLineDto(
     val title: String,
     val qty: FlexDouble = 1.0,
     @SerialName("unit_price") val unitPrice: FlexDouble = 0.0,
     @SerialName("discount_pct") val discountPct: FlexDouble = 0.0,
+    val products: LineProductDto? = null,
 )
 @Serializable data class PaidInvoiceDto(
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
     @SerialName("job_id") val jobId: String? = null,
+    val origin: String? = null,
+    @SerialName("issued_at") val issuedAt: String? = null,
     @SerialName("document_lines") val lines: List<DashLineDto> = emptyList(),
-)
+) {
+    /** Did the studio DO something to a car for this money? Same rule as the web
+     *  dashboard (isWorkshopSale): off a job card, in via intake, or it CONTAINS
+     *  A SERVICE — a body polish rung up at the till with no job is still
+     *  workshop work. Counter is what's left: a speaker off the shelf. */
+    val isWorkshop: Boolean
+        get() = origin == "from_job" || jobId != null || lines.any { it.products?.kind == "service" }
+}
 
 // ── Certificates & warranty ───────────────────────────────────────────────────
 @Serializable data class CertProductDto(val name: String? = null)
