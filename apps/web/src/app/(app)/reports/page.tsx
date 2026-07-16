@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
 import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement } from "@/lib/supabase/queries/reports";
+import { getDailySummary } from "@/lib/supabase/queries/daily-summary";
+import { DailySummaryTable, parseSections, ALL_SECTIONS, type SectionKey } from "@/features/reports/DailySummaryTable";
+import { muToday } from "@/lib/mu-date";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatementPicker } from "@/features/reports/StatementPicker";
 import { StatementSendButton } from "@/features/reports/StatementSendButton";
@@ -11,6 +14,7 @@ const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c",
 const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer" };
 
 const REPORTS = [
+  { key: "daily-summary", label: "Daily summary" },
   { key: "collected", label: "Collected by method" },
   { key: "vat", label: "VAT report" },
   { key: "pnl", label: "Simple P&L" },
@@ -35,7 +39,7 @@ function qs(params: Record<string, string | undefined>) {
 export default async function ReportsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ r?: string; from?: string; to?: string; m?: string; c?: string }>;
+  searchParams: Promise<{ r?: string; from?: string; to?: string; m?: string; c?: string; sec?: string }>;
 }) {
   const sp = await searchParams;
   const report = REPORTS.some((x) => x.key === sp.r) ? sp.r! : "collected";
@@ -52,6 +56,13 @@ export default async function ReportsPage({
         }
       : null;
   const statementList = report === "statement-list" ? await getStatementOfAccounts() : null;
+
+  // Daily summary is a PERIOD report — "all time" is meaningless (and would build
+  // a row per day since the studio opened), so it falls back to the current month.
+  const dsFrom = sp.from ?? muToday().slice(0, 8) + "01";
+  const dsTo = sp.to ?? muToday();
+  const daily = report === "daily-summary" ? await getDailySummary(dsFrom, dsTo) : null;
+  const dsSections = parseSections(sp.sec);
   const rangeLabel = sp.from || sp.to ? `${sp.from ?? "…"} → ${sp.to ?? "…"}` : "All time";
 
   const now = new Date();
@@ -109,6 +120,23 @@ export default async function ReportsPage({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5">
+          {report === "daily-summary" && daily && (
+            <DailySummaryTable
+              summary={daily}
+              sections={dsSections}
+              hrefFor={(next: SectionKey[]) =>
+                `/reports${qs({
+                  r: "daily-summary",
+                  from: sp.from,
+                  to: sp.to,
+                  // all-on is the default, so it needs no param; none-on must be explicit
+                  sec: next.length === ALL_SECTIONS.length ? undefined : next.length ? next.join(",") : "none",
+                })}`
+              }
+              exportHref={`/api/reports/daily-summary/xlsx${qs({ from: dsFrom, to: dsTo, sec: sp.sec })}`}
+            />
+          )}
+
           {report === "collected" && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center gap-1.5">
