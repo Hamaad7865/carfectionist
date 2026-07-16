@@ -28,6 +28,8 @@ export interface DocumentDetail {
   customerName: string | null;
   customerEmail: string | null;
   customerPhone: string | null;
+  /** The account behind the invoice — what a statement of account is FOR. */
+  customerId: string | null;
   subtotalCents: number;        // ex-VAT taxable base (post-discount)
   grossSubtotalCents: number;   // sum of line amounts (pre-order-discount)
   orderDiscountCents: number;   // whole-sale discount, ex-VAT
@@ -124,6 +126,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     customerName: d.customers?.name ?? d.bill_to_name ?? null,
     customerEmail: d.customers?.email ?? null,
     customerPhone: d.customers?.phone ?? null,
+    customerId: d.customer_id ?? null,
     subtotalCents,
     grossSubtotalCents,
     orderDiscountCents,

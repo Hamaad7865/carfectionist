@@ -5,6 +5,8 @@ import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { getDealFlow } from "@/lib/supabase/queries/flow";
 import { FlowStepper } from "@/components/flow/FlowStepper";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { StatementSendButton } from "@/features/reports/StatementSendButton";
+import { getSessionContext } from "@/lib/auth/session";
 import { btn } from "@/components/ui/button";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
@@ -23,9 +25,11 @@ const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice
 
 export default async function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const doc = await getDocumentDetail(id);
+  const [doc, session] = await Promise.all([getDocumentDetail(id), getSessionContext()]);
   if (!doc) notFound();
   if (doc.status === "draft") redirect(`/sales/${id}/edit`);
+  // Statements are receivables — same floor as Reports (owner/manager/accountant).
+  const canStatement = !!session && ["owner", "manager", "accountant"].includes(session.role);
 
   // The car's journey — quotes and invoices sit inside the same five steps.
   const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
@@ -246,6 +250,30 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                   <span className="text-muted">Outstanding</span>
                   <span className={`num font-bold ${doc.outstandingCents <= 0 ? "text-mint" : "text-amber-ink"}`}>{formatMUR(doc.outstandingCents)}</span>
                 </div>
+                {/* Money is owed → offer the customer's statement of account right
+                    here, instead of a detour through Reports. It covers their WHOLE
+                    account, not just this invoice — the label says so. Gated to the
+                    roles sendStatementEmailAction itself accepts, so a cashier is
+                    never shown a button the server would refuse. */}
+                {canStatement && doc.outstandingCents > 0 && doc.customerId && (
+                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2 border-t border-line pt-2.5">
+                    <div className="min-w-0">
+                      <div className="text-[12.5px] font-semibold text-body">Statement of account</div>
+                      <div className="text-[11px] text-faint">Everything {doc.customerName ?? "this customer"} owes — not just this invoice</div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <a
+                        href={`/api/reports/statement/${doc.customerId}/pdf`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[12px] font-semibold text-link hover:underline"
+                      >
+                        View PDF
+                      </a>
+                      <StatementSendButton customerId={doc.customerId} customerName={doc.customerName ?? "the customer"} email={doc.customerEmail} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
