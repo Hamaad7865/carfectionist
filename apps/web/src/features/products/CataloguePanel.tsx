@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Barcode, Search } from "lucide-react";
+import { Plus, Barcode, Search, TriangleAlert } from "lucide-react";
 import { formatMUR } from "@/lib/money";
 import { ProductFormModal } from "./ProductFormModal";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
@@ -23,17 +23,37 @@ const gridCols = (locationCount: number) => ({
 type KindFilter = "all" | "service" | "product";
 const isService = (p: InventoryRow) => p.kind === "service";
 
-export function CataloguePanel({ products, locations, showArchived, vatDefault, pricesInclVat }: { products: InventoryRow[]; locations: StockLocation[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean }) {
+/** LOW and OUT are different jobs, so they don't share a badge: LOW is in the
+ *  warehouse and needs moving, OUT has to be bought. Lumping them together is
+ *  what made the bell say 11 while the catalogue flagged 36. */
+function StockBadge({ state, floor }: { state: InventoryRow["state"]; floor: string }) {
+  if (state === "ok") return null;
+  const low = state === "low";
+  return (
+    <span
+      title={low ? `Under the threshold at ${floor} — move some over from the warehouse` : "None anywhere — this one has to be ordered"}
+      className={`shrink-0 rounded-[5px] px-1.5 py-0.5 text-[9px] font-bold tracking-wide ${low ? "bg-[rgba(245,166,35,0.14)] text-amber-ink" : "bg-[rgba(214,59,80,0.12)] text-rose"}`}
+    >
+      {low ? "LOW" : "OUT"}
+    </span>
+  );
+}
+
+export function CataloguePanel({ products, locations, showArchived, vatDefault, pricesInclVat, lowOnly = false }: { products: InventoryRow[]; locations: StockLocation[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean; lowOnly?: boolean }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryRow | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("");
   const [kind, setKind] = useState<KindFilter>("all");
+  // Starts on when the bell sent you here (/products?low=1) — that alert's whole
+  // job is to hand you the list, not a search box.
+  const [low, setLow] = useState(lowOnly);
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
     [products],
   );
+  const floorName = locations.find((l) => l.isSalesFloor)?.name ?? "the shop";
 
   // Text + category first, so each switch can be labelled with what it would
   // actually show you right now rather than a catalogue-wide total.
@@ -55,10 +75,14 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
     return { all: matched.length, service, product: matched.length - service };
   }, [matched]);
 
-  const filtered = useMemo(
-    () => (kind === "all" ? matched : matched.filter((p) => (kind === "service" ? isService(p) : !isService(p)))),
-    [matched, kind],
-  );
+  // Counted over the WHOLE catalogue, not the current search — this number has
+  // to match the bell's, and the bell doesn't know what you typed.
+  const lowTotal = useMemo(() => products.filter((p) => p.low).length, [products]);
+
+  const filtered = useMemo(() => {
+    const byKind = kind === "all" ? matched : matched.filter((p) => (kind === "service" ? isService(p) : !isService(p)));
+    return low ? byKind.filter((p) => p.low) : byKind;
+  }, [matched, kind, low]);
 
   // Render a WINDOW of the matches, not all of them. The whole catalogue still
   // lives in memory (so search stays instant and offline-quick), but drawing all
@@ -66,7 +90,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
   // on every visit. Sixty is more than a screenful; "Show more" reveals the rest.
   const PAGE = 60;
   const [limit, setLimit] = useState(PAGE);
-  useEffect(() => setLimit(PAGE), [q, cat, kind]); // a new filter starts at the top again
+  useEffect(() => setLimit(PAGE), [q, cat, kind, low]); // a new filter starts at the top again
   const shown = useMemo(() => filtered.slice(0, limit), [filtered, limit]);
   const hidden = filtered.length - shown.length;
 
@@ -106,6 +130,16 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
           <option value="">All categories</option>
           {categories.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        {lowTotal > 0 && (
+          <button
+            onClick={() => setLow((v) => !v)}
+            title={`Stocked, but under the threshold at ${floorName} — move some over from the warehouse`}
+            className={`inline-flex h-9 items-center gap-1.5 rounded-[10px] border px-2.5 text-[12.5px] font-bold ${low ? "border-amber-ink bg-[rgba(245,166,35,0.14)] text-amber-ink" : "border-line-2 bg-card text-body hover:border-brand"}`}
+          >
+            <TriangleAlert size={14} /> Low at {floorName}
+            <span className="num opacity-70">{lowTotal}</span>
+          </button>
+        )}
         <span className="text-[12.5px] text-muted">
           {filtered.length}
           {filtered.length !== products.length ? ` of ${products.length}` : ""} item{filtered.length === 1 ? "" : "s"}
@@ -151,7 +185,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                     <span className="truncate text-[13px] font-semibold text-body">{r.name}</span>
                     {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold text-[#5b45b0]">SERVICE</span>}
                     {r.barcode && <Barcode size={12} className="shrink-0 text-faint" />}
-                    {r.low && <span className="shrink-0 rounded-[5px] bg-[rgba(245,166,35,0.14)] px-1.5 py-0.5 text-[9px] font-bold text-amber-ink">LOW</span>}
+                    <StockBadge state={r.state} floor={floorName} />
                     {!r.isActive && <span className="shrink-0 rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold text-faint">ARCHIVED</span>}
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
@@ -174,7 +208,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                       to split workshop revenue from counter revenue. */}
                   {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[#5b45b0]">SERVICE</span>}
                   {r.barcode && <Barcode size={13} className="shrink-0 text-faint" />}
-                  {r.low && <span className="shrink-0 rounded-[5px] bg-[rgba(245,166,35,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-amber-ink">LOW</span>}
+                  <StockBadge state={r.state} floor={floorName} />
                   {!r.isActive && <span className="shrink-0 rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-faint">ARCHIVED</span>}
                 </span>
                 <span className="min-w-0 truncate">

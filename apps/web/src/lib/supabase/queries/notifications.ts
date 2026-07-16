@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, pickSalesFloor } from "@/lib/supabase/locations";
+import { isLow, canMove } from "@/lib/stock/low";
 import { rupeesToCents, formatMUR } from "@/lib/money";
 import { muToday, muNow } from "@/lib/mu-date";
 
@@ -124,13 +125,30 @@ async function lowStock(sb: SB): Promise<NotifItem | null> {
       if (r.location_id === shopId) shopQty.set(r.product_id, (shopQty.get(r.product_id) ?? 0) + Number(r.qty_on_hand));
     }
     let low = 0;
+    let movable = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const p of prods as any[]) {
-      if ((totalQty.get(p.id) ?? 0) > 0 && (shopQty.get(p.id) ?? 0) < Number(p.low_stock_threshold)) low += 1;
+      // The SAME rule the catalogue's filter uses, so this count and the list it
+      // links to can't disagree — they used to, 11 against 36.
+      const level = { isStocked: true, threshold: Number(p.low_stock_threshold), floorQty: shopQty.get(p.id) ?? 0, totalQty: totalQty.get(p.id) ?? 0 };
+      if (!isLow(level)) continue;
+      low += 1;
+      if (canMove(level)) movable += 1;
     }
     if (low === 0) return null;
+    // Say what's actually true. This line used to read "Restock from the
+    // warehouse" for every alert; on the live catalogue only 2 of 11 could be
+    // restocked — the other 9 had an empty warehouse, so it was sending someone
+    // to fetch what wasn't there.
+    const detail =
+      movable === 0
+        ? "None in the warehouse — these need reordering"
+        : movable === low
+          ? "Move them over from the warehouse"
+          : `${movable} can be moved from the warehouse · ${low - movable} to reorder`;
     // Name the floor: with more than one, "at the shop" would be ambiguous.
-    return { key: "lowstock", label: `${low} product${low === 1 ? "" : "s"} low at ${floor.name}`, detail: "Restock from the warehouse", href: "/products?tab=inventory", tone: "warn", count: low };
+    // The link lands on exactly these products, not on a screen to search.
+    return { key: "lowstock", label: `${low} product${low === 1 ? "" : "s"} low at ${floor.name}`, detail, href: "/products?low=1", tone: "warn", count: low };
   } catch {
     return null;
   }

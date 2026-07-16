@@ -15,7 +15,7 @@ import { ImportExport } from "@/features/dataio/ImportExport";
 const tabCls = (on: boolean) =>
   `inline-flex h-[38px] items-center justify-center rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
 
-export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ tab?: string; archived?: string }> }) {
+export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ tab?: string; archived?: string; low?: string }> }) {
   const sp = await searchParams;
   const tab =
     sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : sp.tab === "inventory" ? "inventory" : sp.tab === "categories" ? "categories" : "catalogue";
@@ -42,7 +42,14 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
       </div>
 
       {tab === "catalogue" && inventory && (
-        <CataloguePanel products={inventory.rows} locations={inventory.locations} showArchived={showArchived} vatDefault={vatDefault} pricesInclVat={pricesInclVat} />
+        <CataloguePanel
+          products={inventory.rows}
+          locations={inventory.locations}
+          showArchived={showArchived}
+          vatDefault={vatDefault}
+          pricesInclVat={pricesInclVat}
+          lowOnly={sp.low === "1"}
+        />
       )}
       {tab === "inventory" && invOps && <InventoryPanel data={invOps} />}
       {tab === "categories" && categoryData && <CategoriesPanel data={categoryData} />}

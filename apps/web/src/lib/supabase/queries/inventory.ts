@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, pickSalesFloor, type StockLocation } from "@/lib/supabase/locations";
+import { stockState, type StockState } from "@/lib/stock/low";
 import { rupeesToCents } from "@/lib/money";
 
 export interface InventoryRow {
@@ -27,6 +28,10 @@ export interface InventoryRow {
   stock: Record<string, number> | null;
   /** On-hand at the selling floor — what "low" is measured against. */
   floorQty: number | null;
+  /** ok | low (in the warehouse, not out front) | out (none anywhere).
+   *  Shared with the bell, so the alert's count and this list agree. */
+  state: StockState;
+  /** Kept as the narrow question the UI usually asks: is this restockable? */
   low: boolean;
 }
 
@@ -75,6 +80,10 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
     const stock = p.is_stocked ? Object.fromEntries(locations.map((l) => [l.id, held[l.id] ?? 0])) : null;
     const floorQty = p.is_stocked && floorId ? (held[floorId] ?? 0) : null;
     const threshold = p.low_stock_threshold != null ? Number(p.low_stock_threshold) : null;
+    // Across EVERY location, not just the columns on screen — what decides
+    // whether a shortfall is a transfer or a purchase.
+    const totalQty = Object.values(held).reduce((s, n) => s + n, 0);
+    const state = stockState({ isStocked: p.is_stocked, threshold, floorQty, totalQty });
     return {
       id: p.id,
       name: p.name,
@@ -95,9 +104,8 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
       isActive: p.is_active,
       stock,
       floorQty,
-      // Low-stock tracks the SELLING FLOOR — a full warehouse doesn't help a
-      // customer standing at the counter.
-      low: p.is_stocked && threshold != null && floorQty != null && floorQty < threshold,
+      state,
+      low: state === "low",
     };
   });
 
