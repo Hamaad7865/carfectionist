@@ -10,7 +10,7 @@ export const SECTIONS = [
   { key: "payments", label: "Payments" },
   { key: "taxes", label: "Taxes" },
   { key: "sellers", label: "User logs" },
-  { key: "services", label: "Services" },
+  { key: "services", label: "Items sold" },
 ] as const;
 export type SectionKey = (typeof SECTIONS)[number]["key"];
 export const ALL_SECTIONS = SECTIONS.map((s) => s.key) as SectionKey[];
@@ -74,8 +74,8 @@ export function columnDefs(s: DailySummary, on: Set<SectionKey>): ColumnDef[] {
   }
   if (on.has("services")) {
     for (const sv of s.services) {
-      cols.push({ group: "Services", head: `${sv} / Total incl`, cents: (r) => r.byService[sv]?.cents ?? 0 });
-      cols.push({ group: "Services", head: `${sv} / Tickets`, count: (r) => r.byService[sv]?.n ?? 0 });
+      cols.push({ group: "Items sold", head: `${sv} / Total incl`, cents: (r) => r.byService[sv]?.cents ?? 0 });
+      cols.push({ group: "Items sold", head: `${sv} / Tickets`, count: (r) => r.byService[sv]?.n ?? 0 });
     }
   }
   return cols;

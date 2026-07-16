@@ -132,13 +132,13 @@ describe("daily summary — the totals row", () => {
 describe("daily summary — column discovery", () => {
   it("only lists what actually occurred, ranked by revenue", () => {
     const s = R();
-    expect(s.services).toEqual(["Full Detail", "Wash"]); // ranked, no unsold service
+    expect(s.services).toEqual(["Full Detail", "Wash"]); // ranked, nothing that did not sell
     expect(s.methods).toEqual(["cash", "card"]);
     expect(s.taxes).toEqual(["15%"]);
     expect(s.sellers).toEqual(["Anshika", "Anesh"]);
   });
 
-  it("folds everything past the top 15 into Other services, and still reconciles", () => {
+  it("folds everything past the top 15 into Other items, and still reconciles", () => {
     // 20 services on one invoice, descending value
     const docs: SummaryInput["docs"] = [
       { id: "x", doc_type: "invoice", business_day: "2026-07-13", total_incl: 2300, subtotal_excl: 2000, vat_total: 300, customer_id: "c1", issued_by: "u1", cash_session_id: null },
@@ -157,12 +157,36 @@ describe("daily summary — column discovery", () => {
     expect(summed).toBe(expected);
   });
 
-  it("ignores non-service lines in the Services section", () => {
+  it("counts PRODUCTS too — most of a detailing day is products, not services", () => {
     const s = buildDailySummary("2026-07-13", "2026-07-13", input({
       lines: [{ document_id: "d1", vat_rate: 15, line_total_excl: 1000, line_vat: 150, products: { name: "Shampoo", kind: "product" } }],
     }));
-    expect(s.services).toEqual([]);
-    expect(s.rows[0].byTax["15%"].exclCents).toBe(100_000); // but it still counts for tax
+    expect(s.services).toEqual(["Shampoo"]);
+    expect(s.rows[0].byService.Shampoo.cents).toBe(115_000);
+    expect(s.rows[0].byTax["15%"].exclCents).toBe(100_000);
+  });
+
+  it("names an ad-hoc line by its title, so typed work is never invisible", () => {
+    const s = buildDailySummary("2026-07-13", "2026-07-13", input({
+      lines: [{ document_id: "d1", title: "Custom polish", vat_rate: 15, line_total_excl: 1000, line_vat: 150, products: null }],
+    }));
+    expect(s.services).toEqual(["Custom polish"]);
+    expect(s.rows[0].byService["Custom polish"].cents).toBe(115_000);
+  });
+
+  it("falls back to a placeholder when a line has neither product nor title", () => {
+    const s = buildDailySummary("2026-07-13", "2026-07-13", input({
+      lines: [{ document_id: "d1", title: "  ", vat_rate: 15, line_total_excl: 100, line_vat: 15, products: null }],
+    }));
+    expect(s.services).toEqual(["Ad-hoc item"]);
+  });
+
+  it("the items section reconciles to the day's sales", () => {
+    // every line is represented, so the item columns sum to the day's total
+    const s = R();
+    const day = s.rows[0];
+    const items = Object.values(day.byService).reduce((a, b) => a + b.cents, 0);
+    expect(items).toBe(day.totalInclCents);
   });
 });
 

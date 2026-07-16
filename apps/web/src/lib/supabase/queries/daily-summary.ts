@@ -56,7 +56,7 @@ export interface DailySummary {
   services: string[];
 }
 
-export const OTHER_SERVICES = "Other services";
+export const OTHER_SERVICES = "Other items";
 const TOP_SERVICES = 15;
 
 /** Every YYYY-MM-DD from..to inclusive — so a day with no sales still shows. */
@@ -105,6 +105,7 @@ export interface RawDoc {
 export interface RawPayment { document_id: string; method: string; amount: number | string }
 export interface RawLine {
   document_id: string;
+  title?: string | null;
   vat_rate: number | string;
   line_total_excl: number | string;
   line_vat: number | string;
@@ -170,7 +171,7 @@ export function buildDailySummary(from: string, to: string, input: SummaryInput)
   }
 
   // 5. Lines → tax bands and services.
-  const serviceDocs = new Map<string, Set<string>>(); // service name → doc ids (for ticket counts)
+  const serviceDocs = new Map<string, Set<string>>(); // item name → doc ids (for ticket counts)
   for (const l of lines) {
     const day = docDay.get(l.document_id);
     const row = day ? byDay.get(day) : null;
@@ -185,15 +186,18 @@ export function buildDailySummary(from: string, to: string, input: SummaryInput)
     t.taxCents += tax;
     t.inclCents += excl + tax;
 
-    if (l.products?.kind === "service") {
-      const name = l.products.name as string;
-      add(row.byService, name, excl + tax, 0);
-      const set = (serviceDocs.get(name) ?? new Set<string>());
-      set.add(l.document_id);
-      serviceDocs.set(name, set);
-    }
+    // Cashmag's "Services" section is really "what did we sell" — their whole
+    // catalogue is services. Ours isn't: most revenue is products, and ad-hoc
+    // typed lines have no product at all. Keying on kind='service' would hide
+    // ~93% of a day, so every sold line counts, named by its product or its
+    // own title.
+    const name = (l.products?.name ?? l.title ?? "").trim() || "Ad-hoc item";
+    add(row.byService, name, excl + tax, 0);
+    const set = serviceDocs.get(name) ?? new Set<string>();
+    set.add(l.document_id);
+    serviceDocs.set(name, set);
   }
-  // A service's "tickets" = how many documents contained it (not how many lines).
+  // An item's "tickets" = how many documents contained it (not how many lines).
   for (const [name, docSet] of serviceDocs) {
     const perDay = new Map<string, number>();
     for (const id of docSet) {
@@ -226,8 +230,8 @@ export function buildDailySummary(from: string, to: string, input: SummaryInput)
   const sellerKeys = rank((r) => r.bySeller);
   const taxKeys = [...new Set(rows.flatMap((r) => Object.keys(r.byTax)))].sort();
 
-  // Services: top N by revenue across the period, the rest folded into "Other
-  // services" so the section still reconciles to the day's service revenue.
+  // Items: top N by revenue across the period, the rest folded into "Other
+  // items" so the section still reconciles to the day's sales.
   const allServices = rank((r) => r.byService);
   const top = allServices.slice(0, TOP_SERVICES);
   const rest = new Set(allServices.slice(TOP_SERVICES));
@@ -299,7 +303,7 @@ export async function getDailySummary(from: string, to: string): Promise<DailySu
   const [payments, lines, sessions, sellers, devices] = await Promise.all([
     fetchAllRows<any>(() => sb.from("payments").select("id, document_id, method, amount").in("document_id", docIds)),
     fetchAllRows<any>(() =>
-      sb.from("document_lines").select("id, document_id, vat_rate, line_total_excl, line_vat, products(name, kind)").in("document_id", docIds),
+      sb.from("document_lines").select("id, document_id, title, vat_rate, line_total_excl, line_vat, products(name, kind)").in("document_id", docIds),
     ),
     sessionIds.length ? fetchAllRows<any>(() => sb.from("cash_sessions").select("id, device_id").in("id", sessionIds)) : Promise.resolve([] as any[]),
     sellerIds.length ? fetchAllRows<any>(() => sb.from("app_users").select("id, display_name").in("id", sellerIds)) : Promise.resolve([] as any[]),
