@@ -3,6 +3,7 @@ package mu.carfection.pos.feature.counter
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -448,6 +449,10 @@ class CounterViewModel @Inject constructor(
                 // refund, which is the till this collect was just taken on.
                 api.reversePayment(r.paymentId, "Reversed at POS")
             }
+            // An on-account COLLECT's undo walks the HANDOVER back — the job returns to
+            // READY and the bill stays open. Voiding here erased the receivable for a car
+            // that had already left (and the job stayed delivered).
+            r.onAccount && r.fromCollect -> correction("Handover walked back — ${r.number ?: "the bill"} stays owed") { api.undoOnAccount(r.invoiceId) }
             r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, "Voided at POS") }
             else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") { api.issueCreditNote(r.invoiceId, restock = true, stockLocationId = api.fetchShopLocationId()) }
         }
@@ -511,9 +516,24 @@ class CounterViewModel @Inject constructor(
                 // payment — the invoice simply stays outstanding (their receivable, on the
                 // statement). Show the slip with what it was for, stamped "on account".
                 if (s.method == PayMethod.CREDIT) {
+                    // The handover happens NOW: the bill's READY job moves to delivered, on
+                    // account. If the server refuses, the collect fails loudly — printing paper
+                    // for a handover the server never saw is how a car leaves while its job
+                    // sits at READY forever (the original bug).
+                    try {
+                        api.deliverOnAccount(bill.id)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        local.value = local.value.copy(busy = false, error = "Couldn't record the handover — ${e.message ?: "try again"}")
+                        return@launch
+                    }
                     val creditSlip = runCatching {
                         api.fetchInvoice(bill.id)?.let {
-                            saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt()).copy(isPayment = true)
+                            saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt())
+                                // A deposit on the bill makes the builder read it as a payment
+                                // slip — this slip records credit, whatever came before.
+                                .copy(isPayment = true, onAccount = true)
                         }
                     }.getOrNull()
                     launch {
@@ -522,7 +542,8 @@ class CounterViewModel @Inject constructor(
                     }
                     local.value = local.value.copy(
                         busy = false, padOpen = false, collect = null, pendingSettle = null,
-                        done = SaleResult(bill.id, bill.number, s.dueCents, 0L, onAccount = true),
+                        done = SaleResult(bill.id, bill.number, s.dueCents, 0L, onAccount = true,
+                            fromCollect = true, debtor = bill.customers?.name),
                         receipt = creditSlip,
                     )
                     loadLists()
@@ -571,7 +592,10 @@ class CounterViewModel @Inject constructor(
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
                     logReceiptOutcome(bill.number, printed)
                 }
-                local.value = local.value.copy(busy = false, padOpen = false, collect = null, done = result, receipt = receipt, pendingSettle = null)
+                local.value = local.value.copy(
+                    busy = false, padOpen = false, collect = null, pendingSettle = null,
+                    done = result.copy(fromCollect = true, debtor = bill.customers?.name), receipt = receipt,
+                )
                 loadLists()
             } catch (e: Exception) {
                 // A collect that reached record_payment may have committed; freeze exactly like a

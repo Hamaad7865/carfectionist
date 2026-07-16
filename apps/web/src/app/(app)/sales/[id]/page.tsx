@@ -11,6 +11,7 @@ import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
 import { VoidButton } from "@/features/documents/VoidButton";
 import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
+import { HandOverButton } from "@/features/documents/HandOverButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import { CarDiagram } from "@/features/intake/CarDiagram";
 import { StartJobButton } from "@/features/intake/StartJobButton";
@@ -243,6 +244,18 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             )}
 
             {canPay && <RecordPaymentForm invoiceId={doc.id} outstandingCents={doc.outstandingCents} />}
+            {/* Open bill + READY job: the customer can take the car on account — the
+                balance stays owed (statement + TO COLLECT), the job delivers. */}
+            {canPay && doc.jobStatus === "ready" && doc.customerName && (
+              <div className="mt-3">
+                <HandOverButton
+                  invoiceId={doc.id}
+                  number={doc.number}
+                  customerName={doc.customerName}
+                  outstanding={formatMUR(doc.outstandingCents)}
+                />
+              </div>
+            )}
           </div>
         </div>
       </div>

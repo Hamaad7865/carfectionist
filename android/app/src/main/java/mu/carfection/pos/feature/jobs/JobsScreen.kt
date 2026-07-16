@@ -243,10 +243,16 @@ private fun ViewInvoiceDialog(s: JobsState, vm: JobsViewModel) {
 
                 s.viewInvoice?.let { d ->
                     Text(formatMUR(d.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 38.sp, color = TextPrimary)
+                    // A deposit is not settlement: with anything still owed, the headline says
+                    // so — "Paid in cash" over an open balance misleads the operator.
                     Text(
-                        d.payLabel?.let { "Paid in ${it.lowercase()}" } ?: "On account",
+                        when {
+                            d.balanceDueCents > 0 && d.payLabel != null -> "${formatMUR(d.balanceDueCents)} still owed"
+                            d.balanceDueCents > 0 -> "On account — ${formatMUR(d.balanceDueCents)} owed"
+                            else -> d.payLabel?.let { "Paid in ${it.lowercase()}" } ?: "Settled"
+                        },
                         fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.sp,
-                        color = if (d.payLabel != null) Success else Warning,
+                        color = if (d.balanceDueCents > 0) Warning else Success,
                     )
                 }
 
@@ -533,13 +539,18 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                     }
                 }
                 val doneN = j.checklist.count { it.done }
-                val (label, action) = when (j.status) {
-                    "scheduled" -> "▶  Start job" to { vm.startJob() }
-                    "in_progress" -> (if (j.checklist.isNotEmpty() && doneN == j.checklist.size) "Mark ready for collection" else "Mark ready" + if (j.checklist.isNotEmpty()) " ($doneN/${j.checklist.size} checklist)" else "") to { vm.markReady() }
+                val liveInv = j.invoices.firstOrNull { it.docType == "invoice" && it.status != "void" }
+                val (label, action) = when {
+                    j.status == "scheduled" -> "▶  Start job" to { vm.startJob() }
+                    j.status == "in_progress" -> (if (j.checklist.isNotEmpty() && doneN == j.checklist.size) "Mark ready for collection" else "Mark ready" + if (j.checklist.isNotEmpty()) " ($doneN/${j.checklist.size} checklist)" else "") to { vm.markReady() }
+                    // Bill settled before the car was done: checkout has nothing to collect, so
+                    // the handover is recorded here — the only ready→delivered path for prepaid.
+                    j.status == "ready" && liveInv?.status == "paid" -> "Car collected — mark delivered" to { vm.deliverPaidJob() }
                     // Ensures the quote's priced invoice is waiting in TO COLLECT first.
-                    "ready" -> "Go to checkout →" to { vm.goToCheckout(onGoCheckout) }
-                    // A delivered job's bill is PAID — it is not in checkout's TO COLLECT, which
-                    // is why sending the operator there showed an empty screen. Show the invoice.
+                    j.status == "ready" -> "Go to checkout →" to { vm.goToCheckout(onGoCheckout) }
+                    // A car can leave OWING (on account): its bill stays in TO COLLECT until it
+                    // is paid — say so, instead of pretending delivered means settled.
+                    liveInv != null && liveInv.status != "paid" -> "Balance owed — view invoice" to { vm.openInvoiceView() }
                     else -> "View invoice" to { vm.openInvoiceView() }
                 }
                 val muted = j.status == "delivered"

@@ -100,6 +100,35 @@ export async function recordPaymentAction(
   }
 }
 
+/** The customer takes the car ON ACCOUNT: delivers the bill's READY job, collects
+ *  nothing — the invoice stays outstanding on their statement (same RPC as the tablet). */
+export async function deliverOnAccountAction(invoiceId: string): Promise<ActionResult<boolean>> {
+  await requireRole(...WRITE_ROLES);
+  const sb = await createClient();
+  try {
+    const moved = await rpc.deliverOnAccount(sb, invoiceId);
+    revalidatePath(`/sales/${invoiceId}`);
+    revalidatePath("/jobs"); // the job just moved to DELIVERED
+    return { ok: true, data: moved };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** Walk back a mistaken on-account handover: the job returns to READY, the bill stays open. */
+export async function undoOnAccountAction(invoiceId: string): Promise<ActionResult<boolean>> {
+  await requireRole(...WRITE_ROLES);
+  const sb = await createClient();
+  try {
+    const moved = await rpc.undoOnAccount(sb, invoiceId);
+    revalidatePath(`/sales/${invoiceId}`);
+    revalidatePath("/jobs");
+    return { ok: true, data: moved };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 export async function convertQuoteToInvoiceAction(quoteId: string): Promise<ActionResult<rpc.DocumentRow>> {
   await requireRole(...WRITE_ROLES);
   const sb = await createClient();

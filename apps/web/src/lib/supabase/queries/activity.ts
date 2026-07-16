@@ -216,7 +216,17 @@ function mapAudit(a: any, nm: (id: string | null) => string): ActivityEvent | nu
     case "job_started":
       return { ...base, kind: "job_started", category: "jobs", title: "Job started", detail: "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
     case "job_delivered":
-      return { ...base, kind: "job_delivered", category: "jobs", title: "Job delivered", detail: "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
+      // The via crumb tells HOW the car left: settled at the counter, taken on
+      // account (balance still owed), or picked up after prepaying.
+      return { ...base, kind: "job_delivered", category: "jobs",
+        title: p.via === "taken on account" ? "Job delivered — on account (balance owed)"
+          : p.via === "collected (paid earlier)" ? "Job delivered — prepaid pickup"
+          : "Job delivered",
+        detail: p.invoice ? String(p.invoice) : "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
+    case "job_delivery_reversed":
+      return { ...base, kind: "job_delivery_reversed", category: "jobs",
+        title: p.via === "on-account undo" ? "Handover walked back — job returned to Ready" : "Delivery reversed — job returned to Ready",
+        detail: [p.invoice, p.reason].filter(Boolean).join(" · ") || "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
     case "technician_assigned":
       return { ...base, kind: "technician_assigned", category: "jobs", title: "Technician assigned", detail: p.tech ? String(p.tech) : "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
     case "signed_in":

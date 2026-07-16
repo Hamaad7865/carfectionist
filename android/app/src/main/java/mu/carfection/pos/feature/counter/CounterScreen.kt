@@ -676,12 +676,14 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // On a bill, the amount is the cashier's to set — a deposit at booking, half
                     // today and half on collection. Tap it and the keys type here. A counter sale
-                    // has no balance to carry, so its amount is simply the basket.
-                    val amountEditable = s.collect != null
+                    // has no balance to carry, so its amount is simply the basket. Credit always
+                    // takes the FULL remainder, so under CREDIT nothing about the amount is
+                    // editable — a typed figure the record ignores is a lie on a money screen.
+                    val amountEditable = s.collect != null && s.method != PayMethod.CREDIT
                     val onAmount = amountEditable && (s.padField == PadField.AMOUNT || s.method != PayMethod.CASH)
                     DisplayCard(
-                        if (s.isPartPayment) "PAYING NOW" else "AMOUNT",
-                        formatMUR(s.payCents),
+                        if (s.method == PayMethod.CREDIT) "GOES ON ACCOUNT" else if (s.isPartPayment) "PAYING NOW" else "AMOUNT",
+                        formatMUR(if (s.method == PayMethod.CREDIT) s.dueCents else s.payCents),
                         highlight = onAmount,
                         onClick = if (amountEditable) ({ vm.focusPad(PadField.AMOUNT) }) else null,
                     )
@@ -723,9 +725,17 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                             }
                         }
                         PayMethod.CREDIT -> {
+                            // On a collect the debtor is the BILL's customer — the walk-in cart's
+                            // customer field is unrelated state and used to say "owed by Walk-in".
+                            val bill = s.collect
                             Text(
-                                if (s.customerId != null) "On account for ${s.customerText} — ${formatMUR(s.dueCents)} recorded as owed."
-                                else "Pick an existing customer on the sale screen first — the amount owed is tracked against them.",
+                                when {
+                                    bill != null && bill.customers != null ->
+                                        "On account for ${bill.customers.name} — ${formatMUR(s.dueCents)} stays owed on their statement. The car is handed over now."
+                                    bill != null -> "This bill has no customer attached — credit needs someone to owe it."
+                                    s.customerId != null -> "On account for ${s.customerText} — ${formatMUR(s.dueCents)} recorded as owed."
+                                    else -> "Pick an existing customer on the sale screen first — the amount owed is tracked against them."
+                                },
                                 color = Warning, fontSize = 13.sp, lineHeight = 18.sp,
                             )
                         }
@@ -745,8 +755,9 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         }
                     }
                 }
-                // right: numpad (cash only)
-                if (s.method == PayMethod.CASH) {
+                // right: numpad — cash always (tender), and any non-credit method on a bill
+                // (a card/Juice/bank PART payment needs its amount typed somewhere).
+                if (s.method == PayMethod.CASH || (s.collect != null && s.method != PayMethod.CREDIT)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                         listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf(".", "0", "⌫")).forEach { row ->
                             Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1058,8 +1069,10 @@ private fun SaleDone(
                 Spacer(Modifier.height(6.dp))
                 Text(formatMUR(if (result.onAccount) result.totalCents else receivedCents), color = TextPrimary, fontFamily = Condensed, fontSize = 46.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    if (result.onAccount) "owed by $customerLabel — shows on their statement"
-                    else "received from $customerLabel · change ${formatMUR(result.changeCents)}",
+                    // On a collect the debtor is the bill's customer, not the walk-in field.
+                    if (result.onAccount) "owed by ${result.debtor ?: customerLabel} — shows on their statement" +
+                        (if (result.fromCollect) " · car handed over" else "")
+                    else "received from ${result.debtor ?: customerLabel} · change ${formatMUR(result.changeCents)}",
                     color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp,
                 )
                 Spacer(Modifier.height(20.dp))
@@ -1072,7 +1085,11 @@ private fun SaleDone(
                     if (canVoid) Box(
                         Modifier.height(48.dp).border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp)).clickable(onClick = onVoid).padding(horizontal = 18.dp),
                         contentAlignment = Alignment.Center,
-                    ) { Text(if (result.onAccount) "Void sale" else "Void — refund & restock", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                    ) { Text(when {
+                        result.onAccount && result.fromCollect -> "Undo handover — job back to Ready"
+                        result.onAccount -> "Void sale"
+                        else -> "Void — refund & restock"
+                    }, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
                 }
                 Spacer(Modifier.height(16.dp))
                 // next sale, one tap away (mirrors the "new ticket ready" row)

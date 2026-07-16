@@ -469,6 +469,22 @@ class JobsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Prepaid pickup: the bill was settled while the car was still being worked on, so
+     * checkout has nothing left to collect — the handover is recorded straight from the
+     * card. The server refuses unless the job is READY and its invoice is PAID.
+     */
+    fun deliverPaidJob() {
+        val id = _s.value.activeJobId ?: return
+        if (_s.value.busy) return
+        _s.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            runCatching { api.deliverPaidJob(id) }
+                .onSuccess { _s.update { it.copy(busy = false, toast = "Delivered — car collected") }; load() }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
     // ── job timer pause/resume ─────────────────────────────────────────────────
     private fun isoToInstant(iso: String?): Instant? =
         iso?.let { runCatching { java.time.OffsetDateTime.parse(it).toInstant() }.getOrNull() }

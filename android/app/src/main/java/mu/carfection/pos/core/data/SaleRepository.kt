@@ -124,6 +124,12 @@ data class SaleResult(
     // full payment). Lets the done panel reverse just this payment instead of credit-noting
     // the whole live invoice (audit #6). Null for a walk-in sale.
     val paymentId: String? = null,
+    // A COLLECT's undo must never void the job's fiscal invoice — an on-account collect
+    // walks the HANDOVER back (undo_on_account) and a paid collect reverses the payment.
+    val fromCollect: Boolean = false,
+    // Who owes the money — the BILL's customer on a collect. The walk-in cart's customer
+    // text is unrelated state and used to mislabel the done panel ("owed by Walk-in").
+    val debtor: String? = null,
 )
 
 /**

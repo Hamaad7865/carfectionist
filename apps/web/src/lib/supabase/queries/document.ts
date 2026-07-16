@@ -44,6 +44,8 @@ export interface DocumentDetail {
   sourceNumber: string | null;
   creditedByNumber: string | null;
   jobId: string | null;
+  /** The job's live status — drives the "hand over on account" action on an open bill. */
+  jobStatus: string | null;
   intake: DocIntake | null;
   /** Client signature captured on the tablet when the quote was accepted. */
   acceptedSignature: { url: string; name: string | null; at: string | null } | null;
@@ -68,6 +70,12 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     const { data: src } = await sb.from("documents").select("number").eq("id", d.source_document_id).maybeSingle();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     sourceNumber = (src as any)?.number ?? null;
+  }
+  let jobStatus: string | null = null;
+  if (d.job_id) {
+    const { data: job } = await sb.from("jobs").select("status").eq("id", d.job_id).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    jobStatus = (job as any)?.status ?? null;
   }
   let creditedByNumber: string | null = null;
   if (d.doc_type === "invoice") {
@@ -132,6 +140,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     sourceNumber,
     creditedByNumber,
     jobId: d.job_id ?? null,
+    jobStatus,
     intake,
     acceptedSignature,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

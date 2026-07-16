@@ -489,6 +489,28 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_idempotency_key", idempotencyKey)
         }).decodeAs()
 
+    /**
+     * The car leaves ON ACCOUNT: delivers the bill's READY job without touching money —
+     * the invoice stays outstanding (the customer's receivable). Returns false when there
+     * was no ready job to move (already delivered, or a jobless invoice).
+     */
+    suspend fun deliverOnAccount(invoiceId: String): Boolean =
+        client.postgrest.rpc("deliver_on_account", buildJsonObject {
+            put("p_invoice_id", invoiceId)
+        }).decodeAs()
+
+    /** Prepaid pickup: the bill was settled before the car was ready — record the handover. */
+    suspend fun deliverPaidJob(jobId: String): Boolean =
+        client.postgrest.rpc("deliver_paid_job", buildJsonObject {
+            put("p_job_id", jobId)
+        }).decodeAs()
+
+    /** Walk back a MISTAKEN on-account handover: job returns to READY, the bill stays open. */
+    suspend fun undoOnAccount(invoiceId: String): Boolean =
+        client.postgrest.rpc("undo_on_account", buildJsonObject {
+            put("p_invoice_id", invoiceId)
+        }).decodeAs()
+
     // ── Checkout · collect on invoice ────────────────────────────────────────
     /** Invoices awaiting payment (issued or partly paid) — the "TO COLLECT" list. */
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =

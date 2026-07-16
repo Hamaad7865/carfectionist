@@ -189,6 +189,15 @@ export const recordPayment = (sb: Client, a: RecordPaymentArgs) =>
     p_idempotency_key: a.idempotencyKey ?? null,
   });
 
+/** The car leaves ON ACCOUNT: delivers the bill's READY job, records no money — the
+ *  invoice stays outstanding (the customer's receivable). Same RPC the tablet uses. */
+export const deliverOnAccount = (sb: Client, invoiceId: string) =>
+  callRpc<boolean>(sb, "deliver_on_account", { p_invoice_id: invoiceId });
+
+/** Walk back a mistaken on-account handover: job returns to READY, the bill stays open. */
+export const undoOnAccount = (sb: Client, invoiceId: string) =>
+  callRpc<boolean>(sb, "undo_on_account", { p_invoice_id: invoiceId });
+
 export const voidDocument = (sb: Client, id: string, reason: string) =>
   callRpc<DocumentRow>(sb, "void_document", { p_id: id, p_reason: reason });
 
