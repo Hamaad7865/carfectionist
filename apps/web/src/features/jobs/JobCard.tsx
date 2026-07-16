@@ -224,6 +224,13 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const creatingRef = useRef(false);
   const readOnly = job.status === "ready" || job.status === "delivered";
 
+  // The database allows ONE live document of each type per job (voids excluded,
+  // drafts included — "no unbounded drafts"). These buttons used to render
+  // regardless, so clicking "+ Invoice" on a billed job just bounced off the
+  // guard with an error. Same owner rule as the quote page: once a step is
+  // done, stop offering it — the document list right below is the way in.
+  const hasLiveDoc = (t: "quote" | "invoice") => job.documents.some((d) => d.docType === t && d.status !== "void");
+
   const beforePhotos = job.photos.filter((p) => p.phase === "before");
   const [afterPhotos, setAfterPhotos] = useState<IntakePhoto[]>(() =>
     job.photos.filter((p) => p.phase === "after").map((p) => ({ path: p.url, url: p.url })),
@@ -524,20 +531,24 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
             <FileText size={14} /> Billing
           </span>
           <div className="flex gap-2">
-            <button
-              onClick={() => createDoc("quote")}
-              disabled={docBusy !== null}
-              className={btn("subtle", "sm")}
-            >
-              <Plus size={14} strokeWidth={2.6} /> {docBusy === "quote" ? "Creating…" : "Quote"}
-            </button>
-            <button
-              onClick={() => createDoc("invoice")}
-              disabled={docBusy !== null}
-              className={btn("primary", "sm")}
-            >
-              <FilePlus2 size={14} strokeWidth={2.4} /> {docBusy === "invoice" ? "Creating…" : "Invoice"}
-            </button>
+            {!hasLiveDoc("quote") && (
+              <button
+                onClick={() => createDoc("quote")}
+                disabled={docBusy !== null}
+                className={btn("subtle", "sm")}
+              >
+                <Plus size={14} strokeWidth={2.6} /> {docBusy === "quote" ? "Creating…" : "Quote"}
+              </button>
+            )}
+            {!hasLiveDoc("invoice") && (
+              <button
+                onClick={() => createDoc("invoice")}
+                disabled={docBusy !== null}
+                className={btn("primary", "sm")}
+              >
+                <FilePlus2 size={14} strokeWidth={2.4} /> {docBusy === "invoice" ? "Creating…" : "Invoice"}
+              </button>
+            )}
           </div>
         </div>
         {errNote("billing")}

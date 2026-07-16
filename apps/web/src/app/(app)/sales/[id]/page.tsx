@@ -74,7 +74,8 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                 <Printer size={15} /> Print / PDF
               </a>
             )}
-            {doc.docType === "quote" && <ReviseButton quoteId={doc.id} />}
+            {/* Revising is negotiation; a billed quote is past negotiating. */}
+            {doc.docType === "quote" && !billedHref && <ReviseButton quoteId={doc.id} />}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
             {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
             {canCredit && <CreditNoteButton invoiceId={doc.id} number={doc.number} />}
