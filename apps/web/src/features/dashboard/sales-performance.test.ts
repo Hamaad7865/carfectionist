@@ -8,8 +8,7 @@ import {
   salesQuerySpec,
   settleSalesPerformance,
   unavailableSalesPerformance,
-  type SalesDocumentRow,
-} from './sales-performance';
+  type SalesDocumentRow, isWorkshopSale } from './sales-performance';
 
 const NOW = Date.parse('2026-07-13T08:00:00.000Z'); // 12:00 in Mauritius
 
@@ -281,7 +280,7 @@ describe('salesQuerySpec', () => {
     const period = resolveSalesPeriod({ salesRange: 'today' }, NOW);
 
     expect(salesQuerySpec(period)).toEqual({
-      columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at',
+      columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at, document_lines(products(kind))',
       docTypes: ['invoice', 'credit_note'],
       statuses: ['issued', 'partly_paid', 'paid'],
       startIso: '2026-07-12T20:00:00.000Z',
@@ -325,5 +324,68 @@ describe('presentation helpers', () => {
       totalCents: null,
       points: [],
     });
+  });
+});
+
+describe('workshop vs counter', () => {
+  // The studio's question is "did we DO something to a car for this money?" —
+  // not "was there paperwork". A body polish rung up at the till with no intake
+  // and no job card is workshop work; a speaker off the shelf is not.
+  it('counts a sale off a job card as workshop', () => {
+    expect(isWorkshopSale(row({ origin: 'from_job' }))).toBe(true);
+  });
+
+  it('counts a sale that reached the invoice via intake as workshop', () => {
+    // the intake path leaves origin 'standalone' but sets job_id
+    expect(isWorkshopSale(row({ origin: 'standalone', job_id: 'job-1' }))).toBe(true);
+  });
+
+  it('counts a counter sale CONTAINING A SERVICE as workshop', () => {
+    // no intake, no job — but someone still polished a car
+    expect(
+      isWorkshopSale(row({ origin: 'standalone', job_id: null, document_lines: [{ products: { kind: 'service' } }] })),
+    ).toBe(true);
+  });
+
+  it('leaves a pure product sale as counter revenue', () => {
+    expect(
+      isWorkshopSale(row({ origin: 'standalone', job_id: null, document_lines: [{ products: { kind: 'product' } }] })),
+    ).toBe(false);
+  });
+
+  it('counts a mixed basket as workshop — the service decides it', () => {
+    expect(
+      isWorkshopSale(row({ origin: 'standalone', job_id: null, document_lines: [{ products: { kind: 'product' } }, { products: { kind: 'service' } }] })),
+    ).toBe(true);
+  });
+
+  it('reads the embed whichever shape PostgREST hands back', () => {
+    // products is a to-ONE FK so the row carries an object, but supabase's
+    // generated types widen every embed to an array — both must work.
+    expect(isWorkshopSale(row({ document_lines: [{ products: { kind: 'service' } }] }))).toBe(true);
+    expect(isWorkshopSale(row({ document_lines: [{ products: [{ kind: 'service' }] }] }))).toBe(true);
+    expect(isWorkshopSale(row({ document_lines: [{ products: [{ kind: 'product' }] }] }))).toBe(false);
+    expect(isWorkshopSale(row({ document_lines: [{ products: [] }] }))).toBe(false);
+  });
+
+  it('treats a sale with no lines, and an ad-hoc line with no product, as counter', () => {
+    expect(isWorkshopSale(row({ document_lines: [] }))).toBe(false);
+    expect(isWorkshopSale(row({ document_lines: null }))).toBe(false);
+    expect(isWorkshopSale(row({ document_lines: [{ products: null }] }))).toBe(false);
+    expect(isWorkshopSale(row({}))).toBe(false); // field absent entirely
+  });
+
+  it('splits the chart by that rule', () => {
+    const built = buildSalesPerformance(
+      resolveSalesPeriod({ salesRange: 'custom', salesFrom: '2026-07-13', salesTo: '2026-07-13' }),
+      [
+        row({ total_incl: 100, document_lines: [{ products: { kind: 'product' } }] }),  // speaker  -> counter
+        row({ total_incl: 250, document_lines: [{ products: { kind: 'service' } }] }),  // polish   -> workshop
+      ],
+    );
+    const day = built.points[0];
+    expect(day.counterCents).toBe(10_000);
+    expect(day.workshopCents).toBe(25_000);
+    expect(day.totalCents).toBe(35_000);
   });
 });

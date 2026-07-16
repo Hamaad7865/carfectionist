@@ -66,7 +66,7 @@ export interface SalesPeriod {
 }
 
 export interface SalesQuerySpec {
-  columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at';
+  columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at, document_lines(products(kind))';
   docTypes: ['invoice', 'credit_note'];
   statuses: ['issued', 'partly_paid', 'paid'];
   startIso: string;
@@ -81,6 +81,31 @@ export interface SalesDocumentRow {
   origin: 'standalone' | 'from_job';
   job_id: string | null;
   issued_at: string | null;
+  /** Each line's product kind — the sale is workshop work if any line is a service.
+   *  `products` is a to-ONE FK so PostgREST returns an object, but its generated
+   *  types widen every embed to an array. Accept both rather than lie to the
+   *  compiler about a shape we don't control. */
+  document_lines?: { products?: { kind: string } | { kind: string }[] | null }[] | null;
+}
+
+function lineIsService(line: { products?: { kind: string } | { kind: string }[] | null }): boolean {
+  const p = line?.products;
+  if (!p) return false;
+  return Array.isArray(p) ? p.some((x) => x?.kind === 'service') : p.kind === 'service';
+}
+
+/** Did the studio DO something to a car for this money?
+ *
+ *  Three ways that's true, and the first two alone were under-counting:
+ *   • it came off a job card (origin from_job)
+ *   • it reached the invoice through intake (job_id set, origin left standalone)
+ *   • it CONTAINS A SERVICE — a body polish rung up at the counter with no
+ *     intake and no job is still workshop work; only the paperwork is missing.
+ *
+ *  Counter revenue is what's left: selling a speaker off the shelf. */
+export function isWorkshopSale(row: SalesDocumentRow): boolean {
+  if (row.origin === 'from_job' || row.job_id != null) return true;
+  return (row.document_lines ?? []).some(lineIsService);
 }
 
 export interface SalesPoint {
@@ -201,7 +226,7 @@ export function resolveSalesPeriod(
 
 export function salesQuerySpec(period: SalesPeriod): SalesQuerySpec {
   return {
-    columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at',
+    columns: 'id, doc_type, status, total_incl, origin, job_id, issued_at, document_lines(products(kind))',
     docTypes: ['invoice', 'credit_note'],
     statuses: ['issued', 'partly_paid', 'paid'],
     startIso: period.startIso,
@@ -282,11 +307,7 @@ export function buildSalesPerformance(
     if (!point) continue;
 
     hasSales = true;
-    // A sale tied to a workshop job counts as Workshop revenue — whether it was
-    // flagged from_job or reached the invoice via intake (job_id set, origin left
-    // 'standalone' by the intake path). Classifying on job_id fixes the intake
-    // mis-count for past and future without rewriting frozen invoices' origin.
-    if (row.origin === 'from_job' || row.job_id != null) point.workshopCents += cents;
+    if (isWorkshopSale(row)) point.workshopCents += cents;
     else point.counterCents += cents;
     point.totalCents = point.counterCents + point.workshopCents;
   }
