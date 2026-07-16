@@ -7,6 +7,13 @@ import { formatMUR } from "@/lib/money";
 
 const FROM = { email: "receipts@app-carfectionist.com", name: "Carfectionist" };
 const FROM_DOCS = { email: "documents@app-carfectionist.com", name: "Carfectionist" };
+// Account/security mail goes out under its own address, so a password reset
+// never looks like it arrived from the receipts robot.
+const FROM_ACCOUNTS = { email: "accounts@app-carfectionist.com", name: "Carfectionist" };
+
+/** A staff member's own name lands in this HTML — escape it. */
+const escapeHtml = (s: string) =>
+  s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 export interface EmailAttachment {
   filename: string;
@@ -275,4 +282,54 @@ export async function sendZReportEmail(i: ZReportEmailInput): Promise<SendResult
     attachments: [{ filename: `${i.number}.pdf`, content: i.pdfBase64, contentType: "application/pdf" }],
     requireAttachment: true, // the Z-report body carries no download link (audit #11)
   });
+}
+
+export interface PasswordResetEmailInput {
+  to: string;
+  name: string;
+  link: string; // one-time /auth/reset?token_hash=… URL
+  minutes: number; // how long the link lives, for the copy
+}
+
+/** "Reset your password" — the one email in here that isn't about a sale.
+ *
+ *  Sent by US rather than by Supabase's built-in mailer. Supabase's default
+ *  sender is rate-limited to a handful of messages an hour and only reliably
+ *  delivers to project members, which for eight staff on plus-addressed inboxes
+ *  is a flow that works in a demo and fails the day someone actually needs it.
+ *  This goes out the same way receipts do, from our own domain. */
+export async function sendPasswordResetEmail(i: PasswordResetEmailInput): Promise<SendResult> {
+  const subject = "Reset your Carfectionist password";
+  const text =
+    `Hi ${i.name},\n\n` +
+    `Someone asked to reset the password for this Carfectionist account.\n\n` +
+    `Set a new password: ${i.link}\n\n` +
+    `The link works once and expires in about ${i.minutes} minutes.\n` +
+    `If this wasn't you, ignore this email — your password stays as it is.\n`;
+  const html = `<!doctype html><html><body style="margin:0;padding:0;background:#f2f4f7;font-family:Arial,Helvetica,sans-serif">
+  <div style="max-width:520px;margin:0 auto;padding:28px 16px">
+    <div style="background:#ffffff;border-radius:14px;padding:32px 28px;border:1px solid #e4e8ee">
+      <div style="text-align:center;font-size:20px;font-weight:800;letter-spacing:0.04em;color:#141b22">CARFECTIONIST</div>
+      <div style="text-align:center;font-size:16px;font-weight:700;color:#2b6cb0;margin-top:10px">Reset your password</div>
+      <p style="font-size:13.5px;color:#5b6572;line-height:1.6;margin:18px 0 8px">Hi ${escapeHtml(i.name)},</p>
+      <p style="font-size:13.5px;color:#5b6572;line-height:1.6;margin:0 0 22px">
+        Someone asked to reset the password for this account. Click below to choose a new one.
+      </p>
+      <div style="text-align:center;margin:26px 0">
+        <a href="${i.link}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 26px;border-radius:10px">
+          Set a new password
+        </a>
+      </div>
+      <p style="font-size:12px;color:#98a2b0;line-height:1.6;margin:0;text-align:center">
+        The link works once and expires in about ${i.minutes} minutes.<br>
+        If this wasn't you, ignore this email — your password stays as it is.
+      </p>
+    </div>
+    <p style="text-align:center;font-size:11px;color:#98a2b0;margin-top:14px">
+      Carfectionist · Mauritius. Sent because a password reset was requested for this address.
+    </p>
+  </div>
+</body></html>`;
+
+  return bindingSend({ to: i.to, from: FROM_ACCOUNTS, subject, html, text });
 }

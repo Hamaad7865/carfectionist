@@ -191,6 +191,9 @@ const ADMIN_TITLE: Record<string, string> = {
   // Changing someone's login is a security event — it must be in the feed, and
   // an unmapped event_type is silently dropped by mapAudit below.
   staff_email_changed: "Changed login email",
+  // Self-service reset. Unlike the rest of this map the actor is the staff
+  // member themselves, not an owner acting on them.
+  password_reset_self: "Reset their own password",
 };
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

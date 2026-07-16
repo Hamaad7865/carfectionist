@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import Link from "next/link";
 import { login, type LoginState } from "./actions";
 
 const initial: LoginState = {};
@@ -19,7 +20,12 @@ export function LoginForm() {
       </label>
 
       <label className="block">
-        <span className="mb-1.5 block text-xs font-bold tracking-wide text-muted">Password</span>
+        <div className="mb-1.5 flex items-baseline justify-between gap-2">
+          <span className="text-xs font-bold tracking-wide text-muted">Password</span>
+          <Link href="/forgot-password" className="text-xs font-semibold text-link hover:underline">
+            Forgot?
+          </Link>
+        </div>
         <input name="password" type="password" autoComplete="current-password" required className={input} placeholder="••••••••••" />
       </label>
 
