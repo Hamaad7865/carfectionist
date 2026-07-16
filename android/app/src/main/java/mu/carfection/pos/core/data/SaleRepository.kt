@@ -14,6 +14,7 @@ import mu.carfection.pos.core.money.pctOfCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.NewCustomerDto
 import mu.carfection.pos.core.network.PosApi
+import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.cancellation.CancellationException
@@ -147,6 +148,28 @@ sealed class SettleUncertain(cause: Throwable) : Exception(cause.message, cause)
 /** `issue_document` failed. Whether the invoice exists is unknown. */
 class SaleIssueUncertain(cause: Throwable) : SettleUncertain(cause)
 
+/**
+ * Rejections that are DEFINITIVE: the server refused before anything costing money
+ * committed. These must surface as plain errors — freezing the basket behind a false
+ * "couldn't confirm the sale reached the server" left the cashier retrying a request
+ * the server would deterministically refuse forever.
+ */
+private val DETERMINISTIC_ISSUE_REJECTIONS = listOf(
+    "the day is closed",                    // app.assert_day_open
+    "closed — reopen it",                   // day gate, dated variant
+    "unknown or closed cash session",       // the till went stale mid-sale
+    "must be taken on an open till",        // till gate
+    "no stock location",
+    "cannot issue a document with no lines",
+    "an invoice requires a customer",
+    "insufficient privileges",
+)
+
+internal fun isDeterministicRejection(e: Throwable): Boolean {
+    val m = e.message ?: return false
+    return DETERMINISTIC_ISSUE_REJECTIONS.any { m.contains(it, ignoreCase = true) }
+}
+
 /** The invoice was issued; `record_payment` failed. Retrying settles [invoiceId], idempotently. */
 class SalePaymentUncertain(
     val invoiceId: String,
@@ -182,7 +205,15 @@ class SaleRepository @Inject constructor(
         basketPct: Int = 0,
         basketAmtCents: Long = 0,
         comment: String? = null, // internal note; stored on the invoice, never on the receipt
+        // The retry path: a previous attempt already ISSUED this sale's invoice (the
+        // pendingSettle held its id). Skip draft+issue — re-issuing was impossible anyway
+        // (each retry minted a new draft, and the idempotency guard rightly refused it,
+        // trapping the cashier in a frozen basket) — and settle THAT invoice directly.
+        knownInvoiceId: String? = null,
     ): SaleResult {
+        if (knownInvoiceId != null) {
+            return settleIssued(knownInvoiceId, method, tenderCents, externalRef, cashSessionId, saleKey)
+        }
         require(cart.isNotEmpty()) { "Add at least one product." }
         if (method == PayMethod.CREDIT) requireNotNull(customerId) { "Pick a customer for a credit sale." }
 
@@ -196,7 +227,12 @@ class SaleRepository @Inject constructor(
         }
 
         // 2) Draft with the cart lines (rupee prices; the DB is the rounding authority).
+        // The draft id is DETERMINISTIC per sale: a retry re-locks the SAME draft row
+        // (save_draft upserts by id), so failed attempts litter no orphan drafts and the
+        // issue replay's same-document check lines up instead of refusing forever.
+        val draftId = UUID.nameUUIDFromBytes("carfection:draft:$saleKey".toByteArray()).toString()
         val doc = buildJsonObject {
+            put("id", draftId)
             put("doc_type", "invoice")
             put("customer_id", custId)
             put("origin", "standalone")
@@ -217,8 +253,17 @@ class SaleRepository @Inject constructor(
             }
         }
         // A draft costs nothing and carries no number: a failure here is safely retryable
-        // with a different basket, so it propagates as an ordinary exception.
-        val draft = api.saveDraft(doc, lines)
+        // with a different basket, so it propagates as an ordinary exception. One special
+        // case: "cannot edit an issued document" means a PREVIOUS attempt already issued
+        // this very draft and only the response was lost — fall through to the issue
+        // replay, which returns that same document under "$saleKey:issue".
+        val draft = try {
+            api.saveDraft(doc, lines)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            if (e.message?.contains("cannot edit an issued document") == true) null else throw e
+        }
 
         // 3) Issue — draws the gapless INV number + fires stock movements. Point of no return.
         // Counter sales move the Shop's on-hand (walk-in front), never the Warehouse default.
@@ -227,10 +272,13 @@ class SaleRepository @Inject constructor(
         val issued = try {
             // The till that rang it — this is what puts the sale under its service on the
             // cash-up. Same session the payment is booked to, so money and ticket agree.
-            api.issueDocument(draft.id, "$saleKey:issue", shopLocationId, cashSessionId)
+            api.issueDocument(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
+            // A definitive refusal (day closed, stale till, …) committed nothing costing
+            // money — surface it plainly so the basket stays live and editable.
+            if (isDeterministicRejection(e)) throw e
             throw SaleIssueUncertain(e)
         }
         val totalCents = rupeesToCents(issued.totalIncl) // server total is authoritative
@@ -260,6 +308,56 @@ class SaleRepository @Inject constructor(
         }
         val change = if (method == PayMethod.CASH && tendered != null) (tendered - totalCents).coerceAtLeast(0) else 0
         return SaleResult(issued.id, issued.number, totalCents, change, onAccount = false)
+    }
+
+    /**
+     * The tail of a sale whose invoice ALREADY exists (a retry after the payment call
+     * failed). Fetches the invoice for the authoritative figures, then either recognises
+     * it as already settled (the "failed" payment had in fact committed — the lost
+     * response was the only casualty) or records the outstanding balance under the same
+     * "$saleKey:pay" key, which replays safely.
+     */
+    private suspend fun settleIssued(
+        invoiceId: String,
+        method: PayMethod,
+        tenderCents: Long?,
+        externalRef: String?,
+        cashSessionId: String?,
+        saleKey: String,
+    ): SaleResult {
+        val inv = try {
+            api.fetchInvoice(invoiceId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw SalePaymentUncertain(invoiceId, null, e)
+        } ?: throw SalePaymentUncertain(invoiceId, null, IllegalStateException("invoice not found"))
+
+        val totalCents = rupeesToCents(inv.totalIncl)
+        if (method == PayMethod.CREDIT) return SaleResult(invoiceId, inv.number, totalCents, 0, onAccount = true)
+        val outstandingCents = (totalCents - rupeesToCents(inv.amountPaid)).coerceAtLeast(0)
+        val tendered = if (method == PayMethod.CASH) (tenderCents ?: outstandingCents) else null
+        if (outstandingCents == 0L) {
+            val change = if (tendered != null) (tendered - totalCents).coerceAtLeast(0) else 0
+            return SaleResult(invoiceId, inv.number, totalCents, change, onAccount = false)
+        }
+        try {
+            api.recordPayment(
+                invoiceId = invoiceId,
+                method = requireNotNull(method.rpcValue),
+                amountRupees = centsToRupees(outstandingCents),
+                tenderedRupees = tendered?.let { centsToRupees(it) },
+                externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                cashSessionId = cashSessionId,
+                idempotencyKey = "$saleKey:pay",
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            throw SalePaymentUncertain(invoiceId, inv.number, e)
+        }
+        val change = if (method == PayMethod.CASH && tendered != null) (tendered - outstandingCents).coerceAtLeast(0) else 0
+        return SaleResult(invoiceId, inv.number, totalCents, change, onAccount = false)
     }
 
     /**

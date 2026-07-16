@@ -797,7 +797,7 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
 
             // A dead button with no reason is the worst thing to hand a cashier mid-sale.
             if (s.cashNeedsTill) Text(
-                "Open the till before taking cash — cash has to land in a drawer that gets counted.",
+                "Open the till first — every payment lands on a service that gets counted.",
                 color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
                 modifier = Modifier.padding(bottom = 8.dp),
             )
@@ -825,10 +825,31 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                     )
                 }
             }
-            // owner/manager: void an unpaid invoice instead of collecting
+            // owner/manager: void an unpaid invoice instead of collecting — with a WHY,
+            // because the owner reads void reasons in the back office.
             s.collect?.takeIf { it.status == "issued" && vm.canManage }?.let { bill ->
-                Box(Modifier.fillMaxWidth().clickable { vm.voidInvoice(bill) }.padding(top = 2.dp), contentAlignment = Alignment.Center) {
+                var voidOpen by remember(bill.id) { mutableStateOf(false) }
+                var voidWhy by remember(bill.id) { mutableStateOf("") }
+                Box(Modifier.fillMaxWidth().clickable { voidOpen = !voidOpen }.padding(top = 2.dp), contentAlignment = Alignment.Center) {
                     Text("Void this invoice", color = Danger, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
+                if (voidOpen) {
+                    OutlinedTextField(
+                        voidWhy, { voidWhy = it },
+                        label = { Text("Reason for voiding (required)") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 6.dp),
+                    )
+                    Box(
+                        Modifier.fillMaxWidth().height(44.dp).padding(top = 6.dp)
+                            .background(if (voidWhy.isBlank()) InsetAlt else Danger, RoundedCornerShape(11.dp))
+                            .clickable(enabled = voidWhy.isNotBlank()) { vm.voidInvoice(bill, voidWhy) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (voidWhy.isBlank()) "Enter the reason above first" else "Void ${bill.number ?: "this invoice"}",
+                            color = if (voidWhy.isBlank()) TextMuted else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
         }
@@ -1033,7 +1054,7 @@ private fun SaleDone(
     customerLabel: String,
     canVoid: Boolean,
     onPrint: () -> Unit,
-    onVoid: () -> Unit,
+    onVoid: (String?) -> Unit, // the typed reason; null where the books carry none (undo / credit note)
     onNewSale: () -> Unit,
     onDone: () -> Unit,
 ) {
@@ -1076,6 +1097,12 @@ private fun SaleDone(
                     color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp,
                 )
                 Spacer(Modifier.height(20.dp))
+                // Reversing a payment or voiding a bill needs a WHY the owner can read in
+                // the back office. The undo-handover and credit-note paths carry no reason
+                // field in the books, so they confirm directly.
+                var voidPromptOpen by remember { mutableStateOf(false) }
+                var voidReason by remember { mutableStateOf("") }
+                val voidNeedsReason = result.paymentId != null || (result.onAccount && !result.fromCollect)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     // printed automatically at payment — this re-sends the same slip
                     Box(
@@ -1083,13 +1110,36 @@ private fun SaleDone(
                         contentAlignment = Alignment.Center,
                     ) { Text("Print again", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp) }
                     if (canVoid) Box(
-                        Modifier.height(48.dp).border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp)).clickable(onClick = onVoid).padding(horizontal = 18.dp),
+                        Modifier.height(48.dp).border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp))
+                            .clickable { if (voidNeedsReason) voidPromptOpen = !voidPromptOpen else onVoid(null) }
+                            .padding(horizontal = 18.dp),
                         contentAlignment = Alignment.Center,
                     ) { Text(when {
                         result.onAccount && result.fromCollect -> "Undo handover — job back to Ready"
                         result.onAccount -> "Void sale"
                         else -> "Void — refund & restock"
                     }, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                }
+                if (voidPromptOpen) {
+                    Spacer(Modifier.height(10.dp))
+                    OutlinedTextField(
+                        voidReason, { voidReason = it },
+                        label = { Text(if (result.paymentId != null) "Reason for reversing (required)" else "Reason for voiding (required)") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Box(
+                        Modifier.fillMaxWidth().height(46.dp)
+                            .background(if (voidReason.isBlank()) InsetAlt else Danger, RoundedCornerShape(12.dp))
+                            .clickable(enabled = voidReason.isNotBlank()) { onVoid(voidReason.trim()) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (voidReason.isBlank()) "Enter the reason above first" else "Confirm — this goes in the books",
+                            color = if (voidReason.isBlank()) TextMuted else Color.White,
+                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
+                        )
+                    }
                 }
                 Spacer(Modifier.height(16.dp))
                 // next sale, one tap away (mirrors the "new ticket ready" row)

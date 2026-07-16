@@ -134,19 +134,19 @@ data class CounterUiState(
 
     val canRecord: Boolean
         get() = !busy && payCents > 0 && (collect != null || cart.isNotEmpty()) && when (method) {
-            // Cash moves a physical drawer, so it has to be taken ON a till — the server refuses
-            // it otherwise. Owners skip the till gate, so without this they would only find out at
-            // the moment of tender, with the customer's money already in their hand.
+            // EVERY payment is taken ON a till (Cashmag: money belongs to a service) — the
+            // server refuses it otherwise. Cash because it moves a drawer; card/Juice/bank
+            // because a payment booked to no session shows on no Z-report, ever. The gate
+            // lives here too so the cashier learns before the customer's money is in hand.
             PayMethod.CASH -> effectiveTenderCents >= payCents && till != null
-            // Credit = leave it on the customer's account. A walk-in needs a chosen customer;
-            // a collect already has one (the invoice's), and leaving the balance owed is exactly
-            // what "take it on credit" means for an existing bill.
+            // Credit = leave it on the customer's account (no payment, so no till needed).
+            // A walk-in needs a chosen customer; a collect already has one (the invoice's).
             PayMethod.CREDIT -> (collect == null && customerId != null) || (collect?.customers != null)
-            else -> true
+            else -> till != null
         }
 
     /** Why the pay button is dead, when the reason is the till and not the basket. */
-    val cashNeedsTill: Boolean get() = method == PayMethod.CASH && till == null && payCents > 0
+    val cashNeedsTill: Boolean get() = method != PayMethod.CREDIT && till == null && payCents > 0
 
     /** Quick-tender chips: the round-ups a customer actually hands over, above what is being paid. */
     val quickTenders: List<Long>
@@ -224,14 +224,17 @@ internal fun CounterUiState.withSettleFailure(e: Throwable): CounterUiState = wh
     // request replays it. Cancelling instead would hide a settled invoice and re-ring the sale.
     is SalePaymentUncertain -> copy(
         busy = false,
-        pendingSettle = PendingSettle(e.invoiceId, e.number),
+        // A retry may re-fail without knowing the number — never forget one we had.
+        pendingSettle = PendingSettle(e.invoiceId, e.number ?: pendingSettle?.number),
         error = "${e.number?.let { "Invoice $it" } ?: "The invoice"} was issued but the payment " +
             "didn't confirm. Tap Record payment again — retrying can never charge twice. " +
             "Cancelling leaves it on the server.",
     )
     is SaleIssueUncertain -> copy(
         busy = false,
-        pendingSettle = PendingSettle(null, null),
+        // Keep a known invoiceId: overwriting it with nulls used to send the retry back
+        // through draft+issue, which the idempotency guard rightly refused forever.
+        pendingSettle = pendingSettle ?: PendingSettle(null, null),
         error = "Couldn't confirm the sale reached the server. Tap Record payment again to " +
             "finish it — don't change the basket.",
     )
@@ -436,9 +439,14 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(notice = "Receipt sent to the printer")
     }
 
-    /** Void the sale just completed: unpaid/on-account → void; paid → credit note (restocks). */
-    fun voidCompletedSale() {
+    /**
+     * Void the sale just completed: unpaid/on-account → void; paid → credit note (restocks).
+     * [reason] is REQUIRED where it lands in the books (void_document / reverse_payment) —
+     * the owner reads it in Activity/Traceability; "Voided at POS" told them nothing.
+     */
+    fun voidCompletedSale(reason: String?) {
         val r = local.value.done ?: return
+        val why = reason?.trim().takeUnless { it.isNullOrEmpty() }
         newSale() // clear the finished cart first; the sale itself is already committed
         when {
             // A COLLECT (deposit / part payment on an existing invoice): reverse just THIS
@@ -447,18 +455,19 @@ class CounterViewModel @Inject constructor(
             r.paymentId != null -> correction("Payment reversed — ${r.number ?: "invoice"}") {
                 // 2-arg form: reverse_payment falls back to the device's open till for a cash
                 // refund, which is the till this collect was just taken on.
-                api.reversePayment(r.paymentId, "Reversed at POS")
+                api.reversePayment(r.paymentId, why ?: "Reversed at POS")
             }
             // An on-account COLLECT's undo walks the HANDOVER back — the job returns to
             // READY and the bill stays open. Voiding here erased the receivable for a car
             // that had already left (and the job stayed delivered).
             r.onAccount && r.fromCollect -> correction("Handover walked back — ${r.number ?: "the bill"} stays owed") { api.undoOnAccount(r.invoiceId) }
-            r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, "Voided at POS") }
+            r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, why ?: "Voided at POS") }
             else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") { api.issueCreditNote(r.invoiceId, restock = true, stockLocationId = api.fetchShopLocationId()) }
         }
     }
 
-    fun voidInvoice(bill: OutstandingInvoiceDto) = correction("${bill.number ?: "Invoice"} voided") { api.voidDocument(bill.id, "Voided at POS") }
+    fun voidInvoice(bill: OutstandingInvoiceDto, reason: String) =
+        correction("${bill.number ?: "Invoice"} voided") { api.voidDocument(bill.id, reason.trim().ifEmpty { "Voided at POS" }) }
     /** Reason is REQUIRED — the owner reads it in Activity/Traceability/Cash Flow. */
     fun reverseThisPayment(p: TodayPaymentDto, reason: String) = correction("Payment reversed") { api.reversePayment(p.id, reason) }
     fun refundInvoice(p: TodayPaymentDto) = correction("Credit note issued — ${p.documents?.number ?: "invoice"}") { api.issueCreditNote(p.documentId, restock = true, stockLocationId = api.fetchShopLocationId()) }
@@ -808,6 +817,8 @@ class CounterViewModel @Inject constructor(
                     basketPct = s.basketPct,
                     basketAmtCents = s.basketAmtCents,
                     comment = s.comment,
+                    // Retry of a settle that already issued: go straight to the payment.
+                    knownInvoiceId = s.pendingSettle?.invoiceId,
                 )
                 // Sale is committed — printing/drawer are fire-and-forget (can never lose it).
                 // Receipt mirrors the SAVED lines (incl. discount lines) in the studio's slip format.
