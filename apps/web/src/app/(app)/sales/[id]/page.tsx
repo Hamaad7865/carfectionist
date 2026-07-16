@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { Printer, FileMinus, Receipt } from "lucide-react";
+import { Printer, FileMinus, Receipt, ArrowRight } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { getDealFlow } from "@/lib/supabase/queries/flow";
 import { FlowStepper } from "@/components/flow/FlowStepper";
@@ -36,6 +36,14 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const canCredit = isInvoice && doc.paidCents > 0 && doc.status !== "void" && !doc.creditedByNumber;
   const title = doc.docType === "quote" ? "Quotation" : doc.docType === "credit_note" ? "Credit note" : "Invoice";
 
+  // Once a quote is BILLED, "Convert to invoice" and "Accept → create job" are
+  // finished business — offering them again reads like the app forgot (owner's
+  // report: an accepted, PAID quote still shouting "Convert to invoice"). The
+  // flow resolver already found the live invoice (voids excluded), so reuse it:
+  // the button becomes the way TO that invoice instead.
+  const invoiceStep = flow?.find((s) => s.key === "invoice");
+  const billedHref = doc.docType === "quote" && invoiceStep?.state === "done" ? invoiceStep.href : null;
+
   return (
     <div className="p-4 sm:p-6">
       <div className="mx-auto max-w-5xl">
@@ -70,7 +78,15 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
             {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
             {canCredit && <CreditNoteButton invoiceId={doc.id} number={doc.number} />}
-            {doc.docType === "quote" && !["declined", "expired"].includes(doc.status) && <ConvertButton quoteId={doc.id} />}
+            {doc.docType === "quote" &&
+              !["declined", "expired"].includes(doc.status) &&
+              (billedHref ? (
+                <Link href={billedHref} className={btn("primary")}>
+                  Go to invoice <ArrowRight size={15} />
+                </Link>
+              ) : (
+                <ConvertButton quoteId={doc.id} />
+              ))}
           </div>
         </div>
 
@@ -82,8 +98,12 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
 
         {/* Quote -> job actions must not be trapped behind intake data: a quote
             created via "+ New document" has no markers/photos, yet still needs
-            "Accept -> create job" (and, once one exists, the way to its job). */}
-        {doc.docType === "quote" && !(doc.intake && (doc.intake.markers.length > 0 || doc.intake.photos.length > 0)) && (
+            "Accept -> create job" (and, once one exists, the way to its job).
+            Once BILLED, the prompt disappears — the deal moved on without a
+            job, and asking again after the invoice reads like a step backwards. */}
+        {doc.docType === "quote" &&
+          !(doc.intake && (doc.intake.markers.length > 0 || doc.intake.photos.length > 0)) &&
+          !(billedHref && !doc.jobId) && (
           <div className="mt-4 flex items-center justify-between rounded-[13px] border border-line bg-card px-4 py-2.5">
             <span className="text-[12.5px] text-muted">{doc.jobId ? "This quote has a job on the board." : "Client accepted this quote?"}</span>
             {doc.jobId ? (
@@ -138,7 +158,7 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Condition &amp; Damage (at intake)</span>
               {doc.jobId ? (
                 <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job →</Link>
-              ) : (
+              ) : billedHref ? null : (
                 <StartJobButton documentId={doc.id} quote={doc.docType === "quote"} />
               )}
             </div>
