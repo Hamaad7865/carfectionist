@@ -5,7 +5,6 @@ import { hasModule, type Role } from "./roles";
 
 export interface SessionContext {
   userId: string;
-  email: string;
   tenantId: string;
   role: Role;
   displayName: string;
@@ -13,34 +12,39 @@ export interface SessionContext {
 }
 
 /**
- * Resolve the current user + their app_users row (tenant, role). Cached per
- * request so the shell layout and page code share one lookup.
+ * Who is this request? — in ONE round trip.
+ *
+ * This used to make two, back to back: auth.getUser() (a network call asking
+ * Supabase Auth to validate the token) and then a select on app_users for the
+ * tenant and role. From the Worker each hop costs ~250ms, so every page in the
+ * app paid ~500ms before it could begin — the single biggest fixed cost we had.
+ *
+ * The current_app_user() RPC answers both at once, and the security is the same:
+ * PostgREST verifies the JWT's signature before the function runs, so auth.uid()
+ * is null for a forged or expired token and the function returns nothing. The
+ * function is pinned to auth.uid(), so it can only ever return the caller's own
+ * row, and only while their account is active.
+ *
+ * Dropping getUser() does NOT affect token refresh — that runs in the browser
+ * (AuthKeepalive), because Workers can't run Next's Node-only middleware.
+ *
+ * Still cached per request, so the layout and the page share the one lookup.
  */
 export const getSessionContext = cache(async (): Promise<SessionContext | null> => {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
-
-  const { data: appUser } = await supabase
-    .from("app_users")
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .select("tenant_id, role, display_name, modules" as any)
-    .eq("auth_user_id", user.id)
-    .eq("is_active", true)
-    .single();
-  if (!appUser) return null;
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const au = appUser as any;
+  const { data, error } = await (supabase as any).rpc("current_app_user");
+  if (error) return null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const row = (Array.isArray(data) ? data[0] : data) as any;
+  if (!row?.user_id) return null;
+
   return {
-    userId: user.id,
-    email: user.email ?? "",
-    tenantId: au.tenant_id,
-    role: au.role as Role,
-    displayName: au.display_name,
-    modules: Array.isArray(au.modules) ? au.modules : null,
+    userId: row.user_id,
+    tenantId: row.tenant_id,
+    role: row.role as Role,
+    displayName: row.display_name,
+    modules: Array.isArray(row.modules) ? row.modules : null,
   };
 });
 
