@@ -68,7 +68,16 @@ class JobAlarmReceiver : BroadcastReceiver() {
             // long as the car isn't finished (handled above). Gating this on
             // status == "scheduled" would swallow the notification exactly when the
             // flip won the race, which is most of the time.
-            JobAlert.DUE -> true
+            //
+            // The one exception: a job a human STARTED EARLY (started_at before its
+            // booked time) is already visibly underway, so "booked in now" would be a
+            // stale ping. Auto-start stamps started_at == scheduled_at, and a normal
+            // or late manual start is at/after it — all of those still fire.
+            JobAlert.DUE -> {
+                val started = JobClock.epoch(job.startedAt)
+                val sched = JobClock.epoch(job.scheduledAt)
+                started == null || sched == null || started >= sched
+            }
             // Genuinely still not started — the server-down safety net.
             JobAlert.OVERDUE -> job.status == "scheduled"
             // Still running, and genuinely past its estimate. A pause slides the ETA, so a

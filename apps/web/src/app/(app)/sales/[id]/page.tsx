@@ -243,7 +243,10 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
 
           {/* Payments */}
           <div className="space-y-4">
-            {isInvoice && (
+            {/* A voided invoice owes nothing — its total_incl stays but paid is 0,
+                so an unguarded "Outstanding = total − paid" would read as money due.
+                The VOID banner above already tells the story; no payment summary. */}
+            {isInvoice && doc.status !== "void" && (
               <div className="rounded-[15px] border border-line bg-card p-4 text-[13px]">
                 <div className="flex justify-between py-1 text-muted"><span>Paid</span><span className="num text-ink">{formatMUR(doc.paidCents)}</span></div>
                 <div className="flex justify-between py-1">

@@ -237,6 +237,18 @@ export async function updateStaffIdentityAction(input: z.input<typeof identitySc
 
   const sbOwner = await createClient();
 
+  // Name first: it's the reversible one (a plain column). Doing the email change
+  // before it meant a name-save failure surfaced "Could not save the name" AFTER
+  // the login had already moved — a confusing half-done state. Now if the name
+  // fails, nothing has changed yet and the message is simply true.
+  if (nameChanged) {
+    const { error } = await sbOwner.from("app_users").update({ display_name: displayName }).eq("id", id);
+    if (error) return { ok: false, error: "Could not save the name." };
+    // Keep the auth copy in step — createStaffAction seeds it, and a stale one
+    // would disagree with the roster.
+    await admin.auth.admin.updateUserById(target.auth_user_id, { user_metadata: { ...(authUser?.user?.user_metadata ?? {}), display_name: displayName } });
+  }
+
   if (emailChanged) {
     // Ask FIRST whether the address is free. On a collision GoTrue answers with
     // an opaque 500 whose message is the string "{}" — nothing to match on, so
@@ -251,14 +263,6 @@ export async function updateStaffIdentityAction(input: z.input<typeof identitySc
     // own login. The owner making the change IS the confirmation.
     const { error } = await admin.auth.admin.updateUserById(target.auth_user_id, { email, email_confirm: true });
     if (error) return { ok: false, error: "Could not change the login email. Check the address and try again." };
-  }
-
-  if (nameChanged) {
-    const { error } = await sbOwner.from("app_users").update({ display_name: displayName }).eq("id", id);
-    if (error) return { ok: false, error: "Could not save the name." };
-    // Keep the auth copy in step — createStaffAction seeds it, and a stale one
-    // would disagree with the roster.
-    await admin.auth.admin.updateUserById(target.auth_user_id, { user_metadata: { ...(authUser?.user?.user_metadata ?? {}), display_name: displayName } });
   }
 
   const sb = await createClient();

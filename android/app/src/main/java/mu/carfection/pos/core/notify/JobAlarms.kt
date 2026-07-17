@@ -85,8 +85,10 @@ class JobAlarms @Inject constructor(
     private fun set(jobId: String, alert: JobAlert, atMs: Long, nowMs: Long) {
         val mgr = am ?: return
         // A moment already gone is not an alert; it is noise. (A job booked for last
-        // Tuesday must not scream the instant the app opens.)
-        if (atMs <= nowMs) return
+        // Tuesday must not scream the instant the app opens.) Cancel rather than just
+        // skip: re-arming after a reschedule into the past must clear the OLD alarm,
+        // or it would still fire at the stale minute.
+        if (atMs <= nowMs) { mgr.cancel(pending(jobId, alert, mutable = false)); return }
 
         val pi = pending(jobId, alert, mutable = false)
         val exact = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || mgr.canScheduleExactAlarms()
