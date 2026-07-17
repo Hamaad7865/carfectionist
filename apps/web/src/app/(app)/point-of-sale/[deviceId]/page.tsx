@@ -10,7 +10,7 @@ import { CashOutButton } from "@/features/pos/CashOutButton";
 import { RefDatePicker } from "@/features/pos/RefDatePicker";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { formatMUR } from "@/lib/money";
-import { muDateTime, muToday } from "@/lib/mu-date";
+import { muDate, muDateTime, muDayLabel, muToday } from "@/lib/mu-date";
 
 const TABS = [
   { key: "general", label: "General" },
@@ -320,7 +320,11 @@ export default async function DeviceDashboardPage({
             </div>
           )}
 
-          {/* ── TRACEABILITY — date-driven, refs clickable ── */}
+          {/* ── TRACEABILITY — date-driven, refs clickable. Rendered the way the
+                 owner knows from Cashmag: a big outlined circle per event,
+                 uppercase title with the detail beneath, plenty of air — and,
+                 because she found the dates too small to read, each day gets a
+                 written-out header band and each row a large right-hand time. ── */}
           {tab === "trace" && (
             <div className="max-w-3xl">
               <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -335,32 +339,37 @@ export default async function DeviceDashboardPage({
                 </div>
               ) : (
                 <div className="flex flex-col">
-                  {trace.map((e) => {
+                  {trace.map((e, i) => {
                     const K = KIND_ICON[e.kind] ?? CircleDot;
+                    const day = muDate(e.at);
+                    const newDay = i === 0 || day !== muDate(trace[i - 1].at);
                     return (
-                      <div key={e.key} className="relative flex gap-3.5 pb-5 last:pb-0">
-                        {/* rail */}
-                        <div className="flex flex-col items-center">
-                          <span className="grid size-9 shrink-0 place-items-center rounded-full border border-line-2 bg-card text-body">
-                            <K size={15} strokeWidth={2.1} />
-                          </span>
-                          <span className="mt-1 w-px flex-1 bg-line" />
-                        </div>
-                        <div className="min-w-0 flex-1 pt-1">
-                          <div className="flex flex-wrap items-baseline gap-x-2.5">
-                            {e.href ? (
-                              <Link href={e.href} className="text-[12.5px] font-bold uppercase tracking-[0.06em] text-link hover:underline">{e.title}</Link>
-                            ) : (
-                              <span className="text-[12.5px] font-bold uppercase tracking-[0.06em] text-ink">{e.title}</span>
-                            )}
-                            <span className="num text-[11px] text-faint">{e.atLabel}</span>
+                      <div key={e.key}>
+                        {newDay && (
+                          <div className={`flex items-center gap-3 ${i === 0 ? "" : "mt-2"} mb-5`}>
+                            <span className="rounded-[9px] bg-band px-3.5 py-2 text-[13.5px] font-extrabold text-ink-strong">{muDayLabel(e.at)}</span>
+                            <span className="h-px flex-1 bg-line" />
                           </div>
-                          {e.detail && (
-                            // break-words: long unbroken tokens (emails, refs) must wrap, not overflow
-                            <div className="mt-0.5 break-words text-[12.5px] text-muted">
-                              {e.href ? <Link href={e.href} className="hover:underline">{e.detail}</Link> : e.detail}
-                            </div>
-                          )}
+                        )}
+                        <div className="flex items-start gap-4 pb-7">
+                          <span className="grid size-11 shrink-0 place-items-center rounded-full border-[1.5px] border-line-2 bg-card text-body">
+                            <K size={19} strokeWidth={2} />
+                          </span>
+                          <div className="min-w-0 flex-1 pt-0.5">
+                            {e.href ? (
+                              <Link href={e.href} className="text-[13.5px] font-bold uppercase tracking-[0.07em] text-link hover:underline">{e.title}</Link>
+                            ) : (
+                              <span className="text-[13.5px] font-bold uppercase tracking-[0.07em] text-ink">{e.title}</span>
+                            )}
+                            {e.detail && (
+                              // break-words: long unbroken tokens (emails, refs) must wrap, not overflow
+                              <div className="mt-1 break-words text-[13px] text-muted">
+                                {e.href ? <Link href={e.href} className="hover:underline">{e.detail}</Link> : e.detail}
+                              </div>
+                            )}
+                          </div>
+                          {/* The time she actually needs to read — large, dark, tabular */}
+                          <span className="num shrink-0 pt-0.5 text-[15px] font-extrabold text-ink">{e.atLabel.slice(11)}</span>
                         </div>
                       </div>
                     );

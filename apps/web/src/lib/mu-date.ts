@@ -22,3 +22,16 @@ export function muToday(): string {
 export function muNow(now = Date.now()): Date {
   return new Date(now + MU_OFFSET_MS);
 }
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+/**
+ * UTC ISO timestamp → "Thursday 17 July 2026" in Mauritius local time.
+ * Hand-rolled (no Intl): the owner reads these headers, so they must render
+ * identically on workerd and in the browser.
+ */
+export function muDayLabel(iso: string): string {
+  const d = new Date(Date.parse(iso) + MU_OFFSET_MS);
+  return `${DAY_NAMES[d.getUTCDay()]} ${d.getUTCDate()} ${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+}
