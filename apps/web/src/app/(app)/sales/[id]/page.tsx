@@ -265,13 +265,16 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                       <div className="text-[11px] text-faint">Everything {doc.customerName ?? "this customer"} owes — not just this invoice</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-3">
+                      {/* Instant HTML print page (Save-as-PDF from there), not the
+                          Browser-Rendering PDF endpoint that cold-started Chromium
+                          on every click and left the tab blank for seconds. */}
                       <a
-                        href={`/api/reports/statement/${doc.customerId}/pdf`}
+                        href={`/print/statement/${doc.customerId}`}
                         target="_blank"
                         rel="noreferrer"
                         className="text-[12px] font-semibold text-link hover:underline"
                       >
-                        View PDF
+                        View
                       </a>
                       <StatementSendButton customerId={doc.customerId} customerName={doc.customerName ?? "the customer"} email={doc.customerEmail} />
                     </div>
