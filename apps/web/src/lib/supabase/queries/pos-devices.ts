@@ -103,14 +103,18 @@ export async function getPosOverview(): Promise<PosOverview> {
 
   if (openIds.length > 0) {
     const [{ data: pays }, movesRes] = await Promise.all([
-      sb.from("payments").select("cash_session_id, amount").in("cash_session_id", openIds).eq("method", "cash"),
+      // booked_session_id, NOT cash_session_id: the drawer a row MOVES. A refund
+      // booked on till B for money till A took subtracts from B's drawer — the
+      // same column close_cash_session sums, or the live expected diverges from
+      // the close and the power-off dialog pre-fills the wrong count.
+      sb.from("payments").select("booked_session_id, amount").in("booked_session_id", openIds).eq("method", "cash"),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (sb.from("till_movements" as any) as any).select("cash_session_id, amount").in("cash_session_id", openIds),
     ]);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     for (const p of (pays ?? []) as any[]) {
       for (const till of openByDevice.values()) {
-        if (till.sessionId === p.cash_session_id) till.cashCollectedCents += rupeesToCents(Number(p.amount));
+        if (till.sessionId === p.booked_session_id) till.cashCollectedCents += rupeesToCents(Number(p.amount));
       }
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -342,10 +346,15 @@ export async function getDeviceDashboard(
     (s) => s.closed_at && Date.parse(s.closed_at) >= refMs && Date.parse(s.closed_at) < refEndMs,
   );
 
-  const PAY_COLS = "id, cash_session_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value)";
+  // booked_session_id: the drawer a row MOVES (till_integrity). A cross-till
+  // reversal belongs to the session it was paid OUT of — where Cashmag shows it,
+  // and the column close_cash_session sums. Fetching by cash_session_id put the
+  // mirror row on the till that took the ORIGINAL money and made the closing
+  // cards disagree with the close itself.
+  const PAY_COLS = "id, booked_session_id, method, amount, received_at, received_by, reverses_payment_id, documents(id, number, discount_kind, discount_value)";
   const fetchPays = async (ids: string[]) => {
     if (ids.length === 0) return [];
-    const { data } = await sb.from("payments").select(PAY_COLS).in("cash_session_id", ids).order("received_at", { ascending: false }).limit(600);
+    const { data } = await sb.from("payments").select(PAY_COLS).in("booked_session_id", ids).order("received_at", { ascending: false }).limit(600);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return (data ?? []) as any[];
   };
@@ -369,14 +378,17 @@ export async function getDeviceDashboard(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const moveRows = ((movesRes as any).data ?? []) as any[];
 
+  // Payments group by the drawer they moved (booked); till_movements only have
+  // cash_session_id (a petty-cash out IS its till's) — the fallback serves them.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groupBySession = (rows: any[]) => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const m = new Map<string, any[]>();
     for (const p of rows) {
-      const arr = m.get(p.cash_session_id) ?? [];
+      const key = p.booked_session_id ?? p.cash_session_id;
+      const arr = m.get(key) ?? [];
       arr.push(p);
-      m.set(p.cash_session_id, arr);
+      m.set(key, arr);
     }
     return m;
   };

@@ -208,13 +208,27 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         })
     }
 
-    /** Best-effort traceability event (ai_insert RLS: any tenant member may insert). */
-    suspend fun insertAuditEvent(tenantId: String, eventType: String, deviceId: String?, payload: JsonObject) {
+    /**
+     * Traceability event (ai_insert RLS: any tenant member may insert).
+     * [id] makes a replay idempotent — the second insert of the same UUID hits the
+     * primary key and proves the first landed. [createdAt] keeps the event stamped
+     * at the moment it HAPPENED, not the moment a flaky network finally let it through.
+     */
+    suspend fun insertAuditEvent(
+        tenantId: String,
+        eventType: String,
+        deviceId: String?,
+        payload: JsonObject,
+        id: String? = null,
+        createdAt: String? = null,
+    ) {
         client.postgrest.from("audit_events").insert(buildJsonObject {
+            if (id != null) put("id", id)
             put("tenant_id", tenantId)
             put("event_type", eventType)
             if (deviceId != null) put("device_id", deviceId) else put("device_id", JsonNull)
             put("payload", payload)
+            if (createdAt != null) put("created_at", createdAt)
         })
     }
 

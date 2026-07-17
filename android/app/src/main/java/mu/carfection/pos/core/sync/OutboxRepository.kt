@@ -12,7 +12,11 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
 import mu.carfection.pos.core.network.PosApi
+import java.time.Instant
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -60,6 +64,14 @@ class OutboxRepository @Inject constructor(
 
     @Serializable private data class AssignTech(val jobId: String, val technicianId: String)
     @Serializable private data class SetChecklist(val jobId: String, val checklist: JsonArray)
+    @Serializable private data class AuditEvent(
+        val id: String,          // client-minted UUID — what makes the append replay-safe
+        val tenantId: String,
+        val eventType: String,
+        val deviceId: String?,
+        val payload: String,     // JsonObject, serialized
+        val createdAt: String,   // the moment it happened, not the moment it flushed
+    )
 
     /** The latest still-queued checklist / technician per job — what the server hasn't caught up to. */
     data class JobOverlay(val checklist: JsonArray? = null, val technicianId: String? = null)
@@ -91,6 +103,23 @@ class OutboxRepository @Inject constructor(
     /** Persist a job's checklist state. Idempotent — the last write for a job wins. */
     suspend fun enqueueSetChecklist(jobId: String, checklist: JsonArray, label: String) =
         enqueue(OP_SET_CHECKLIST, json.encodeToString(SetChecklist(jobId, checklist)), "checklist:$jobId", label)
+
+    /**
+     * Record a traceability event that must SURVIVE a network blip — the owner reads
+     * these (receipt printed / skipped) as the device's history, so silently dropping
+     * one falsifies the record. An audit INSERT is an append, which the outbox normally
+     * refuses (replays double-count) — this one is made replay-safe by minting the row
+     * id HERE: a replay of the same UUID hits the primary key, and [dispatch] reads
+     * that duplicate as "already landed", not as a failure.
+     */
+    suspend fun enqueueAuditEvent(tenantId: String, eventType: String, deviceId: String?, payload: JsonObject, label: String) {
+        val id = UUID.randomUUID().toString()
+        val op = AuditEvent(
+            id = id, tenantId = tenantId, eventType = eventType, deviceId = deviceId,
+            payload = payload.toString(), createdAt = Instant.now().toString(),
+        )
+        enqueue(OP_AUDIT_EVENT, json.encodeToString(op), "audit:$id", label)
+    }
 
     private suspend fun enqueue(opType: String, payload: String, idempotencyKey: String, label: String) {
         dao.insert(OutboxOp(opType = opType, payload = payload, idempotencyKey = idempotencyKey, label = label, createdAt = System.currentTimeMillis()))
@@ -128,12 +157,31 @@ class OutboxRepository @Inject constructor(
     private suspend fun dispatch(op: OutboxOp) = when (op.opType) {
         OP_ASSIGN_TECH -> json.decodeFromString<AssignTech>(op.payload).let { api.assignTechnician(it.jobId, it.technicianId) }
         OP_SET_CHECKLIST -> json.decodeFromString<SetChecklist>(op.payload).let { api.setChecklist(it.jobId, it.checklist) }
+        OP_AUDIT_EVENT -> json.decodeFromString<AuditEvent>(op.payload).let {
+            try {
+                api.insertAuditEvent(
+                    tenantId = it.tenantId, eventType = it.eventType, deviceId = it.deviceId,
+                    payload = json.parseToJsonElement(it.payload).jsonObject,
+                    id = it.id, createdAt = it.createdAt,
+                )
+            } catch (e: Exception) {
+                // The insert of a client-minted id can only collide with ITSELF: a lost
+                // response whose write actually landed. That is success, not failure.
+                if (!isDuplicateKey(e)) throw e
+            }
+        }
         else -> error("unknown outbox op: ${op.opType}")
+    }
+
+    private fun isDuplicateKey(e: Exception): Boolean {
+        val m = e.message ?: return false
+        return m.contains("23505") || m.contains("duplicate key", ignoreCase = true)
     }
 
     companion object {
         const val OP_ASSIGN_TECH = "assign_tech"
         const val OP_SET_CHECKLIST = "set_checklist"
+        const val OP_AUDIT_EVENT = "audit_event"
         private const val MAX_ATTEMPTS = 5
         private const val RETRY_INTERVAL_MS = 10_000L
         private const val TAG = "Outbox"

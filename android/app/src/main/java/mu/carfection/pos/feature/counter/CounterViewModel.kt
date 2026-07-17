@@ -251,6 +251,7 @@ class CounterViewModel @Inject constructor(
     private val printer: ReceiptPrinter,
     private val drawer: CashDrawer,
     private val api: PosApi,
+    private val outbox: mu.carfection.pos.core.sync.OutboxRepository,
     private val collectBus: mu.carfection.pos.core.data.CollectBus,
 ) : ViewModel() {
 
@@ -894,18 +895,22 @@ class CounterViewModel @Inject constructor(
 
     /**
      * Traceability: record whether the customer walked away with a printed slip
-     * (Cashmag's "non édition d'une note"). Fire-and-forget — a sale must never
-     * fail on its audit trail.
+     * (Cashmag's "non édition d'une note"). Queued through the outbox, not fired
+     * at the network: a sale must never fail on its audit trail, but the trail
+     * must also never silently LOSE an event to a Wi-Fi blip — the owner reads
+     * this history as fact. The enqueue is a local Room write (fast, offline-safe);
+     * the outbox retries delivery until it lands.
      */
     private fun logReceiptOutcome(number: String?, printed: Boolean) {
         viewModelScope.launch {
             runCatching {
                 val tenant = catalog.tenantId() ?: return@launch
-                api.insertAuditEvent(
+                outbox.enqueueAuditEvent(
                     tenantId = tenant,
                     eventType = if (printed) "receipt_printed" else "receipt_skipped",
                     deviceId = session.deviceId(),
                     payload = buildJsonObject { if (number != null) put("number", number) },
+                    label = "Receipt trace · ${number ?: "sale"}",
                 )
             }
         }

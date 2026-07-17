@@ -31,7 +31,10 @@ export async function getCashSessions(): Promise<{ open: OpenTill | null; recent
   let open: OpenTill | null = null;
   if (openRow) {
     const [{ data: pays }, movesRes] = await Promise.all([
-      sb.from("payments").select("amount").eq("cash_session_id", openRow.id).eq("method", "cash"),
+      // booked_session_id, NOT cash_session_id: a reversal booked on this till
+      // for money another till took must count against THIS drawer — the same
+      // column close_cash_session sums, or the live expected drifts from the close.
+      sb.from("payments").select("amount").eq("booked_session_id", openRow.id).eq("method", "cash"),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (sb.from("till_movements" as any) as any).select("amount").eq("cash_session_id", openRow.id),
     ]);
