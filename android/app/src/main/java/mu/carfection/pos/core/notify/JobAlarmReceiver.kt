@@ -63,8 +63,14 @@ class JobAlarmReceiver : BroadcastReceiver() {
         if (job.readyAt != null || job.deliveredAt != null || job.status == "cancelled") return false
 
         return when (alert) {
-            // Only worth saying if nobody has picked the car up yet.
-            JobAlert.DUE, JobAlert.OVERDUE -> job.status == "scheduled"
+            // The booked moment has arrived. The server auto-starts the job at this
+            // instant, so by now it may already be in_progress — fire either way, as
+            // long as the car isn't finished (handled above). Gating this on
+            // status == "scheduled" would swallow the notification exactly when the
+            // flip won the race, which is most of the time.
+            JobAlert.DUE -> true
+            // Genuinely still not started — the server-down safety net.
+            JobAlert.OVERDUE -> job.status == "scheduled"
             // Still running, and genuinely past its estimate. A pause slides the ETA, so a
             // job paused since the alarm was armed is not late yet — re-check, don't assume.
             JobAlert.LATE -> job.status == "in_progress" &&

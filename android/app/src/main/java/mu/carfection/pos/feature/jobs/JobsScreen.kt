@@ -32,7 +32,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Text
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.rememberDatePickerState
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -168,6 +174,8 @@ fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: Jobs
     if (s.invoiceOpen) InvoiceDialog(s, viewModel)
     if (s.viewInvoice != null || s.viewInvoiceBusy) ViewInvoiceDialog(s, viewModel)
     if (s.addChecklistOpen) AddChecklistDialog(viewModel)
+    if (s.reschedDateOpen) RescheduleDatePicker(viewModel)
+    if (s.reschedTimeOpen) RescheduleTimePicker(viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(1800); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
     // Failures (mark ready / checkout / timer) were captured in state but never
@@ -490,11 +498,20 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                     }
                 }
                 // When the car is booked in — the scheduled time, shown on the work order.
-                j.scheduledAt?.let {
+                // A still-scheduled job can be re-timed here; once it's running (auto-started
+                // at its slot, or started by hand) the start moment is history, so the tap goes.
+                if (j.scheduledAt != null || j.status == "scheduled") {
                     Row(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(12.dp)).padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("Scheduled", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextMuted)
                         Spacer(Modifier.weight(1f))
-                        Text(scheduleLabel(it), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                        Text(j.scheduledAt?.let { scheduleLabel(it) } ?: "Not set", fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary)
+                        if (j.status == "scheduled") {
+                            Text(
+                                if (j.scheduledAt == null) "Set time" else "Reschedule",
+                                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Accent,
+                                modifier = Modifier.clickable(enabled = !s.busy) { vm.openReschedule() }.padding(start = 12.dp),
+                            )
+                        }
                     }
                 }
                 if (j.damageMarkers.isNotEmpty()) {
@@ -803,4 +820,47 @@ private fun jobFlow(j: JobBoardDto): List<FlowStepUi> {
         // sixth step appears only when one has been issued.
         listOf(FlowStepUi("Certificate", FlowState.DONE, listOfNotNull(it.number, it.expiresAt?.let { d -> "to $d" }).joinToString(" · ")))
     } ?: emptyList())
+}
+
+// ── Reschedule a booking: pick a day, then a time (mirrors the quote screen) ──
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RescheduleDatePicker(vm: JobsViewModel) {
+    val st = rememberDatePickerState(initialSelectedDateMillis = System.currentTimeMillis())
+    DatePickerDialog(
+        onDismissRequest = vm::closeReschedule,
+        confirmButton = {
+            Text(
+                "Next", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent,
+                modifier = Modifier.clickable { st.selectedDateMillis?.let { vm.pickRescheduleDate(it) } ?: vm.closeReschedule() }.padding(14.dp),
+            )
+        },
+        dismissButton = {
+            Text(
+                "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary,
+                modifier = Modifier.clickable { vm.closeReschedule() }.padding(14.dp),
+            )
+        },
+    ) { DatePicker(state = st) }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun RescheduleTimePicker(vm: JobsViewModel) {
+    val now = java.time.LocalTime.now()
+    val st = rememberTimePickerState(initialHour = now.hour, initialMinute = now.minute, is24Hour = true)
+    Dialog(onDismissRequest = vm::closeReschedule) {
+        Column(Modifier.card().padding(22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("Start time", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, color = TextPrimary)
+            TimePicker(state = st)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(Modifier.weight(1f).height(48.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable { vm.closeReschedule() }, contentAlignment = Alignment.Center) {
+                    Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary)
+                }
+                Box(Modifier.weight(1.3f).height(48.dp).background(Accent, RoundedCornerShape(12.dp)).clickable { vm.pickRescheduleTime(st.hour, st.minute) }, contentAlignment = Alignment.Center) {
+                    Text("Reschedule", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
+                }
+            }
+        }
+    }
 }

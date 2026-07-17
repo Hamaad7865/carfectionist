@@ -66,13 +66,15 @@ class JobNotifications @Inject constructor(
         val who = job.customers?.name?.let { " — $it" } ?: ""
 
         val title = when (alert) {
-            JobAlert.DUE -> "Due to start now"
+            JobAlert.DUE -> "Started — booked in now"
             JobAlert.OVERDUE -> "Still not started"
             JobAlert.LATE -> "Running late"
             JobAlert.READY -> "Ready for the customer"
         }
         val body = when (alert) {
-            JobAlert.DUE -> "$car$plate is booked in now.$who"
+            // The server moves the job to In progress the moment its time comes; this
+            // is the ping that says it happened.
+            JobAlert.DUE -> "$car$plate reached its booked time and is now in progress.$who"
             JobAlert.OVERDUE -> "$car$plate was due earlier and hasn't been started.$who"
             JobAlert.LATE -> "$car$plate is past its estimated finish.$who"
             JobAlert.READY -> "$car$plate is done — call the customer.$who"

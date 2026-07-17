@@ -222,6 +222,9 @@ function mapAudit(a: any, nm: (id: string | null) => string): ActivityEvent | nu
     }
     case "job_started":
       return { ...base, kind: "job_started", category: "jobs", title: "Job started", detail: "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
+    case "job_auto_started":
+      // actor is NULL — the system flipped it at the booked time, nobody pressed Start.
+      return { ...base, kind: "job_auto_started", category: "jobs", title: "Job started on schedule", detail: "Auto-started at the booked time", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
     case "job_delivered":
       // The via crumb tells HOW the car left: settled at the counter, taken on
       // account (balance still owed), or picked up after prepaying.

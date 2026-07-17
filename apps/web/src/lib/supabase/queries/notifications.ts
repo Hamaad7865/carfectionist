@@ -92,6 +92,31 @@ async function newEnquiries(sb: SB): Promise<NotifItem | null> {
   }
 }
 
+/** Jobs the server auto-started when their booked time arrived — the web echo of
+ *  the tablet's "Due to start now" popup. Counted from the audit trail the flip
+ *  writes, so it means exactly "a booking started itself", and only today's, so
+ *  it clears overnight rather than lingering. Dismissible like the rest. */
+async function jobsStarted(sb: SB, dayStartIso: string): Promise<NotifItem | null> {
+  try {
+    const { count } = await sb
+      .from("audit_events")
+      .select("id", { count: "exact", head: true })
+      .eq("event_type", "job_auto_started")
+      .gte("created_at", dayStartIso);
+    if (!count || count <= 0) return null;
+    return {
+      key: "jobsstarted",
+      label: `${count} job${count === 1 ? "" : "s"} started on schedule`,
+      detail: "Moved to In progress at the booked time",
+      href: "/jobs",
+      tone: "info",
+      count,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Ceramic maintenance due. */
 async function maintenanceDue(sb: SB, today: string): Promise<NotifItem | null> {
   try {
@@ -160,11 +185,15 @@ async function lowStock(sb: SB): Promise<NotifItem | null> {
 export async function collectNotifications(sb: SB, today: string): Promise<NotifItem[]> {
   // All four at once — the wall-clock cost is now the slowest single source,
   // not the sum of all of them.
+  // Start of the Mauritius business day (UTC+4, no DST) as an instant — the
+  // window for "started today".
+  const dayStartIso = new Date(`${today}T00:00:00+04:00`).toISOString();
   const items = await Promise.all([
     outstandingInvoices(sb, today),
     newEnquiries(sb),
     maintenanceDue(sb, today),
     lowStock(sb),
+    jobsStarted(sb, dayStartIso),
   ]);
   return items.filter((i): i is NotifItem => i !== null);
 }

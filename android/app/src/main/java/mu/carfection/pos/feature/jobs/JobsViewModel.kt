@@ -33,6 +33,8 @@ import mu.carfection.pos.core.network.TechnicianDto
 import mu.carfection.pos.core.sync.OutboxRepository
 import java.time.Instant
 import java.time.LocalDate
+import java.time.ZoneId
+import java.time.ZoneOffset
 import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
 
@@ -93,6 +95,11 @@ data class JobsState(
     val sendBusy: Boolean = false,
     val sendDone: String? = null,
     val sendError: String? = null,
+    // Reschedule a booking's start time: date first, then time (same two-step as the
+    // quote screen's "booked in for").
+    val reschedDateOpen: Boolean = false,
+    val reschedTimeOpen: Boolean = false,
+    val reschedDayMs: Long? = null, // the day picked, waiting on a time
 )
 
 @HiltViewModel
@@ -465,6 +472,30 @@ class JobsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { api.startJob(id, Instant.now().toString()) }
                 .onSuccess { _s.update { it.copy(busy = false, toast = "Job started") }; load() }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
+    // ── Reschedule a booking (date → time, same two-step as the quote screen) ───
+    fun openReschedule() = _s.update { it.copy(reschedDateOpen = true, reschedDayMs = null) }
+    fun closeReschedule() = _s.update { it.copy(reschedDateOpen = false, reschedTimeOpen = false, reschedDayMs = null) }
+
+    /** Day chosen — the DatePicker hands back UTC midnight; keep just the calendar day. */
+    fun pickRescheduleDate(utcMillis: Long) = _s.update {
+        it.copy(reschedDayMs = utcMillis, reschedDateOpen = false, reschedTimeOpen = true)
+    }
+
+    /** Time chosen — combine with the held day in the device's zone, send to the server,
+     *  reload (which re-arms the alarms from the new scheduled_at). */
+    fun pickRescheduleTime(hour: Int, minute: Int) {
+        val jobId = _s.value.activeJobId ?: return
+        val dayMs = _s.value.reschedDayMs ?: return
+        val day = Instant.ofEpochMilli(dayMs).atZone(ZoneOffset.UTC).toLocalDate()
+        val iso = day.atTime(hour, minute).atZone(ZoneId.systemDefault()).toInstant().toString()
+        _s.update { it.copy(reschedTimeOpen = false, reschedDayMs = null, busy = true) }
+        viewModelScope.launch {
+            runCatching { api.setJobSchedule(jobId, iso) }
+                .onSuccess { _s.update { it.copy(busy = false, toast = "Rescheduled") }; load() }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

@@ -47,11 +47,21 @@ class JobAlarms @Inject constructor(
         }
 
         val scheduled = JobClock.epoch(job.scheduledAt)
-        if (job.status == "scheduled" && scheduled != null) {
+        if (scheduled != null) {
+            // The booked moment is a fact about the SCHEDULE, not the current status.
+            // The server now auto-starts a job the instant its time comes, so if this
+            // stayed gated on status == "scheduled" the flip to in_progress would
+            // re-run arm() and cancel the "starting now" alarm out from under itself —
+            // the flip racing its own notification. Keep DUE armed for a booked job
+            // that hasn't been finished (the finished cases already returned above).
             set(job.id, JobAlert.DUE, scheduled, nowMs)
-            set(job.id, JobAlert.OVERDUE, scheduled + overdueGraceMs, nowMs)
+            // "Still not started" is only meaningful while it genuinely hasn't — a
+            // safety net for the day the server DIDN'T auto-start it. Once it's
+            // running, drop it.
+            if (job.status == "scheduled") set(job.id, JobAlert.OVERDUE, scheduled + overdueGraceMs, nowMs)
+            else cancel(job.id, JobAlert.OVERDUE)
         } else {
-            // Started (or unscheduled): the start alerts can no longer apply.
+            // Unscheduled: the start alerts have no moment to fire at.
             cancel(job.id, JobAlert.DUE)
             cancel(job.id, JobAlert.OVERDUE)
         }
