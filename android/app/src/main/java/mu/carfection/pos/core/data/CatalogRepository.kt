@@ -18,6 +18,13 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * The pinned pseudo-category on every product rail (Quotes, Checkout): everything with
+ * kind = 'service', whatever its category string. The shop's ~70 services were invisible —
+ * buried inside one alphabetical category, plus a few with no category at all.
+ */
+const val SERVICES_TAB = "Services"
+
+/**
  * Offline-first catalogue: the UI observes Room; refresh() pulls the shared
  * tables from Supabase and replaces the cache. (M1 = full refresh; the delta
  * cursor pull arrives with migration 0003 in M2.)

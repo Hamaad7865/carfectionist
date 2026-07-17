@@ -15,6 +15,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.DiscountMode
+import mu.carfection.pos.core.data.SERVICES_TAB
 import mu.carfection.pos.core.data.IntakeHandoff
 import mu.carfection.pos.core.data.IntakeHandoffBus
 import mu.carfection.pos.core.data.OpenJobBus
@@ -216,20 +217,31 @@ class QuoteViewModel @Inject constructor(
     /**
      * The category rail — the same one Checkout browses, because it is the same catalogue.
      * ("All" always survives the rail's own search, so there is always a way back out.)
+     * "Services" is PINNED right after it: a detailing quote starts with the work, and the
+     * shop's ~70 services were invisible — buried inside one alphabetical category (plus a
+     * few with no category at all, reachable only through All).
      */
     fun tabs(s: QuoteState): List<String> {
         val q = s.catQuery.trim()
-        return listOf("All") + s.products.mapNotNull { it.category }.distinct().sorted()
+        return listOf("All", SERVICES_TAB) + s.products.mapNotNull { it.category }.distinct().sorted()
             .filter { q.isEmpty() || it.contains(q, ignoreCase = true) }
     }
 
     fun catCounts(s: QuoteState): Map<String, Int> =
-        s.products.mapNotNull { it.category }.groupingBy { it }.eachCount() + ("All" to s.products.size)
+        s.products.mapNotNull { it.category }.groupingBy { it }.eachCount() +
+            ("All" to s.products.size) +
+            (SERVICES_TAB to s.products.count { it.kind == "service" })
 
     fun filteredProducts(s: QuoteState): List<ProductEntity> {
         val q = s.query.trim()
         return s.products
-            .filter { s.tab == "All" || it.category == s.tab }
+            .filter {
+                when (s.tab) {
+                    "All" -> true
+                    SERVICES_TAB -> it.kind == "service"
+                    else -> it.category == s.tab
+                }
+            }
             .filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.barcode?.contains(q) == true }
     }
 

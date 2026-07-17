@@ -18,6 +18,7 @@ import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.data.SaleIssueUncertain
 import mu.carfection.pos.core.data.SaleLineSpec
 import mu.carfection.pos.core.data.SalePaymentUncertain
+import mu.carfection.pos.core.data.SERVICES_TAB
 import mu.carfection.pos.core.data.SaleRepository
 import mu.carfection.pos.core.data.SaleResult
 import mu.carfection.pos.core.data.expandSaleLines
@@ -258,13 +259,21 @@ class CounterViewModel @Inject constructor(
     val state: StateFlow<CounterUiState> =
         combine(local, catalog.products, catalog.customers) { s, products, customers ->
             // "All" always survives the rail search, so there is always a way back out.
+            // "Services" is pinned beside it — same rule as the quote builder's rail.
             val catQ = s.catQuery.trim()
-            val cats = listOf("All") + products.mapNotNull { it.category }.distinct().sorted()
+            val cats = listOf("All", SERVICES_TAB) + products.mapNotNull { it.category }.distinct().sorted()
                 .filter { catQ.isEmpty() || it.contains(catQ, ignoreCase = true) }
-            val counts = products.mapNotNull { it.category }.groupingBy { it }.eachCount() + ("All" to products.size)
+            val counts = products.mapNotNull { it.category }.groupingBy { it }.eachCount() +
+                ("All" to products.size) + (SERVICES_TAB to products.count { it.kind == "service" })
             val q = s.query.trim().lowercase()
             val filtered = products
-                .filter { s.tab == "All" || it.category == s.tab }
+                .filter {
+                    when (s.tab) {
+                        "All" -> true
+                        SERVICES_TAB -> it.kind == "service"
+                        else -> it.category == s.tab
+                    }
+                }
                 .filter { q.isEmpty() || it.name.lowercase().contains(q) || (it.barcode ?: "").contains(q) }
             val cq = s.customerText.trim().lowercase()
             val matches = if (cq.isEmpty() || s.customerId != null) emptyList()
