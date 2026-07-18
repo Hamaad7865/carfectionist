@@ -430,7 +430,8 @@ private fun CheckRegisterDialog(
 ) {
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.width(720.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
+            Modifier.widthIn(max = 720.dp).fillMaxWidth(0.96f).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Text("CHECK YOUR CASH REGISTER BEFORE CLOSING", color = TextPrimary, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -573,7 +574,7 @@ private fun ZReportDialog(
     val t = z.totals
     Dialog(onDismissRequest = onDone, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.width(600.dp).heightIn(max = 720.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)),
+            Modifier.widthIn(max = 600.dp).fillMaxWidth(0.96f).heightIn(max = 720.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)),
         ) {
             // header — the owner's Cashmag "Clôture de période" masthead, centred.
             Column(Modifier.fillMaxWidth().padding(start = 24.dp, end = 24.dp, top = 20.dp, bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(1.dp)) {

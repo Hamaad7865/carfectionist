@@ -282,11 +282,16 @@ class CounterViewModel @Inject constructor(
             s.copy(products = filtered, categories = cats, catCounts = counts, customerMatches = matches)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CounterUiState())
 
+    // The whole catalogue, unfiltered — the scanner must find a barcode even while
+    // the visible grid is filtered down by category tab or a half-typed search.
+    private var allProducts: List<ProductEntity> = emptyList()
+
     init {
         refreshTill()
         loadLists()
         refreshStock()
         watchCollectRequests() // a deposit agreed at signing lands the pad on its bill
+        viewModelScope.launch { catalog.products.collect { allProducts = it } }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
@@ -640,7 +645,23 @@ class CounterViewModel @Inject constructor(
     fun refreshTill() = viewModelScope.launch { runCatching { till.openSession() } }
 
     // ── cart ──────────────────────────────────────────────────────────────────
-    fun setQuery(q: String) { local.value = local.value.copy(query = q) }
+    /**
+     * The search box is also the barcode scanner's landing strip (the small checkout
+     * tablet drives sales by scanner): a scanner is a keyboard that types the whole code
+     * in one burst, so an EXACT barcode match rings the item straight into the cart and
+     * clears the box — no tap, next scan ready. Typed text never equals a barcode, so
+     * ordinary searching is untouched.
+     */
+    fun setQuery(q: String) {
+        val code = q.trim()
+        val hit = if (code.length >= 4) allProducts.firstOrNull { it.barcode == code } else null
+        if (hit != null) {
+            add(hit) // oversell prompt and settle-freeze rules apply exactly as a tap would
+            local.value = local.value.copy(query = "", notice = "Scanned — ${hit.name}")
+        } else {
+            local.value = local.value.copy(query = q)
+        }
+    }
 
     fun add(p: ProductEntity) {
         val target = (local.value.cart.firstOrNull { it.product.id == p.id }?.qty ?: 0.0) + 1

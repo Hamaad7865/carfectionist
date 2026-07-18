@@ -350,7 +350,7 @@ fun CounterScreen(
         val oh = s.onHand[o.product.id] ?: 0
         Dialog(onDismissRequest = viewModel::dismissOversell) {
             Column(
-                Modifier.width(460.dp).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
+                Modifier.widthIn(max = 460.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("Selling into negative stock", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
@@ -483,7 +483,7 @@ private fun AdhocDialog(vm: CounterViewModel) {
     val ok = name.isNotBlank() && cents != null && cents > 0
     Dialog(onDismissRequest = vm::closeAdhoc) {
         Column(
-            Modifier.width(440.dp).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
+            Modifier.widthIn(max = 440.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Ad-hoc line", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
@@ -637,11 +637,16 @@ private fun TotalRow(label: String, value: String, color: Color, big: Boolean = 
 @Composable
 private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
     Dialog(onDismissRequest = vm::closePad, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        // The checkout drawer-tablet is SMALL (the Tab S11 is not the only screen this
+        // runs on): the pad caps at its designed width but yields on narrow screens, and
+        // scrolls rather than pushing the Record button off a short one.
         Column(
             Modifier
-                .width(640.dp)
+                .widthIn(max = 640.dp)
+                .fillMaxWidth(0.96f)
                 .background(CardBg, RoundedCornerShape(22.dp))
-                .padding(20.dp),
+                .padding(20.dp)
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -864,7 +869,7 @@ private fun PaymentActionDialog(p: mu.carfection.pos.core.network.TodayPaymentDt
     val alreadyReversed = p.id in reversedIds
     Dialog(onDismissRequest = vm::closePaymentAction) {
         Column(
-            Modifier.width(440.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(24.dp),
+            Modifier.widthIn(max = 440.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(22.dp)).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Correct this payment", color = TextPrimary, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -953,7 +958,7 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
 private fun HistoryDialog(s: CounterUiState, vm: CounterViewModel) {
     Dialog(onDismissRequest = vm::closeHistory, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Column(
-            Modifier.width(780.dp).heightIn(max = 640.dp)
+            Modifier.widthIn(max = 780.dp).fillMaxWidth(0.96f).heightIn(max = 640.dp)
                 .background(CardBg, RoundedCornerShape(20.dp)).padding(20.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1061,11 +1066,11 @@ private fun SaleDone(
     val receivedCents = result.totalCents + result.changeCents // what the customer handed over
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Row(
-            Modifier.width(960.dp).background(CardBg, RoundedCornerShape(22.dp)).padding(26.dp),
+            Modifier.widthIn(max = 960.dp).fillMaxWidth(0.97f).background(CardBg, RoundedCornerShape(22.dp)).padding(26.dp),
             horizontalArrangement = Arrangement.spacedBy(24.dp),
         ) {
-            // ── left: sale complete + actions ─────────────────────────────────
-            Column(Modifier.weight(1.15f)) {
+            // ── left: sale complete + actions (scrolls on the small checkout tablet) ──
+            Column(Modifier.weight(1.15f).verticalScroll(rememberScrollState())) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("Sale complete", color = TextPrimary, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
