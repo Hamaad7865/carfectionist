@@ -38,7 +38,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
     }
     case "vat": {
       const d = await getReportsData(from, to);
-      rows = [["Metric", "Amount (Rs)"], ["Output VAT", rs(d.vat.outputCents)], ["Input VAT", rs(d.vat.inputCents)], ["Net VAT payable", rs(d.vat.netCents)]];
+      rows = [
+        ["Month", "Output VAT (Rs)", "Input VAT (Rs)", "Net VAT payable (Rs)"],
+        ...d.vatMonthly.map((mo) => [mo.label, rs(mo.outputCents), rs(mo.inputCents), rs(mo.netCents)]),
+        ["Total", rs(d.vat.outputCents), rs(d.vat.inputCents), rs(d.vat.netCents)],
+      ];
       break;
     }
     case "receivables": {

@@ -14,6 +14,14 @@ export interface PaymentReportRow {
   amountCents: number;
 }
 
+export interface VatMonthRow {
+  month: string; // "2026-07"
+  label: string; // "July 2026"
+  outputCents: number;
+  inputCents: number;
+  netCents: number;
+}
+
 export interface ReportsData {
   payments: PaymentReportRow[];
   byMethod: { method: string; cents: number }[];
@@ -21,6 +29,10 @@ export interface ReportsData {
   invoicedCents: number;
   outstandingCents: number;
   vat: { outputCents: number; inputCents: number; netCents: number };
+  /** Month-by-month VAT position (the MRA return is a monthly figure). */
+  vatMonthly: VatMonthRow[];
+  /** True when the range held more months than the 12 shown. */
+  vatMonthlyTruncated: boolean;
   aged: { label: string; cents: number }[];
 }
 
@@ -116,6 +128,40 @@ export async function getReportsData(from?: string, to?: string, method?: string
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inputVat = (expRows as any[]).reduce((s, e) => s + rupeesToCents(Number(e.vat_amount)), 0);
 
+  // ── VAT by month — the figure the MRA return actually asks for ──────────────
+  // Bucket the SAME range-scoped rows by calendar month (issue_date/expense_date
+  // are plain MU dates, so slicing is timezone-safe), fill the gaps so time stays
+  // linear, and cap the tail at 12 months for display.
+  const monthly = new Map<string, { out: number; inp: number }>();
+  const bump = (key: string | null, out: number, inp: number) => {
+    if (!key) return;
+    const g = monthly.get(key) ?? { out: 0, inp: 0 };
+    g.out += out;
+    g.inp += inp;
+    monthly.set(key, g);
+  };
+  for (const d of ranged(invoices)) bump(d.issue_date?.slice(0, 7) ?? null, rupeesToCents(Number(d.vat_total)), 0);
+  for (const d of ranged(creditNotes)) bump(d.issue_date?.slice(0, 7) ?? null, -rupeesToCents(Number(d.vat_total)), 0);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const e of expRows as any[]) bump((e.expense_date as string | null)?.slice(0, 7) ?? null, 0, rupeesToCents(Number(e.vat_amount)));
+
+  let vatMonthly: VatMonthRow[] = [];
+  let vatMonthlyTruncated = false;
+  if (monthly.size > 0) {
+    const keys = [...monthly.keys()].sort();
+    let [y, m] = keys[0].split("-").map(Number);
+    const last = keys[keys.length - 1];
+    for (let key = keys[0]; key <= last; ) {
+      const g = monthly.get(key) ?? { out: 0, inp: 0 };
+      vatMonthly.push({ month: key, label: monthLabel(key), outputCents: g.out, inputCents: g.inp, netCents: g.out - g.inp });
+      m += 1;
+      if (m > 12) { m = 1; y += 1; }
+      key = `${y}-${String(m).padStart(2, "0")}`;
+    }
+    vatMonthlyTruncated = vatMonthly.length > 12;
+    vatMonthly = vatMonthly.slice(-12);
+  }
+
   const now = Date.now();
   const buckets = [
     { label: "0–30 days", cents: 0 },
@@ -142,6 +188,8 @@ export async function getReportsData(from?: string, to?: string, method?: string
     invoicedCents,
     outstandingCents,
     vat: { outputCents: outputVat, inputCents: inputVat, netCents: outputVat - inputVat },
+    vatMonthly,
+    vatMonthlyTruncated,
     aged: buckets,
   };
 }

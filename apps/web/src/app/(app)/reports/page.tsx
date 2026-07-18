@@ -14,6 +14,21 @@ import { btn } from "@/components/ui/button";
 const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c", juice: "#6a5cff", bank_transfer: "#f5a623" };
 const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer" };
 
+// VAT chart series — brand blue + the app's amber ink. This exact pair passes
+// the palette checks (lightness band, CVD ΔE ≈ 118, ≥3:1 on white); the lighter
+// #f5a623 fails both, which is why the darker ink is used here.
+const VAT_OUTPUT = "#2b8cff";
+const VAT_INPUT = "#b07c14";
+const MONTH_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** Axis-tick money: "980", "12.5k", "1.2M" — full figures live in tooltips and the table. */
+function rsCompact(cents: number): string {
+  const r = cents / 100;
+  if (r >= 1_000_000) return `${(r / 1_000_000).toFixed(1).replace(/\.0$/, "")}M`;
+  if (r >= 1_000) return `${(r / 1_000).toFixed(1).replace(/\.0$/, "")}k`;
+  return String(Math.round(r));
+}
+
 const REPORTS = [
   { key: "daily-summary", label: "Daily summary" },
   { key: "collected", label: "Collected by method" },
@@ -220,7 +235,7 @@ export default async function ReportsPage({
           )}
 
           {report === "vat" && (
-            <div className="max-w-xl">
+            <div className="max-w-2xl">
               <div className="grid grid-cols-3 gap-3.5">
                 <div className="rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[12px] font-semibold text-muted">Output VAT</div>
@@ -239,6 +254,95 @@ export default async function ReportsPage({
                 </div>
               </div>
               <p className="mt-4 text-[12.5px] text-muted">Output VAT (15% on issued invoices) minus input VAT (recorded on expenses) gives the net VAT payable to the MRA for the period.</p>
+
+              {/* ── VAT by month — the figure each MRA return asks for ── */}
+              <div className="mt-4 rounded-[15px] border border-line bg-card p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-display text-[14px] font-bold text-ink-strong">VAT by month</span>
+                  <span className="flex items-center gap-4 text-[11.5px] font-semibold text-body">
+                    <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: VAT_OUTPUT }} /> Output</span>
+                    <span className="flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: VAT_INPUT }} /> Input</span>
+                  </span>
+                </div>
+
+                {data.vatMonthly.length === 0 ? (
+                  <div className="mt-4 rounded-[12px] border border-dashed border-line-2 px-4 py-8 text-center text-[12.5px] text-faint">No VAT activity in this range.</div>
+                ) : (
+                  (() => {
+                    const H = 150;
+                    const maxCents = Math.max(1, ...data.vatMonthly.map((mo) => Math.max(mo.outputCents, mo.inputCents)));
+                    return (
+                      <div className="mt-4 flex gap-3">
+                        {/* y-axis — compact rupee ticks */}
+                        <div className="flex flex-col justify-between text-right" style={{ height: H + 18 }}>
+                          {[1, 2 / 3, 1 / 3, 0].map((f) => (
+                            <span key={f} className="num text-[10px] leading-none text-faint">{rsCompact(maxCents * f)}</span>
+                          ))}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="relative" style={{ height: H }}>
+                            {/* recessive gridlines at the tick fractions */}
+                            {[0, 1 / 3, 2 / 3].map((f) => (
+                              <div key={f} className="absolute inset-x-0 border-t border-line" style={{ top: H * f }} />
+                            ))}
+                            <div className="absolute inset-x-0 bottom-0 border-t border-line-2" />
+                            <div className="flex h-full items-end gap-1 overflow-visible">
+                              {data.vatMonthly.map((mo) => (
+                                <div key={mo.month} className="group relative flex h-full max-w-[60px] flex-1 items-end justify-center gap-[2px]">
+                                  {/* hover tooltip — month, all three figures */}
+                                  <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1.5 hidden -translate-x-1/2 flex-col whitespace-nowrap rounded-[9px] bg-[#0f1720] px-3 py-2 text-[11px] text-white shadow-lg group-hover:flex">
+                                    <span className="font-bold">{mo.label}</span>
+                                    <span className="num mt-1">Output {formatMUR(mo.outputCents)}</span>
+                                    <span className="num">Input {formatMUR(mo.inputCents)}</span>
+                                    <span className="num mt-0.5 font-bold">{mo.netCents >= 0 ? `Pay ${formatMUR(mo.netCents)}` : `Credit ${formatMUR(-mo.netCents)}`}</span>
+                                  </div>
+                                  <div className="absolute inset-0 rounded-[6px] group-hover:bg-[rgba(43,140,255,0.05)]" />
+                                  <div className="w-[11px] rounded-t-[3px]" style={{ height: Math.round((Math.max(0, mo.outputCents) / maxCents) * H), background: VAT_OUTPUT }} />
+                                  <div className="w-[11px] rounded-t-[3px]" style={{ height: Math.round((Math.max(0, mo.inputCents) / maxCents) * H), background: VAT_INPUT }} />
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                          <div className="mt-1 flex gap-1">
+                            {data.vatMonthly.map((mo) => (
+                              <div key={mo.month} className="num max-w-[60px] flex-1 text-center text-[10px] text-faint">
+                                {mo.month.slice(5) === "01" || mo.month === data.vatMonthly[0].month ? `${MONTH_SHORT[Number(mo.month.slice(5)) - 1]} ${mo.month.slice(2, 4)}` : MONTH_SHORT[Number(mo.month.slice(5)) - 1]}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })()
+                )}
+                {data.vatMonthlyTruncated && <p className="mt-2 text-[11px] text-faint">Showing the last 12 months of the range — narrow the dates to see earlier months.</p>}
+              </div>
+
+              {/* Monthly breakdown table — the accessible twin of the chart */}
+              {data.vatMonthly.length > 0 && (
+                <div className="mt-4 overflow-hidden rounded-[15px] border border-line bg-card">
+                  <div className="grid grid-cols-[1fr_110px_110px_130px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-th">
+                    <span>Month</span><span className="text-right">Output VAT</span><span className="text-right">Input VAT</span><span className="text-right">Net payable</span>
+                  </div>
+                  {[...data.vatMonthly].reverse().map((mo) => {
+                    const current = mo.month === muToday().slice(0, 7);
+                    return (
+                      <div key={mo.month} className={`grid grid-cols-[1fr_110px_110px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[12.5px] last:border-b-0 ${current ? "bg-[rgba(43,140,255,0.05)]" : ""}`}>
+                        <span className="font-semibold text-body">
+                          {mo.label}
+                          {current && <span className="ml-2 rounded-[5px] bg-[rgba(43,140,255,0.12)] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-link">Current</span>}
+                        </span>
+                        <span className="num text-right text-muted">{formatMUR(mo.outputCents)}</span>
+                        <span className="num text-right text-muted">{formatMUR(mo.inputCents)}</span>
+                        <span className={`num text-right font-bold ${mo.netCents < 0 ? "text-mint" : "text-ink"}`}>{formatMUR(mo.netCents)}</span>
+                      </div>
+                    );
+                  })}
+                  <div className="px-5 py-3 text-[11.5px] text-muted">
+                    A month&apos;s VAT return is due to the MRA by the end of the following month. A negative net is a credit — input VAT exceeded output for that month.
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
