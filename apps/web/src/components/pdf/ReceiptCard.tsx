@@ -50,6 +50,10 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
 
       {/* Header */}
       <div style={{ textAlign: "center" }}>
+        {r.logoUrl && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={r.logoUrl} alt="" style={{ display: "block", margin: "0 auto 8px", maxWidth: "100%", maxHeight: 44, objectFit: "contain" }} />
+        )}
         <div style={{ fontWeight: 800, fontSize: 14.5, letterSpacing: 1.6 }}>{r.studioName.toUpperCase()}</div>
         {(r.address || r.brn) && (
           <div style={{ fontSize: 9.5, color: MUTED, marginTop: 5 }}>{[r.address, r.brn && `BRN ${r.brn}`].filter(Boolean).join(" · ")}</div>

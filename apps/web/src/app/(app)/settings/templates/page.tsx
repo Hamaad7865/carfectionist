@@ -1,18 +1,25 @@
 import Link from "next/link";
 import { getDefaultTemplate } from "@/lib/supabase/queries/templates";
 import { TemplateEditor } from "@/features/settings/TemplateEditor";
+import { ReceiptLogoCard } from "@/features/settings/ReceiptLogoCard";
 import { SettingsNav } from "@/features/settings/SettingsNav";
 import { requireSession } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { isStoredAsset, signBrandAssets } from "@/lib/pdf/assets";
 
 export default async function TemplatesSettingsPage() {
-  const [session, template] = await Promise.all([requireSession(), getDefaultTemplate()]);
+  const sb = await createClient();
+  const [session, template, bsRes] = await Promise.all([
+    requireSession(),
+    getDefaultTemplate(),
+    sb.from("business_settings").select("receipt_logo_path").limit(1).maybeSingle(),
+  ]);
+  const receiptLogoPath = (bsRes.data?.receipt_logo_path as string | null) ?? "";
 
   // brand-assets is private, so the editor can't show uploaded artwork from the
   // stored path alone — sign it here, the same way the renderer does.
-  const stored = [template?.headerBannerPath, template?.footerBannerPath, template?.logoPath].filter(isStoredAsset);
-  const signed = stored.length ? await signBrandAssets(await createClient(), stored) : {};
+  const stored = [template?.headerBannerPath, template?.footerBannerPath, template?.logoPath, receiptLogoPath].filter(isStoredAsset);
+  const signed = stored.length ? await signBrandAssets(sb, stored) : {};
   const preview = (v: string | null | undefined) => (isStoredAsset(v) ? (signed[v] ?? null) : (v || null));
 
   return (
@@ -38,6 +45,10 @@ export default async function TemplatesSettingsPage() {
               No default template found. Reseed the database (<Link href="/dashboard" className="text-link">dashboard</Link>).
             </p>
           )}
+        </div>
+
+        <div className="mt-6">
+          <ReceiptLogoCard tenantId={session.tenantId} value={receiptLogoPath} previewUrl={preview(receiptLogoPath)} />
         </div>
       </div>
     </div>

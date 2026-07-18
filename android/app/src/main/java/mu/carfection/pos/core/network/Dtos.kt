@@ -370,6 +370,7 @@ data class BusinessSettingsDto(
     @SerialName("vat_number") val vatNumber: String? = null,
     val address: String? = null,
     val phone: String? = null,
+    @SerialName("receipt_logo_path") val receiptLogoPath: String? = null, // brand-assets object
 )
 
 @Serializable

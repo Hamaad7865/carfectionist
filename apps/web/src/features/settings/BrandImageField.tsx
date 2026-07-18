@@ -48,6 +48,8 @@ export function BrandImageField({
   defaultPreview,
   onChange,
   aspect = "aspect-[6/1]",
+  accept = ACCEPT,
+  resetLabel = "Use built-in",
 }: {
   label: string;
   hint: string;
@@ -60,6 +62,10 @@ export function BrandImageField({
   defaultPreview: string;
   onChange: (path: string) => void;
   aspect?: string;
+  /** Override when a consumer can't take every format (the tablet can't rasterise SVG). */
+  accept?: string;
+  /** What clearing means here — "Use built-in" when a default exists, "Remove" when it doesn't. */
+  resetLabel?: string;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
@@ -104,7 +110,7 @@ export function BrandImageField({
     <div>
       <div className="mb-1 flex items-center gap-2">
         <span className="text-[11px] font-bold uppercase tracking-wider text-faint">{label}</span>
-        {usingDefault && <span className="rounded-[5px] bg-[rgba(15,23,32,0.06)] px-1.5 py-0.5 text-[9px] font-bold text-faint">BUILT-IN</span>}
+        {usingDefault && defaultPreview !== "" && <span className="rounded-[5px] bg-[rgba(15,23,32,0.06)] px-1.5 py-0.5 text-[9px] font-bold text-faint">BUILT-IN</span>}
       </div>
 
       <div className={`relative ${aspect} overflow-hidden rounded-[10px] border border-line bg-sub`}>
@@ -137,13 +143,13 @@ export function BrandImageField({
             disabled={busy}
             className={btn("ghost", "sm")}
           >
-            <RotateCcw size={12} /> Use built-in
+            <RotateCcw size={12} /> {resetLabel}
           </button>
         )}
       </div>
 
       <p className="mt-1 text-[11px] text-muted">{hint}</p>
-      <input ref={fileRef} type="file" accept={ACCEPT} onChange={onFile} className="hidden" />
+      <input ref={fileRef} type="file" accept={accept} onChange={onFile} className="hidden" />
       {error && <p className="mt-1 text-[11.5px] text-rose">{error}</p>}
     </div>
   );

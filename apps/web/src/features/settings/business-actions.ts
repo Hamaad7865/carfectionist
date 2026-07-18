@@ -53,3 +53,27 @@ export async function saveBusinessProfileAction(input: z.input<typeof schema>): 
   revalidatePath("/dashboard");
   return { ok: true };
 }
+
+/**
+ * The logo printed at the top of every till receipt (thermal + on-screen +
+ * the web ticket) — Cashmag prints one, so do we. Stores the brand-assets
+ * OBJECT PATH; every renderer signs it fresh (the bucket is private).
+ */
+export async function setReceiptLogoAction(path: string): Promise<Result> {
+  const ctx = await requireRole(...ROLES);
+  const p = z.string().trim().max(300).safeParse(path);
+  if (!p.success) return { ok: false, error: "Invalid image path" };
+  // "" clears. Anything else must be this tenant's own object — the bucket's
+  // RLS enforced that on upload; never store a path we would refuse to sign.
+  if (p.data && !p.data.startsWith(`${ctx.tenantId}/`)) {
+    return { ok: false, error: "That image does not belong to this business" };
+  }
+  const sb = await createClient();
+  const { error } = await sb
+    .from("business_settings")
+    .update({ receipt_logo_path: p.data || null })
+    .eq("id", ctx.tenantId);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/settings/templates");
+  return { ok: true };
+}

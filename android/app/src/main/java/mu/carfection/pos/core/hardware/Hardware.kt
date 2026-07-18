@@ -38,6 +38,8 @@ data class ReceiptBiz(
     val brn: String?,
     val vatNo: String?,
     val phone: String? = null,
+    /** Local file of the studio logo (cached from brand-assets); null = none. */
+    val logoFile: String? = null,
 )
 
 /** One sold line: title, qty, VAT-inclusive line total. */
@@ -194,6 +196,41 @@ internal fun escPosBarcode(value: String): ByteArray {
         byteArrayOf(0x1B, 0x61, 0x00)            // back to left align
 }
 
+/**
+ * The cached studio logo as printer bytes, sized for [paperDots]-wide paper —
+ * or null when there is no logo or it will not decode (a bad image must never
+ * kill a receipt). The studio's artwork is white-and-gold on a black banner;
+ * printed literally that is a solid slab of ink, so dark-majority images are
+ * inverted — what is BRIGHT in the artwork becomes the ink on the paper.
+ */
+internal fun logoRasterBytes(path: String?, paperDots: Int): ByteArray? {
+    if (path.isNullOrBlank()) return null
+    return runCatching {
+        val src = android.graphics.BitmapFactory.decodeFile(path) ?: return@runCatching null
+        // Fit within the paper width and a sane header height; never upscale >2×.
+        val scale = minOf(paperDots.toDouble() / src.width, 200.0 / src.height, 2.0)
+        val w = (src.width * scale).toInt().coerceIn(1, paperDots)
+        val h = (src.height * scale).toInt().coerceAtLeast(1)
+        val bmp = android.graphics.Bitmap.createScaledBitmap(src, w, h, true)
+        val px = IntArray(w * h)
+        bmp.getPixels(px, 0, w, 0, 0, w, h)
+        // Luminance with transparency composited on white — paper, not black.
+        val lum = DoubleArray(px.size)
+        for (i in px.indices) {
+            val a = (px[i] ushr 24 and 0xFF) / 255.0
+            val r = px[i] ushr 16 and 0xFF
+            val g = px[i] ushr 8 and 0xFF
+            val b = px[i] and 0xFF
+            lum[i] = (0.299 * r + 0.587 * g + 0.114 * b) * a + 255.0 * (1 - a)
+        }
+        val invert = lum.count { it < 128.0 } * 2 > lum.size
+        LogoRaster.encode(paperDots, w, h) { x, y ->
+            val l = lum[y * w + x]
+            if (invert) l >= 160.0 else l < 160.0
+        } + byteArrayOf(0x0A)
+    }.getOrNull()
+}
+
 private suspend fun sendRaw(host: String, port: Int, bytes: ByteArray) =
     withContext(Dispatchers.IO) {
         java.net.Socket().use { s ->
@@ -226,7 +263,10 @@ class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) 
         val w = if (c.paperWidthMm == 58) 32 else 48
         val body = ReceiptText.render(doc, w)
         if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank()) {
-            val bytes = ESC_INIT + cp437Bytes(body) +
+            // The studio logo tops the slip, like Cashmag's header (384/576 dots
+            // at 8 dots per mm of printable width).
+            val logo = logoRasterBytes(doc.biz.logoFile, if (c.paperWidthMm == 58) 384 else 576) ?: ByteArray(0)
+            val bytes = ESC_INIT + logo + cp437Bytes(body) +
                 (doc.invoiceNo?.let { escPosBarcode(it) } ?: ByteArray(0)) +
                 FEED_CUT
             sendRaw(c.printerIp, c.printerPort, bytes)

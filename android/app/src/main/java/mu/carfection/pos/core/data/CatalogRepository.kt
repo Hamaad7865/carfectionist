@@ -35,6 +35,7 @@ class CatalogRepository @Inject constructor(
     private val productDao: ProductDao,
     private val customerDao: CustomerDao,
     private val prefs: DataStore<Preferences>,
+    private val logoStore: ReceiptLogoStore,
 ) {
     private val tenantKey = stringPreferencesKey("tenant_id")
     private val vatKey = doublePreferencesKey("vat_default")
@@ -51,7 +52,7 @@ class CatalogRepository @Inject constructor(
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
 
-    /** Receipt header identity (name/address/BRN/VAT no) from the synced settings. */
+    /** Receipt header identity (name/address/BRN/VAT no/logo) from the synced settings. */
     suspend fun receiptBiz(): ReceiptBiz {
         val p = prefs.data.first()
         return ReceiptBiz(
@@ -60,6 +61,7 @@ class CatalogRepository @Inject constructor(
             brn = p[brnKey],
             vatNo = p[vatNoKey],
             phone = p[phoneKey],
+            logoFile = logoStore.file()?.absolutePath,
         )
     }
 
@@ -75,6 +77,8 @@ class CatalogRepository @Inject constructor(
             settings.phone?.let { v -> it[phoneKey] = v }
             settings.address?.let { v -> it[addressKey] = v }
         }
+        // The logo rides the same refresh: download once, then print from disk.
+        logoStore.sync(settings.receiptLogoPath)
         val vatDefault = settings.vatRate
 
         // Offline-first: an EMPTY fetch is treated as "no update", never "delete everything".

@@ -1203,7 +1203,15 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             .padding(horizontal = 22.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // header
+        // header — the studio logo above the name, exactly as the printed slip
+        d.biz.logoFile?.let { path ->
+            coil.compose.AsyncImage(
+                model = java.io.File(path),
+                contentDescription = null,
+                modifier = Modifier.fillMaxWidth().height(40.dp).padding(bottom = 6.dp),
+                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+            )
+        }
         Text(d.biz.name.uppercase(), color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 0.5.sp, textAlign = TextAlign.Center)
         d.biz.address?.takeIf { it.isNotBlank() }?.let {
             Text(it, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 3.dp))

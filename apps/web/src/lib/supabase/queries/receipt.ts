@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rupeesToCents } from "@/lib/money";
+import { signBrandAssets } from "@/lib/pdf/assets";
 
 export interface ReceiptLine {
   qty: number;
@@ -17,6 +18,8 @@ export interface ReceiptPaymentDetail { at: string; method: string; amountCents:
 
 export interface ReceiptData {
   studioName: string;
+  /** Signed URL of the studio logo (brand-assets is private); null = none set. */
+  logoUrl: string | null;
   address: string;
   brn: string;
   vatNo: string;
@@ -84,7 +87,7 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   const [{ data: lines }, { data: pays }, { data: bs }] = await Promise.all([
     sb.from("document_lines").select("qty, title, line_total_excl, line_vat, vat_rate").eq("document_id", id).order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
-    sb.from("business_settings").select("trading_name, address, brn, vat_number, phone, receipt_footer_text").limit(1).maybeSingle(),
+    sb.from("business_settings").select("trading_name, address, brn, vat_number, phone, receipt_footer_text, receipt_logo_path").limit(1).maybeSingle(),
   ]);
 
   let cashier = "";
@@ -95,6 +98,8 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const b: any = bs ?? {};
+  // The bucket is private, so the card gets a fresh signed URL per render.
+  const logoUrl = b.receipt_logo_path ? ((await signBrandAssets(sb, [b.receipt_logo_path]))[b.receipt_logo_path] ?? null) : null;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rLines: ReceiptLine[] = ((lines ?? []) as any[]).map((l) => {
@@ -184,6 +189,7 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
 
   return {
     studioName: b.trading_name ?? "Carfectionist",
+    logoUrl,
     address: b.address ?? "",
     brn: b.brn ?? "",
     vatNo: b.vat_number ?? "",
