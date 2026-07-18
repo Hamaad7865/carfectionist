@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
@@ -70,6 +71,8 @@ import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.parseMoneyToCents
+import androidx.compose.ui.platform.LocalConfiguration
+import mu.carfection.pos.ui.COMPACT_BREAKPOINT_DP
 import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.theme.Barlow
 import mu.carfection.pos.ui.theme.Accent
@@ -99,6 +102,10 @@ fun CounterScreen(
     val s by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.loadLists() } // refresh outstanding/paid on entry
     LaunchedEffect(Unit) { viewModel.refreshTill() } // the till may have just been opened
+    // The small drawer-tablet: start with the category rail tucked away — the grid and
+    // the cart need the width more than the rail does. The « toggle still brings it back.
+    val compactScreen = LocalConfiguration.current.screenWidthDp < COMPACT_BREAKPOINT_DP
+    LaunchedEffect(Unit) { if (compactScreen && viewModel.state.value.railOpen) viewModel.toggleRail() }
 
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
         // ── top bar (handoff: constant CHECKOUT title, caption swaps by mode) ─

@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -160,24 +161,36 @@ private fun Pill(content: @Composable androidx.compose.foundation.layout.RowScop
     )
 }
 
+/** Below this screen width (dp) the shell goes compact: icon-only nav rail, and screens
+ *  tuck their secondary rails away. ~1100 splits the Tab S11 (1280dp) from ~8" tablets. */
+const val COMPACT_BREAKPOINT_DP = 1100
+
 @Composable
 private fun NavRail(active: PosTab, onSelect: (PosTab) -> Unit) {
+    // The owner's second tablet (drawer + scanner, lives on Checkout) is SMALL. Below
+    // the breakpoint the rail goes icon-only — labels cost ~30dp of width the content
+    // needs, and the premium look of the Tab S11 layout comes from the content having
+    // room, not from the rail's captions.
+    val compact = LocalConfiguration.current.screenWidthDp < COMPACT_BREAKPOINT_DP
     Column(
-        Modifier.width(86.dp).fillMaxHeight().background(CardBg).padding(horizontal = 7.dp, vertical = 10.dp),
+        Modifier.width(if (compact) 58.dp else 86.dp).fillMaxHeight().background(CardBg)
+            .padding(horizontal = if (compact) 5.dp else 7.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         PosTab.entries.forEach { tab ->
             val sel = tab == active
             Column(
-                Modifier.fillMaxWidth().height(68.dp)
+                Modifier.fillMaxWidth().height(if (compact) 48.dp else 68.dp)
                     .background(if (sel) AccentSoft else Color.Transparent, RoundedCornerShape(13.dp))
                     .clickable { onSelect(tab) },
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
             ) {
                 Icon(tab.icon, tab.label, tint = if (sel) Accent else TextSecondary, modifier = Modifier.size(22.dp))
-                Spacer(Modifier.height(5.dp))
-                Text(tab.label.uppercase(), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 9.5.sp, letterSpacing = 0.8.sp, color = if (sel) Accent else TextSecondary)
+                if (!compact) {
+                    Spacer(Modifier.height(5.dp))
+                    Text(tab.label.uppercase(), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 9.5.sp, letterSpacing = 0.8.sp, color = if (sel) Accent else TextSecondary)
+                }
             }
         }
     }
