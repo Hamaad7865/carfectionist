@@ -20,6 +20,15 @@ export default async function PrintReceiptPage({ params }: { params: Promise<{ i
           .print-toolbar { display:none !important; }
           .receipt-frame { box-shadow:none !important; }
           .receipt-zig { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+          /* A thermal printer is 1-bit: it DITHERS every grey into sparse dots,
+             so the card's muted labels came off the roll as unreadable speckle
+             and the cream background as noise. On paper there is only ink or
+             no ink — print pure black on pure white and keep the styling for
+             screens. (If the slip still prints light, raise the darkness/heat
+             setting in the printer driver.) */
+          .receipt-zig { background:#fff !important; -webkit-mask:none !important; mask:none !important; }
+          .receipt-zig, .receipt-zig * { color:#000 !important; border-color:#000 !important; }
+          .receipt-zig svg rect { fill:#000 !important; }
         }
       `}</style>
       <ReceiptToolbar />
