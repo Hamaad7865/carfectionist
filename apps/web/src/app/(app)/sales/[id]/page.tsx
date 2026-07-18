@@ -20,6 +20,7 @@ import { CarDiagram } from "@/features/intake/CarDiagram";
 import { StartJobButton } from "@/features/intake/StartJobButton";
 import { markerMeta } from "@/features/intake/damage";
 import { formatMUR } from "@/lib/money";
+import { muDateTime } from "@/lib/mu-date";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
 
@@ -285,18 +286,46 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
 
             {doc.payments.length > 0 && (
               <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-                <div className="border-b border-line px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">Payments</div>
+                <div className="border-b border-line px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">
+                  Payments{doc.payments.length > 1 ? ` · ${doc.payments.length}` : ""}
+                </div>
                 <ul className="divide-y divide-line text-[13px]">
-                  {doc.payments.map((p) => (
-                    <li key={p.id} className="flex items-center justify-between px-4 py-2.5">
-                      <div>
-                        <span className="font-semibold text-ink">{METHOD_LABEL[p.method] ?? p.method}</span>
-                        {p.externalRef && <span className="ml-2 text-[11px] text-faint">{p.externalRef}</span>}
-                        {p.changeCents != null && p.changeCents > 0 && <span className="ml-2 text-[11px] text-faint">change {formatMUR(p.changeCents)}</span>}
-                      </div>
-                      <span className="num font-bold text-ink">{formatMUR(p.amountCents)}</span>
-                    </li>
-                  ))}
+                  {(() => {
+                    // The story the owner asked for: a deposit then the balance must READ
+                    // that way — each payment dated, attributed, and followed by what was
+                    // still owed at that moment.
+                    let runningCents = 0;
+                    return doc.payments.map((p) => {
+                      runningCents += p.amountCents;
+                      const leftCents = Math.max(0, doc.totalCents - runningCents);
+                      const cancelled = p.wasReversed || p.isReversal;
+                      return (
+                        <li key={p.id} className="px-4 py-2.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <span className="font-semibold text-ink">{METHOD_LABEL[p.method] ?? p.method}</span>
+                              {p.isReversal && <span className="ml-2 rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">Reversal</span>}
+                              {p.wasReversed && <span className="ml-2 rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">Reversed</span>}
+                              {p.externalRef && <span className="ml-2 text-[11px] text-faint">{p.externalRef}</span>}
+                              {p.changeCents != null && p.changeCents > 0 && <span className="ml-2 text-[11px] text-faint">change {formatMUR(p.changeCents)}</span>}
+                            </div>
+                            <span className={`num font-bold ${cancelled ? "text-faint" : "text-ink"} ${p.wasReversed ? "line-through" : ""}`}>{formatMUR(p.amountCents)}</span>
+                          </div>
+                          <div className="mt-0.5 flex flex-wrap items-center justify-between gap-x-3 text-[11.5px] text-muted">
+                            <span>
+                              <span className="num">{muDateTime(p.receivedAt)}</span>
+                              {p.receivedByName ? ` · ${p.receivedByName}` : ""}
+                            </span>
+                            {doc.totalCents > 0 && (
+                              leftCents > 0
+                                ? <span className="num text-amber-ink">{formatMUR(leftCents)} still to pay</span>
+                                : <span className="font-semibold text-mint">paid in full</span>
+                            )}
+                          </div>
+                        </li>
+                      );
+                    });
+                  })()}
                 </ul>
               </div>
             )}

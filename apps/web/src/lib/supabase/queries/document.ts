@@ -16,6 +16,12 @@ export interface PaymentView {
   changeCents: number | null;
   externalRef: string | null;
   receivedAt: string;
+  /** Who took the money — the payments panel reads as a ledger, not a list of amounts. */
+  receivedByName: string | null;
+  /** A correction mirror (negative row). */
+  isReversal: boolean;
+  /** An original that a later mirror undid — shown struck, kept visible. */
+  wasReversed: boolean;
 }
 
 export interface DocumentDetail {
@@ -64,6 +70,15 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     sb.from("document_lines").select("*").eq("document_id", id).order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
   ]);
+
+  // Resolve who took each payment, and which originals a mirror later undid.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const payRows = (payments ?? []) as any[];
+  const takerIds = [...new Set(payRows.map((p) => p.received_by).filter(Boolean))] as string[];
+  const takersRes = takerIds.length ? await sb.from("app_users").select("id, display_name").in("id", takerIds) : { data: [] };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const takerName = new Map(((takersRes.data ?? []) as any[]).map((u) => [u.id as string, u.display_name as string]));
+  const reversedIds = new Set(payRows.filter((p) => p.reverses_payment_id).map((p) => p.reverses_payment_id as string));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
@@ -163,6 +178,9 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
       changeCents: p.change_given != null ? rupeesToCents(Number(p.change_given)) : null,
       externalRef: p.external_ref,
       receivedAt: p.received_at,
+      receivedByName: takerName.get(p.received_by) ?? null,
+      isReversal: p.reverses_payment_id != null,
+      wasReversed: reversedIds.has(p.id),
     })),
   };
 }
