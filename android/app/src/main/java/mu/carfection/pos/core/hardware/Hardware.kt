@@ -31,6 +31,9 @@ interface CashDrawer {
     suspend fun kick()
 }
 
+/** What the slip says when the owner hasn't written their own footer (same default as the web card). */
+const val DEFAULT_RECEIPT_FOOTER = "Goods sold are not refundable. Thank you for shopping with us."
+
 /** Header identity printed on every receipt (from business_settings). */
 data class ReceiptBiz(
     val name: String,
@@ -40,6 +43,8 @@ data class ReceiptBiz(
     val phone: String? = null,
     /** Local file of the studio logo (cached from brand-assets); null = none. */
     val logoFile: String? = null,
+    /** Owner-editable footer (business_settings.receipt_footer_text), synced like the logo. */
+    val footer: String = DEFAULT_RECEIPT_FOOTER,
 )
 
 /** One sold line: title, qty, VAT-inclusive line total. */
@@ -73,8 +78,19 @@ data class ReceiptDoc(
     // Every payment taken against this bill, dated. When there are two or more — a deposit
     // then the balance — the slip lists each with its date/time instead of one "Paid" line.
     val payments: List<ReceiptPayment> = emptyList(),
+    // A voided invoice must never reprint looking alive — the web card stamps it, so do we.
+    val voided: Boolean = false,
 ) {
-    val footer = "Goods sold are not refundable. Thank you for shopping with us."
+    val footer: String get() = biz.footer
+
+    /** Under-barcode caption, matching the web card: "INV-0004 · 18072026". Falls back to
+     *  the bare number when the display date doesn't parse (offline fallback strings). */
+    val codeLabel: String? get() = invoiceNo?.let { no ->
+        runCatching {
+            val d = java.time.LocalDate.parse(dateTime.take(11).trim(), java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy"))
+            "$no · " + d.format(java.time.format.DateTimeFormatter.ofPattern("ddMMyyyy"))
+        }.getOrDefault(no)
+    }
 }
 
 /** One dated payment row on the slip (a deposit, the balance, a reversal). */
@@ -117,6 +133,10 @@ object ReceiptText {
         if (ids.isNotBlank()) appendLine(center(ids, w))
         d.biz.phone?.takeIf { it.isNotBlank() }?.let { appendLine(center(it, w)) }
         appendLine(rule(w))
+        if (d.voided) {
+            appendLine(center("*** VOID ***", w))
+            appendLine(rule(w))
+        }
         appendLine(kv("Invoice", d.invoiceNo ?: "—", w))
         appendLine(kv("Date", d.dateTime, w))
         appendLine(kv("Cashier", d.cashier, w))
@@ -135,7 +155,8 @@ object ReceiptText {
             }
             appendLine(rule(w))
             appendLine(kv("Subtotal", money(d.subtotalCents), w))
-            appendLine(kv("Discount", money(d.discountCents), w))
+            // Zero prints as noise — the web card hides it too.
+            if (d.discountCents > 0) appendLine(kv("Discount", money(d.discountCents), w))
         }
         appendLine(kv("TOTAL", money(d.totalCents), w))
         if (d.lines.isNotEmpty()) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents), w))
@@ -151,6 +172,7 @@ object ReceiptText {
         if (d.balanceDueCents > 0) appendLine(kv("BALANCE DUE", money(d.balanceDueCents), w))
         appendLine(rule(w))
         wrap(d.footer, w).forEach { appendLine(center(it, w)) }
+        appendLine(center("powered by ${d.biz.name}", w))
     }
 }
 
@@ -184,15 +206,15 @@ private val FEED_CUT = byteArrayOf(0x0A, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x42, 0x0
 /** ESC @ init + CP437 body + feed + partial cut (plain-text jobs, e.g. the test slip). */
 internal fun escPosReceipt(text: String): ByteArray = ESC_INIT + cp437Bytes(text) + FEED_CUT
 
-/** Centred Code128 barcode with the number printed beneath — mirrors the on-screen slip. */
-internal fun escPosBarcode(value: String): ByteArray {
+/** Centred Code128 barcode with a caption beneath (web card prints "number · ddmmyyyy"). */
+internal fun escPosBarcode(value: String, label: String = value): ByteArray {
     val data = byteArrayOf(0x7B, 0x42) + value.toByteArray(Charsets.US_ASCII) // {B → code set B
     return byteArrayOf(0x0A, 0x1B, 0x61, 0x01) + // LF + centre align
         byteArrayOf(0x1D, 0x68, 60) +            // GS h — barcode height (dots)
         byteArrayOf(0x1D, 0x77, 0x02) +          // GS w — module width
-        byteArrayOf(0x1D, 0x48, 0x00) +          // GS H — no HRI (we print the number ourselves)
+        byteArrayOf(0x1D, 0x48, 0x00) +          // GS H — no HRI (we print the caption ourselves)
         byteArrayOf(0x1D, 0x6B, 0x49, data.size.toByte()) + data + // GS k 73 (CODE128)
-        cp437Bytes("\n$value\n") +
+        cp437Bytes("\n$label\n") +
         byteArrayOf(0x1B, 0x61, 0x00)            // back to left align
 }
 
@@ -267,7 +289,7 @@ class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) 
             // at 8 dots per mm of printable width).
             val logo = logoRasterBytes(doc.biz.logoFile, if (c.paperWidthMm == 58) 384 else 576) ?: ByteArray(0)
             val bytes = ESC_INIT + logo + cp437Bytes(body) +
-                (doc.invoiceNo?.let { escPosBarcode(it) } ?: ByteArray(0)) +
+                (doc.invoiceNo?.let { escPosBarcode(it, doc.codeLabel ?: it) } ?: ByteArray(0)) +
                 FEED_CUT
             sendRaw(c.printerIp, c.printerPort, bytes)
         } else {

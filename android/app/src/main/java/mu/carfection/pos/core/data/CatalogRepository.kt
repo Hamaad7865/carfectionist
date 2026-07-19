@@ -11,6 +11,7 @@ import mu.carfection.pos.core.database.CustomerDao
 import mu.carfection.pos.core.database.CustomerEntity
 import mu.carfection.pos.core.database.ProductDao
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.hardware.DEFAULT_RECEIPT_FOOTER
 import mu.carfection.pos.core.hardware.ReceiptBiz
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
@@ -44,6 +45,7 @@ class CatalogRepository @Inject constructor(
     private val vatNoKey = stringPreferencesKey("vat_number")
     private val addressKey = stringPreferencesKey("address")
     private val phoneKey = stringPreferencesKey("phone")
+    private val footerKey = stringPreferencesKey("receipt_footer")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -62,6 +64,7 @@ class CatalogRepository @Inject constructor(
             vatNo = p[vatNoKey],
             phone = p[phoneKey],
             logoFile = logoStore.file()?.absolutePath,
+            footer = p[footerKey] ?: DEFAULT_RECEIPT_FOOTER,
         )
     }
 
@@ -76,6 +79,9 @@ class CatalogRepository @Inject constructor(
             settings.vatNumber?.let { v -> it[vatNoKey] = v }
             settings.phone?.let { v -> it[phoneKey] = v }
             settings.address?.let { v -> it[addressKey] = v }
+            // Blank means "back to the default sentence", so the key must clear.
+            val footer = settings.receiptFooterText?.trim()
+            if (footer.isNullOrBlank()) it.remove(footerKey) else it[footerKey] = footer
         }
         // The logo rides the same refresh: download once, then print from disk.
         logoStore.sync(settings.receiptLogoPath)

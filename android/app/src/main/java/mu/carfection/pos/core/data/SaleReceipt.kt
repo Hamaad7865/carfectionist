@@ -63,5 +63,6 @@ fun saleReceiptDoc(h: SaleHistoryDto, biz: ReceiptBiz, vatRatePct: Int): Receipt
         // only honest source for what is still owed, so the slip quotes it rather than guessing.
         balanceDueCents = (rupeesToCents(h.totalIncl) - rupeesToCents(h.amountPaid)).coerceAtLeast(0),
         payments = paymentRows,
+        voided = h.status == "void",
     )
 }

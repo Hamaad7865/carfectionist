@@ -422,6 +422,7 @@ class CounterViewModel @Inject constructor(
                 paidCents = pay?.tendered?.let { rupeesToCents(it) } ?: rupeesToCents(h.amountPaid),
                 changeCents = pay?.changeGiven?.let { rupeesToCents(it) } ?: 0L,
                 onAccount = pay == null,
+                voided = h.status == "void",
             )
             local.value = local.value.copy(viewDoc = doc)
         }

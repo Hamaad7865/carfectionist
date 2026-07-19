@@ -371,6 +371,7 @@ data class BusinessSettingsDto(
     val address: String? = null,
     val phone: String? = null,
     @SerialName("receipt_logo_path") val receiptLogoPath: String? = null, // brand-assets object
+    @SerialName("receipt_footer_text") val receiptFooterText: String? = null,
 )
 
 @Serializable

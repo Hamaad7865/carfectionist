@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -1198,8 +1199,9 @@ private fun rsSlip(cents: Long): String {
 /** The on-screen paper slip — styled to the studio's retail receipt (no PAID stamp). */
 @Composable
 internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifier: Modifier = Modifier) {
+    Box(modifier) {
     Column(
-        modifier.background(PaperBg, RoundedCornerShape(4.dp)).border(1.dp, Color(0x1A231F17), RoundedCornerShape(4.dp))
+        Modifier.fillMaxWidth().background(PaperBg, RoundedCornerShape(4.dp)).border(1.dp, Color(0x1A231F17), RoundedCornerShape(4.dp))
             .padding(horizontal = 22.dp, vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -1238,10 +1240,10 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             }
             DashRule()
         }
-        // totals
+        // totals — a zero discount prints as noise; the web card hides it too
         if (d.lines.isNotEmpty()) {
             SlipRow("Subtotal", rsSlip(d.subtotalCents))
-            SlipRow("Discount", rsSlip(d.discountCents))
+            if (d.discountCents > 0) SlipRow("Discount", rsSlip(d.discountCents))
         }
         Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
             Text("TOTAL", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -1259,12 +1261,31 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         // A deposit is only half a story without the half still to pay.
         if (d.balanceDueCents > 0) SlipRow("Balance due", rsSlip(d.balanceDueCents), strong = true)
         DashRule()
-        Text(d.footer, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 12.dp))
-        // barcode of the invoice number
+        Text(d.footer, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, textAlign = TextAlign.Center)
+        Text("powered by ${d.biz.name}", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 8.5.sp, letterSpacing = 0.3.sp, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+        // barcode of the invoice number, captioned like the web card ("INV-0004 · 18072026")
         d.invoiceNo?.let { no ->
             Barcode128(no, Modifier.fillMaxWidth().height(44.dp))
-            Text(no, color = PaperInk, fontFamily = Mono, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 4.dp))
+            Text(d.codeLabel ?: no, color = PaperInk, fontFamily = Mono, fontSize = 10.sp, letterSpacing = 1.sp, modifier = Modifier.padding(top = 4.dp))
         }
+    }
+    // The web card's VOID stamp, same geometry — a dead invoice must read dead.
+    if (d.voided) {
+        Text(
+            "VOID",
+            color = Color(0xFFC8452F),
+            fontFamily = Barlow,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 17.sp,
+            letterSpacing = 2.sp,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 92.dp, end = 20.dp)
+                .graphicsLayer { rotationZ = -13f; alpha = 0.82f }
+                .border(2.5.dp, Color(0xFFC8452F), RoundedCornerShape(6.dp))
+                .padding(horizontal = 10.dp, vertical = 3.dp),
+        )
+    }
     }
 }
 
