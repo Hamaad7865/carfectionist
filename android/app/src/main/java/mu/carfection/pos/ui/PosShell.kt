@@ -29,6 +29,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -170,8 +171,25 @@ private fun NavRail(active: PosTab, onSelect: (PosTab) -> Unit) {
     // The owner's second tablet (drawer + scanner, lives on Checkout) is SMALL. Below
     // the breakpoint the rail goes icon-only — labels cost ~30dp of width the content
     // needs, and the premium look of the Tab S11 layout comes from the content having
-    // room, not from the rail's captions.
+    // room, not from the rail's captions. It also COLLAPSES to a sliver: on the small
+    // machine the cashier lives on one screen all day, and every dp belongs to the
+    // categories and the bill. Collapsed is the small tablet's default.
     val compact = LocalConfiguration.current.screenWidthDp < COMPACT_BREAKPOINT_DP
+    var open by rememberSaveable { mutableStateOf(!compact) }
+
+    if (!open) {
+        // A sliver: chevron to reopen + the active tab's icon so you never feel lost.
+        Column(
+            Modifier.width(30.dp).fillMaxHeight().background(CardBg).clickable { open = true },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text("»", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary, modifier = Modifier.padding(top = 12.dp))
+            Spacer(Modifier.height(14.dp))
+            Icon(active.icon, active.label, tint = Accent, modifier = Modifier.size(18.dp))
+        }
+        return
+    }
+
     Column(
         Modifier.width(if (compact) 58.dp else 86.dp).fillMaxHeight().background(CardBg)
             .padding(horizontal = if (compact) 5.dp else 7.dp, vertical = 10.dp),
@@ -193,6 +211,12 @@ private fun NavRail(active: PosTab, onSelect: (PosTab) -> Unit) {
                 }
             }
         }
+        Spacer(Modifier.weight(1f))
+        // tuck the rail away — the content gets the width back
+        Box(
+            Modifier.fillMaxWidth().height(34.dp).clickable { open = false },
+            contentAlignment = Alignment.Center,
+        ) { Text("«", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextMuted) }
     }
 }
 
