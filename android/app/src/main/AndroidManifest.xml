@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- Receipt printer over a USB cable (the shop's LAN port stays on Cashmag). -->
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
 
     <!-- Job schedule alerts: post them (13+), fire them on the minute, and survive a
          reboot — an alarm lost to a power cut is a car nobody starts. -->

@@ -266,48 +266,58 @@ private suspend fun sendRaw(host: String, port: Int, bytes: ByteArray) =
 class NoPrinterConfigured : Exception("No printer is set up — add it in Settings › Hardware")
 
 @Singleton
-class EscPosPrinter @Inject constructor(private val settings: HardwareSettings) : ReceiptPrinter {
+class EscPosPrinter @Inject constructor(
+    private val settings: HardwareSettings,
+    private val usb: UsbEscPos,
+) : ReceiptPrinter {
+    /** One dispatch for both slips: NETWORK and USB carry identical bytes. */
+    private suspend fun deliver(c: HardwareConfig, bytes: ByteArray, logBody: String) {
+        when {
+            c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() -> sendRaw(c.printerIp, c.printerPort, bytes)
+            c.printerLink == PrinterLink.USB -> usb.send(bytes)
+            else -> {
+                // It used to log and return normally, so the caller cheerfully reported "printed"
+                // while nothing came out. On a Z report — the fiscal slip the cash-up is signed off
+                // on — that is a lie the cashier would act on.
+                Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — no printer)\n$logBody")
+                throw NoPrinterConfigured()
+            }
+        }
+    }
+
     override suspend fun printReceipt(text: String) {
         val c = settings.config.first()
-        if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank()) {
-            sendRaw(c.printerIp, c.printerPort, escPosReceipt(text))
-        } else {
-            // It used to log and return normally, so the caller cheerfully reported "printed"
-            // while nothing came out. On a Z report — the fiscal slip the cash-up is signed off
-            // on — that is a lie the cashier would act on.
-            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — no printer)\n$text")
-            throw NoPrinterConfigured()
-        }
+        deliver(c, escPosReceipt(text), text)
     }
 
     override suspend fun printDoc(doc: ReceiptDoc) {
         val c = settings.config.first()
         val w = if (c.paperWidthMm == 58) 32 else 48
         val body = ReceiptText.render(doc, w)
-        if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank()) {
-            // The studio logo tops the slip, like Cashmag's header (384/576 dots
-            // at 8 dots per mm of printable width).
-            val logo = logoRasterBytes(doc.biz.logoFile, if (c.paperWidthMm == 58) 384 else 576) ?: ByteArray(0)
-            val bytes = ESC_INIT + logo + cp437Bytes(body) +
-                (doc.invoiceNo?.let { escPosBarcode(it, doc.codeLabel ?: it) } ?: ByteArray(0)) +
-                FEED_CUT
-            sendRaw(c.printerIp, c.printerPort, bytes)
-        } else {
-            Log.i("POS-Printer", "(${c.printerLink.name.lowercase()} — no printer)\n$body")
-            throw NoPrinterConfigured()
-        }
+        // The studio logo tops the slip, like Cashmag's header (384/576 dots
+        // at 8 dots per mm of printable width).
+        val logo = logoRasterBytes(doc.biz.logoFile, if (c.paperWidthMm == 58) 384 else 576) ?: ByteArray(0)
+        val bytes = ESC_INIT + logo + cp437Bytes(body) +
+            (doc.invoiceNo?.let { escPosBarcode(it, doc.codeLabel ?: it) } ?: ByteArray(0)) +
+            FEED_CUT
+        deliver(c, bytes, body)
     }
 }
 
 @Singleton
-class EscPosDrawer @Inject constructor(private val settings: HardwareSettings) : CashDrawer {
+class EscPosDrawer @Inject constructor(
+    private val settings: HardwareSettings,
+    private val usb: UsbEscPos,
+) : CashDrawer {
     override suspend fun kick() {
         val c = settings.config.first()
-        if (c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() && c.drawerKickEnabled) {
-            // ESC p 0 25ms 250ms — the standard drawer-port pulse through the printer.
-            sendRaw(c.printerIp, c.printerPort, byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte()))
-        } else {
-            Log.i("POS-Drawer", "kick (${c.printerLink.name.lowercase()} — logging only)")
+        // ESC p 0 25ms 250ms — the standard drawer-port pulse through the printer.
+        val pulse = byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte())
+        when {
+            !c.drawerKickEnabled -> Log.i("POS-Drawer", "kick (disabled)")
+            c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() -> sendRaw(c.printerIp, c.printerPort, pulse)
+            c.printerLink == PrinterLink.USB -> usb.send(pulse)
+            else -> Log.i("POS-Drawer", "kick (${c.printerLink.name.lowercase()} — logging only)")
         }
     }
 }
