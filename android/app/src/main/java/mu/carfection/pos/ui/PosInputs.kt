@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -56,7 +57,13 @@ fun FilledInput(
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             if (leadingSearch) Icon(Icons.Default.Search, null, tint = TextMuted, modifier = Modifier.padding(start = 15.dp, end = 11.dp)) else Box(Modifier.padding(start = 14.dp))
             Box(Modifier.padding(end = 14.dp)) {
-                if (value.isEmpty()) Text(placeholder, color = TextMuted, fontFamily = fontFamily, fontSize = fontSize)
+                // The field itself is single-line; the placeholder must be too, or a long
+                // hint wraps and gets clipped by the fixed height (worse the larger the
+                // staff's font scale). Truncate instead.
+                if (value.isEmpty()) Text(
+                    placeholder, color = TextMuted, fontFamily = fontFamily, fontSize = fontSize,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
                 inner()
             }
         }

@@ -195,12 +195,12 @@ fun CounterScreen(
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledInput(
                         value = s.query, onValueChange = viewModel::setQuery,
-                        placeholder = "Search products or scan a barcode…",
-                        modifier = Modifier.weight(1f), height = 44.dp, bg = CardBg, leadingSearch = true,
+                        placeholder = "Search or scan…",
+                        modifier = Modifier.weight(1f), height = 52.dp, bg = CardBg, leadingSearch = true,
                     )
                     // always-visible ad-hoc entry (was buried at the end of the grid)
                     Row(
-                        Modifier.height(44.dp).dashedBorder(Color(0x400F1A24), 11.dp).clickable { viewModel.openAdhoc() }.padding(horizontal = 13.dp),
+                        Modifier.height(52.dp).dashedBorder(Color(0x400F1A24), 11.dp).clickable { viewModel.openAdhoc() }.padding(horizontal = 13.dp),
                         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         Text("+", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp)

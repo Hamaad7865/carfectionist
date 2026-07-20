@@ -4,6 +4,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
@@ -85,12 +88,30 @@ private val PosType = Typography().run {
     )
 }
 
+/**
+ * How much bigger every piece of text runs than the design handoff specified.
+ *
+ * The staff work this tablet standing, at arm's length, often in daylight — they
+ * reported the whole UI as "really small". Rather than re-typing a few hundred
+ * fontSize values (and missing some), we raise the font scale for the entire app
+ * from one place: every `.sp` in every screen multiplies by this. Layout is
+ * unaffected — `.dp` boxes keep their size — so the only thing that changes is
+ * legibility. Tune THIS number if they want it bigger still.
+ */
+const val PosFontScale = 1.22f
+
 @Composable
 fun CarfectionistPosTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = PosColors, typography = PosType) {
-        androidx.compose.material3.ProvideTextStyle(
-            TextStyle(fontFamily = Barlow, color = TextPrimary),
-            content,
-        )
+    val base = LocalDensity.current
+    // Scale text only: same density (so every dp keeps its physical size), higher
+    // fontScale (so every sp grows).
+    val scaled = Density(density = base.density, fontScale = base.fontScale * PosFontScale)
+    CompositionLocalProvider(LocalDensity provides scaled) {
+        MaterialTheme(colorScheme = PosColors, typography = PosType) {
+            androidx.compose.material3.ProvideTextStyle(
+                TextStyle(fontFamily = Barlow, color = TextPrimary),
+                content,
+            )
+        }
     }
 }
