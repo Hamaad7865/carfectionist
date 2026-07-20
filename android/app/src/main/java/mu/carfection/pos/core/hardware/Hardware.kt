@@ -1,5 +1,6 @@
 package mu.carfection.pos.core.hardware
 
+import android.content.Context
 import android.util.Log
 import dagger.Binds
 import dagger.Module
@@ -253,9 +254,41 @@ internal fun logoRasterBytes(path: String?, paperDots: Int): ByteArray? {
     }.getOrNull()
 }
 
-private suspend fun sendRaw(host: String, port: Int, bytes: ByteArray) =
+/**
+ * The Ethernet network whose subnet contains [host], if the tablet has one. A printer
+ * cabled into the tablet's OWN LAN jack lives on a network Android never routes to by
+ * default (Wi-Fi, with internet, is the default network) — an unbound socket to
+ * 192.168.10.100 would take the Wi-Fi and die with EHOSTUNREACH. Binding the socket
+ * to the Ethernet network forces the bytes down the wire the printer hangs off.
+ */
+private fun ethernetFor(context: Context, host: String): android.net.Network? {
+    val cm = context.getSystemService(android.net.ConnectivityManager::class.java) ?: return null
+    val target = runCatching { java.net.InetAddress.getByName(host).address }.getOrNull() ?: return null
+    for (n in cm.allNetworks) {
+        val caps = cm.getNetworkCapabilities(n) ?: continue
+        if (!caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) continue
+        val links = cm.getLinkProperties(n)?.linkAddresses ?: continue
+        for (la in links) {
+            val a = la.address.address
+            if (a.size != target.size) continue
+            var bits = la.prefixLength
+            var same = true
+            for (i in a.indices) {
+                if (bits <= 0) break
+                val mask = if (bits >= 8) 0xFF else (0xFF shl (8 - bits)) and 0xFF
+                if ((a[i].toInt() and mask) != (target[i].toInt() and mask)) { same = false; break }
+                bits -= 8
+            }
+            if (same) return n
+        }
+    }
+    return null
+}
+
+private suspend fun sendRaw(context: Context, host: String, port: Int, bytes: ByteArray) =
     withContext(Dispatchers.IO) {
         java.net.Socket().use { s ->
+            ethernetFor(context, host)?.bindSocket(s)
             s.connect(java.net.InetSocketAddress(host, port), 3_000)
             s.soTimeout = 3_000
             s.getOutputStream().run { write(bytes); flush() }
@@ -267,13 +300,14 @@ class NoPrinterConfigured : Exception("No printer is set up — add it in Settin
 
 @Singleton
 class EscPosPrinter @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     private val settings: HardwareSettings,
     private val usb: UsbEscPos,
 ) : ReceiptPrinter {
     /** One dispatch for both slips: NETWORK and USB carry identical bytes. */
     private suspend fun deliver(c: HardwareConfig, bytes: ByteArray, logBody: String) {
         when {
-            c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() -> sendRaw(c.printerIp, c.printerPort, bytes)
+            c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() -> sendRaw(context, c.printerIp, c.printerPort, bytes)
             c.printerLink == PrinterLink.USB -> usb.send(bytes)
             else -> {
                 // It used to log and return normally, so the caller cheerfully reported "printed"
@@ -306,6 +340,7 @@ class EscPosPrinter @Inject constructor(
 
 @Singleton
 class EscPosDrawer @Inject constructor(
+    @dagger.hilt.android.qualifiers.ApplicationContext private val context: Context,
     private val settings: HardwareSettings,
     private val usb: UsbEscPos,
 ) : CashDrawer {
@@ -315,7 +350,7 @@ class EscPosDrawer @Inject constructor(
         val pulse = byteArrayOf(0x1B, 0x70, 0x00, 0x19, 0xFA.toByte())
         when {
             !c.drawerKickEnabled -> Log.i("POS-Drawer", "kick (disabled)")
-            c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() -> sendRaw(c.printerIp, c.printerPort, pulse)
+            c.printerLink == PrinterLink.NETWORK && c.printerIp.isNotBlank() -> sendRaw(context, c.printerIp, c.printerPort, pulse)
             c.printerLink == PrinterLink.USB -> usb.send(pulse)
             else -> Log.i("POS-Drawer", "kick (${c.printerLink.name.lowercase()} — logging only)")
         }
