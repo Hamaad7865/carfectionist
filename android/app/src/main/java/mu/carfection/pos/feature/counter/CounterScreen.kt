@@ -1238,7 +1238,9 @@ private fun SaleDone(
                 // field in the books, so they confirm directly.
                 var voidPromptOpen by remember { mutableStateOf(false) }
                 var voidReason by remember { mutableStateOf("") }
-                val voidNeedsReason = result.paymentId != null || (result.onAccount && !result.fromCollect)
+                // A payment reversal (single OR split-collect) needs a typed reason; a void does too.
+                val isSplitReverse = result.paymentIds.isNotEmpty() && result.fromCollect
+                val voidNeedsReason = result.paymentId != null || isSplitReverse || (result.onAccount && !result.fromCollect)
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     // printed automatically at payment — this re-sends the same slip
                     Box(
@@ -1253,6 +1255,7 @@ private fun SaleDone(
                     ) { Text(when {
                         result.onAccount && result.fromCollect -> "Undo handover — job back to Ready"
                         result.onAccount -> "Void sale"
+                        isSplitReverse -> "Reverse the split payment"
                         else -> "Void — refund & restock"
                     }, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
                 }

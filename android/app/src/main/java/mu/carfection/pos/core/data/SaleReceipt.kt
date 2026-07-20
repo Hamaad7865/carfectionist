@@ -21,7 +21,11 @@ fun saleReceiptDoc(h: SaleHistoryDto, biz: ReceiptBiz, vatRatePct: Int): Receipt
     val sorted = h.lines.sortedBy { it.sortOrder }
     // Discount lines are stored as negative lines: they are the discount total, not items.
     val positives = sorted.filter { incl(it) >= 0 }
-    val pay = h.payments.filter { it.reversesPaymentId == null }.maxByOrNull { it.receivedAt ?: "" }
+    val nonReversal = h.payments.filter { it.reversesPaymentId == null }
+    val pay = nonReversal.maxByOrNull { it.receivedAt ?: "" }
+    // Change is summed across EVERY tender, not just the latest — a split can hand back change
+    // on any leg, and the old "latest payment's change" dropped it for every split with change.
+    val totalChangeCents = nonReversal.sumOf { rupeesToCents(it.changeGiven ?: 0.0) }
 
     // Every payment, dated — so a deposit taken earlier and the balance taken later each
     // show with when they happened. Short date so it fits a 58mm slip.
@@ -55,9 +59,12 @@ fun saleReceiptDoc(h: SaleHistoryDto, biz: ReceiptBiz, vatRatePct: Int): Receipt
         vatCents = rupeesToCents(h.vatTotal),
         discountCents = -sorted.filter { incl(it) < 0 }.sumOf { incl(it) },
         totalCents = rupeesToCents(h.totalIncl),
-        payLabel = pay?.let { p -> PayMethod.entries.firstOrNull { it.rpcValue == p.method }?.label ?: p.method },
-        paidCents = pay?.tendered?.let { rupeesToCents(it) } ?: rupeesToCents(h.amountPaid),
-        changeCents = pay?.changeGiven?.let { rupeesToCents(it) } ?: 0L,
+        // With more than one tender the slip's single "paid in" label can't name them all — the
+        // per-tender `payments` list below carries the breakdown; the label reads "Split".
+        payLabel = if (nonReversal.size > 1) "Split" else pay?.let { p -> PayMethod.entries.firstOrNull { it.rpcValue == p.method }?.label ?: p.method },
+        // What the customer handed over = money applied + all change given back.
+        paidCents = rupeesToCents(h.amountPaid) + totalChangeCents,
+        changeCents = totalChangeCents,
         onAccount = pay == null,
         // A deposit or a part payment leaves the bill open; the server's amount_paid is the
         // only honest source for what is still owed, so the slip quotes it rather than guessing.

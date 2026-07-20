@@ -325,7 +325,11 @@ class CounterViewModel @Inject constructor(
     /** Hard reset on operator switch — unconditional (unlike newSale, which guards a settle). */
     private fun resetOnSignOut() {
         saleKey = UUID.randomUUID().toString()
-        local.value = CounterUiState(till = local.value.till)
+        // Studio identity is not per-operator — keep it so the next login's payment screen
+        // doesn't fall back to the hardcoded name (the ViewModel is activity-scoped; init
+        // won't re-run to re-fetch it).
+        val cur = local.value
+        local.value = CounterUiState(till = cur.till, bizName = cur.bizName, bizAddress = cur.bizAddress)
     }
 
     // ── checkout list: TO COLLECT + PAID TODAY ─────────────────────────────────
@@ -494,6 +498,11 @@ class CounterViewModel @Inject constructor(
         val why = reason?.trim().takeUnless { it.isNullOrEmpty() }
         newSale() // clear the finished cart first; the sale itself is already committed
         when {
+            // A SPLIT COLLECT: reverse each of THIS transaction's payments (not a credit note
+            // over the whole invoice — that would refund a prior deposit too, audit #6).
+            r.paymentIds.isNotEmpty() && r.fromCollect -> correction("Split reversed — ${r.number ?: "invoice"}") {
+                r.paymentIds.forEach { api.reversePayment(it, why ?: "Reversed at POS") }
+            }
             // A COLLECT (deposit / part payment on an existing invoice): reverse just THIS
             // payment. Credit-noting the whole invoice here would refund and restock an
             // entire live job after only a deposit was taken (audit #6).
@@ -590,7 +599,7 @@ class CounterViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val result = if (bill != null) {
-                    sales.collectSplit(bill.id, bill.number, s.dueCents, allTenders, s.till?.id, saleKey)
+                    sales.collectSplit(bill.id, bill.number, allTenders, s.till?.id, saleKey)
                 } else {
                     sales.completeSaleSplit(
                         cart = s.cart, tenders = allTenders, customerId = s.customerId, walkInName = s.customerText,
@@ -881,8 +890,10 @@ class CounterViewModel @Inject constructor(
         if (!s.canAddTender) return
         val tender = mu.carfection.pos.core.data.Tender(
             method = s.method,
+            // Carry the REAL tender: if the cashier handed more cash than this slice, that
+            // change is theirs to give and must be recorded — not silently forced to exact.
             amountCents = s.payCents,
-            tenderedCents = if (s.method == PayMethod.CASH) s.payCents else null, // a staged cash slice is exact
+            tenderedCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
             ref = if (s.method == PayMethod.CASH) null else s.refText.trim().ifBlank { null },
         )
         local.value = local.value.copy(
@@ -926,8 +937,11 @@ class CounterViewModel @Inject constructor(
     fun padKey(key: String) {
         if (frozenBySettle()) return
         val st = local.value
-        // Non-cash has no tender to count out, so the keys always mean the amount.
-        val onAmount = st.padField == PadField.AMOUNT || (st.collect != null && st.method != PayMethod.CASH)
+        // Which field the keys type into. Non-cash has no tender to count out, so the keys
+        // always mean the amount; cash types the tender unless the AMOUNT card is focused.
+        // (This is method-driven now — a WALK-IN can type an amount too, for a split. The old
+        // `collect != null` guard silently routed a walk-in's typed amount into the tender.)
+        val onAmount = st.padField == PadField.AMOUNT || st.method != PayMethod.CASH
         val t = if (onAmount) st.payText else st.tenderText
         val next = when (key) {
             "⌫" -> t.dropLast(1)
@@ -941,9 +955,7 @@ class CounterViewModel @Inject constructor(
                 }
             }
         }
-        local.value =
-            if (onAmount && st.collect != null) st.copy(payText = next, tenderText = "")
-            else st.copy(tenderText = next)
+        local.value = if (onAmount) st.copy(payText = next, tenderText = "") else st.copy(tenderText = next)
     }
 
     // ── settle ───────────────────────────────────────────────────────────────

@@ -131,6 +131,9 @@ data class SaleResult(
     // Who owes the money — the BILL's customer on a collect. The walk-in cart's customer
     // text is unrelated state and used to mislabel the done panel ("owed by Walk-in").
     val debtor: String? = null,
+    // A SPLIT records several payments — their ids, so the done panel's undo reverses each
+    // one (a collect) rather than trying to reverse a single fake "split" id.
+    val paymentIds: List<String> = emptyList(),
 )
 
 /**
@@ -382,12 +385,10 @@ class SaleRepository @Inject constructor(
     suspend fun collectSplit(
         invoiceId: String,
         number: String?,
-        outstandingCents: Long,
         tenders: List<Tender>,
         cashSessionId: String?,
         saleKey: String,
     ): SaleResult = recordTenders(invoiceId, number, targetCents = null, tenders, cashSessionId, saleKey)
-        .copy(paymentId = "split") // non-null marker: the done panel reverses payments, not the invoice
 
     /**
      * Record a list of tenders against one invoice. When [targetCents] is given (a walk-in, whose
@@ -405,7 +406,11 @@ class SaleRepository @Inject constructor(
     ): SaleResult {
         require(tenders.isNotEmpty()) { "No payment entered." }
         // Close to the penny against the SERVER total (walk-in only): adjust the last tender.
-        val delta = if (targetCents == null) 0L else targetCents - tenders.sumOf { it.amountCents }
+        // Only apply a delta that keeps the last tender positive — a wild delta (client vs
+        // server totals wildly out of step) would be a bug elsewhere, not something to paper
+        // over by zeroing or negating a tender.
+        val rawDelta = if (targetCents == null) 0L else targetCents - tenders.sumOf { it.amountCents }
+        val delta = if (rawDelta != 0L && tenders.last().amountCents + rawDelta > 0L) rawDelta else 0L
         val adjusted = if (delta == 0L) tenders else tenders.toMutableList().also {
             val last = it.last()
             it[it.lastIndex] = last.copy(
@@ -414,9 +419,10 @@ class SaleRepository @Inject constructor(
             )
         }
         var change = 0L
+        val ids = mutableListOf<String>()
         adjusted.forEachIndexed { i, t ->
             try {
-                api.recordPayment(
+                val pay = api.recordPayment(
                     invoiceId = invoiceId,
                     method = requireNotNull(t.method.rpcValue),
                     amountRupees = centsToRupees(t.amountCents),
@@ -425,6 +431,7 @@ class SaleRepository @Inject constructor(
                     cashSessionId = cashSessionId,
                     idempotencyKey = "$saleKey:pay:$i",
                 )
+                ids += pay.id
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -432,7 +439,7 @@ class SaleRepository @Inject constructor(
             }
             if (t.method == PayMethod.CASH && t.tenderedCents != null) change += (t.tenderedCents - t.amountCents).coerceAtLeast(0)
         }
-        return SaleResult(invoiceId, number, adjusted.sumOf { it.amountCents }, change, onAccount = false)
+        return SaleResult(invoiceId, number, adjusted.sumOf { it.amountCents }, change, onAccount = false, paymentIds = ids)
     }
 
     /**
