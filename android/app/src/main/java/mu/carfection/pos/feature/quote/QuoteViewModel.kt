@@ -15,7 +15,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.DiscountMode
-import mu.carfection.pos.core.data.SERVICES_TAB
+import mu.carfection.pos.core.data.KindFilter
 import mu.carfection.pos.core.data.IntakeHandoff
 import mu.carfection.pos.core.data.IntakeHandoffBus
 import mu.carfection.pos.core.data.OpenJobBus
@@ -74,6 +74,7 @@ data class QuoteState(
     val customerId: String? = null,
     val vehicleId: String? = null,
     val tab: String = "All", // the selected CATEGORY (same rail as Checkout)
+    val kindFilter: KindFilter = KindFilter.ALL, // Products / Services toggle (mirrors the web builder)
     val query: String = "", // product search (name or scanned barcode)
     val catQuery: String = "", // narrows the category rail — 40+ categories aren't browsable
     val listQuery: String = "", // quote search on the list (customer, plate, vehicle, number)
@@ -214,38 +215,46 @@ class QuoteViewModel @Inject constructor(
 
     fun setListQuery(q: String) = _s.update { it.copy(listQuery = q) }
 
+    /** Does this product match the Products / Services toggle? */
+    private fun QuoteState.kindMatch(p: ProductEntity) = when (kindFilter) {
+        KindFilter.ALL -> true
+        KindFilter.SERVICES -> p.kind == "service"
+        KindFilter.PRODUCTS -> p.kind != "service"
+    }
+
     /**
      * The category rail — the same one Checkout browses, because it is the same catalogue.
      * ("All" always survives the rail's own search, so there is always a way back out.)
-     * "Services" is PINNED right after it: a detailing quote starts with the work, and the
-     * shop's ~70 services were invisible — buried inside one alphabetical category (plus a
-     * few with no category at all, reachable only through All).
+     * The Products / Services split lives in a toggle above the rail now, not as a pinned
+     * pseudo-category — a detailing quote usually starts with the WORK.
      */
     fun tabs(s: QuoteState): List<String> {
         val q = s.catQuery.trim()
-        return listOf("All", SERVICES_TAB) + s.products.mapNotNull { it.category }.distinct().sorted()
+        // Categories present in the current toggle (Products / Services / All) — so the
+        // Services view doesn't list a wall of product-only categories all reading "0".
+        val cats = s.products.filter { s.kindMatch(it) }.mapNotNull { it.category }.distinct().sorted()
             .filter { q.isEmpty() || it.contains(q, ignoreCase = true) }
+        return listOf("All") + cats
     }
 
-    fun catCounts(s: QuoteState): Map<String, Int> =
-        s.products.mapNotNull { it.category }.groupingBy { it }.eachCount() +
-            ("All" to s.products.size) +
-            (SERVICES_TAB to s.products.count { it.kind == "service" })
+    /** Counts reflect the current toggle, so "CAR WASH EXPERTS 12" means 12 *services* there. */
+    fun catCounts(s: QuoteState): Map<String, Int> {
+        val inKind = s.products.filter { s.kindMatch(it) }
+        return inKind.mapNotNull { it.category }.groupingBy { it }.eachCount() + ("All" to inKind.size)
+    }
 
     fun filteredProducts(s: QuoteState): List<ProductEntity> {
         val q = s.query.trim()
         return s.products
-            .filter {
-                when (s.tab) {
-                    "All" -> true
-                    SERVICES_TAB -> it.kind == "service"
-                    else -> it.category == s.tab
-                }
-            }
+            .filter { s.kindMatch(it) }
+            .filter { s.tab == "All" || it.category == s.tab }
             .filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.barcode?.contains(q) == true }
     }
 
     fun setTab(t: String) = _s.update { it.copy(tab = t) }
+    // Reset the category to "All": the old selection may not exist under the new toggle
+    // (e.g. "AMPLIFIER" has no services), which would leave an empty grid and no highlight.
+    fun setKindFilter(k: KindFilter) = _s.update { it.copy(kindFilter = k, tab = "All") }
     fun setQuery(q: String) = _s.update { it.copy(query = q) }
     fun setCatQuery(q: String) = _s.update { it.copy(catQuery = q) }
 

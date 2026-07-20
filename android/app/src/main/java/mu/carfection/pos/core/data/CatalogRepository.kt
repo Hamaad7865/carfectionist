@@ -25,6 +25,9 @@ import javax.inject.Singleton
  */
 const val SERVICES_TAB = "Services"
 
+/** The Products / Services toggle above the category rail (mirrors the web builder). */
+enum class KindFilter(val label: String) { ALL("All"), SERVICES("Services"), PRODUCTS("Products") }
+
 /**
  * Offline-first catalogue: the UI observes Room; refresh() pulls the shared
  * tables from Supabase and replaces the cache. (M1 = full refresh; the delta

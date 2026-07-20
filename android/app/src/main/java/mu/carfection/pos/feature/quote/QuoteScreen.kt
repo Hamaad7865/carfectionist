@@ -64,6 +64,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import mu.carfection.pos.core.data.DiscountMode
+import mu.carfection.pos.core.data.KindFilter
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.ui.FlowState
 import mu.carfection.pos.ui.FlowStepUi
@@ -849,21 +850,37 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
 @Composable
 private fun CategoryRail(s: QuoteState, vm: QuoteViewModel) {
     val counts = vm.catCounts(s)
-    Column(Modifier.width(178.dp).fillMaxHeight().card(14)) {
-        Row(Modifier.fillMaxWidth().height(38.dp).padding(start = 13.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+    Column(Modifier.width(210.dp).fillMaxHeight().card(14)) {
+        // Products / Services toggle (mirrors the web builder). A detailing quote usually
+        // starts with the WORK, so services are one tap away, not buried in the categories.
+        Row(Modifier.fillMaxWidth().padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            KindFilter.entries.forEach { k ->
+                val on = s.kindFilter == k
+                Box(
+                    Modifier.weight(1f).height(34.dp)
+                        .background(if (on) Accent else InsetAlt, RoundedCornerShape(9.dp))
+                        .clickable { vm.setKindFilter(k) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(k.label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                        color = if (on) AccentInk else TextSecondary, maxLines = 1)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().height(32.dp).padding(start = 13.dp, end = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Text("CATEGORIES", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.4.sp)
         }
         FilledInput(
             value = s.catQuery, onValueChange = vm::setCatQuery,
             placeholder = "Search…",
             modifier = Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
-            height = 36.dp, bg = InsetAlt, fontSize = 12.5.sp, leadingSearch = true,
+            height = 38.dp, bg = InsetAlt, fontSize = 13.sp, leadingSearch = true,
         )
         LazyColumn(Modifier.weight(1f).fillMaxWidth()) {
             items(vm.tabs(s), key = { it }) { c ->
                 val on = c == s.tab
                 Row(
-                    Modifier.fillMaxWidth().heightIn(min = 44.dp).height(IntrinsicSize.Min)
+                    Modifier.fillMaxWidth().heightIn(min = 46.dp).height(IntrinsicSize.Min)
                         .background(if (on) AccentSoft else Color.Transparent)
                         .clickable { vm.setTab(c) },
                     verticalAlignment = Alignment.CenterVertically,
@@ -871,13 +888,13 @@ private fun CategoryRail(s: QuoteState, vm: QuoteViewModel) {
                     // selection is never colour alone
                     Box(Modifier.width(3.dp).fillMaxHeight().background(if (on) Accent else Color.Transparent))
                     Text(
-                        c, color = if (on) Accent else TextSecondary, fontFamily = Barlow,
-                        fontWeight = if (on) FontWeight.Bold else FontWeight.Medium, fontSize = 12.sp, lineHeight = 15.sp,
+                        c, color = if (on) Accent else TextPrimary, fontFamily = Barlow,
+                        fontWeight = FontWeight.Bold, fontSize = 14.5.sp, lineHeight = 17.sp,
                         maxLines = 2, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f).padding(start = 9.dp, top = 8.dp, bottom = 8.dp),
+                        modifier = Modifier.weight(1f).padding(start = 10.dp, top = 9.dp, bottom = 9.dp),
                     )
                     Text(
-                        (counts[c] ?: 0).toString(), color = TextMuted, fontFamily = Mono, fontSize = 10.sp,
+                        (counts[c] ?: 0).toString(), color = TextMuted, fontFamily = Mono, fontSize = 11.5.sp,
                         modifier = Modifier.padding(start = 5.dp, end = 10.dp),
                     )
                 }
