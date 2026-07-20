@@ -561,7 +561,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     /** Invoices awaiting payment (issued or partly paid) — the "TO COLLECT" list. */
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, customers(name), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, issued_at, customers(name), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "invoice"); isIn("status", listOf("issued", "partly_paid")) }
                 order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 // Auto-invoicing on "ready" makes outstanding invoices longer-lived; a low

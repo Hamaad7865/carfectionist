@@ -33,12 +33,19 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -680,12 +687,26 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                             .background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp))
                             .padding(18.dp),
                     ) {
-                        Text(s.till?.let { "SALES" } ?: "SALES", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                        // Studio identity (Cashmag prints the shop's name/address atop the bill).
+                        Text(s.bizName.ifBlank { "CARFECTIONIST" }.uppercase(), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = 0.5.sp)
+                        s.bizAddress?.takeIf { it.isNotBlank() }?.let {
+                            Text(it, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+                        }
+                        Spacer(Modifier.height(10.dp))
+                        // Bill reference + when it was rung, then the item count — the Cashmag panel.
+                        val itemCount = if (s.collect != null) 1 else s.cart.sumOf { if (it.qty % 1.0 == 0.0) it.qty.toInt() else 1 }
+                        val stamp = remember(s.collect?.id) {
+                            val fmt = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy · HH:mm")
+                            s.collect?.issuedAt?.let {
+                                runCatching { java.time.OffsetDateTime.parse(it).atZoneSameInstant(java.time.ZoneOffset.ofHours(4)).format(fmt) }.getOrNull()
+                            } ?: java.time.LocalDateTime.now().format(fmt)
+                        }
                         Text(
-                            s.collect?.number ?: "New counter sale",
-                            color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp,
+                            "${s.collect?.number ?: "New counter sale"}  ·  $stamp",
+                            color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Text("$itemCount item${if (itemCount == 1) "" else "s"}", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp)
+                        Spacer(Modifier.height(8.dp))
                         Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
                         Spacer(Modifier.height(10.dp))
                         // line items: a walk-in cart carries its lines; a collect is one bill line.
@@ -731,7 +752,8 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                             tiles.forEach { row ->
                                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    row.forEach { m -> Box(Modifier.weight(1f)) { MethodTile(m, s.method == m) { vm.setMethod(m) } } }
+                                    // Credit can't join a split (it's a receivable, not a tender).
+                                    row.forEach { m -> Box(Modifier.weight(1f)) { MethodTile(m, s.method == m, enabled = !(m == PayMethod.CREDIT && s.tenders.isNotEmpty())) { vm.setMethod(m) } } }
                                     if (row.size == 1) Spacer(Modifier.weight(1f))
                                 }
                             }
@@ -761,6 +783,22 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
 
                         // the entry detail for the chosen method (scrolls if the numpad is tall)
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            // Staged split tenders (e.g. Rs 500 Juice) — each removable before Record.
+                            s.tenders.forEachIndexed { i, t ->
+                                Row(
+                                    Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(11.dp)).border(1.dp, Hairline, RoundedCornerShape(11.dp)).padding(horizontal = 12.dp, vertical = 9.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(methodIcon(t.method), t.method.label, tint = Success, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(9.dp))
+                                    Text(t.method.label, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    Spacer(Modifier.weight(1f))
+                                    Text(formatMUR(t.amountCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                    Box(Modifier.padding(start = 10.dp).size(26.dp).clickable { vm.removeTender(i) }, contentAlignment = Alignment.Center) {
+                                        Text("✕", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                    }
+                                }
+                            }
                             PaymentEntry(s, vm)
                         }
 
@@ -771,15 +809,28 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                                 color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                             Spacer(Modifier.height(6.dp))
                         }
+                        // "+ Add another method" — split: bank this partial and pick the next method.
+                        if (s.canAddTender) {
+                            Box(
+                                Modifier.fillMaxWidth().height(48.dp).padding(bottom = 8.dp)
+                                    .background(AccentSoft, RoundedCornerShape(13.dp)).border(1.dp, AccentLine, RoundedCornerShape(13.dp))
+                                    .clickable { vm.addTender() },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("+ Add another method  ·  ${formatMUR(s.payCents)} ${s.method.label.lowercase()}", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            }
+                        }
                         Box(
                             Modifier.fillMaxWidth().height(56.dp)
                                 .background(if (s.canRecord) Accent else InsetAlt, RoundedCornerShape(14.dp))
                                 .clickable(enabled = s.canRecord) { vm.confirm() },
                             contentAlignment = Alignment.Center,
                         ) {
+                            val payingNow = s.stagedCents + s.payCents
                             Text(
                                 if (s.busy) "Recording…"
                                 else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.dueCents)} on account"
+                                else if (s.tenders.isNotEmpty()) "Record ${formatMUR(payingNow)} split"
                                 else if (s.isPartPayment) "Take ${formatMUR(s.payCents)} — ${formatMUR(s.balanceAfterCents)} left"
                                 else "Record ${formatMUR(s.payCents)}",
                                 color = if (s.canRecord) AccentInk else TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp,
@@ -823,25 +874,38 @@ private fun BillLine(qty: String, name: String, inclCents: Long) {
     }
 }
 
-/** A big coloured means-of-payment tile (Cashmag's payment grid). */
+/** The brand hue for each means of payment (its tile + staged-tender accent). */
+private fun methodHue(m: PayMethod): Color = when (m) {
+    PayMethod.CASH -> Success
+    PayMethod.CARD -> Accent
+    PayMethod.JUICE -> Color(0xFFE8A400)
+    PayMethod.BANK -> Color(0xFF3B5B8C)
+    PayMethod.CREDIT -> Warning
+}
+
+/** A recognisable icon per method — no more anonymous "C" circles. */
+private fun methodIcon(m: PayMethod): ImageVector = when (m) {
+    PayMethod.CASH -> Icons.Filled.Payments          // banknotes
+    PayMethod.CARD -> Icons.Filled.CreditCard        // bank card
+    PayMethod.JUICE -> Icons.Filled.Smartphone       // MCB Juice — a phone wallet
+    PayMethod.BANK -> Icons.Filled.AccountBalance     // bank transfer
+    PayMethod.CREDIT -> Icons.Filled.Schedule         // on account — pay later
+}
+
+/** A big means-of-payment tile with an icon (Cashmag's payment grid). */
 @Composable
-private fun MethodTile(m: PayMethod, selected: Boolean, onClick: () -> Unit) {
-    val hue = when (m) {
-        PayMethod.CASH -> Success
-        PayMethod.CARD -> Accent
-        PayMethod.JUICE -> Color(0xFFE8A400)
-        PayMethod.BANK -> Color(0xFF3B5B8C)
-        PayMethod.CREDIT -> Warning
-    }
+private fun MethodTile(m: PayMethod, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    val hue = methodHue(m)
     Column(
         Modifier.fillMaxWidth().height(104.dp)
             .background(if (selected) hue.copy(alpha = 0.14f) else InsetAlt, RoundedCornerShape(16.dp))
             .border(2.dp, if (selected) hue else Hairline, RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick).padding(10.dp),
+            .clickable(enabled = enabled, onClick = onClick).padding(10.dp)
+            .alpha(if (enabled) 1f else 0.4f),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center,
     ) {
         Box(Modifier.size(46.dp).background(hue, CircleShape), contentAlignment = Alignment.Center) {
-            Text(m.label.first().toString(), color = Color.White, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+            Icon(methodIcon(m), m.label, tint = Color.White, modifier = Modifier.size(24.dp))
         }
         Spacer(Modifier.height(8.dp))
         Text(m.label, color = if (selected) hue else TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
@@ -851,7 +915,9 @@ private fun MethodTile(m: PayMethod, selected: Boolean, onClick: () -> Unit) {
 /** The entry detail for the currently-selected method — the right column's working area. */
 @Composable
 private fun PaymentEntry(s: CounterUiState, vm: CounterViewModel) {
-    val amountEditable = s.collect != null && s.method != PayMethod.CREDIT
+    // Amount is editable for any non-credit payment now (a walk-in can be split too — tap
+    // AMOUNT and type a slice); credit always settles the whole remainder.
+    val amountEditable = s.method != PayMethod.CREDIT
     val onAmount = amountEditable && (s.padField == PadField.AMOUNT || s.method != PayMethod.CASH)
     DisplayCard(
         if (s.method == PayMethod.CREDIT) "GOES ON ACCOUNT" else if (s.isPartPayment) "PAYING NOW" else "AMOUNT",

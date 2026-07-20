@@ -106,45 +106,61 @@ data class CounterUiState(
     val historyQuery: String = "",
     val historyBusy: Boolean = false,
     val viewDoc: ReceiptDoc? = null, // a past sale's receipt, rebuilt for preview/reprint
+    // split payment — tenders staged so far (e.g. Rs 500 Juice), committed together on Record
+    val tenders: List<mu.carfection.pos.core.data.Tender> = emptyList(),
+    // studio identity for the payment screen's bill panel (Cashmag-style header)
+    val bizName: String = "",
+    val bizAddress: String? = null,
 ) {
     /** The whole balance the pad COULD settle: an invoice's outstanding, or the cart total. */
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
 
+    /** Already staged onto the split so far (sum of the tender lines). */
+    val stagedCents: Long get() = tenders.sumOf { it.amountCents }
+    /** What is still owed after the staged tenders — the ceiling for the current entry. */
+    val remainingCents: Long get() = (dueCents - stagedCents).coerceAtLeast(0)
+
     /**
-     * What is being taken RIGHT NOW — a deposit, a part payment, or the lot.
-     *
-     * Only a bill can be part-paid: an invoice carries a balance and can wait for the rest.
-     * A counter sale has nothing to owe against, so it settles in full or goes on account.
-     * Never more than what is owed — the server refuses an overpayment anyway, and the
-     * cashier should learn that from the pad, not from a failed transaction.
+     * What is being taken RIGHT NOW — a deposit, a split slice, or the lot. Capped at the
+     * REMAINING balance (never more than what is owed; the server refuses overpayment anyway).
+     * Empty entry = pay the whole remaining, so an untouched walk-in still settles in full.
      */
     val payCents: Long
         get() {
-            if (collect == null) return dueCents
+            val cap = remainingCents
             val typed = if (payText.isBlank()) null else parseMoneyToCents(payText)
-            return (typed ?: dueCents).coerceIn(0, dueCents.coerceAtLeast(0))
+            return (typed ?: cap).coerceIn(0, cap)
         }
 
-    /** Money still owed after this payment lands — what stays in TO COLLECT. */
-    val balanceAfterCents: Long get() = (dueCents - payCents).coerceAtLeast(0)
-    val isPartPayment: Boolean get() = collect != null && payCents in 1 until dueCents
+    /** Money still owed after this entry lands — what stays in TO COLLECT / the split balance. */
+    val balanceAfterCents: Long get() = (remainingCents - payCents).coerceAtLeast(0)
+    val isPartPayment: Boolean get() = tenders.isNotEmpty() || (collect != null && payCents in 1 until dueCents)
 
     val tenderCents: Long? get() = if (tenderText.isBlank()) null else parseMoneyToCents(tenderText)
     val effectiveTenderCents: Long get() = tenderCents ?: payCents // pad opens "exact"
     val changeCents: Long get() = (effectiveTenderCents - payCents).coerceAtLeast(0)
 
-    val canRecord: Boolean
-        get() = !busy && payCents > 0 && (collect != null || cart.isNotEmpty()) && when (method) {
-            // EVERY payment is taken ON a till (Cashmag: money belongs to a service) — the
-            // server refuses it otherwise. Cash because it moves a drawer; card/Juice/bank
-            // because a payment booked to no session shows on no Z-report, ever. The gate
-            // lives here too so the cashier learns before the customer's money is in hand.
+    /** Does the current entry satisfy its method's rules (till, tender, reference)? */
+    private val entryValid: Boolean
+        get() = when (method) {
             PayMethod.CASH -> effectiveTenderCents >= payCents && till != null
-            // Credit = leave it on the customer's account (no payment, so no till needed).
-            // A walk-in needs a chosen customer; a collect already has one (the invoice's).
             PayMethod.CREDIT -> (collect == null && customerId != null) || (collect?.customers != null)
-            else -> till != null
+            else -> till != null // card/juice/bank
         }
+
+    val canRecord: Boolean
+        get() = !busy && (collect != null || cart.isNotEmpty()) && when (method) {
+            // Credit settles the whole remainder on account — it cannot be mixed with staged
+            // cash/card tenders (that would be a payment + a receivable in one breath).
+            PayMethod.CREDIT -> tenders.isEmpty() && dueCents > 0 && entryValid
+            // A COLLECT may take a partial now (a deposit) and leave the rest owing; a WALK-IN
+            // must be settled in full — staged tenders + this entry must cover the whole bill.
+            else -> payCents > 0 && entryValid && (collect != null || stagedCents + payCents == dueCents)
+        }
+
+    /** "+ Add another method" is offered when this entry is a PARTIAL that leaves a balance. */
+    val canAddTender: Boolean
+        get() = !busy && method != PayMethod.CREDIT && payCents in 1 until remainingCents && entryValid
 
     /** Why the pay button is dead, when the reason is the till and not the basket. */
     val cashNeedsTill: Boolean get() = method != PayMethod.CREDIT && till == null && payCents > 0
@@ -158,10 +174,10 @@ data class CounterUiState(
                 .filter { it > t }.distinct().take(3)
         }
 
-    /** Deposit chips — the split a shop actually asks for. Only on a bill that can carry one. */
+    /** Deposit / split chips — half or three-quarters of what is still owed. */
     val depositChips: List<Long>
-        get() = if (collect == null || dueCents <= 0) emptyList()
-        else listOf(dueCents / 2, dueCents / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until dueCents }.distinct()
+        get() = if (remainingCents <= 0) emptyList()
+        else listOf(remainingCents / 2, remainingCents / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until remainingCents }.distinct()
 
     // ── basket discount, derived from the raw input ─────────────────────────────
     val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
@@ -292,6 +308,12 @@ class CounterViewModel @Inject constructor(
         refreshStock()
         watchCollectRequests() // a deposit agreed at signing lands the pad on its bill
         viewModelScope.launch { catalog.products.collect { allProducts = it } }
+        // Studio identity for the payment screen's bill panel (Cashmag-style header).
+        viewModelScope.launch {
+            runCatching { catalog.receiptBiz() }.getOrNull()?.let { biz ->
+                local.value = local.value.copy(bizName = biz.name, bizAddress = biz.address)
+            }
+        }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
@@ -513,7 +535,7 @@ class CounterViewModel @Inject constructor(
             tenderText = "",
             payText = amountCents?.let { centsToText(it) } ?: "",
             padField = PadField.TENDER,
-            refText = "", error = null,
+            refText = "", error = null, tenders = emptyList(),
         )
     }
 
@@ -540,7 +562,65 @@ class CounterViewModel @Inject constructor(
     }
 
     /** The pad's confirm button: collect on an invoice, or settle the walk-in cart. */
-    fun confirm() = if (local.value.collect != null) recordCollect() else record()
+    fun confirm() = when {
+        local.value.tenders.isNotEmpty() -> recordSplit() // a split in progress (staged tenders)
+        local.value.collect != null -> recordCollect()
+        else -> record()
+    }
+
+    /**
+     * Commit a SPLIT payment: the staged tenders plus the current entry, recorded together.
+     * Walk-in → issue once then record each; collect → record each against the bill. The
+     * receipt is rebuilt from the server invoice, so it shows every tender line.
+     */
+    private fun recordSplit() {
+        val s = state.value
+        if (!s.canRecord || s.busy) return
+        val bill = s.collect
+        // The current entry becomes the final tender (it closes the bill: payCents == remaining).
+        val finalTender = mu.carfection.pos.core.data.Tender(
+            method = s.method,
+            amountCents = s.payCents,
+            tenderedCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
+            ref = if (s.method == PayMethod.CASH) null else s.refText.trim().ifBlank { null },
+        )
+        val allTenders = s.tenders + finalTender
+        val anyCash = allTenders.any { it.method == PayMethod.CASH }
+        local.value = local.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            try {
+                val result = if (bill != null) {
+                    sales.collectSplit(bill.id, bill.number, s.dueCents, allTenders, s.till?.id, saleKey)
+                } else {
+                    sales.completeSaleSplit(
+                        cart = s.cart, tenders = allTenders, customerId = s.customerId, walkInName = s.customerText,
+                        cashSessionId = s.till?.id, saleKey = saleKey,
+                        basketMode = s.basketMode, basketPct = s.basketPct, basketAmtCents = s.basketAmtCents,
+                        comment = s.comment, knownInvoiceId = s.pendingSettle?.invoiceId,
+                    )
+                }
+                // Rebuild the slip from the server invoice — it now carries every tender row.
+                val receipt = runCatching {
+                    api.fetchInvoice(result.invoiceId)?.let {
+                        saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt()).copy(isPayment = bill != null)
+                    }
+                }.getOrNull()
+                launch {
+                    val printed = receipt != null && runCatching { printer.printDoc(receipt) }.isSuccess
+                    if (anyCash) runCatching { drawer.kick() }
+                    logReceiptOutcome(result.number, printed)
+                }
+                local.value = local.value.copy(
+                    busy = false, padOpen = false, collect = null, pendingSettle = null, tenders = emptyList(),
+                    done = result.copy(fromCollect = bill != null, debtor = bill?.customers?.name),
+                    receipt = receipt,
+                )
+                loadLists()
+            } catch (e: Exception) {
+                local.value = local.value.withSettleFailure(e)
+            }
+        }
+    }
 
     private fun recordCollect() {
         val s = state.value
@@ -765,7 +845,7 @@ class CounterViewModel @Inject constructor(
         // retry MUST replay identically, so reopening the pad must NOT reset them (the server
         // ignores a retry's arguments; a reset would print a receipt that lies about the tender).
         if (local.value.pendingSettle != null) { local.value = local.value.copy(padOpen = true, error = settleError()); return }
-        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", error = null)
+        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", payText = "", error = null, tenders = emptyList())
     }
     fun closePad() {
         val st = local.value
@@ -790,6 +870,33 @@ class CounterViewModel @Inject constructor(
         local.value = st.copy(padOpen = false, collect = null)
     }
     fun setMethod(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(method = m, error = settleError()) }
+
+    /**
+     * Split payment: stage the current entry as a tender (e.g. Rs 500 Juice), then reset the
+     * pad for the next method. Only offered on a PARTIAL that leaves a balance (canAddTender).
+     */
+    fun addTender() {
+        if (frozenBySettle()) return
+        val s = state.value
+        if (!s.canAddTender) return
+        val tender = mu.carfection.pos.core.data.Tender(
+            method = s.method,
+            amountCents = s.payCents,
+            tenderedCents = if (s.method == PayMethod.CASH) s.payCents else null, // a staged cash slice is exact
+            ref = if (s.method == PayMethod.CASH) null else s.refText.trim().ifBlank { null },
+        )
+        local.value = local.value.copy(
+            tenders = s.tenders + tender,
+            method = PayMethod.CASH, payText = "", tenderText = "", refText = "",
+            padField = PadField.TENDER, error = null,
+        )
+    }
+
+    /** Drop a staged tender before committing (× on its line). */
+    fun removeTender(index: Int) {
+        if (frozenBySettle()) return
+        local.value = local.value.copy(tenders = local.value.tenders.filterIndexed { i, _ -> i != index })
+    }
 
     /** An unresolved settle keeps its message: it is the cashier's only instruction for getting out. */
     private fun settleError(): String? = local.value.error.takeIf { local.value.pendingSettle != null }
@@ -909,7 +1016,10 @@ class CounterViewModel @Inject constructor(
         if (local.value.pendingSettle != null) { local.value = local.value.copy(notice = SETTLE_LOCK_NOTICE); return }
         saleKey = UUID.randomUUID().toString()
         val cur = local.value
-        local.value = CounterUiState(till = cur.till, mode = cur.mode, bills = cur.bills, paidToday = cur.paidToday)
+        local.value = CounterUiState(
+            till = cur.till, mode = cur.mode, bills = cur.bills, paidToday = cur.paidToday,
+            bizName = cur.bizName, bizAddress = cur.bizAddress, // studio identity is not per-sale
+        )
         refreshTill()
     }
 
