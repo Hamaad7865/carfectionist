@@ -1,5 +1,13 @@
 'use client';
 
+import {
+  cloneElement,
+  useEffect,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
+
 import { formatMUR } from '@/lib/money';
 import {
   Bar,
@@ -8,11 +16,56 @@ import {
   Legend,
   Line,
   ReferenceLine,
-  ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from 'recharts';
+
+const CHART_HEIGHT = 360;
+
+/**
+ * Recharts' ResponsiveContainer intermittently latches onto a near-zero height
+ * on first paint (React 19 + a fixed-height flex parent) and never recovers —
+ * the chart collapsed to a 14px sliver inside a 360px box, leaving a dead white
+ * gap the owner reported. So we don't ask it to size the height at all: we
+ * measure the available WIDTH ourselves and hand the chart explicit numeric
+ * width + a fixed height, which cannot collapse. The child (a <ComposedChart>)
+ * is cloned with those dims, so its axes stay real elements in the tree — the
+ * accessibility test still finds the YAxis without a browser.
+ */
+function ChartAutoWidth({
+  minWidth,
+  children,
+}: {
+  minWidth: number;
+  children: ReactElement;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(minWidth);
+
+  useEffect(() => {
+    // The scroll viewport (our parent) is the available width; the chart may be
+    // wider (min 720) and scroll inside it. Measuring the parent, not ourselves,
+    // avoids a feedback loop with our own width.
+    const host = ref.current?.parentElement;
+    if (!host) return;
+    const measure = () =>
+      setWidth(Math.max(minWidth, Math.floor(host.clientWidth)));
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(host);
+    return () => observer.disconnect();
+  }, [minWidth]);
+
+  return (
+    <div ref={ref} style={{ width, height: CHART_HEIGHT }}>
+      {cloneElement(children as ReactElement<{ width: number; height: number }>, {
+        width,
+        height: CHART_HEIGHT,
+      })}
+    </div>
+  );
+}
 
 import {
   formatCompactMUR,
@@ -130,19 +183,11 @@ export function SalesPerformanceChart({
             aria-label="Sales chart plot"
             tabIndex={0}
           >
-            <div
-              style={{
-                width: `max(100%, ${minPlotWidth}px)`,
-                height: 360,
-              }}
-            >
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-                initialDimension={{ width: minPlotWidth, height: 360 }}
-              >
+            <ChartAutoWidth minWidth={minPlotWidth}>
                 <ComposedChart
                   data={data.points}
+                  width={minPlotWidth}
+                  height={CHART_HEIGHT}
                   accessibilityLayer
                   margin={{ top: 12, right: 18, bottom: 48, left: 8 }}
                 >
@@ -219,8 +264,7 @@ export function SalesPerformanceChart({
                     isAnimationActive={false}
                   />
                 </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+            </ChartAutoWidth>
           </div>
           <div className="sr-only">
             <table>
