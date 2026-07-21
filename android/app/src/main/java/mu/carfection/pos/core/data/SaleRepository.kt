@@ -8,7 +8,9 @@ import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.centsToRupees
 import mu.carfection.pos.core.money.computeTotals
+import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineExclCents
+import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.pctOfCents
 import mu.carfection.pos.core.money.rupeesToCents
@@ -86,20 +88,43 @@ fun expandSaleLines(
     val interim = computeTotals(specs.map { LineInput(it.qty, it.unitCents, it.discountPct, it.vatRatePct) })
     val net = interim.subtotalCents
     if (net <= 0) return specs
-    val basketAmt = when (basketMode) {
-        DiscountMode.PCT -> pctOfCents(net, basketPct.coerceIn(0, 100))
-        DiscountMode.AMT -> basketAmtCents.coerceIn(0, net)
-    }
-    if (basketAmt <= 0) return specs
-    // Net per VAT rate (positive groups only), then largest-remainder apportionment.
+    // Net per VAT rate (positive groups only) — the base for apportionment.
     val groupNets = specs.indices.groupBy { specs[it].vatRatePct }
         .mapValues { (_, idxs) -> idxs.sumOf { interim.lines[it].exclCents } }
         .filterValues { it > 0 }
+    if (groupNets.isEmpty()) return specs
+    val title = if (basketMode == DiscountMode.PCT) "Basket discount ($basketPct%)" else "Basket discount"
+
+    if (basketMode == DiscountMode.AMT) {
+        // A typed Rs discount is what comes off the BILL, i.e. VAT-INCLUSIVE — the same convention
+        // the web's order discount uses ("<amount> incl. VAT" on the printed document). Apportion in
+        // gross space and convert each group's share back to the net the discount line must carry,
+        // so the DB's generated columns re-add exactly the VAT that was taken off.
+        // Previously the typed figure was emitted as the NET discount and the DB added VAT on top,
+        // so the bill fell by amount x 1.15: typing 100 gave away 115, and typing 1,400 on a
+        // Rs 1,540 bill zeroed it. The clamp is against the gross total for the same reason.
+        val groupGross = groupNets.mapValues { (rate, g) -> grossCents(g, rate) }
+        val totalGross = groupGross.values.sum()
+        val wanted = basketAmtCents.coerceIn(0, totalGross)
+        if (wanted <= 0) return specs
+        val base = groupGross.mapValues { (_, g) -> wanted * g / totalGross }
+        var leftover = wanted - base.values.sum()
+        val byRemainder = groupGross.keys.sortedByDescending { (wanted * groupGross.getValue(it)) % totalGross }
+        byRemainder.forEach { rate ->
+            val share = base.getValue(rate) + if (leftover > 0) { leftover--; 1L } else 0L
+            val amt = netFromGrossCents(share, rate)
+            if (amt > 0) specs += SaleLineSpec(null, title, 1.0, -amt, 0.0, rate)
+        }
+        return specs
+    }
+
+    // A percentage takes the same proportion off net and gross alike, so it apportions on net.
+    val basketAmt = pctOfCents(net, basketPct.coerceIn(0, 100))
+    if (basketAmt <= 0) return specs
     val totalNet = groupNets.values.sum()
     val base = groupNets.mapValues { (_, g) -> basketAmt * g / totalNet }
     var leftover = basketAmt - base.values.sum()
     val byRemainder = groupNets.keys.sortedByDescending { (basketAmt * groupNets.getValue(it)) % totalNet }
-    val title = if (basketMode == DiscountMode.PCT) "Basket discount ($basketPct%)" else "Basket discount"
     byRemainder.forEach { rate ->
         val amt = base.getValue(rate) + if (leftover > 0) { leftover--; 1L } else 0L
         if (amt > 0) specs += SaleLineSpec(null, title, 1.0, -amt, 0.0, rate)
