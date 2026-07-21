@@ -26,6 +26,8 @@ import mu.carfection.pos.core.money.DocLineIn
 import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.centsToRupees
 import mu.carfection.pos.core.money.computeDocTotals
+import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
@@ -52,16 +54,30 @@ data class QuoteLine(
     val discountPct: Int = 0,
     val discountAmtText: String = "", // Rs off, VAT-inclusive (matches the DB's semantics)
     val expanded: Boolean = false,
+    // priceText is what staff SEE and TYPE. When the shop quotes gross that is the shelf
+    // price, and unitCents converts it back to the net the ledger stores — one direction
+    // only, so nothing drifts while the field is being edited.
+    val priceIsGross: Boolean = false,
 ) {
-    val unitCents: Long get() = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
+    val unitCents: Long get() {
+        val typed = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
+        return if (priceIsGross) netFromGrossCents(typed, vatRate) else typed
+    }
     val discountAmtCents: Long get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceAtLeast(0)
 }
 
 /** A line at a given price in cents — keeps the constructor call sites readable. */
-fun quoteLine(productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1): QuoteLine =
-    QuoteLine(productId, title, centsToPlainText(unitCents), vatRate, qty)
+fun quoteLine(productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1, gross: Boolean = false): QuoteLine =
+    QuoteLine(
+        productId, title,
+        centsToPlainText(if (gross) grossCents(unitCents, vatRate) else unitCents),
+        vatRate, qty, priceIsGross = gross,
+    )
 
 data class QuoteState(
+    // The shop quotes VAT-inclusive shelf prices — show/accept gross. Display only; the
+    // lines still save the net unit_price the ledger adds VAT to.
+    val pricesInclVat: Boolean = false,
     val loading: Boolean = true,
     val mode: QuoteMode = QuoteMode.LIST,
     val quotes: List<QuoteRowDto> = emptyList(),
@@ -156,6 +172,9 @@ class QuoteViewModel @Inject constructor(
         // grid even when the on-device cache predates them — stale-while-revalidate, the
         // observed flow above updates the grid the moment the fetch lands.
         viewModelScope.launch { runCatching { catalog.refresh() } }
+        viewModelScope.launch {
+            catalog.pricesInclVatFlow.collect { incl -> _s.update { it.copy(pricesInclVat = incl) } }
+        }
         loadQuotes()
         viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
         // Reception hands over a customer+vehicle (+condition) — open a fresh builder on it.
@@ -293,7 +312,10 @@ class QuoteViewModel @Inject constructor(
                         st.copy(linesLoaded = true, lines = ls.map {
                             QuoteLine(
                                 productId = it.productId, title = it.title,
-                                priceText = centsToPlainText(rupeesToCents(it.unitPrice)),
+                                priceText = centsToPlainText(
+                                    rupeesToCents(it.unitPrice).let { net -> if (st.pricesInclVat) grossCents(net, it.vatRate) else net },
+                                ),
+                                priceIsGross = st.pricesInclVat,
                                 vatRate = it.vatRate, qty = it.qty.toInt().coerceAtLeast(1),
                                 discountMode = if (it.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
                                 discountPct = it.discountPct.toInt(),
@@ -320,7 +342,7 @@ class QuoteViewModel @Inject constructor(
         if (!editable(st)) return@update st
         val i = st.lines.indexOfFirst { it.productId == p.id }
         val lines = if (i >= 0) st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
-        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct)
+        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat)
         st.copy(lines = lines)
     }
 
@@ -329,7 +351,11 @@ class QuoteViewModel @Inject constructor(
     fun addAdhoc(name: String, priceCents: Long, vatRate: Double = 15.0) = _s.update { st ->
         if (!editable(st)) return@update st.copy(adhocOpen = false)
         if (name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
-        else st.copy(adhocOpen = false, lines = st.lines + quoteLine(null, name.trim(), priceCents, vatRate))
+        // priceCents is what was TYPED — already the shelf price when the shop quotes gross.
+        else st.copy(
+            adhocOpen = false,
+            lines = st.lines + QuoteLine(null, name.trim(), centsToPlainText(priceCents), vatRate, priceIsGross = st.pricesInclVat),
+        )
     }
 
     /** Gross (pre-discount) subtotal in cents, for the "Subtotal" display row. */

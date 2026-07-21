@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.window.Dialog
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentLine
@@ -173,13 +174,13 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
             }
         }
     }
-    if (s.adhocOpen) AdhocDialog(viewModel)
+    if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
     if (s.datePickerOpen) StartDatePicker(s, viewModel)
     if (s.timePickerOpen) StartTimePicker(s, viewModel)
 }
 
 @Composable
-private fun AdhocDialog(vm: QuoteViewModel) {
+private fun AdhocDialog(vm: QuoteViewModel, inclVat: Boolean) {
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     val cents = parseMoneyToCents(price)
@@ -189,7 +190,7 @@ private fun AdhocDialog(vm: QuoteViewModel) {
             Text("A one-off service or product, priced by hand.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary)
             MiniLabel("DESCRIPTION")
             FilledInput(value = name, onValueChange = { name = it }, placeholder = "e.g. Headlight restoration", modifier = Modifier.fillMaxWidth(), bg = Inset)
-            MiniLabel("UNIT PRICE (Rs, excl. VAT)")
+            MiniLabel(if (inclVat) "UNIT PRICE (Rs, incl. VAT)" else "UNIT PRICE (Rs, excl. VAT)")
             FilledInput(value = price, onValueChange = { p -> price = p.filter { it.isDigit() || it == '.' } }, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset)
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 OutlineBtn("Cancel", Modifier.weight(1f), 52) { vm.closeAdhoc() }
@@ -331,7 +332,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         Column(Modifier.fillMaxHeight()) {
                             Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 18.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp))
                             Spacer(Modifier.weight(1f))
-                            Text(formatMUR(p.sellingPriceCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextSecondary)
+                            Text(formatMUR(if (s.pricesInclVat) grossCents(p.sellingPriceCents, p.vatRatePct) else p.sellingPriceCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextSecondary)
                         }
                         if (count != null) Box(Modifier.align(Alignment.TopEnd).size(23.dp).background(Accent, RoundedCornerShape(12.dp)), contentAlignment = Alignment.Center) { Text(count.toString(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = AccentInk) }
                     }
@@ -368,7 +369,9 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     }
                 }
                 s.lines.forEachIndexed { i, l ->
-                    val lineTotal = vm.totals(s).lineExclCents.getOrNull(i) ?: 0L
+                    // The line at shelf price when the shop quotes gross (its own VAT rate).
+                    val lineTotal = (vm.totals(s).lineExclCents.getOrNull(i) ?: 0L)
+                        .let { net -> if (s.pricesInclVat) grossCents(net, l.vatRate) else net }
                     val discNote = when {
                         l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
                         l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
@@ -431,8 +434,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val t = vm.totals(s)
                 val gross = vm.grossCents(s)
-                val lineDisc = gross - t.lineExclCents.sum()
-                TotalLine("Subtotal", formatMUR(gross), TextSecondary)
+                // Quoting gross: state the subtotal and the line discounts at shelf price too,
+                // each line at its own VAT rate, so the column the customer reads adds up.
+                val subtotalShown = if (s.pricesInclVat) s.lines.sumOf { it.qty * grossCents(it.unitCents, it.vatRate) } else gross
+                val afterLineDisc = s.lines.mapIndexed { i, l -> grossCents(t.lineExclCents.getOrElse(i) { 0L }, l.vatRate) }.sum()
+                val lineDisc = if (s.pricesInclVat) subtotalShown - afterLineDisc else gross - t.lineExclCents.sum()
+                TotalLine("Subtotal", formatMUR(subtotalShown), TextSecondary)
                 if (lineDisc > 0) TotalLine("Line discounts", "−" + formatMUR(lineDisc), Success)
                 // basket (order-level) discount — % of the total, or Rs off (VAT-inclusive).
                 // Once the quote has left draft this is only a figure to read: controls that
@@ -457,7 +464,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     Spacer(Modifier.weight(1f))
                     if (t.orderDiscountInclCents > 0) Text("−" + formatMUR(t.orderDiscountInclCents), fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = Success)
                 }
-                TotalLine("VAT 15%", formatMUR(t.vatCents), TextSecondary)
+                TotalLine(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(t.vatCents), TextSecondary)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
                     Text("TOTAL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp, color = TextPrimary)
                     Spacer(Modifier.weight(1f))
