@@ -19,7 +19,10 @@ import javax.inject.Inject
 // Low-stock rule (shared with the web form + DB check): blank = 10, hard cap 20.
 const val DEFAULT_LOW_THRESHOLD = 10.0
 const val MAX_LOW_THRESHOLD = 20.0
-val STOCK_REASONS = listOf("Received stock", "Used in job", "Damaged", "Correction")
+// Kept in step with the web's quick-reason chips (features/inventory/InventoryPanel).
+// "Return to supplier" is stock going back OUT to where it came from — faulty batches,
+// over-orders, wrong parts — which the shop was previously logging as "Damaged".
+val STOCK_REASONS = listOf("Received stock", "Used in job", "Return to supplier", "Damaged", "Correction")
 
 data class StockItem(
     val id: String,

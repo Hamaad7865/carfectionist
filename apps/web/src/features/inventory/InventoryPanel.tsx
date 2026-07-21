@@ -8,6 +8,11 @@ import { recordAdjustmentAction } from "./actions";
 import type { InventoryOpsData } from "@/lib/supabase/queries/movements";
 import { btn } from "@/components/ui/button";
 
+/** The shop's stock-movement vocabulary. Mirror of the tablet's STOCK_REASONS
+ *  (android .../feature/stock/StockViewModel.kt) — keep the two in step so the
+ *  movement ledger reads the same whichever app filed the adjustment. */
+const STOCK_REASONS = ["Received stock", "Used in job", "Return to supplier", "Damaged", "Correction"] as const;
+
 const REF_STYLE: Record<string, { label: string; cls: string }> = {
   adjustment: { label: "Adjustment", cls: "bg-[rgba(140,150,161,0.16)] text-muted" },
   invoice: { label: "Sale", cls: "bg-[rgba(43,140,255,0.12)] text-link" },
@@ -112,7 +117,27 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
             <input className={`${inputCls} text-right`} value={qtyStr} onChange={(e) => setQtyStr(e.target.value)} inputMode="decimal" placeholder="0" />
           </Field>
           <Field label="Reason / note">
-            <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. stock count correction" />
+            <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. stock count correction" list="stock-reasons" />
+            {/* The same quick reasons the tablet offers as chips (STOCK_REASONS), so the
+                two apps file movements under matching wording instead of free-text drift.
+                Still a plain input — anything else can be typed. */}
+            <datalist id="stock-reasons">
+              {STOCK_REASONS.map((r) => <option key={r} value={r} />)}
+            </datalist>
+            <div className="mt-1.5 flex flex-wrap gap-1.5">
+              {STOCK_REASONS.map((r) => (
+                <button
+                  key={r}
+                  type="button"
+                  onClick={() => setNote(r)}
+                  className={`h-7 rounded-full border px-2.5 text-[11.5px] font-semibold ${
+                    note === r ? "border-brand bg-[rgba(43,140,255,0.1)] text-brand" : "border-line-2 bg-sub text-muted hover:text-body"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
           </Field>
           <button onClick={submit} disabled={busy} className={btn("primary", "lg")}>
             {busy ? "Saving…" : "Record"}
