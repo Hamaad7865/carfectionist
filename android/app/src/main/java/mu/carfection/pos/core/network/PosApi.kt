@@ -55,7 +55,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchVehicles(customerId: String): List<VehicleDto> =
         client.postgrest.from("vehicles")
-            .select(Columns.raw("id, plate, make, model, color")) {
+            .select(Columns.raw("id, plate, make, model, color, category")) {
                 filter { eq("customer_id", customerId) }
                 order("plate", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }
@@ -63,7 +63,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun insertVehicle(row: NewVehicleDto): VehicleDto =
         client.postgrest.from("vehicles")
-            .insert(row) { select(Columns.raw("id, plate, make, model, color")) }
+            .insert(row) { select(Columns.raw("id, plate, make, model, color, category")) }
             .decodeSingle()
 
     // documents→documents is self-referencing, and PostgREST will NOT take a constraint-name

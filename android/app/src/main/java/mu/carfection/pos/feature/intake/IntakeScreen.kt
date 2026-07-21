@@ -9,6 +9,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -28,13 +30,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -85,8 +93,9 @@ fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltView
         }
 
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // LEFT 46fr — customer + vehicle
-            Column(Modifier.weight(46f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // LEFT 46fr — customer + vehicle. Scrolls: the expanded new-customer (business) and
+            // new-vehicle (with preset chip rows) forms can exceed the column height.
+            Column(Modifier.weight(46f).fillMaxHeight().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 CustomerCard(s, viewModel)
                 VehicleCard(s, viewModel)
             }
@@ -133,8 +142,21 @@ private fun CustomerCard(s: IntakeState, vm: IntakeViewModel) {
                 }
             } else {
                 Column(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(13.dp)).border(1.dp, Color(0x17101A24), RoundedCornerShape(13.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-                    FormInput(s.nName, vm::setNName, "Full name")
+                    // Individual vs business entity — a business also carries email, address, BRN + VAT.
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SegBtn("Individual", !s.nIsCompany, Modifier.weight(1f)) { vm.setNIsCompany(false) }
+                        SegBtn("Business", s.nIsCompany, Modifier.weight(1f)) { vm.setNIsCompany(true) }
+                    }
+                    FormInput(s.nName, vm::setNName, if (s.nIsCompany) "Company name" else "Full name")
                     FormInput(s.nPhone, vm::setNPhone, "Mobile — 5xxx xxxx")
+                    if (s.nIsCompany) {
+                        FormInput(s.nEmail, vm::setNEmail, "Email")
+                        FormInput(s.nAddress, vm::setNAddress, "Address")
+                        Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                            FormInput(s.nBrn, vm::setNBrn, "BRN", Modifier.weight(1f))
+                            FormInput(s.nVat, vm::setNVat, "VAT no.", Modifier.weight(1f))
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlineBtn("Cancel", Modifier.weight(1f), 46.dp) { vm.toggleNewCust() }
                         FillBtn("Save customer", Modifier.weight(2f)) { vm.saveNewCustomer() }
@@ -174,12 +196,13 @@ private fun VehicleCard(s: IntakeState, vm: IntakeViewModel) {
             Column(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(13.dp)).border(1.dp, Color(0x17101A24), RoundedCornerShape(13.dp)).padding(12.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     FormInput(s.nvPlate, vm::setNvPlate, "Plate — 2087 JL 25", Modifier.weight(1f), mono = true)
-                    FormInput(s.nvMake, vm::setNvMake, "Make", Modifier.weight(1f))
+                    PresetField(s.nvMake, vm::setNvMake, "Make", VEHICLE_MAKES, Modifier.weight(1f))
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                     FormInput(s.nvModel, vm::setNvModel, "Model", Modifier.weight(1f))
-                    FormInput(s.nvColour, vm::setNvColour, "Colour", Modifier.weight(1f))
+                    PresetField(s.nvColour, vm::setNvColour, "Colour", VEHICLE_COLORS, Modifier.weight(1f))
                 }
+                PresetField(s.nvCategory, vm::setNvCategory, "Body type — SUV, Sedan…", VEHICLE_CATEGORIES)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlineBtn("Cancel", Modifier.weight(1f), 46.dp) { vm.toggleAddVeh() }
                     FillBtn("Save vehicle", Modifier.weight(2f)) { vm.saveVehicle() }
@@ -279,4 +302,33 @@ private fun ConditionCard(s: IntakeState, vm: IntakeViewModel, modifier: Modifie
 }
 @Composable private fun FormInput(value: String, onChange: (String) -> Unit, placeholder: String, modifier: Modifier = Modifier, mono: Boolean = false) {
     FilledInput(value, onChange, placeholder, modifier.fillMaxWidth(), height = 48.dp, radius = 11.dp, bg = CardBg, fontFamily = if (mono) Mono else Barlow, fontSize = if (mono) 14.5.sp else 15.sp)
+}
+
+/** A two-option segmented button (Individual / Business). */
+@Composable private fun SegBtn(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    Box(
+        modifier.height(42.dp).background(if (selected) AccentSoft else InsetAlt, RoundedCornerShape(10.dp)).border(if (selected) 1.5.dp else 1.dp, if (selected) AccentLine else Hairline, RoundedCornerShape(10.dp)).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) { Text(text, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = if (selected) Accent else TextSecondary) }
+}
+
+/** A text field with a dropdown of preset values (make / colour / body type). Typeable as free
+ *  text; the chevron opens the presets to pick — a dropdown, not a scrolling chip row. */
+@Composable private fun PresetField(value: String, onChange: (String) -> Unit, placeholder: String, options: List<String>, modifier: Modifier = Modifier) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        FormInput(value, onChange, placeholder)
+        Box(
+            Modifier.align(Alignment.CenterEnd).height(48.dp).width(42.dp).clickable { expanded = true },
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Filled.ArrowDropDown, "Presets", tint = TextMuted, modifier = Modifier.size(24.dp)) }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, modifier = Modifier.heightIn(max = 340.dp).background(CardBg)) {
+            options.forEach { o ->
+                DropdownMenuItem(
+                    text = { Text(o, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 15.sp, color = TextPrimary) },
+                    onClick = { onChange(o); expanded = false },
+                )
+            }
+        }
+    }
 }

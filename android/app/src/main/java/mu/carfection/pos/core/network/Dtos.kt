@@ -36,6 +36,7 @@ data class VehicleDto(
     val make: String? = null,
     val model: String? = null,
     @SerialName("color") val colour: String? = null,
+    val category: String? = null,
 )
 
 @Serializable
@@ -46,6 +47,7 @@ data class NewVehicleDto(
     val make: String? = null,
     val model: String? = null,
     @SerialName("color") val colour: String? = null,
+    val category: String? = null,
 )
 
 @Serializable
@@ -462,4 +464,9 @@ data class NewCustomerDto(
     @SerialName("tenant_id") val tenantId: String,
     val name: String,
     val phone: String? = null,
+    @SerialName("is_company") val isCompany: Boolean = false,
+    val email: String? = null,
+    val address: String? = null,
+    val brn: String? = null,
+    @SerialName("vat_number") val vatNumber: String? = null,
 )

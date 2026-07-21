@@ -7,15 +7,17 @@ import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveVehicleAction, deleteVehicleAction } from "./actions";
 import type { ContactVehicle } from "@/lib/supabase/queries/contacts";
+import { VEHICLE_CATEGORIES, VEHICLE_MAKES, VEHICLE_COLORS } from "@/lib/vehicle-presets";
 import { btn } from "@/components/ui/button";
 
-type VForm = { plate: string; make: string; model: string; year: string; color: string; vin: string };
+type VForm = { plate: string; make: string; model: string; year: string; color: string; category: string; vin: string };
 const seed = (v?: ContactVehicle): VForm => ({
   plate: v?.plate ?? "",
   make: v?.make ?? "",
   model: v?.model ?? "",
   year: v?.year != null ? String(v.year) : "",
   color: v?.color ?? "",
+  category: v?.category ?? "",
   vin: v?.vin ?? "",
 });
 
@@ -96,14 +98,20 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
           <FormError error={error} />
           <Field label="Number plate"><input className={inputCls} value={f.plate} onChange={set("plate")} placeholder="e.g. 1234 AB 26" autoFocus /></Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Make"><input className={inputCls} value={f.make} onChange={set("make")} placeholder="e.g. BMW" /></Field>
-            <Field label="Model"><input className={inputCls} value={f.model} onChange={set("model")} placeholder="e.g. X5" /></Field>
+            <Field label="Make"><input className={inputCls} value={f.make} onChange={set("make")} placeholder="e.g. Toyota" list="veh-makes" /></Field>
+            <Field label="Model"><input className={inputCls} value={f.model} onChange={set("model")} placeholder="e.g. Hilux" /></Field>
           </div>
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Body type"><input className={inputCls} value={f.category} onChange={set("category")} placeholder="e.g. SUV" list="veh-categories" /></Field>
+            <Field label="Colour"><input className={inputCls} value={f.color} onChange={set("color")} placeholder="Black" list="veh-colors" /></Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
             <Field label="Year"><input className={inputCls} value={f.year} onChange={set("year")} inputMode="numeric" placeholder="2022" /></Field>
-            <Field label="Colour"><input className={inputCls} value={f.color} onChange={set("color")} placeholder="Black" /></Field>
             <Field label="VIN"><input className={inputCls} value={f.vin} onChange={set("vin")} placeholder="Optional" /></Field>
           </div>
+          <datalist id="veh-makes">{VEHICLE_MAKES.map((m) => <option key={m} value={m} />)}</datalist>
+          <datalist id="veh-categories">{VEHICLE_CATEGORIES.map((c) => <option key={c} value={c} />)}</datalist>
+          <datalist id="veh-colors">{VEHICLE_COLORS.map((c) => <option key={c} value={c} />)}</datalist>
         </div>
       </Modal>
     </>

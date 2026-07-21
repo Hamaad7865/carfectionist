@@ -16,6 +16,7 @@ const opt = z.string().trim().optional().transform((v) => (v ? v : null));
 const customerSchema = z.object({
   id: z.string().optional(),
   name: z.string().trim().min(1, "Name is required"),
+  isCompany: z.boolean().optional().default(false),
   email: opt,
   phone: opt,
   address: opt,
@@ -31,6 +32,7 @@ export async function saveCustomerAction(input: z.input<typeof customerSchema>):
   const sb = await createClient();
   const row = {
     name: p.data.name,
+    is_company: p.data.isCompany,
     email: p.data.email,
     phone: p.data.phone,
     address: p.data.address,
@@ -64,6 +66,7 @@ const vehicleSchema = z.object({
     return Number.isFinite(n) ? n : null;
   }),
   color: opt,
+  category: opt,
   vin: opt,
 });
 
@@ -75,7 +78,7 @@ export async function saveVehicleAction(input: z.input<typeof vehicleSchema>): P
   if (!p.data.id && !(await existsInTenant(sb, "customers", p.data.customerId))) {
     return { ok: false, error: "Unknown customer." };
   }
-  const row = { plate: p.data.plate, make: p.data.make, model: p.data.model, year: p.data.year, color: p.data.color, vin: p.data.vin };
+  const row = { plate: p.data.plate, make: p.data.make, model: p.data.model, year: p.data.year, color: p.data.color, category: p.data.category, vin: p.data.vin };
   if (p.data.id) {
     const { error } = await sb.from("vehicles").update(row).eq("id", p.data.id);
     if (error) return { ok: false, error: friendlyPlate(error.message) };

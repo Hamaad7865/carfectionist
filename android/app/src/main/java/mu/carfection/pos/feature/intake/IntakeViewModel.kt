@@ -39,6 +39,12 @@ data class IntakeState(
     val newCustOpen: Boolean = false,
     val nName: String = "",
     val nPhone: String = "",
+    // business-entity fields — only filled/shown when nIsCompany is on
+    val nIsCompany: Boolean = false,
+    val nEmail: String = "",
+    val nAddress: String = "",
+    val nBrn: String = "",
+    val nVat: String = "",
     val customer: CustomerEntity? = null,
     val vehicles: List<VehicleDto> = emptyList(),
     val vehicle: VehicleDto? = null,
@@ -47,6 +53,7 @@ data class IntakeState(
     val nvMake: String = "",
     val nvModel: String = "",
     val nvColour: String = "",
+    val nvCategory: String = "",
     val markerType: DamageType = DamageType.SCRATCH,
     val markers: List<DamageMarker> = emptyList(),
     // intake condition photos: storage paths + signed thumbnail URLs
@@ -114,16 +121,33 @@ class IntakeViewModel @Inject constructor(
     fun toggleNewCust() = _s.update { it.copy(newCustOpen = !it.newCustOpen, error = null) }
     fun setNName(v: String) = _s.update { it.copy(nName = v) }
     fun setNPhone(v: String) = _s.update { it.copy(nPhone = v) }
+    fun setNIsCompany(v: Boolean) = _s.update { it.copy(nIsCompany = v) }
+    fun setNEmail(v: String) = _s.update { it.copy(nEmail = v) }
+    fun setNAddress(v: String) = _s.update { it.copy(nAddress = v) }
+    fun setNBrn(v: String) = _s.update { it.copy(nBrn = v) }
+    fun setNVat(v: String) = _s.update { it.copy(nVat = v) }
 
     fun saveNewCustomer() {
-        val name = _s.value.nName.trim()
+        val st = _s.value
+        val name = st.nName.trim()
         if (name.isBlank()) { _s.update { it.copy(error = "Enter a name") }; return }
         viewModelScope.launch {
             runCatching {
                 val tenant = catalog.tenantId() ?: error("no tenant")
-                api.insertCustomer(NewCustomerDto(tenant, name, _s.value.nPhone.trim().ifBlank { null }))
+                api.insertCustomer(
+                    NewCustomerDto(
+                        tenantId = tenant,
+                        name = name,
+                        phone = st.nPhone.trim().ifBlank { null },
+                        isCompany = st.nIsCompany,
+                        email = st.nEmail.trim().ifBlank { null },
+                        address = st.nAddress.trim().ifBlank { null },
+                        brn = st.nBrn.trim().ifBlank { null },
+                        vatNumber = st.nVat.trim().ifBlank { null },
+                    ),
+                )
             }.onSuccess { c ->
-                _s.update { it.copy(newCustOpen = false, nName = "", nPhone = "") }
+                _s.update { it.copy(newCustOpen = false, nName = "", nPhone = "", nIsCompany = false, nEmail = "", nAddress = "", nBrn = "", nVat = "") }
                 pickCustomer(CustomerEntity(c.id, c.name, c.phone))
             }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
         }
@@ -141,6 +165,7 @@ class IntakeViewModel @Inject constructor(
     fun setNvMake(v: String) = _s.update { it.copy(nvMake = v) }
     fun setNvModel(v: String) = _s.update { it.copy(nvModel = v) }
     fun setNvColour(v: String) = _s.update { it.copy(nvColour = v) }
+    fun setNvCategory(v: String) = _s.update { it.copy(nvCategory = v) }
 
     fun saveVehicle() {
         val st = _s.value
@@ -150,9 +175,9 @@ class IntakeViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val tenant = catalog.tenantId() ?: error("no tenant")
-                api.insertVehicle(NewVehicleDto(tenant, cust.id, plate, st.nvMake.trim().ifBlank { null }, st.nvModel.trim().ifBlank { null }, st.nvColour.trim().ifBlank { null }))
+                api.insertVehicle(NewVehicleDto(tenant, cust.id, plate, st.nvMake.trim().ifBlank { null }, st.nvModel.trim().ifBlank { null }, st.nvColour.trim().ifBlank { null }, st.nvCategory.trim().ifBlank { null }))
             }.onSuccess { v ->
-                _s.update { it.copy(vehicles = it.vehicles + v, vehicle = v, addVehOpen = false, nvPlate = "", nvMake = "", nvModel = "", nvColour = "") }
+                _s.update { it.copy(vehicles = it.vehicles + v, vehicle = v, addVehOpen = false, nvPlate = "", nvMake = "", nvModel = "", nvColour = "", nvCategory = "") }
             }.onFailure { e -> _s.update { it.copy(error = if ((e.message ?: "").contains("duplicate", true)) "That plate already exists" else e.uiMessage()) } }
         }
     }

@@ -8,6 +8,7 @@ export interface ContactVehicle {
   model: string | null;
   year: number | null;
   color: string | null;
+  category: string | null;
   vin: string | null;
   notes: string | null;
 }
@@ -28,6 +29,7 @@ export interface CustomerSummary {
   vatNumber: string | null;
   notes: string | null;
   country: string;
+  isCompany: boolean;
   vehicleCount: number;
   outstandingCents: number;
 }
@@ -57,8 +59,8 @@ export interface ContactsData {
 export async function getContacts(selectedId?: string): Promise<ContactsData> {
   const sb = await createClient();
   const [custRes, vehRes, docRes, supRes] = await Promise.all([
-    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, wa_opt_out").order("name"),
-    sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, vin, notes"),
+    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, is_company, wa_opt_out").order("name"),
+    sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes"),
     sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at"),
     sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
   ]);
@@ -91,6 +93,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     vatNumber: c.vat_number,
     notes: c.notes,
     country: c.country ?? "MU",
+    isCompany: c.is_company ?? false,
     vehicleCount: vehicles.filter((v) => v.customer_id === c.id).length,
     outstandingCents: outstandingByCust.get(c.id) ?? 0,
   }));
@@ -108,7 +111,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
       waOptOut: optOutById.get(selId) ?? false,
       vehicles: vehicles
         .filter((v) => v.customer_id === selId)
-        .map((v) => ({ id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, color: v.color, vin: v.vin, notes: v.notes })),
+        .map((v) => ({ id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, color: v.color, category: v.category, vin: v.vin, notes: v.notes })),
       history: docs
         .filter((d) => d.customer_id === selId)
         .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))

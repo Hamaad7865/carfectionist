@@ -9,9 +9,10 @@ import { saveCustomerAction } from "./actions";
 import type { CustomerSummary } from "@/lib/supabase/queries/contacts";
 import { btn } from "@/components/ui/button";
 
-type FormState = { name: string; email: string; phone: string; address: string; brn: string; vatNumber: string; notes: string };
+type FormState = { name: string; isCompany: boolean; email: string; phone: string; address: string; brn: string; vatNumber: string; notes: string };
 const seed = (c?: CustomerSummary): FormState => ({
   name: c?.name ?? "",
+  isCompany: c?.isCompany ?? false,
   email: c?.email ?? "",
   phone: c?.phone ?? "",
   address: c?.address ?? "",
@@ -76,18 +77,33 @@ export function CustomerDialog({ customer }: { customer?: CustomerSummary }) {
       >
         <div className="flex flex-col gap-3">
           <FormError error={error} />
-          <Field label="Name">
-            <input className={inputCls} value={f.name} onChange={set("name")} placeholder="Full name or company" autoFocus />
+          {/* Individual vs business entity — a business also carries a BRN + VAT number. */}
+          <div className="flex gap-1 rounded-[10px] border border-line-2 bg-sub p-1">
+            {([["Individual", false], ["Business", true]] as const).map(([label, val]) => (
+              <button
+                key={label}
+                type="button"
+                onClick={() => setF((s) => ({ ...s, isCompany: val }))}
+                className={`h-9 flex-1 rounded-[7px] text-[13px] font-bold transition ${f.isCompany === val ? "bg-card text-ink shadow-sm" : "text-muted hover:text-body"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <Field label={f.isCompany ? "Company name" : "Name"}>
+            <input className={inputCls} value={f.name} onChange={set("name")} placeholder={f.isCompany ? "Registered company name" : "Full name"} autoFocus />
           </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Phone"><input className={inputCls} value={f.phone} onChange={set("phone")} placeholder="+230 …" /></Field>
             <Field label="Email"><input className={inputCls} value={f.email} onChange={set("email")} placeholder="name@email.com" /></Field>
           </div>
           <Field label="Address"><input className={inputCls} value={f.address} onChange={set("address")} placeholder="Street, town" /></Field>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="BRN"><input className={inputCls} value={f.brn} onChange={set("brn")} placeholder="Business reg. no." /></Field>
-            <Field label="VAT number"><input className={inputCls} value={f.vatNumber} onChange={set("vatNumber")} placeholder="VAT…" /></Field>
-          </div>
+          {f.isCompany && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="BRN"><input className={inputCls} value={f.brn} onChange={set("brn")} placeholder="Business reg. no." /></Field>
+              <Field label="VAT number"><input className={inputCls} value={f.vatNumber} onChange={set("vatNumber")} placeholder="VAT…" /></Field>
+            </div>
+          )}
           <Field label="Notes"><input className={inputCls} value={f.notes} onChange={set("notes")} placeholder="Optional" /></Field>
         </div>
       </Modal>
