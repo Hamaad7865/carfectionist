@@ -64,7 +64,16 @@ function PowerOffButton({ device }: { device: PosDevice }) {
           <FormError error={error} />
           <div className="grid grid-cols-2 gap-3 text-[13px]">
             <div className="rounded-[12px] bg-sub p-3"><div className="text-muted">Cash collected</div><div className="num mt-1 text-[15px] font-bold text-ink">{formatMUR(till.cashCollectedCents)}</div></div>
-            <div className="rounded-[12px] bg-sub p-3"><div className="text-muted">Expected in drawer</div><div className="num mt-1 text-[15px] font-bold text-ink">{formatMUR(till.expectedCents)}</div></div>
+            <div className="rounded-[12px] bg-sub p-3">
+              <div className="text-muted">Expected in drawer</div>
+              <div className="num mt-1 text-[15px] font-bold text-ink">{formatMUR(till.expectedCents)}</div>
+              {/* The cashier counts against THIS number, so it must be obvious that
+                  it carries the opening float — not just the takings. */}
+              <div className="num mt-0.5 text-[11px] text-faint">
+                incl. {formatMUR(till.openingFloatCents)} float
+                {till.cashOutCents !== 0 ? ` · ${formatMUR(till.cashOutCents)} paid out` : ""}
+              </div>
+            </div>
           </div>
           <label className="block">
             <span className="mb-1.5 block text-[11px] font-bold uppercase tracking-wide text-faint">Counted cash</span>
@@ -151,7 +160,17 @@ export function DeviceCard({ device }: { device: PosDevice }) {
         <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 text-[12.5px]">
           <div><div className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Till open</div><div className="num mt-0.5 text-muted">{muDateTime(device.till.openedAt).slice(11)}{device.till.openedByName ? ` · ${device.till.openedByName}` : ""}</div></div>
           <div><div className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Cash collected</div><div className="num mt-0.5 font-bold text-ink">{formatMUR(device.till.cashCollectedCents)}</div></div>
-          <div><div className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Expected</div><div className="num mt-0.5 font-bold text-ink">{formatMUR(device.till.expectedCents)}</div></div>
+          <div>
+            <div className="text-[10.5px] font-bold uppercase tracking-wide text-faint">Expected in drawer</div>
+            <div className="num mt-0.5 font-bold text-ink">{formatMUR(device.till.expectedCents)}</div>
+            {/* Without this the owner reads "collected 5,158.98 · expected 7,158.98"
+                and thinks the till is wrong — the difference is the float they put
+                in at open (and any petty cash paid out since). Show the arithmetic. */}
+            <div className="num text-[10.5px] text-faint">
+              incl. {formatMUR(device.till.openingFloatCents)} float
+              {device.till.cashOutCents !== 0 ? ` · ${formatMUR(device.till.cashOutCents)} paid out` : ""}
+            </div>
+          </div>
         </div>
       ) : device.isBackOffice ? (
         <OpenTillInline />
