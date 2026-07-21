@@ -183,20 +183,25 @@ object ReceiptText {
 // committed first, and a failed print now honestly audits receipt_skipped), and
 // the Settings test button surfaces the error as a toast.
 
+// Sentinel chars ZSlip wraps section headers with; cp437Bytes turns them into ESC/POS
+// emphasis (bold) on/off. They are non-printable and never appear in real receipt/slip text.
+internal const val ESC_BOLD_ON = '\u0001'
+internal const val ESC_BOLD_OFF = '\u0002'
+
 /** Text → printer bytes on codepage 437 (the ESC/POS default — has a real '·'). */
 internal fun cp437Bytes(text: String): ByteArray {
     val out = java.io.ByteArrayOutputStream(text.length)
     text.forEach { ch ->
-        out.write(
-            when {
-                ch == '\n' -> 0x0A
-                ch.code in 32..126 -> ch.code
-                ch == '·' -> 0xFA // CP437 middle dot
-                ch == '—' || ch == '–' -> '-'.code
-                ch == '’' || ch == '‘' -> '\''.code
-                else -> '?'.code
-            },
-        )
+        when (ch) {
+            // Header sentinels → ESC E 1 / ESC E 0 (emphasis on/off).
+            ESC_BOLD_ON -> { out.write(0x1B); out.write(0x45); out.write(0x01) }
+            ESC_BOLD_OFF -> { out.write(0x1B); out.write(0x45); out.write(0x00) }
+            '\n' -> out.write(0x0A)
+            '·' -> out.write(0xFA) // CP437 middle dot
+            '—', '–' -> out.write('-'.code)
+            '’', '‘' -> out.write('\''.code)
+            else -> out.write(if (ch.code in 32..126) ch.code else '?'.code)
+        }
     }
     return out.toByteArray()
 }

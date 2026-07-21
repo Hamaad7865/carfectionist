@@ -4,6 +4,8 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import mu.carfection.pos.core.hardware.ESC_BOLD_OFF
+import mu.carfection.pos.core.hardware.ESC_BOLD_ON
 import mu.carfection.pos.core.hardware.ReceiptBiz
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.rupeesToCents
@@ -45,8 +47,11 @@ object ZSlip {
         }
         fun centre(s: String) = appendLine(s.padStart(((width + s.length) / 2).coerceAtMost(width)))
         fun rule() = appendLine("-".repeat(width))
+        // Bold section headers — the sentinels become ESC/POS emphasis (ESC E 1/0) at the byte layer.
+        fun header(label: String) = appendLine("$ESC_BOLD_ON$label$ESC_BOLD_OFF")
+        fun centreBold(s: String) = appendLine(ESC_BOLD_ON + s.padStart(((width + s.length) / 2).coerceAtMost(width)) + ESC_BOLD_OFF)
 
-        centre(biz.name.uppercase())
+        centreBold(biz.name.uppercase())
         centre("Period close")
         biz.address?.takeIf { it.isNotBlank() }?.let { centre(it) }
         centre(z.number)
@@ -57,11 +62,11 @@ object ZSlip {
         val services = t["services"]?.jsonArray
         if (services != null && services.size > 0) {
             services.forEach { s ->
-                appendServiceBlock(s.jsonObject, ::line, ::centre, ::rule, width)
+                appendServiceBlock(s.jsonObject, ::line, ::centreBold, ::rule, width)
             }
-            centre("Period")
+            centreBold("Period")
         } else {
-            centre("Service ${t.int("service_no")}")
+            centreBold("Service ${t.int("service_no")}")
             line("Initial cash float", money(t.num("float_initial")))
             line("Final cash float", money(t.num("float_final")))
             line("Deleted bills", t.int("voided_bills").toString())
@@ -70,10 +75,10 @@ object ZSlip {
             rule()
         }
 
-        appendTotalsBlock(periodTotals, ::line, ::rule)
+        appendTotalsBlock(periodTotals, ::line, ::rule, ::header)
 
         // Sale modes — SALES [trading name] restated with its VAT, like the owner's slip.
-        line("Sale modes", "")
+        header("Sale modes")
         line("  SALES [${biz.name.uppercase()}]", money(periodTotals.num("total_incl")))
         periodTotals["vat"]?.jsonArray?.forEach { v ->
             val o = v.jsonObject
@@ -109,7 +114,7 @@ object ZSlip {
         rule()
     }
 
-    private fun appendTotalsBlock(t: JsonObject, line: (String, String) -> Unit, rule: () -> Unit) {
+    private fun appendTotalsBlock(t: JsonObject, line: (String, String) -> Unit, rule: () -> Unit, header: (String) -> Unit) {
         line("Total incl. tax", money(t.num("total_incl")))
         line("${t.int("tickets")} tickets", "Avg. " + money(t.num("avg_basket")))
         val reversals = t.int("reversals")
@@ -118,7 +123,7 @@ object ZSlip {
         if (voided > 0) line("$voided voided bill${if (voided == 1) "" else "s"}", "")
         rule()
 
-        line("Means of payment", "")
+        header("Means of payment")
         t["methods"]?.jsonArray?.forEach { m ->
             val o = m.jsonObject
             val method = o.str("method")?.replace('_', ' ')?.uppercase() ?: "?"
@@ -140,7 +145,7 @@ object ZSlip {
 
         val cats = t["categories"]?.jsonArray
         if (cats != null && cats.size > 0) {
-            line("Categories", "")
+            header("Categories")
             cats.forEach { c ->
                 val o = c.jsonObject
                 line("  ${o.int("lines")} ${o.str("name")?.uppercase()}", money(o.num("incl")))
@@ -150,7 +155,7 @@ object ZSlip {
 
         val cashiers = t["cashiers"]?.jsonArray
         if (cashiers != null && cashiers.size > 0) {
-            line("User as cashier", "")
+            header("User as cashier")
             cashiers.forEach { c ->
                 val o = c.jsonObject
                 line("  ${o.str("name")}", money(o.num("total")))
@@ -161,7 +166,7 @@ object ZSlip {
             }
             rule()
             // Sales person = the same people (the shop's cashier is the salesperson).
-            line("Sales person", "")
+            header("Sales person")
             cashiers.forEach { c ->
                 val o = c.jsonObject
                 line("  ${o.str("name")}", money(o.num("total")))
@@ -171,7 +176,7 @@ object ZSlip {
 
         val vat = t["vat"]?.jsonArray
         if (vat != null && vat.size > 0) {
-            line("VAT", "")
+            header("VAT")
             vat.forEach { v ->
                 val o = v.jsonObject
                 line("  ${enVat(o.str("label"))}", money(o.num("vat")))
@@ -183,7 +188,7 @@ object ZSlip {
         // Petty cash paid OUT of the drawer — the drawer maths always knew; now the paper does.
         val mv = t["movements"] as? JsonObject
         if (mv != null && mv.int("count") > 0) {
-            line("Paid out", "")
+            header("Paid out")
             line("  ${mv.int("count")} movement${if (mv.int("count") == 1) "" else "s"}", money(mv.num("total")))
             rule()
         }
@@ -191,7 +196,7 @@ object ZSlip {
         // What went to the bank on this close, and what is still piling up in the drawer.
         val acc = t["accumulation"]?.jsonArray
         if (acc != null && acc.size > 0) {
-            line("Float accumulation", "")
+            header("Float accumulation")
             acc.forEach { a ->
                 val o = a.jsonObject
                 val m = o.str("method")?.replace('_', ' ')?.uppercase() ?: "?"
