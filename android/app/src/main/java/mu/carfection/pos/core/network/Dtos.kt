@@ -335,6 +335,8 @@ data class StockProductDto(
     val category: String? = null,
     val barcode: String? = null,
     @SerialName("selling_price") val sellingPrice: FlexDouble = 0.0,
+    // Needed to show the shelf price when the shop quotes VAT-inclusive; null = tenant default.
+    @SerialName("vat_rate") val vatRate: FlexDouble? = null,
     @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
 )
 
@@ -385,6 +387,10 @@ data class BusinessSettingsDto(
     val phone: String? = null,
     @SerialName("receipt_logo_path") val receiptLogoPath: String? = null, // brand-assets object
     @SerialName("receipt_footer_text") val receiptFooterText: String? = null,
+    // false = the shop quotes VAT-INCLUSIVE shelf prices. Prices are always STORED net;
+    // this only decides whether the staff-facing screens show net or gross. Defaults to the
+    // DB default (true) so a failed fetch keeps today's behaviour rather than inflating prices.
+    @SerialName("prices_vat_exclusive") val pricesVatExclusive: Boolean = true,
 )
 
 @Serializable

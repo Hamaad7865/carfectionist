@@ -84,6 +84,7 @@ import mu.carfection.pos.R
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
@@ -232,6 +233,7 @@ fun CounterScreen(
                             p = p,
                             inCartQty = s.cart.firstOrNull { it.product.id == p.id }?.qty?.toInt(),
                             onHand = s.onHand[p.id],
+                            inclVat = s.pricesInclVat,
                         ) { viewModel.add(p) }
                     }
                 }
@@ -293,12 +295,12 @@ fun CounterScreen(
                                         else -> ""
                                     }
                                     Text(
-                                        "${l.qty.toInt()} × ${formatMUR(l.product.sellingPriceCents)}" + discountNote +
+                                        "${l.qty.toInt()} × ${formatMUR(if (s.pricesInclVat) grossCents(l.product.sellingPriceCents, l.product.vatRatePct) else l.product.sellingPriceCents)}" + discountNote +
                                             (if (l.isAdhoc) "  ·  ad-hoc" else ""),
                                         color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                                     )
                                 }
-                                Text(formatMUR(l.netCents), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text(formatMUR(if (s.pricesInclVat) grossCents(l.netCents, l.product.vatRatePct) else l.netCents), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                                 Box(
                                     Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
                                     contentAlignment = Alignment.Center,
@@ -338,7 +340,10 @@ fun CounterScreen(
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
                 Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    TotalRow("Subtotal", formatMUR(s.preBasketSubtotalCents), TextSecondary)
+                    // Quoting gross: the subtotal is the lines at shelf price (TOTAL + whatever the
+                    // basket discount took off, which the ledger already treats as VAT-inclusive),
+                    // and VAT below reads "of which" so it isn't mistaken for a second charge.
+                    TotalRow("Subtotal", formatMUR(if (s.pricesInclVat) s.totals.totalCents + s.basketAppliedCents else s.preBasketSubtotalCents), TextSecondary)
                     // basket discount — % or Rs off the whole sale, saved as explicit discount lines
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp)
@@ -351,7 +356,7 @@ fun CounterScreen(
                         Spacer(Modifier.weight(1f))
                         if (s.basketAppliedCents > 0) Text("−" + formatMUR(s.basketAppliedCents), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                     }
-                    TotalRow("VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
+                    TotalRow(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
                     TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                         Text("BALANCE DUE", color = Warning, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
@@ -372,7 +377,7 @@ fun CounterScreen(
     }
 
     if (s.padOpen) PaymentPad(s, viewModel)
-    if (s.adhocOpen) AdhocDialog(viewModel)
+    if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
     s.oversell?.let { o ->
         val oh = s.onHand[o.product.id] ?: 0
         Dialog(onDismissRequest = viewModel::dismissOversell) {
@@ -449,7 +454,7 @@ private fun ModeToggle(mode: DiscountMode, h: Dp = 34.dp, onPick: (DiscountMode)
  * (warning), red at zero or below (negatives shown as-is, matching the Stock tab).
  */
 @Composable
-private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCartQty: Int?, onHand: Int?, onAdd: () -> Unit) {
+private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCartQty: Int?, onHand: Int?, inclVat: Boolean, onAdd: () -> Unit) {
     Box(Modifier.background(Tile, RoundedCornerShape(13.dp)).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(onClick = onAdd)) {
         // 112dp fits the worst case — a 2-line name + stock line + price (with their
         // natural line heights) — without clipping; the Spacer absorbs the slack on
@@ -469,7 +474,8 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
                 else -> "Stock $oh" to TextMuted
             }
             Text(meta, color = metaC, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, maxLines = 1)
-            Text(formatMUR(p.sellingPriceCents), color = TextSecondary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
+            // Shelf price when the shop quotes gross — the stored figure stays net.
+            Text(formatMUR(if (inclVat) grossCents(p.sellingPriceCents, p.vatRatePct) else p.sellingPriceCents), color = TextSecondary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
         }
         val ohRaw = onHand ?: 0
         val short = if (p.isStocked && inCartQty != null) ohRaw - inCartQty else 0
@@ -503,7 +509,7 @@ private fun Modifier.dashedBorder(color: Color, radius: Dp, stroke: Dp = 1.5.dp)
 
 /** Type a one-off line: description + VAT-exclusive unit price (saves with product_id = null). */
 @Composable
-private fun AdhocDialog(vm: CounterViewModel) {
+private fun AdhocDialog(vm: CounterViewModel, inclVat: Boolean) {
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     val cents = parseMoneyToCents(price)
@@ -517,7 +523,7 @@ private fun AdhocDialog(vm: CounterViewModel) {
             Text("A one-off service or product, priced by hand.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary)
             Text("DESCRIPTION", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             FilledInput(value = name, onValueChange = { name = it }, placeholder = "e.g. Headlight restoration", modifier = Modifier.fillMaxWidth(), bg = Inset)
-            Text("UNIT PRICE (Rs, excl. VAT)", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Text(if (inclVat) "UNIT PRICE (Rs, incl. VAT)" else "UNIT PRICE (Rs, excl. VAT)", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             FilledInput(value = price, onValueChange = { p -> price = p.filter { it.isDigit() || it == '.' } }, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset)
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Box(

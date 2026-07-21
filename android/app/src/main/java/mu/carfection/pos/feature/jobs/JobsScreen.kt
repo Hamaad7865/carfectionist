@@ -86,6 +86,7 @@ import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.LocalPhotoCapture
 import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.theme.Inset
 import kotlinx.coroutines.delay
@@ -324,7 +325,7 @@ private fun CertIssueDialog(s: JobsState, vm: JobsViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(p.name, Modifier.weight(1f), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(formatMUR(p.sellingPriceCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary)
+                        Text(formatMUR(if (s.pricesInclVat) grossCents(p.sellingPriceCents, p.vatRatePct) else p.sellingPriceCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary)
                     }
                 }
             }

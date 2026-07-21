@@ -36,7 +36,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchSettings(): BusinessSettingsDto =
         client.postgrest.from("business_settings")
-            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone, receipt_logo_path, receipt_footer_text")) { limit(1) }
+            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone, receipt_logo_path, receipt_footer_text, prices_vat_exclusive")) { limit(1) }
             .decodeSingle()
 
     suspend fun findCustomerByName(name: String): CustomerDto? =
@@ -128,7 +128,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Stock ─────────────────────────────────────────────────────────────────────
     suspend fun fetchStockProducts(): List<StockProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, category, barcode, selling_price, low_stock_threshold")) {
+            .select(Columns.raw("id, name, category, barcode, selling_price, vat_rate, low_stock_threshold")) {
                 filter { eq("is_active", true); eq("is_stocked", true) }
                 order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }

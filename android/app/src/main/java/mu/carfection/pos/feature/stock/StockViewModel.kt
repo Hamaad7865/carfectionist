@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.NewStockMovementDto
 import mu.carfection.pos.core.network.PosApi
@@ -50,6 +51,9 @@ data class StockState(
     val tenant: String? = null,
     val locationId: String? = null,
     val adj: AdjustState? = null,
+    // The shop quotes VAT-inclusive shelf prices — show gross here too. Display only.
+    val pricesInclVat: Boolean = false,
+    val vatDefault: Double = 15.0,
     val busy: Boolean = false,
     val toast: String? = null,
     val error: String? = null,
@@ -68,6 +72,13 @@ class StockViewModel @Inject constructor(
     fun load() {
         _s.update { it.copy(loading = true) }
         viewModelScope.launch {
+            // Does the shop quote gross? Decides whether the rows read net or shelf price.
+            _s.update {
+                it.copy(
+                    pricesInclVat = runCatching { catalog.pricesInclVat() }.getOrDefault(false),
+                    vatDefault = runCatching { catalog.vatDefault() }.getOrDefault(15.0),
+                )
+            }
             runCatching {
                 val products = api.fetchStockProducts()
                 // Count the same location this screen ADJUSTS. It used to sum
@@ -107,7 +118,13 @@ class StockViewModel @Inject constructor(
                     it.barcode?.contains(q) == true // scanner types into the field too
             }
             .map {
-                StockItem(it.id, it.name, it.category ?: "—", rupeesToCents(it.sellingPrice), s.onHand[it.id] ?: 0, (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD))
+                val net = rupeesToCents(it.sellingPrice)
+                StockItem(
+                    it.id, it.name, it.category ?: "—",
+                    if (s.pricesInclVat) grossCents(net, it.vatRate ?: s.vatDefault) else net,
+                    s.onHand[it.id] ?: 0,
+                    (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD),
+                )
             }
     }
 

@@ -35,6 +35,7 @@ import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.lineExclCents
+import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
 import kotlinx.serialization.json.buildJsonObject
@@ -116,6 +117,9 @@ data class CounterUiState(
     // studio identity for the payment screen's bill panel (Cashmag-style header)
     val bizName: String = "",
     val bizAddress: String? = null,
+    // The shop quotes VAT-INCLUSIVE shelf prices — show gross on screen. Prices stay stored
+    // net and the totals below stay net + VAT; this only changes what staff read.
+    val pricesInclVat: Boolean = false,
     // The bill panel's real detail for a collect: the invoice's own lines + (for a job) the
     // service performed. Fetched when the pad opens; empty while in flight or for a walk-in.
     val collectLines: List<SaleHistoryLineDto> = emptyList(),
@@ -322,6 +326,10 @@ class CounterViewModel @Inject constructor(
             runCatching { catalog.receiptBiz() }.getOrNull()?.let { biz ->
                 local.value = local.value.copy(bizName = biz.name, bizAddress = biz.address)
             }
+            // Does the shop quote gross? Decides whether tiles/lines read net or shelf price.
+            runCatching { catalog.pricesInclVat() }.getOrNull()?.let { incl ->
+                local.value = local.value.copy(pricesInclVat = incl)
+            }
         }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
@@ -338,7 +346,7 @@ class CounterViewModel @Inject constructor(
         // doesn't fall back to the hardcoded name (the ViewModel is activity-scoped; init
         // won't re-run to re-fetch it).
         val cur = local.value
-        local.value = CounterUiState(till = cur.till, bizName = cur.bizName, bizAddress = cur.bizAddress)
+        local.value = CounterUiState(till = cur.till, bizName = cur.bizName, bizAddress = cur.bizAddress, pricesInclVat = cur.pricesInclVat)
     }
 
     // ── checkout list: TO COLLECT + PAID TODAY ─────────────────────────────────
@@ -400,9 +408,12 @@ class CounterViewModel @Inject constructor(
         if (name.isBlank() || priceCents <= 0) { closeAdhoc(); return }
         viewModelScope.launch {
             val vat = catalog.vatDefault()
+            // When the shop quotes gross, staff type what the customer pays — store the NET,
+            // because the ledger adds VAT on top of whatever unit price it is handed.
+            val unit = if (catalog.pricesInclVat()) netFromGrossCents(priceCents, vat) else priceCents
             val p = ProductEntity(
                 id = CartLine.ADHOC_PREFIX + UUID.randomUUID(),
-                name = name.trim(), kind = "adhoc", sellingPriceCents = priceCents,
+                name = name.trim(), kind = "adhoc", sellingPriceCents = unit,
                 vatRatePct = vat, barcode = null, isStocked = false, category = null, lowStockThreshold = null,
             )
             local.value = local.value.copy(adhocOpen = false)
@@ -1108,7 +1119,7 @@ class CounterViewModel @Inject constructor(
         val cur = local.value
         local.value = CounterUiState(
             till = cur.till, mode = cur.mode, bills = cur.bills, paidToday = cur.paidToday,
-            bizName = cur.bizName, bizAddress = cur.bizAddress, // studio identity is not per-sale
+            bizName = cur.bizName, bizAddress = cur.bizAddress, pricesInclVat = cur.pricesInclVat, // studio identity is not per-sale
         )
         refreshTill()
     }

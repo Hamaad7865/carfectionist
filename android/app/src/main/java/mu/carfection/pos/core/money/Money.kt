@@ -162,6 +162,20 @@ fun formatMUR(cents: Long): String {
     return (if (neg) "-Rs " else "Rs ") + grouped + "." + fraction.toString().padStart(2, '0')
 }
 
+/**
+ * Net → the shelf price the customer actually pays (net + its VAT).
+ *
+ * DISPLAY ONLY. Prices are stored and charged NET — [computeTotals] adds VAT on top, and the
+ * DB's generated columns do the same. Feeding a gross figure back into a total, a cart line,
+ * or anything saved would charge the VAT twice. Same arithmetic the receipt already uses.
+ */
+fun grossCents(netCents: Long, vatRatePct: Double): Long =
+    netCents + Math.round(netCents * vatRatePct / 100.0)
+
+/** The inverse: a price TYPED as a VAT-inclusive shelf figure → the net to store. */
+fun netFromGrossCents(gross: Long, vatRatePct: Double): Long =
+    Math.round(gross / (1.0 + vatRatePct / 100.0))
+
 /** Rupees (DB numeric as Double) → cents. Values are ≤2dp by DB constraint. */
 fun rupeesToCents(rupees: Double): Long =
     BigDecimal.valueOf(rupees).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact()

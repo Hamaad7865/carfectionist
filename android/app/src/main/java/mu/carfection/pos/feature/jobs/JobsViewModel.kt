@@ -61,6 +61,8 @@ data class JobsState(
     val jobs: List<JobBoardDto> = emptyList(),
     val technicians: List<TechnicianDto> = emptyList(),
     val activeJobId: String? = null,
+    // The shop quotes VAT-inclusive shelf prices — show gross in the product picker. Display only.
+    val pricesInclVat: Boolean = false,
     val busy: Boolean = false,
     val toast: String? = null,
     val error: String? = null,
@@ -124,6 +126,10 @@ class JobsViewModel @Inject constructor(
         load()
         viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
+        viewModelScope.launch {
+            val incl = runCatching { catalog.pricesInclVat() }.getOrDefault(false)
+            _s.update { it.copy(pricesInclVat = incl) }
+        }
         viewModelScope.launch {
             captures.results.collect { r ->
                 if (r.target.startsWith("jobs:")) {

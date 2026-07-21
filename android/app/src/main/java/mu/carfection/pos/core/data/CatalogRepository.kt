@@ -2,6 +2,7 @@ package mu.carfection.pos.core.data
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.doublePreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
@@ -49,6 +50,7 @@ class CatalogRepository @Inject constructor(
     private val addressKey = stringPreferencesKey("address")
     private val phoneKey = stringPreferencesKey("phone")
     private val footerKey = stringPreferencesKey("receipt_footer")
+    private val inclVatKey = booleanPreferencesKey("prices_incl_vat")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -56,6 +58,9 @@ class CatalogRepository @Inject constructor(
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
+
+    /** Does the shop quote VAT-INCLUSIVE shelf prices? Display-only — prices stay stored net. */
+    suspend fun pricesInclVat(): Boolean = prefs.data.first()[inclVatKey] ?: false
 
     /** Receipt header identity (name/address/BRN/VAT no/logo) from the synced settings. */
     suspend fun receiptBiz(): ReceiptBiz {
@@ -77,6 +82,7 @@ class CatalogRepository @Inject constructor(
         prefs.edit {
             it[tenantKey] = settings.id
             it[vatKey] = settings.vatRate
+            it[inclVatKey] = !settings.pricesVatExclusive
             settings.tradingName?.let { n -> it[nameKey] = n }
             settings.brn?.let { v -> it[brnKey] = v }
             settings.vatNumber?.let { v -> it[vatNoKey] = v }
