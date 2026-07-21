@@ -54,6 +54,10 @@ export interface DocumentDetail {
   jobId: string | null;
   /** The job's live status — drives the "hand over on account" action on an open bill. */
   jobStatus: string | null;
+  /** For a job invoice: the vehicle worked on + what was done (its ticked checklist).
+   *  Mirrors the tablet payment panel's "what service the client took" detail. */
+  vehicle: { plate: string | null; make: string | null; model: string | null } | null;
+  jobChecklist: { label: string; done: boolean }[];
   intake: DocIntake | null;
   /** Client signature captured on the tablet when the quote was accepted. */
   acceptedSignature: { url: string; name: string | null; at: string | null } | null;
@@ -89,10 +93,20 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     sourceNumber = (src as any)?.number ?? null;
   }
   let jobStatus: string | null = null;
+  let vehicle: DocumentDetail["vehicle"] = null;
+  let jobChecklist: DocumentDetail["jobChecklist"] = [];
   if (d.job_id) {
-    const { data: job } = await sb.from("jobs").select("status").eq("id", d.job_id).maybeSingle();
+    const { data: job } = await sb.from("jobs").select("status, checklist, vehicles(plate, make, model)").eq("id", d.job_id).maybeSingle();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    jobStatus = (job as any)?.status ?? null;
+    const j = job as any;
+    jobStatus = j?.status ?? null;
+    // A many-to-one embed returns an object, but tolerate an array shape too.
+    const v = Array.isArray(j?.vehicles) ? j.vehicles[0] : j?.vehicles;
+    vehicle = v ? { plate: v.plate ?? null, make: v.make ?? null, model: v.model ?? null } : null;
+    jobChecklist = Array.isArray(j?.checklist)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ? j.checklist.map((c: any) => ({ label: String(c?.label ?? ""), done: !!c?.done })).filter((c: { label: string }) => c.label)
+      : [];
   }
   let creditedByNumber: string | null = null;
   if (d.doc_type === "invoice") {
@@ -159,6 +173,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     creditedByNumber,
     jobId: d.job_id ?? null,
     jobStatus,
+    vehicle,
+    jobChecklist,
     intake,
     acceptedSignature,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -25,6 +25,7 @@ import mu.carfection.pos.core.data.expandSaleLines
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.data.TillRepository
 import mu.carfection.pos.core.database.CustomerEntity
+import mu.carfection.pos.core.network.NewCustomerDto
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.hardware.CashDrawer
 import mu.carfection.pos.core.hardware.ReceiptDoc
@@ -39,6 +40,7 @@ import mu.carfection.pos.core.money.rupeesToCents
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.network.CashSessionDto
+import mu.carfection.pos.core.network.JobServiceDetailDto
 import mu.carfection.pos.core.network.OutstandingInvoiceDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.data.saleReceiptDoc
@@ -106,41 +108,52 @@ data class CounterUiState(
     val historyQuery: String = "",
     val historyBusy: Boolean = false,
     val viewDoc: ReceiptDoc? = null, // a past sale's receipt, rebuilt for preview/reprint
-    // split payment — tenders staged so far (e.g. Rs 500 Juice), committed together on Record
-    val tenders: List<mu.carfection.pos.core.data.Tender> = emptyList(),
+    // Split bill: an allocation table — how much the customer pays on each method. Off by
+    // default; the amounts are typed per row (splitFocus is the row the numpad types into).
+    val splitMode: Boolean = false,
+    val splitFocus: PayMethod = PayMethod.CASH,
+    val splitText: Map<PayMethod, String> = emptyMap(),
     // studio identity for the payment screen's bill panel (Cashmag-style header)
     val bizName: String = "",
     val bizAddress: String? = null,
+    // The bill panel's real detail for a collect: the invoice's own lines + (for a job) the
+    // service performed. Fetched when the pad opens; empty while in flight or for a walk-in.
+    val collectLines: List<SaleHistoryLineDto> = emptyList(),
+    val collectJob: JobServiceDetailDto? = null,
+    val collectDetailFailed: Boolean = false, // the item fetch errored — offer a retry, not a forever "loading"
 ) {
     /** The whole balance the pad COULD settle: an invoice's outstanding, or the cart total. */
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
 
-    /** Already staged onto the split so far (sum of the tender lines). */
-    val stagedCents: Long get() = tenders.sumOf { it.amountCents }
-    /** What is still owed after the staged tenders — the ceiling for the current entry. */
-    val remainingCents: Long get() = (dueCents - stagedCents).coerceAtLeast(0)
-
     /**
-     * What is being taken RIGHT NOW — a deposit, a split slice, or the lot. Capped at the
-     * REMAINING balance (never more than what is owed; the server refuses overpayment anyway).
-     * Empty entry = pay the whole remaining, so an untouched walk-in still settles in full.
+     * What is being taken RIGHT NOW in single-method mode — a deposit, or the lot. Capped at
+     * the balance. Empty = the whole balance, so an untouched walk-in still settles in full.
      */
     val payCents: Long
         get() {
-            val cap = remainingCents
             val typed = if (payText.isBlank()) null else parseMoneyToCents(payText)
-            return (typed ?: cap).coerceIn(0, cap)
+            return (typed ?: dueCents).coerceIn(0, dueCents.coerceAtLeast(0))
         }
 
-    /** Money still owed after this entry lands — what stays in TO COLLECT / the split balance. */
-    val balanceAfterCents: Long get() = (remainingCents - payCents).coerceAtLeast(0)
-    val isPartPayment: Boolean get() = tenders.isNotEmpty() || (collect != null && payCents in 1 until dueCents)
+    /** Money still owed after this entry lands — what stays in TO COLLECT. */
+    val balanceAfterCents: Long get() = (dueCents - payCents).coerceAtLeast(0)
+    val isPartPayment: Boolean get() = collect != null && payCents in 1 until dueCents
 
     val tenderCents: Long? get() = if (tenderText.isBlank()) null else parseMoneyToCents(tenderText)
     val effectiveTenderCents: Long get() = tenderCents ?: payCents // pad opens "exact"
     val changeCents: Long get() = (effectiveTenderCents - payCents).coerceAtLeast(0)
 
-    /** Does the current entry satisfy its method's rules (till, tender, reference)? */
+    // ── split allocation (Cash / Card / Juice / Bank — never Credit) ────────────
+    /** Cents allocated to a method in the split table (0 if blank). */
+    fun splitCents(m: PayMethod): Long = (splitText[m]?.let { if (it.isBlank()) null else parseMoneyToCents(it) } ?: 0L).coerceAtLeast(0)
+    /** Total allocated across every split row. */
+    val allocatedCents: Long get() = SPLIT_METHODS.sumOf { splitCents(it) }
+    /** What is still unallocated — the split's running balance. */
+    val splitBalanceCents: Long get() = dueCents - allocatedCents
+    /** The split is ready when its rows sum EXACTLY to the bill and a till is open. */
+    val splitCanRecord: Boolean get() = !busy && till != null && dueCents > 0 && allocatedCents == dueCents
+
+    /** Does the current single entry satisfy its method's rules (till, tender, customer)? */
     private val entryValid: Boolean
         get() = when (method) {
             PayMethod.CASH -> effectiveTenderCents >= payCents && till != null
@@ -150,20 +163,13 @@ data class CounterUiState(
 
     val canRecord: Boolean
         get() = !busy && (collect != null || cart.isNotEmpty()) && when (method) {
-            // Credit settles the whole remainder on account — it cannot be mixed with staged
-            // cash/card tenders (that would be a payment + a receivable in one breath).
-            PayMethod.CREDIT -> tenders.isEmpty() && dueCents > 0 && entryValid
-            // A COLLECT may take a partial now (a deposit) and leave the rest owing; a WALK-IN
-            // must be settled in full — staged tenders + this entry must cover the whole bill.
-            else -> payCents > 0 && entryValid && (collect != null || stagedCents + payCents == dueCents)
+            PayMethod.CREDIT -> dueCents > 0 && entryValid
+            // A COLLECT may take a partial (a deposit); a WALK-IN must be settled in full.
+            else -> payCents > 0 && entryValid && (collect != null || payCents == dueCents)
         }
 
-    /** "+ Add another method" is offered when this entry is a PARTIAL that leaves a balance. */
-    val canAddTender: Boolean
-        get() = !busy && method != PayMethod.CREDIT && payCents in 1 until remainingCents && entryValid
-
     /** Why the pay button is dead, when the reason is the till and not the basket. */
-    val cashNeedsTill: Boolean get() = method != PayMethod.CREDIT && till == null && payCents > 0
+    val cashNeedsTill: Boolean get() = (splitMode || method != PayMethod.CREDIT) && till == null && (payCents > 0 || allocatedCents > 0)
 
     /** Quick-tender chips: the round-ups a customer actually hands over, above what is being paid. */
     val quickTenders: List<Long>
@@ -174,10 +180,10 @@ data class CounterUiState(
                 .filter { it > t }.distinct().take(3)
         }
 
-    /** Deposit / split chips — half or three-quarters of what is still owed. */
+    /** Deposit chips — half or three-quarters of the balance (a collect deposit). */
     val depositChips: List<Long>
-        get() = if (remainingCents <= 0) emptyList()
-        else listOf(remainingCents / 2, remainingCents / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until remainingCents }.distinct()
+        get() = if (dueCents <= 0) emptyList()
+        else listOf(dueCents / 2, dueCents / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until dueCents }.distinct()
 
     // ── basket discount, derived from the raw input ─────────────────────────────
     val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
@@ -192,6 +198,9 @@ data class CounterUiState(
 }
 
 enum class CheckoutMode { LIST, WALKIN }
+
+/** The methods a split bill can be allocated across — Credit is a receivable, not a tender. */
+val SPLIT_METHODS = listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK)
 
 /** Which figure the numpad is editing: what we're taking, or what the customer handed over. */
 enum class PadField { AMOUNT, TENDER }
@@ -538,14 +547,43 @@ class CounterViewModel @Inject constructor(
         saleKey = UUID.randomUUID().toString()
         local.value = local.value.copy(
             collect = bill, padOpen = true, method = PayMethod.CASH,
+            collectLines = emptyList(), collectJob = null, collectDetailFailed = false,
             // Every bill opens at its full balance — unless a deposit was agreed at signing,
             // which dials the pad in for the cashier. A part payment typed for the LAST
             // customer must never ride along into this one's.
             tenderText = "",
             payText = amountCents?.let { centsToText(it) } ?: "",
             padField = PadField.TENDER,
-            refText = "", error = null, tenders = emptyList(),
+            refText = "", error = null, splitMode = false, splitText = emptyMap(),
         )
+        loadCollectDetail(bill)
+    }
+
+    /**
+     * Fill the bill panel with what the client actually took: the invoice's own line items,
+     * plus — for a job/service invoice — the service performed (its checklist). Best-effort;
+     * the amount/customer/vehicle already render from the DTO in hand, so a failure just leaves
+     * the itemised detail blank rather than blocking the collection.
+     */
+    private fun loadCollectDetail(bill: OutstandingInvoiceDto) {
+        viewModelScope.launch {
+            val fetched = runCatching { api.fetchInvoice(bill.id)?.lines.orEmpty().sortedBy { it.sortOrder } }
+            val job = bill.jobId?.let { jid -> runCatching { api.fetchJobDetail(jid) }.getOrNull() }
+            val st = local.value
+            if (st.collect?.id != bill.id) return@launch // a newer bill (or none) is on the pad now
+            local.value = st.copy(
+                collectLines = fetched.getOrDefault(emptyList()),
+                collectJob = job,
+                collectDetailFailed = fetched.isFailure,
+            )
+        }
+    }
+
+    /** The item fetch failed (bad connection) — try again for the bill still on the pad. */
+    fun retryCollectDetail() {
+        val bill = local.value.collect ?: return
+        local.value = local.value.copy(collectDetailFailed = false)
+        loadCollectDetail(bill)
     }
 
     /**
@@ -570,30 +608,35 @@ class CounterViewModel @Inject constructor(
         }
     }
 
-    /** The pad's confirm button: collect on an invoice, or settle the walk-in cart. */
+    /** The pad's confirm button: split allocation, collect on an invoice, or settle the cart. */
     fun confirm() = when {
-        local.value.tenders.isNotEmpty() -> recordSplit() // a split in progress (staged tenders)
+        local.value.splitMode -> recordSplit()
         local.value.collect != null -> recordCollect()
         else -> record()
     }
 
     /**
-     * Commit a SPLIT payment: the staged tenders plus the current entry, recorded together.
-     * Walk-in → issue once then record each; collect → record each against the bill. The
-     * receipt is rebuilt from the server invoice, so it shows every tender line.
+     * Commit the SPLIT allocation: one tender per non-zero row. Walk-in → issue once then
+     * record each; collect → record each against the bill. The receipt is rebuilt from the
+     * server invoice, so it shows every tender line.
      */
     private fun recordSplit() {
         val s = state.value
-        if (!s.canRecord || s.busy) return
+        if (!s.splitCanRecord || s.busy) return
         val bill = s.collect
-        // The current entry becomes the final tender (it closes the bill: payCents == remaining).
-        val finalTender = mu.carfection.pos.core.data.Tender(
-            method = s.method,
-            amountCents = s.payCents,
-            tenderedCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
-            ref = if (s.method == PayMethod.CASH) null else s.refText.trim().ifBlank { null },
-        )
-        val allTenders = s.tenders + finalTender
+        // One tender per method that has money on it, in a stable order (idempotency keys are
+        // per-index, so the same allocation always maps to the same keys on a retry).
+        val allTenders = SPLIT_METHODS.mapNotNull { m ->
+            s.splitCents(m).takeIf { it > 0 }?.let { cents ->
+                mu.carfection.pos.core.data.Tender(
+                    method = m,
+                    amountCents = cents,
+                    tenderedCents = if (m == PayMethod.CASH) cents else null, // split rows are exact
+                    ref = if (m == PayMethod.CASH) null else "POS",
+                )
+            }
+        }
+        if (allTenders.isEmpty()) return
         val anyCash = allTenders.any { it.method == PayMethod.CASH }
         local.value = local.value.copy(busy = true, error = null)
         viewModelScope.launch {
@@ -620,7 +663,8 @@ class CounterViewModel @Inject constructor(
                     logReceiptOutcome(result.number, printed)
                 }
                 local.value = local.value.copy(
-                    busy = false, padOpen = false, collect = null, pendingSettle = null, tenders = emptyList(),
+                    busy = false, padOpen = false, collect = null, pendingSettle = null,
+                    splitMode = false, splitText = emptyMap(),
                     done = result.copy(fromCollect = bill != null, debtor = bill?.customers?.name),
                     receipt = receipt,
                 )
@@ -840,6 +884,30 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(customerText = c.name, customerId = c.id)
     }
 
+    /**
+     * Create a brand-new customer from the typed name and select them — for an on-account
+     * (credit) sale to someone not in the book yet, right from the payment screen.
+     */
+    fun createCustomer(name: String) {
+        if (frozenBySettle()) return
+        val clean = name.trim()
+        if (clean.isEmpty() || local.value.busy) return
+        local.value = local.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            runCatching {
+                val tenant = requireNotNull(catalog.tenantId()) { "Not synced yet — pull the catalogue first." }
+                // Reuse an existing customer of the same name rather than minting a duplicate.
+                api.findCustomerByName(clean)?.id ?: api.insertCustomer(NewCustomerDto(tenantId = tenant, name = clean)).id
+            }.onSuccess { id ->
+                runCatching { catalog.refresh() } // so the new customer shows in later searches
+                local.value = local.value.copy(busy = false, customerText = clean, customerId = id, customerMatches = emptyList())
+            }.onFailure { e ->
+                local.value = local.value.copy(busy = false, error = e.uiMessage("Couldn't create the customer"))
+            }
+        }
+    }
+
+
     /** Who the invoice bills is baked into the issued document, so it freezes with the basket. */
     private fun frozenBySettle(): Boolean {
         if (local.value.pendingSettle == null) return false
@@ -854,7 +922,7 @@ class CounterViewModel @Inject constructor(
         // retry MUST replay identically, so reopening the pad must NOT reset them (the server
         // ignores a retry's arguments; a reset would print a receipt that lies about the tender).
         if (local.value.pendingSettle != null) { local.value = local.value.copy(padOpen = true, error = settleError()); return }
-        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", payText = "", error = null, tenders = emptyList())
+        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", payText = "", error = null, splitMode = false, splitText = emptyMap())
     }
     fun closePad() {
         val st = local.value
@@ -867,6 +935,7 @@ class CounterViewModel @Inject constructor(
                 // is never reused, so a later retry can only collect what remains.
                 local.value = st.copy(
                     padOpen = false, collect = null, pendingSettle = null, error = null,
+                    collectLines = emptyList(), collectJob = null, collectDetailFailed = false,
                     notice = "Collection cancelled — list refreshed",
                 )
                 loadLists()
@@ -876,37 +945,46 @@ class CounterViewModel @Inject constructor(
             local.value = st.copy(padOpen = false)
             return
         }
-        local.value = st.copy(padOpen = false, collect = null)
+        local.value = st.copy(padOpen = false, collect = null, collectLines = emptyList(), collectJob = null, collectDetailFailed = false)
     }
     fun setMethod(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(method = m, error = settleError()) }
 
-    /**
-     * Split payment: stage the current entry as a tender (e.g. Rs 500 Juice), then reset the
-     * pad for the next method. Only offered on a PARTIAL that leaves a balance (canAddTender).
-     */
-    fun addTender() {
+    // ── split bill: the allocation table ────────────────────────────────────────
+    /** Open / close the split table. Turning it on clears any single-method entry. */
+    fun toggleSplit() {
         if (frozenBySettle()) return
-        val s = state.value
-        if (!s.canAddTender) return
-        val tender = mu.carfection.pos.core.data.Tender(
-            method = s.method,
-            // Carry the REAL tender: if the cashier handed more cash than this slice, that
-            // change is theirs to give and must be recorded — not silently forced to exact.
-            amountCents = s.payCents,
-            tenderedCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
-            ref = if (s.method == PayMethod.CASH) null else s.refText.trim().ifBlank { null },
-        )
-        local.value = local.value.copy(
-            tenders = s.tenders + tender,
-            method = PayMethod.CASH, payText = "", tenderText = "", refText = "",
-            padField = PadField.TENDER, error = null,
-        )
+        val s = local.value
+        local.value = if (s.splitMode) s.copy(splitMode = false, splitText = emptyMap(), error = null)
+        else s.copy(splitMode = true, splitFocus = PayMethod.CASH, splitText = emptyMap(),
+            payText = "", tenderText = "", refText = "", error = null)
     }
 
-    /** Drop a staged tender before committing (× on its line). */
-    fun removeTender(index: Int) {
+    /** Focus a method row so the numpad types into it. */
+    fun setSplitFocus(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(splitFocus = m) }
+
+    /** Type into the focused split row (same numpad grammar as the pad). */
+    fun splitPadKey(key: String) {
         if (frozenBySettle()) return
-        local.value = local.value.copy(tenders = local.value.tenders.filterIndexed { i, _ -> i != index })
+        val s = local.value
+        val cur = s.splitText[s.splitFocus] ?: ""
+        val next = when (key) {
+            "⌫" -> cur.dropLast(1)
+            "." -> if (cur.contains('.')) cur else if (cur.isEmpty()) "0." else "$cur."
+            else -> {
+                val (int, dec) = cur.split('.').let { it[0] to it.getOrNull(1) }
+                when { dec != null && dec.length >= 2 -> cur; dec == null && int.length >= 7 -> cur; else -> cur + key }
+            }
+        }
+        local.value = s.copy(splitText = s.splitText + (s.splitFocus to next))
+    }
+
+    /** Fill the focused row with whatever is still unallocated (the "Rest" shortcut). */
+    fun fillSplitRest() {
+        if (frozenBySettle()) return
+        val s = local.value
+        val already = SPLIT_METHODS.filter { it != s.splitFocus }.sumOf { s.splitCents(it) }
+        val rest = (s.dueCents - already).coerceAtLeast(0)
+        local.value = s.copy(splitText = s.splitText + (s.splitFocus to centsToText(rest)))
     }
 
     /** An unresolved settle keeps its message: it is the cashier's only instruction for getting out. */

@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
-import { Printer, FileMinus, Receipt, ArrowRight } from "lucide-react";
+import { Printer, FileMinus, Receipt, ArrowRight, Check } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { getDealFlow } from "@/lib/supabase/queries/flow";
 import { FlowStepper } from "@/components/flow/FlowStepper";
@@ -155,6 +155,39 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             <FileMinus size={15} className="text-pink" />
             Credit note against invoice{" "}
             <Link href={`/sales/${doc.sourceId}`} className="font-bold text-link hover:underline">{doc.sourceNumber ?? "—"}</Link>.
+          </div>
+        )}
+
+        {/* What service the client took — mirrors the tablet payment panel's job detail. */}
+        {doc.jobId && (doc.vehicle?.plate || doc.vehicle?.make || doc.vehicle?.model || doc.jobChecklist.some((c) => c.done)) && (
+          <div className="mt-6 rounded-[15px] border border-line bg-card p-5">
+            <div className="mb-3 flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Service</span>
+              <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job →</Link>
+            </div>
+            {(doc.vehicle?.plate || doc.vehicle?.make || doc.vehicle?.model) && (
+              <div className="mb-3 flex items-center gap-2.5">
+                {doc.vehicle?.plate && (
+                  <span className="rounded-[6px] bg-[#F0C542] px-2.5 py-1 text-[13px] font-bold tracking-[0.05em] text-[#151208]">{doc.vehicle.plate.toUpperCase()}</span>
+                )}
+                {(doc.vehicle?.make || doc.vehicle?.model) && (
+                  <span className="text-[13.5px] font-semibold text-body">{[doc.vehicle?.make, doc.vehicle?.model].filter(Boolean).join(" ")}</span>
+                )}
+              </div>
+            )}
+            {doc.jobChecklist.some((c) => c.done) && (
+              <div>
+                <div className="mb-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Service performed</div>
+                <div className="flex flex-col gap-1.5">
+                  {doc.jobChecklist.filter((c) => c.done).map((c, i) => (
+                    <div key={i} className="flex items-center gap-2 text-[13px] text-body">
+                      <Check size={14} className="shrink-0 text-mint" />
+                      {c.label}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -199,6 +199,16 @@ data class OutstandingInvoiceDto(
     val customers: JobCustomerDto? = null,
     val vehicles: JobVehicleDto? = null,
 )
+
+/** Just enough of a job to explain, on the payment screen, WHAT service a collect was for
+ *  (the work performed) — not the whole jobs-board shape (JobBoardDto). */
+@Serializable
+data class JobServiceDetailDto(
+    val id: String,
+    val notes: String? = null,
+    val checklist: List<ChecklistItemDto> = emptyList(),
+)
+
 @Serializable data class PaidDocRefDto(val number: String? = null, val customers: JobCustomerDto? = null)
 
 // ── Checkout · sales history (view past sales + reprint) ─────────────────────

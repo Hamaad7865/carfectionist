@@ -571,6 +571,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    /**
+     * One job's service description (notes + checklist) — the payment screen's "what was this
+     * for" detail on a collect. Scoped narrow on purpose: fetchJobs()/JobBoardDto pulls the whole
+     * board; the bill panel only needs the fields that explain the service performed.
+     */
+    suspend fun fetchJobDetail(jobId: String): JobServiceDetailDto? =
+        client.postgrest.from("jobs")
+            .select(Columns.raw("id, notes, checklist")) { filter { eq("id", jobId) } }
+            .decodeList<JobServiceDetailDto>()
+            .firstOrNull()
+
     /** Payments received since [sinceIso] with their doc + customer — the "PAID TODAY" list. */
     /** Includes reversal mirrors (negative rows) — the caller collapses
      *  reversed pairs so PAID TODAY only shows money that actually stands. */

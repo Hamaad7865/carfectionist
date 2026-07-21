@@ -1,6 +1,7 @@
 package mu.carfection.pos.feature.counter
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -65,6 +68,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -76,11 +80,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import mu.carfection.pos.R
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.parseMoneyToCents
+import mu.carfection.pos.core.money.rupeesToCents
 import androidx.compose.ui.platform.LocalConfiguration
 import mu.carfection.pos.ui.COMPACT_BREAKPOINT_DP
 import mu.carfection.pos.ui.FilledInput
@@ -96,6 +102,7 @@ import mu.carfection.pos.ui.theme.Hairline
 import mu.carfection.pos.ui.theme.Inset
 import mu.carfection.pos.ui.theme.InsetAlt
 import mu.carfection.pos.ui.theme.Mono
+import mu.carfection.pos.ui.theme.Plate
 import mu.carfection.pos.ui.theme.ScreenBg
 import mu.carfection.pos.ui.theme.Success
 import mu.carfection.pos.ui.theme.TextMuted
@@ -665,7 +672,8 @@ private fun TotalRow(label: String, value: String, color: Color, big: Boolean = 
 private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
     Dialog(onDismissRequest = vm::closePad, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
         Box(Modifier.fillMaxSize().background(ScreenBg)) {
-            Column(Modifier.fillMaxSize().padding(16.dp)) {
+            // Extra bottom gap so the three cards' rounded corners clear the screen edge / gesture bar.
+            Column(Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 26.dp)) {
                 // top bar — bill identity + back
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(
@@ -677,24 +685,57 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                     s.collect?.let {
                         Text("${it.number ?: "Invoice"} · ${it.customers?.name ?: "—"}", color = TextMuted, fontFamily = Mono, fontSize = 14.sp)
                     } ?: Text("Counter sale", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                    Spacer(Modifier.weight(1f))
+                    // Split bill toggle — allocate the total across several methods.
+                    Row(
+                        Modifier.height(42.dp)
+                            .background(if (s.splitMode) Accent else CardBg, RoundedCornerShape(21.dp))
+                            .border(1.dp, if (s.splitMode) Accent else AccentLine, RoundedCornerShape(21.dp))
+                            .clickable { vm.toggleSplit() }.padding(horizontal = 18.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("⑃", color = if (s.splitMode) AccentInk else Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        Text(if (s.splitMode) "Split bill · on" else "Split bill", color = if (s.splitMode) AccentInk else Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                    }
                 }
                 Spacer(Modifier.height(12.dp))
 
                 Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     // ── left: the bill ───────────────────────────────────────────────
+                    val vehicle = s.collect?.vehicles
                     Column(
-                        Modifier.weight(1f).fillMaxHeight()
+                        Modifier.weight(1.35f).fillMaxHeight()
                             .background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp))
-                            .padding(18.dp),
+                            .padding(22.dp),
                     ) {
-                        // Studio identity (Cashmag prints the shop's name/address atop the bill).
-                        Text(s.bizName.ifBlank { "CARFECTIONIST" }.uppercase(), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = 0.5.sp)
-                        s.bizAddress?.takeIf { it.isNotBlank() }?.let {
-                            Text(it, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+                        // Studio identity + emblem (Cashmag prints the shop's name/address/logo atop the bill).
+                        Row(verticalAlignment = Alignment.Top) {
+                            Column(Modifier.weight(1f).padding(end = 10.dp)) {
+                                Text(s.bizName.ifBlank { "CARFECTIONIST" }.uppercase(), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 25.sp, letterSpacing = 0.5.sp, lineHeight = 27.sp)
+                                s.bizAddress?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                }
+                            }
+                            // Brand emblem — gold line-art on its black tile, as the asset is designed
+                            // (mirrors the app header; a bare gold mark washes out on the white card).
+                            Box(
+                                Modifier.size(58.dp).background(Color(0xFF0B0D0F), RoundedCornerShape(14.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Image(
+                                    painterResource(R.drawable.logo_carfectionist),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(52.dp),
+                                )
+                            }
                         }
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(16.dp))
                         // Bill reference + when it was rung, then the item count — the Cashmag panel.
-                        val itemCount = if (s.collect != null) 1 else s.cart.sumOf { if (it.qty % 1.0 == 0.0) it.qty.toInt() else 1 }
+                        // A discount line isn't an "item", so the count is the real product/service lines.
+                        val itemCount = if (s.collect != null) s.collectLines.count { rupeesToCents(it.lineTotalExcl) + rupeesToCents(it.lineVat) >= 0 }
+                            else s.cart.sumOf { if (it.qty % 1.0 == 0.0) it.qty.toInt() else 1 }
+                        // A collect's lines arrive a beat after the pad opens — don't guess a count until then.
+                        val showItemCount = s.collect == null || s.collectLines.isNotEmpty()
                         val stamp = remember(s.collect?.id) {
                             val fmt = java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy · HH:mm")
                             s.collect?.issuedAt?.let {
@@ -703,16 +744,56 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         }
                         Text(
                             "${s.collect?.number ?: "New counter sale"}  ·  $stamp",
-                            color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
+                            color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                         )
-                        Text("$itemCount item${if (itemCount == 1) "" else "s"}", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp)
-                        Spacer(Modifier.height(8.dp))
+                        if (showItemCount) Text("$itemCount item${if (itemCount == 1) "" else "s"}", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                        // Vehicle — for a job/service invoice, WHICH car we worked on.
+                        if (vehicle != null && (!vehicle.plate.isNullOrBlank() || !vehicle.make.isNullOrBlank() || !vehicle.model.isNullOrBlank())) {
+                            Spacer(Modifier.height(12.dp))
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                vehicle.plate?.takeIf { it.isNotBlank() }?.let { plate ->
+                                    Box(Modifier.background(Plate, RoundedCornerShape(6.dp)).padding(horizontal = 9.dp, vertical = 3.dp)) {
+                                        Text(plate.uppercase(), color = Color(0xFF151208), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 1.sp)
+                                    }
+                                }
+                                val desc = listOfNotNull(
+                                    vehicle.make?.takeIf { it.isNotBlank() }?.replaceFirstChar { c -> c.uppercase() },
+                                    vehicle.model?.takeIf { it.isNotBlank() },
+                                ).joinToString(" ")
+                                if (desc.isNotBlank()) Text(desc, color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(12.dp))
                         Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
-                        Spacer(Modifier.height(10.dp))
-                        // line items: a walk-in cart carries its lines; a collect is one bill line.
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Spacer(Modifier.height(12.dp))
+                        // line items: a walk-in cart carries its lines; a collect shows the invoice's REAL
+                        // lines — what the client actually took (service/products), fetched when the pad opened.
+                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             if (s.collect != null) {
-                                BillLine("1", s.collect.customers?.name?.let { "$it — ${s.collect.number ?: "invoice"}" } ?: (s.collect.number ?: "Invoice"), s.dueCents)
+                                if (s.collectLines.isNotEmpty()) {
+                                    // Every line, discounts included, so what's shown reconciles with the total.
+                                    s.collectLines.forEach { l ->
+                                        val incl = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
+                                        BillLine(if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString(), l.title, incl)
+                                    }
+                                } else if (s.collectDetailFailed) {
+                                    Box(Modifier.fillMaxWidth().clickable { vm.retryCollectDetail() }) {
+                                        Text("Couldn't load items — tap to retry", color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    }
+                                } else {
+                                    Text("Retrieving items…", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                }
+                                // Service performed — the job's checklist: what the client actually got done.
+                                s.collectJob?.checklist?.filter { it.done }?.takeIf { it.isNotEmpty() }?.let { done ->
+                                    Spacer(Modifier.height(6.dp))
+                                    Text("SERVICE PERFORMED", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
+                                    done.forEach { item ->
+                                        Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("✓", color = Success, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                            Text(item.label, color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 16.sp, modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
                             } else {
                                 s.cart.forEach { l ->
                                     val incl = lineExclCents(l.qty, l.product.sellingPriceCents).let { it + Math.round(it * (l.product.vatRatePct / 100.0)) }
@@ -720,13 +801,31 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                                 }
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
+                        Spacer(Modifier.height(12.dp))
                         Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
-                        Spacer(Modifier.height(10.dp))
+                        Spacer(Modifier.height(12.dp))
+                        // The invoice total is what the lines sum to. A collect may already carry a
+                        // deposit, so show what's been paid and the balance actually being settled now.
+                        val invoiceTotalCents = s.collect?.let { rupeesToCents(it.totalIncl) } ?: s.dueCents
+                        val paidAlreadyCents = s.collect?.let { rupeesToCents(it.amountPaid) } ?: 0L
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Total incl. tax", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            Text("Total incl. tax", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                             Spacer(Modifier.weight(1f))
-                            Text(formatMUR(s.dueCents), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+                            Text(formatMUR(invoiceTotalCents), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp)
+                        }
+                        if (paidAlreadyCents > 0) {
+                            Spacer(Modifier.height(8.dp))
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Already paid", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Spacer(Modifier.weight(1f))
+                                Text("− ${formatMUR(paidAlreadyCents)}", color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
+                            Spacer(Modifier.height(6.dp))
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Balance due", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                                Spacer(Modifier.weight(1f))
+                                Text(formatMUR(s.dueCents), color = Warning, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            }
                         }
                         // internal note (walk-in only) tucked under the bill
                         if (s.collect == null) {
@@ -740,137 +839,185 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         }
                     }
 
-                    // ── middle: means of payment ──────────────────────────────────────
-                    Column(
-                        Modifier.weight(1f).fillMaxHeight()
-                            .background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp))
-                            .padding(18.dp),
-                    ) {
-                        Text("MEANS OF PAYMENT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
-                        Spacer(Modifier.height(14.dp))
-                        val tiles = PayMethod.entries.chunked(2)
-                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                            tiles.forEach { row ->
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                    // Credit can't join a split (it's a receivable, not a tender).
-                                    row.forEach { m -> Box(Modifier.weight(1f)) { MethodTile(m, s.method == m, enabled = !(m == PayMethod.CREDIT && s.tenders.isNotEmpty())) { vm.setMethod(m) } } }
-                                    if (row.size == 1) Spacer(Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-
-                    // ── right: totals + the selected method's entry + Record ──────────
-                    Column(
-                        Modifier.weight(1f).fillMaxHeight()
-                            .background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp))
-                            .padding(18.dp),
-                    ) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Total", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Spacer(Modifier.weight(1f))
-                            Text(formatMUR(s.dueCents), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                        }
-                        Spacer(Modifier.height(6.dp))
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text("Balance", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
-                            Spacer(Modifier.weight(1f))
-                            Text(formatMUR(s.balanceAfterCents), color = if (s.balanceAfterCents > 0) Warning else Success, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                        }
-                        Spacer(Modifier.height(12.dp))
-                        Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
-                        Spacer(Modifier.height(12.dp))
-
-                        // the entry detail for the chosen method (scrolls if the numpad is tall)
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            // Staged split tenders (e.g. Rs 500 Juice) — each removable before Record.
-                            s.tenders.forEachIndexed { i, t ->
-                                Row(
-                                    Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(11.dp)).border(1.dp, Hairline, RoundedCornerShape(11.dp)).padding(horizontal = 12.dp, vertical = 9.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Icon(methodIcon(t.method), t.method.label, tint = Success, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(9.dp))
-                                    Text(t.method.label, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    Spacer(Modifier.weight(1f))
-                                    Text(formatMUR(t.amountCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                                    Box(Modifier.padding(start = 10.dp).size(26.dp).clickable { vm.removeTender(i) }, contentAlignment = Alignment.Center) {
-                                        Text("✕", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                    }
-                                }
-                            }
-                            PaymentEntry(s, vm)
-                        }
-
-                        Spacer(Modifier.height(10.dp))
-                        s.error?.let { Text(it, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(6.dp)) }
-                        if (s.cashNeedsTill) {
-                            Text("Open the till first — every payment lands on a service that gets counted.",
-                                color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
-                            Spacer(Modifier.height(6.dp))
-                        }
-                        // "+ Add another method" — split: bank this partial and pick the next method.
-                        if (s.canAddTender) {
-                            Box(
-                                Modifier.fillMaxWidth().height(48.dp).padding(bottom = 8.dp)
-                                    .background(AccentSoft, RoundedCornerShape(13.dp)).border(1.dp, AccentLine, RoundedCornerShape(13.dp))
-                                    .clickable { vm.addTender() },
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text("+ Add another method  ·  ${formatMUR(s.payCents)} ${s.method.label.lowercase()}", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                            }
-                        }
-                        Box(
-                            Modifier.fillMaxWidth().height(56.dp)
-                                .background(if (s.canRecord) Accent else InsetAlt, RoundedCornerShape(14.dp))
-                                .clickable(enabled = s.canRecord) { vm.confirm() },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            val payingNow = s.stagedCents + s.payCents
-                            Text(
-                                if (s.busy) "Recording…"
-                                else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.dueCents)} on account"
-                                else if (s.tenders.isNotEmpty()) "Record ${formatMUR(payingNow)} split"
-                                else if (s.isPartPayment) "Take ${formatMUR(s.payCents)} — ${formatMUR(s.balanceAfterCents)} left"
-                                else "Record ${formatMUR(s.payCents)}",
-                                color = if (s.canRecord) AccentInk else TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp,
-                            )
-                        }
-                        // owner/manager: void an unpaid invoice instead of collecting.
-                        s.collect?.takeIf { it.status == "issued" && vm.canManage }?.let { bill ->
-                            var voidOpen by remember(bill.id) { mutableStateOf(false) }
-                            var voidWhy by remember(bill.id) { mutableStateOf("") }
-                            Spacer(Modifier.height(8.dp))
-                            Box(Modifier.fillMaxWidth().clickable { voidOpen = !voidOpen }, contentAlignment = Alignment.Center) {
-                                Text("Void this invoice", color = Danger, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                            }
-                            if (voidOpen) {
-                                OutlinedTextField(voidWhy, { voidWhy = it }, label = { Text("Reason for voiding (required)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
-                                Box(
-                                    Modifier.fillMaxWidth().height(44.dp).padding(top = 6.dp)
-                                        .background(if (voidWhy.isBlank()) InsetAlt else Danger, RoundedCornerShape(11.dp))
-                                        .clickable(enabled = voidWhy.isNotBlank()) { vm.voidInvoice(bill, voidWhy) },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(if (voidWhy.isBlank()) "Enter the reason above first" else "Void ${bill.number ?: "this invoice"}",
-                                        color = if (voidWhy.isBlank()) TextMuted else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-                    }
+                    if (s.splitMode) SplitAllocation(s, vm) else SingleMethodPay(s, vm)
                 }
             }
         }
     }
 }
 
+/** Single-method payment: the means-of-payment tiles (middle); the totals, the chosen method's
+ *  entry (Amount / Cash tendered) and its numpad + Record (right). The entry cards are kept compact
+ *  so the keypad fits without scrolling — a scrolling keypad is a poor POS experience. */
+@Composable
+private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
+    // ── middle: means of payment ──
+    Column(
+        Modifier.weight(1f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(18.dp),
+    ) {
+        Text("MEANS OF PAYMENT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
+        Spacer(Modifier.height(14.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            PayMethod.entries.chunked(2).forEach { row ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    row.forEach { m -> Box(Modifier.weight(1f)) { MethodTile(m, s.method == m) { vm.setMethod(m) } } }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+    // ── right: totals + entry (amount / cash tendered) + numpad + Record ──
+    Column(
+        Modifier.weight(1f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(18.dp),
+    ) {
+        TotalBalance(s.dueCents, s.balanceAfterCents)
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            PaymentEntryFields(s, vm)
+            if (numPadVisible(s)) NumPad { vm.padKey(it) }
+        }
+        Spacer(Modifier.height(10.dp))
+        s.error?.let { Text(it, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(6.dp)) }
+        if (s.cashNeedsTill) {
+            Text("Open the till first — every payment lands on a service that gets counted.",
+                color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+            Spacer(Modifier.height(6.dp))
+        }
+        Box(
+            Modifier.fillMaxWidth().height(56.dp).background(if (s.canRecord) Accent else InsetAlt, RoundedCornerShape(14.dp))
+                .clickable(enabled = s.canRecord) { vm.confirm() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (s.busy) "Recording…"
+                else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.dueCents)} on account"
+                else if (s.isPartPayment) "Take ${formatMUR(s.payCents)} — ${formatMUR(s.balanceAfterCents)} left"
+                else "Record ${formatMUR(s.payCents)}",
+                color = if (s.canRecord) AccentInk else TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+            )
+        }
+        s.collect?.takeIf { it.status == "issued" && vm.canManage }?.let { bill ->
+            var voidOpen by remember(bill.id) { mutableStateOf(false) }
+            var voidWhy by remember(bill.id) { mutableStateOf("") }
+            Spacer(Modifier.height(8.dp))
+            Box(Modifier.fillMaxWidth().clickable { voidOpen = !voidOpen }, contentAlignment = Alignment.Center) {
+                Text("Void this invoice", color = Danger, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            }
+            if (voidOpen) {
+                OutlinedTextField(voidWhy, { voidWhy = it }, label = { Text("Reason for voiding (required)") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(top = 6.dp))
+                Box(
+                    Modifier.fillMaxWidth().height(44.dp).padding(top = 6.dp).background(if (voidWhy.isBlank()) InsetAlt else Danger, RoundedCornerShape(11.dp))
+                        .clickable(enabled = voidWhy.isNotBlank()) { vm.voidInvoice(bill, voidWhy) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(if (voidWhy.isBlank()) "Enter the reason above first" else "Void ${bill.number ?: "this invoice"}",
+                        color = if (voidWhy.isBlank()) TextMuted else Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+/** Split bill: an allocation table — an amount per method — plus a numpad and Record. */
+@Composable
+private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
+    // ── middle: one row per method, with its allocated amount ──
+    Column(
+        Modifier.weight(1f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(11.dp),
+    ) {
+        Text("HOW IS THE CUSTOMER PAYING?", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
+        SPLIT_METHODS.forEach { m ->
+            val focused = s.splitFocus == m
+            val cents = s.splitCents(m)
+            Row(
+                Modifier.fillMaxWidth().height(60.dp)
+                    .background(if (focused) methodHue(m).copy(alpha = 0.12f) else InsetAlt, RoundedCornerShape(13.dp))
+                    .border(if (focused) 2.dp else 1.dp, if (focused) methodHue(m) else Hairline, RoundedCornerShape(13.dp))
+                    .clickable { vm.setSplitFocus(m) }.padding(horizontal = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(34.dp).background(methodHue(m), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(methodIcon(m), m.label, tint = Color.White, modifier = Modifier.size(18.dp))
+                }
+                Spacer(Modifier.width(12.dp))
+                Text(m.label, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    if (cents > 0) formatMUR(cents) else "—",
+                    color = if (cents > 0) TextPrimary else TextMuted, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp,
+                )
+            }
+        }
+        Spacer(Modifier.weight(1f))
+        Text("Credit can't be split — it's a receivable, not a tender.", color = TextMuted, fontFamily = Barlow, fontSize = 11.5.sp)
+    }
+    // ── right: totals + numpad (into the focused row) + Record ──
+    Column(
+        Modifier.weight(1f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(18.dp),
+    ) {
+        TotalBalance(s.dueCents, s.splitBalanceCents.coerceAtLeast(0), overAllocated = s.splitBalanceCents < 0)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Editing", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+            Text(s.splitFocus.label, color = methodHue(s.splitFocus), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.weight(1f))
+            QuickChip("Rest") { vm.fillSplitRest() }
+        }
+        Spacer(Modifier.height(10.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.Bottom) {
+            NumPad { vm.splitPadKey(it) }
+        }
+        Spacer(Modifier.height(10.dp))
+        s.error?.let { Text(it, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(6.dp)) }
+        if (s.cashNeedsTill) {
+            Text("Open the till first — every payment lands on a service that gets counted.",
+                color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+            Spacer(Modifier.height(6.dp))
+        } else if (s.splitBalanceCents != 0L && s.allocatedCents > 0) {
+            Text(
+                if (s.splitBalanceCents > 0) "Rs ${formatMUR(s.splitBalanceCents).removePrefix("Rs ")} still to allocate" else "Over-allocated — trim a row",
+                color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        Box(
+            Modifier.fillMaxWidth().height(56.dp).background(if (s.splitCanRecord) Accent else InsetAlt, RoundedCornerShape(14.dp))
+                .clickable(enabled = s.splitCanRecord) { vm.confirm() },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (s.busy) "Recording…" else "Record ${formatMUR(s.dueCents)} split",
+                color = if (s.splitCanRecord) AccentInk else TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp,
+            )
+        }
+    }
+}
+
+/** The Total / Balance header shared by the single and split payment panels. */
+@Composable
+private fun TotalBalance(totalCents: Long, balanceCents: Long, overAllocated: Boolean = false) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Total", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Spacer(Modifier.weight(1f))
+        Text(formatMUR(totalCents), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+    }
+    Spacer(Modifier.height(6.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text("Balance", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
+        Spacer(Modifier.weight(1f))
+        Text(formatMUR(balanceCents), color = if (balanceCents > 0 || overAllocated) Warning else Success, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp)
+    }
+    Spacer(Modifier.height(12.dp))
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+    Spacer(Modifier.height(12.dp))
+}
+
 /** One line of the bill on the payment screen's left panel. */
 @Composable
 private fun BillLine(qty: String, name: String, inclCents: Long) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
-        Text(qty, color = TextMuted, fontFamily = Mono, fontSize = 13.sp, modifier = Modifier.width(26.dp))
-        Text(name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 14.sp, lineHeight = 17.sp, modifier = Modifier.weight(1f).padding(end = 8.dp))
-        Text(formatMUR(inclCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+        Text(qty, color = TextMuted, fontFamily = Mono, fontSize = 14.sp, modifier = Modifier.width(30.dp))
+        Text(name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 16.sp, lineHeight = 20.sp, modifier = Modifier.weight(1f).padding(end = 10.dp))
+        Text(formatMUR(inclCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
     }
 }
 
@@ -912,12 +1059,14 @@ private fun MethodTile(m: PayMethod, selected: Boolean, enabled: Boolean = true,
     }
 }
 
-/** The entry detail for the currently-selected method — the right column's working area. */
+/** The entry detail for the currently-selected method — Amount / Cash tendered / ref / credit.
+ *  Shown in the middle column under the method tiles; the numpad that feeds it lives in the right
+ *  column (see [numPadVisible]). */
 @Composable
-private fun PaymentEntry(s: CounterUiState, vm: CounterViewModel) {
-    // Amount is editable for any non-credit payment now (a walk-in can be split too — tap
-    // AMOUNT and type a slice); credit always settles the whole remainder.
-    val amountEditable = s.method != PayMethod.CREDIT
+private fun PaymentEntryFields(s: CounterUiState, vm: CounterViewModel) {
+    // Only a COLLECT can take a partial (a deposit) in single-method mode; a walk-in pays in
+    // full (splitting is a separate mode). Credit always settles the whole remainder.
+    val amountEditable = s.collect != null && s.method != PayMethod.CREDIT
     val onAmount = amountEditable && (s.padField == PadField.AMOUNT || s.method != PayMethod.CASH)
     DisplayCard(
         if (s.method == PayMethod.CREDIT) "GOES ON ACCOUNT" else if (s.isPartPayment) "PAYING NOW" else "AMOUNT",
@@ -940,23 +1089,52 @@ private fun PaymentEntry(s: CounterUiState, vm: CounterViewModel) {
                 s.quickTenders.forEach { cents -> QuickChip(formatMUR(cents).removePrefix("Rs ").substringBefore(".")) { vm.setTenderCents(cents) } }
             }
             Row(Modifier.fillMaxWidth().padding(top = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("Change", color = TextSecondary, fontSize = 14.sp)
+                Text("Change", color = TextSecondary, fontSize = 13.sp)
                 Spacer(Modifier.weight(1f))
-                Text(formatMUR(s.changeCents), color = Success, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold)
+                Text(formatMUR(s.changeCents), color = Success, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold)
             }
-            NumPad(vm)
         }
         PayMethod.CREDIT -> {
             val bill = s.collect
-            Text(
-                when {
-                    bill != null && bill.customers != null -> "On account for ${bill.customers.name} — ${formatMUR(s.dueCents)} stays owed on their statement. The car is handed over now."
-                    bill != null -> "This bill has no customer attached — credit needs someone to owe it."
-                    s.customerId != null -> "On account for ${s.customerText} — ${formatMUR(s.dueCents)} recorded as owed."
-                    else -> "Pick an existing customer on the sale screen first — the amount owed is tracked against them."
-                },
-                color = Warning, fontSize = 14.sp, lineHeight = 19.sp,
-            )
+            when {
+                // A collect already knows who owes it (the invoice's customer).
+                bill != null && bill.customers != null -> Text(
+                    "On account for ${bill.customers.name} — ${formatMUR(s.dueCents)} stays owed on their statement. The car is handed over now.",
+                    color = Warning, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+                bill != null -> Text(
+                    "This bill has no customer attached — credit needs someone to owe it.",
+                    color = Warning, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+                s.customerId != null -> Text(
+                    "On account for ${s.customerText} — ${formatMUR(s.dueCents)} recorded as owed. The debt is tracked against them.",
+                    color = Warning, fontSize = 14.sp, lineHeight = 19.sp,
+                )
+                // A walk-in credit with no customer yet — pick or CREATE one right here.
+                else -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Who owes it? Credit is tracked against a customer — pick one or create a new one.", color = TextMuted, fontSize = 13.sp, lineHeight = 18.sp)
+                    OutlinedTextField(
+                        value = s.customerText, onValueChange = vm::setCustomerText,
+                        placeholder = { Text("Search or type a new customer name", color = TextMuted) },
+                        singleLine = true, modifier = Modifier.fillMaxWidth(),
+                    )
+                    s.customerMatches.forEach { c ->
+                        Box(
+                            Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(10.dp)).border(1.dp, Hairline, RoundedCornerShape(10.dp))
+                                .clickable { vm.pickCustomer(c) }.padding(horizontal = 12.dp, vertical = 10.dp),
+                        ) { Text(c.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+                    }
+                    // No exact match on a typed name → offer to create that customer.
+                    val typed = s.customerText.trim()
+                    if (typed.isNotEmpty() && s.customerMatches.none { it.name.equals(typed, ignoreCase = true) }) {
+                        Box(
+                            Modifier.fillMaxWidth().height(46.dp).background(AccentSoft, RoundedCornerShape(11.dp)).border(1.dp, AccentLine, RoundedCornerShape(11.dp))
+                                .clickable(enabled = !s.busy) { vm.createCustomer(typed) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text(if (s.busy) "Creating…" else "+ Create \"$typed\"", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
+                    }
+                }
+            }
         }
         else -> {
             OutlinedTextField(
@@ -969,21 +1147,28 @@ private fun PaymentEntry(s: CounterUiState, vm: CounterViewModel) {
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
             Text("Run it on the terminal / app first — the POS records the reference.", color = TextMuted, fontSize = 12.sp)
-            // A non-cash PART payment on a bill still needs an amount typed.
-            if (amountEditable) NumPad(vm)
         }
     }
 }
 
+/** Whether the chosen method needs the numpad (which lives in the right column, beside these
+ *  fields). Cash always types a tender; card/juice/bank only when a collect takes a part-payment;
+ *  credit types nothing. */
+private fun numPadVisible(s: CounterUiState): Boolean = when (s.method) {
+    PayMethod.CREDIT -> false
+    PayMethod.CASH -> true
+    else -> s.collect != null
+}
+
 /** The 3×4 numeric keypad shared by the cash and part-payment entry. */
 @Composable
-private fun NumPad(vm: CounterViewModel) {
-    Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
+private fun NumPad(onKey: (String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9"), listOf(".", "0", "⌫")).forEach { row ->
-            Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { k ->
                     Box(
-                        Modifier.weight(1f).height(52.dp).background(InsetAlt, RoundedCornerShape(12.dp)).clickable { vm.padKey(k) },
+                        Modifier.weight(1f).height(48.dp).background(InsetAlt, RoundedCornerShape(12.dp)).clickable { onKey(k) },
                         contentAlignment = Alignment.Center,
                     ) { Text(k, color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.SemiBold) }
                 }
@@ -1063,10 +1248,10 @@ private fun DisplayCard(label: String, value: String, highlight: Boolean = false
             .background(Inset, RoundedCornerShape(12.dp))
             .border(1.5.dp, if (highlight) AccentLine else Hairline, RoundedCornerShape(12.dp))
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Text(label, color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
-        Text(value, color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        Text(value, color = TextPrimary, fontFamily = Condensed, fontSize = 19.sp, fontWeight = FontWeight.Bold)
     }
 }
 
