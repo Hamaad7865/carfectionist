@@ -436,7 +436,11 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 val gross = vm.grossCents(s)
                 // Quoting gross: state the subtotal and the line discounts at shelf price too,
                 // each line at its own VAT rate, so the column the customer reads adds up.
-                val subtotalShown = if (s.pricesInclVat) s.lines.sumOf { it.qty * grossCents(it.unitCents, it.vatRate) } else gross
+                // Grossed on the LINE total (qty × unit), not per unit then multiplied: rounding VAT
+                // per unit and multiplying differs by a cent from rounding it once on the line, and
+                // that cent surfaced as a phantom "Line discounts −Rs 0.01" row on any qty ≥ 2 quote
+                // that had no discount at all. This also matches the row printed for each line.
+                val subtotalShown = if (s.pricesInclVat) s.lines.sumOf { grossCents(it.qty * it.unitCents, it.vatRate) } else gross
                 val afterLineDisc = s.lines.mapIndexed { i, l -> grossCents(t.lineExclCents.getOrElse(i) { 0L }, l.vatRate) }.sum()
                 val lineDisc = if (s.pricesInclVat) subtotalShown - afterLineDisc else gross - t.lineExclCents.sum()
                 TotalLine("Subtotal", formatMUR(subtotalShown), TextSecondary)

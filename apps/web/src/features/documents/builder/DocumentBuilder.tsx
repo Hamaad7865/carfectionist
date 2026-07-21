@@ -448,11 +448,16 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         </div>
                       )}
                       {!readOnly && (
-                        <div className="relative w-[96px]" title={ctx.pricesInclVat ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
+                        /* Stays NET on purpose. Displaying gross here fed grossCents(netFromGrossCents(x))
+                           back into a controlled input, and that is not an identity (~13% of values land a
+                           cent out) — the field rewrote itself under the cursor and saved a mangled rate
+                           (typing "1500" could bill Rs 149.99). The line total and the printed document
+                           below state the shelf price; this one box is the net rate the ledger stores. */
+                        <div className="relative w-[96px]" title="Unit rate (excl. VAT)">
                           <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
                           <MoneyField
-                            cents={ctx.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents}
-                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: ctx.pricesInclVat ? netFromGrossCents(c, l.vatRatePct) : c } })}
+                            cents={l.unitCents}
+                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: c } })}
                             placeholder="rate"
                             className="num h-7 w-full rounded-[7px] border border-line-2 bg-sub pl-6 pr-2 text-right text-[12px] font-semibold text-ink outline-none placeholder:text-faint focus:border-brand"
                           />

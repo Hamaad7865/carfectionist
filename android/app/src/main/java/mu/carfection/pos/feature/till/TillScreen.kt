@@ -293,6 +293,8 @@ fun TillScreen(
     val s by viewModel.state.collectAsState()
     var floatText by remember { mutableStateOf("") }
     var countText by remember { mutableStateOf("") }
+    // Set the moment the cashier types in the count field — after that the seed never touches it.
+    var countEdited by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { viewModel.reload() }
 
@@ -304,12 +306,16 @@ fun TillScreen(
 
     // The drawer is counted at close — but the system already knows what it SHOULD hold
     // (pre_close_summary → expectedCash). Seed the count with that figure so the cashier
-    // confirms/adjusts instead of typing from zero. Seed once, and never clobber what the
-    // cashier already typed.
+    // confirms/adjusts instead of typing from zero.
     // Keyed on the figure itself, not on the close dialog: the count field lives on the till
     // card and is reached long before the dialog exists, so seeding on the dialog left it empty.
+    // RE-seeds on every change: the first version only filled a blank field, so once a figure
+    // was in there it went stale — take Rs 500 out of the drawer and the field still showed the
+    // pre-cash-out expectation. Only the cashier's own typing (countEdited) freezes it.
+    // Negatives are never seeded: a net cash refund can drive expected below zero, and
+    // close_service rejects a negative count, which would have blocked the close outright.
     LaunchedEffect(s.expectedCash) {
-        if (s.expectedCash != 0.0 && countText.isBlank()) {
+        if (s.expectedCash > 0.0 && !countEdited) {
             countText = centsToPlainText(rupeesToCents(s.expectedCash))
         }
     }
@@ -390,7 +396,7 @@ fun TillScreen(
 
                         Spacer(Modifier.height(4.dp))
                         Text("Close the till by counting the cash drawer:", color = TextSecondary, fontSize = 13.sp)
-                        OutlinedTextField(countText, { countText = it }, label = { Text("Counted cash (Rs)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+                        OutlinedTextField(countText, { countText = it; countEdited = true }, label = { Text("Counted cash (Rs)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                         s.error?.let { Text(it, color = Danger, fontSize = 13.sp) }
                         BigButton(if (s.busy) "Working…" else "Close till & count", enabled = !s.busy) { viewModel.beginClose() }
                     }
@@ -406,7 +412,7 @@ fun TillScreen(
             serviceNo = s.serviceNo,
             expectedCash = s.expectedCash,
             countText = countText,
-            onCount = { countText = it },
+            onCount = { countText = it; countEdited = true },
             onToggle = viewModel::toggleRemit,
             onCancel = viewModel::cancelClose,
             onValidate = viewModel::askCloseChoice,

@@ -169,8 +169,12 @@ fun formatMUR(cents: Long): String {
  * DB's generated columns do the same. Feeding a gross figure back into a total, a cart line,
  * or anything saved would charge the VAT twice. Same arithmetic the receipt already uses.
  */
-fun grossCents(netCents: Long, vatRatePct: Double): Long =
-    netCents + Math.round(netCents * vatRatePct / 100.0)
+fun grossCents(netCents: Long, vatRatePct: Double): Long {
+    // Half AWAY FROM ZERO, like Postgres's round() — Math.round breaks ties toward +∞, which
+    // disagrees on negatives, i.e. on every discount line.
+    val sign = if (netCents < 0) -1L else 1L
+    return netCents + sign * Math.round(Math.abs(netCents) * vatRatePct / 100.0)
+}
 
 /** The inverse: a price TYPED as a VAT-inclusive shelf figure → the net to store. */
 fun netFromGrossCents(gross: Long, vatRatePct: Double): Long =

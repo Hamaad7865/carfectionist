@@ -340,10 +340,10 @@ fun CounterScreen(
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
                 Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Quoting gross: the subtotal is the lines at shelf price (TOTAL + whatever the
-                    // basket discount took off, which the ledger already treats as VAT-inclusive),
-                    // and VAT below reads "of which" so it isn't mistaken for a second charge.
-                    TotalRow("Subtotal", formatMUR(if (s.pricesInclVat) s.totals.totalCents + s.basketAppliedCents else s.preBasketSubtotalCents), TextSecondary)
+                    // Quoting gross: the subtotal is the lines at shelf price — summed from the very
+                    // rows listed above, so the two can't drift — and VAT below reads "of which" so
+                    // it isn't mistaken for a second charge.
+                    TotalRow("Subtotal", formatMUR(if (s.pricesInclVat) s.grossSubtotalCents else s.preBasketSubtotalCents), TextSecondary)
                     // basket discount — % or Rs off the whole sale, saved as explicit discount lines
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp)
@@ -354,7 +354,10 @@ fun CounterScreen(
                             modifier = Modifier.width(96.dp), height = 30.dp, radius = 8.dp, bg = Inset, fontSize = 13.sp,
                         )
                         Spacer(Modifier.weight(1f))
-                        if (s.basketAppliedCents > 0) Text("−" + formatMUR(s.basketAppliedCents), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+                        // On a gross screen, show what actually came off the bill (Subtotal − TOTAL),
+                        // not the net discount line — otherwise the three rows don't add up.
+                        val shownDisc = if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
+                        if (shownDisc > 0) Text("−" + formatMUR(shownDisc), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                     }
                     TotalRow(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
                     TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)

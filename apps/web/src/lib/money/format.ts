@@ -10,7 +10,13 @@
  * Same arithmetic as CataloguePanel's sellOf.
  */
 export function grossCents(netCents: number, vatRatePct: number): number {
-  return Math.round(netCents * (1 + vatRatePct / 100));
+  // net + its OWN rounded VAT — the same two-step the DB's generated columns and the tablet
+  // use. `net * (1 + r/100)` rounds a cent differently on some prices, which showed up as the
+  // web quoting Rs 2,310.00 where the tablet and the actual invoice said Rs 2,310.01.
+  // Rounded half AWAY FROM ZERO like Postgres's round(), not JS's Math.round (which breaks
+  // ties toward +∞) — they disagree on negatives, i.e. on every discount line.
+  const sign = netCents < 0 ? -1 : 1;
+  return netCents + sign * Math.round((Math.abs(netCents) * vatRatePct) / 100);
 }
 
 /** The inverse: a price TYPED as a VAT-inclusive shelf figure → the net to store. */

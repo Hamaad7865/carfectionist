@@ -34,6 +34,7 @@ import mu.carfection.pos.core.hardware.ReceiptPrinter
 import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.computeTotals
+import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
@@ -199,6 +200,24 @@ data class CounterUiState(
 
     /** Subtotal before the basket discount — what the "Subtotal" row shows. */
     val preBasketSubtotalCents: Long get() = totals.subtotalCents + basketAppliedCents
+
+    /**
+     * Subtotal on a gross-quoting shop: the sum of the very line amounts printed in the cart,
+     * so the footer can never disagree with the list above it. Derived from the lines rather
+     * than from `total + basketApplied` — that shortcut assumed the basket discount was
+     * VAT-inclusive (true of the documents order-discount, false here, where the counter emits
+     * the discount as a net line) and showed a Subtotal 15% of the discount short of the lines.
+     */
+    val grossSubtotalCents: Long get() = cart.sumOf { grossCents(it.netCents, it.product.vatRatePct) }
+
+    /**
+     * What the basket discount actually takes off the bill the customer pays. Taken as the gap
+     * between the lines and the TOTAL rather than the typed figure, so Subtotal − Discount =
+     * TOTAL always holds. On a Rs discount this reads higher than the cashier typed, because
+     * the discount line carries VAT (see SaleRepository) — the footer states what really came
+     * off rather than repeating the request back.
+     */
+    val basketAppliedGrossCents: Long get() = (grossSubtotalCents - totals.totalCents).coerceAtLeast(0)
 }
 
 enum class CheckoutMode { LIST, WALKIN }

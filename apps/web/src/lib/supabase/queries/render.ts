@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { rupeesToCents, formatMUR } from "@/lib/money";
+import { rupeesToCents, formatMUR, grossCents } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
@@ -165,8 +165,14 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
       title: l.title,
       detail: l.description,
       qty: Number(l.qty),
+      // The Rate column states the SHELF price — what the customer was quoted and what the
+      // tablet shows — via the same two-step, half-away-from-zero rounding the DB uses, so a
+      // discount line's Rate can't land a cent off its own Amount. Note qty × Rate can still
+      // differ a cent or two from Amount when the stored net doesn't divide the shelf price
+      // evenly (Rs 100 stores as 86.96); Amount stays the ledger's figure so the column always
+      // foots to the TOTAL, which matters more on a fiscal document than the multiplication.
       rateCents: inclVat
-        ? Math.round(rupeesToCents(Number(l.unit_price)) * (1 + Number(l.vat_rate) / 100))
+        ? grossCents(rupeesToCents(Number(l.unit_price)), Number(l.vat_rate))
         : rupeesToCents(Number(l.unit_price)),
       amountCents: inclVat
         ? rupeesToCents(Number(l.line_total_excl)) + rupeesToCents(Number(l.line_vat))
