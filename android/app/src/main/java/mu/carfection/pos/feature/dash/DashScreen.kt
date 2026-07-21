@@ -4,7 +4,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +39,7 @@ import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.Barlow
 import mu.carfection.pos.ui.theme.CardBg
 import mu.carfection.pos.ui.theme.Condensed
+import mu.carfection.pos.ui.theme.Danger
 import mu.carfection.pos.ui.theme.Hairline
 import mu.carfection.pos.ui.theme.InsetAlt
 import mu.carfection.pos.ui.theme.Mono
@@ -49,7 +49,6 @@ import mu.carfection.pos.ui.theme.TextSecondary
 import mu.carfection.pos.ui.theme.Warning
 
 private val BestGrad = Brush.horizontalGradient(listOf(Accent, AccentBlue))
-private val BarGrad = Brush.verticalGradient(listOf(Accent, Color(0xFF1E6FE0))) // brand → web --color-link
 
 private fun Modifier.panel() = this.background(CardBg, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp))
 
@@ -76,22 +75,26 @@ fun DashScreen(viewModel: DashViewModel = hiltViewModel()) {
                     }
                 }
             }
-            // Row 1: turnover bars (58) + best sellers (42)
+            // Row 1: low stock (58) + best sellers (42)
             Row(Modifier.weight(1.1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Column(Modifier.weight(58f).fillMaxHeight().panel().padding(horizontal = 15.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Label("TURNOVER — LAST 7 DAYS")
-                    BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                        val chartH = maxHeight.value - 30f
-                        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            d.bars.forEach { b ->
-                                Column(Modifier.weight(1f).fillMaxHeight(), verticalArrangement = Arrangement.Bottom, horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(b.value, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 9.5.sp, color = if (b.today) Accent else TextMuted, maxLines = 1)
-                                    Spacer(Modifier.height(4.dp))
-                                    Box(Modifier.fillMaxWidth().height((chartH * b.heightPct / 100f).coerceAtLeast(3f).dp).background(if (b.today) BarGrad else Brush.verticalGradient(listOf(Color(0xFFDDE4EB), Color(0xFFDDE4EB))), RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp, bottomStart = 2.dp, bottomEnd = 2.dp)))
-                                    Spacer(Modifier.height(4.dp))
-                                    Text(b.label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 10.sp, letterSpacing = 0.5.sp, color = if (b.today) Accent else TextMuted, maxLines = 1)
-                                }
+                Column(Modifier.weight(58f).fillMaxHeight().panel().padding(horizontal = 15.dp, vertical = 13.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Label("LOW STOCK — REORDER")
+                        Spacer(Modifier.weight(1f))
+                        if (d.lowCount > 0) Text("${d.lowCount} to reorder", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Warning)
+                    }
+                    if (d.lowStock.isEmpty()) {
+                        Text("Nothing running low — every stocked item is above its reorder level.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted)
+                    }
+                    d.lowStock.forEach { l ->
+                        Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Box(Modifier.size(8.dp).background(if (l.onHand == 0) Danger else Warning, CircleShape))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                Text(l.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(l.category, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
+                            Text(if (l.onHand == 0) "OUT" else "${l.onHand} left", fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = if (l.onHand == 0) Danger else Warning, maxLines = 1)
+                            Text("of ${l.threshold}", Modifier.width(46.dp), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, maxLines = 1)
                         }
                     }
                 }

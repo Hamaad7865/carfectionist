@@ -17,9 +17,10 @@ import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
-import java.time.format.TextStyle
-import java.util.Locale
+import mu.carfection.pos.core.network.StockProductDto
 import mu.carfection.pos.core.network.uiMessage
+import mu.carfection.pos.feature.stock.DEFAULT_LOW_THRESHOLD
+import mu.carfection.pos.feature.stock.MAX_LOW_THRESHOLD
 import javax.inject.Inject
 import kotlin.math.roundToInt
 import kotlin.math.roundToLong
@@ -27,14 +28,16 @@ import kotlin.math.roundToLong
 private val MU = ZoneOffset.ofHours(4)
 
 data class Kpi(val label: String, val value: String, val sub: String, val accent: Boolean = false, val warn: Boolean = false)
-data class Bar(val label: String, val value: String, val heightPct: Int, val today: Boolean)
+/** A stocked item under its reorder level — the shop-floor alert on the dashboard. */
+data class LowStockRow(val name: String, val category: String, val onHand: Int, val threshold: Int)
 data class TopSeller(val name: String, val value: String, val pct: Int)
 data class TechRow(val init: String, val name: String, val jobs: String, val hours: String, val rev: String, val pct: Int)
 data class MixRow(val label: String, val value: String, val pct: Int, val colorArgb: Long)
 
 data class DashData(
     val kpis: List<Kpi> = emptyList(),
-    val bars: List<Bar> = emptyList(),
+    val lowStock: List<LowStockRow> = emptyList(),
+    val lowCount: Int = 0,
     val top: List<TopSeller> = emptyList(),
     val techs: List<TechRow> = emptyList(),
     val mix: List<MixRow> = emptyList(),
@@ -69,7 +72,18 @@ class DashViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
                     val paid = async { api.fetchPaidInvoicesWithLines(sevenAgoIso) }
                     val jobs = async { api.fetchJobs() }
                     val techs = async { api.fetchTechnicians() }
-                    build(today, payments.await().let { it }, open.await(), paid.await(), jobs.await(), techs.await())
+                    // Stock for the low-stock alert — counted at the selling floor, the same
+                    // location the Stock screen adjusts, so both screens report the same number.
+                    val stock = async {
+                        runCatching {
+                            val prods = api.fetchStockProducts()
+                            val oh = api.fetchStockOnHand(api.fetchShopLocationId())
+                                .groupBy { it.productId }
+                                .mapValues { (_, rows) -> rows.sumOf { it.qtyOnHand }.roundToInt() }
+                            prods to oh
+                        }.getOrDefault(emptyList<StockProductDto>() to emptyMap())
+                    }
+                    build(today, payments.await(), open.await(), paid.await(), jobs.await(), techs.await(), stock.await())
                 }
             }.onSuccess { d -> _s.update { it.copy(loading = false, data = d) } }
                 .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
@@ -83,20 +97,12 @@ class DashViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
         paid: List<mu.carfection.pos.core.network.PaidInvoiceDto>,
         jobs: List<JobBoardDto>,
         technicians: List<mu.carfection.pos.core.network.TechnicianDto>,
+        stock: Pair<List<StockProductDto>, Map<String, Int>>,
     ): DashData {
         // ── payments: today turnover, 7-day bars, mix ──
         val payByDay = payments.groupBy { muDay(it.receivedAt) }
         val turnoverToday = (payByDay[today] ?: emptyList()).sumOf { cents(it.amount) }
         val paymentsTodayCount = (payByDay[today] ?: emptyList()).size
-
-        val bars = (6 downTo 0).map { d ->
-            val day = today.minusDays(d.toLong())
-            val sum = (payByDay[day] ?: emptyList()).sumOf { cents(it.amount) }
-            val label = if (d == 0) "Today" else day.dayOfWeek.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
-            Triple(label, sum, d == 0)
-        }
-        val barMax = (bars.maxOfOrNull { it.second } ?: 0L).coerceAtLeast(1L)
-        val barRows = bars.map { (label, sum, isToday) -> Bar(label, compact(sum), Math.max(3, (sum * 100 / barMax).toInt()), isToday) }
 
         // ── mix today ──
         val MC = mapOf("cash" to 0xFF1FA361L, "card" to 0xFF2A6FDBL, "juice" to 0xFFC17A00L, "bank_transfer" to 0xFF7C5CE8L)
@@ -162,13 +168,22 @@ class DashViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
             )
         }
 
+        // ── low stock — the same rule the Stock screen counts by, so both agree ──
+        val (stockProducts, onHand) = stock
+        val lowAll = stockProducts.mapNotNull { p ->
+            val have = onHand[p.id] ?: 0
+            val threshold = (p.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD)
+            if (have < threshold) LowStockRow(p.name, p.category ?: "—", have, threshold.roundToInt()) else null
+        }.sortedWith(compareBy({ it.onHand }, { it.name })) // emptiest shelf first
+        val outCount = lowAll.count { it.onHand == 0 }
+
         val kpis = listOf(
             Kpi("TURNOVER TODAY", formatMUR(turnoverToday), "$paymentsTodayCount payment${if (paymentsTodayCount == 1) "" else "s"} settled", accent = true),
-            Kpi("GROSS PROFIT (EST.)", formatMUR((turnoverToday * 0.62).roundToLong()), "est. 62% blended margin"),
             Kpi("OUTSTANDING", formatMUR(outstanding), "${open.size} unpaid invoice${if (open.size == 1) "" else "s"}", warn = outstanding > 0),
             Kpi("JOBS COMPLETED", jobsDone.toString(), "$inProgress in progress now"),
+            Kpi("LOW STOCK", lowAll.size.toString(), if (outCount > 0) "$outCount out of stock" else "below reorder level", warn = lowAll.isNotEmpty()),
         )
-        return DashData(kpis, barRows, top, techRowsOut, mix, split)
+        return DashData(kpis, lowAll.take(30), lowAll.size, top, techRowsOut, mix, split)
     }
 
     private fun elapsedSecs(j: JobBoardDto): Long {
