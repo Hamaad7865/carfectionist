@@ -46,6 +46,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.rupeesToCents
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -289,6 +290,16 @@ fun TillScreen(
     val justOpened by viewModel.justOpened.collectAsState()
     LaunchedEffect(justOpened) {
         if (justOpened) { viewModel.consumeJustOpened(); onOpened() }
+    }
+
+    // The drawer is counted at close — but the system already knows what it SHOULD hold
+    // (pre_close_summary → expectedCash). Seed the count with that figure so the cashier
+    // confirms/adjusts instead of typing from zero. Seed once, and never clobber what the
+    // cashier already typed.
+    LaunchedEffect(s.preClose != null) {
+        if (s.preClose != null && countText.isBlank()) {
+            countText = centsToPlainText(rupeesToCents(s.expectedCash))
+        }
     }
 
     Column(Modifier.fillMaxSize().background(ScreenBg).padding(20.dp)) {
