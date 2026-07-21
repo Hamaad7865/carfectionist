@@ -56,7 +56,9 @@
             android:name=".core.notify.JobAlarmReceiver"
             android:exported="false" />
 
-        <!-- Alarms do not survive a reboot; this re-arms them from the server. -->
+        <!-- Alarms do not survive a reboot; this re-arms them from the server. It also brings
+             the POS up when the counter powers on, so the tablet is ready without anyone
+             tapping the icon. -->
         <receiver
             android:name=".core.notify.BootReceiver"
             android:exported="true"
@@ -64,6 +66,7 @@
             android:permission="android.permission.RECEIVE_BOOT_COMPLETED">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>

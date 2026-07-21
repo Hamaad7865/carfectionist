@@ -172,24 +172,9 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
             null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
             false -> LoginScreen()
             true -> {
-                // ── owner-mandated till discipline ────────────────────────────
-                // Staff can't reach the app until today's till is open; a till
-                // left open from a previous day must be counted + closed first.
-                val till by rootViewModel.till.collectAsState()
-                val tillLoaded by rootViewModel.tillLoaded.collectAsState()
-                val gate = rootViewModel.tillGate(till, tillLoaded)
-                if (gate != TillGate.NONE) {
-                    TillScreen(
-                        onBack = {}, onOpened = {},
-                        forced = true,
-                        forcedBanner = when (gate) {
-                            TillGate.STALE_CLOSE_REQUIRED ->
-                                "Yesterday's till is still open. Count the drawer and close it — the period report will print — before starting today."
-                            else ->
-                                "Open the till to start the day. Count the float and enter it below — the owner requires this before any sale."
-                        },
-                    )
-                } else {
+                // The till no longer gates opening the app — staff land on the shell and get on
+                // with it. Money discipline still holds where it actually matters: a payment
+                // can't be recorded without an open till, and Checkout offers "open it" there.
                 val tab by rootViewModel.tab.collectAsState()
                 val showTill by rootViewModel.showTill.collectAsState()
                 val backDepth by rootViewModel.backDepth.collectAsState()
@@ -227,7 +212,6 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                         PosTab.DASH -> DashScreen()
                         PosTab.SETTINGS -> SettingsScreen()
                     }
-                }
                 }
             }
         }
