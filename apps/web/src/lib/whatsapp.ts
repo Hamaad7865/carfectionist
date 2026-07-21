@@ -100,17 +100,23 @@ export function buildSendPayload(phone: string, templateName: string, language: 
   };
 }
 
-/** Template send carrying a PDF in the DOCUMENT header (Meta fetches the link). */
+/** Template send carrying a PDF in the DOCUMENT header. Prefer `id` (a media
+ *  handle we uploaded ourselves) over `link` (which Meta must fetch — our
+ *  Browser-Rendering PDF endpoint cold-starts too slowly and Meta reports
+ *  "Media upload error"). */
 export function buildDocumentSendPayload(
   phone: string,
   templateName: string,
   language: string,
   vars: string[],
-  doc: { link: string; filename: string },
+  doc: { link?: string; id?: string; filename: string },
   urlButtonParam?: string, // suffix for the template's dynamic-URL button
 ) {
+  const document = doc.id
+    ? { id: doc.id, filename: doc.filename }
+    : { link: doc.link, filename: doc.filename };
   const components: Record<string, unknown>[] = [
-    { type: "header", parameters: [{ type: "document", document: { link: doc.link, filename: doc.filename } }] },
+    { type: "header", parameters: [{ type: "document", document }] },
   ];
   if (vars.length > 0) components.push({ type: "body", parameters: vars.map((v) => ({ type: "text", text: v })) });
   if (urlButtonParam) {
@@ -124,13 +130,50 @@ export function buildDocumentSendPayload(
   };
 }
 
+/** Upload a document to WhatsApp Cloud and return its media id. A template sent
+ *  with a pre-uploaded media id is far more reliable than a link Meta must
+ *  fetch: our public PDF endpoint cold-starts a headless Chromium (several
+ *  seconds), Meta's media fetch times out, and the customer sees "Media upload
+ *  error". We render the PDF once and hand Meta the bytes directly. Media is
+ *  bound to the sending phone number and usable in that number's messages. */
+export async function uploadMedia(
+  bytes: Uint8Array,
+  filename: string,
+  mime: string,
+): Promise<WaResult<string>> {
+  const e = waEnv();
+  if (!e.token || !e.phoneNumberId) return { ok: false, error: NOT_CONFIGURED };
+  try {
+    const form = new FormData();
+    form.append("messaging_product", "whatsapp");
+    form.append("type", mime);
+    // slice() gives a tight ArrayBuffer of exactly these bytes for the Blob.
+    form.append("file", new Blob([bytes.slice().buffer as ArrayBuffer], { type: mime }), filename);
+    // No Content-Type header — fetch sets the multipart boundary itself.
+    const res = await fetch(`${GRAPH}/${e.phoneNumberId}/media`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${e.token}` },
+      body: form,
+    });
+    const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+    if (!res.ok || typeof json.id !== "string") {
+      console.error("[wa] media upload failed", JSON.stringify(json.error ?? json));
+      const msg = (json.error as { message?: string } | undefined)?.message;
+      return { ok: false, error: msg ? `Media upload failed: ${msg}` : "Media upload failed." };
+    }
+    return { ok: true, data: json.id };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
 /** Send one approved document-header template (quote/invoice PDF). */
 export async function sendDocumentTemplate(
   phone: string,
   templateName: string,
   language: string,
   vars: string[],
-  doc: { link: string; filename: string },
+  doc: { link?: string; id?: string; filename: string },
   urlButtonParam?: string,
 ): Promise<WaResult<{ messageId: string }>> {
   const e = waEnv();

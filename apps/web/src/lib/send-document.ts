@@ -196,6 +196,27 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
     const token = await docToken(i.docId);
     const link = `${i.origin}/api/public/doc/${encodeURIComponent(token)}/pdf`;
     const K = KIND_CAP[d.doc_type] ?? "Document";
+    const filename = `${K.toLowerCase().replace(/\s+/g, "-")}-${String(d.number).toLowerCase()}-carfectionist-${slug(customerName)}.pdf`;
+
+    // Render the PDF and upload it to Meta OURSELVES, then send by media id.
+    // Handing Meta a link to our Browser-Rendering endpoint made it fetch a
+    // URL that cold-starts for several seconds — Meta timed out and delivered
+    // "Media upload error". Pre-uploading the bytes removes that failure mode.
+    // If the render/upload can't produce an id we fall back to the link so the
+    // send is never worse than before.
+    let mediaId: string | undefined;
+    const props = await getDocumentProps(i.docId, sb);
+    if (props) {
+      try {
+        const pdf = await renderDocumentPdf(props, i.origin);
+        const up = await wa.uploadMedia(new Uint8Array(pdf), filename, "application/pdf");
+        if (up.ok) mediaId = up.data;
+        else console.error("[send-document] media upload failed, falling back to link:", up.error);
+      } catch (e) {
+        if (!(e instanceof PdfConfigError)) console.error("[send-document] pdf render failed, falling back to link:", (e as Error).message);
+      }
+    }
+
     const r = await wa.sendDocumentTemplate(
       phone,
       TPL.name,
@@ -203,7 +224,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       // {{1}} name · {{2}} name · {{3}} number · {{4}} amount · {{5}} date · {{6}} note
       [customerName, customerName, d.number, prettyMUR(Number(d.total_incl)), prettyDate(d.issue_date), note],
       // filename mirrors the reference: quotation-a00120-carfectionist-intergrah-ltee.pdf
-      { link, filename: `${K.toLowerCase().replace(/\s+/g, "-")}-${String(d.number).toLowerCase()}-carfectionist-${slug(customerName)}.pdf` },
+      mediaId ? { id: mediaId, filename } : { link, filename },
       encodeURIComponent(token), // the View button's /d/<token> suffix
     );
     if (!r.ok) return r;

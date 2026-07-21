@@ -104,6 +104,19 @@ describe("document-header templates", () => {
     });
   });
 
+  it("buildDocumentSendPayload prefers a pre-uploaded media id over a link", () => {
+    const p = buildDocumentSendPayload("23052588854", "document_quote", "en", ["A"], {
+      id: "media-123",
+      link: "https://x/pdf",
+      filename: "a.pdf",
+    });
+    const comps = (p.template as { components: Record<string, unknown>[] }).components;
+    expect(comps[0]).toEqual({
+      type: "header",
+      parameters: [{ type: "document", document: { id: "media-123", filename: "a.pdf" } }],
+    });
+  });
+
   it("buildDocumentSendPayload fills the View button's URL suffix when given", () => {
     const p = buildDocumentSendPayload("23052588854", "document_quote", "en", ["A"], {
       link: "https://x/pdf", filename: "a.pdf",
