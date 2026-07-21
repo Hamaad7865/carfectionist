@@ -208,7 +208,7 @@ data class CounterUiState(
      * VAT-inclusive (true of the documents order-discount, false here, where the counter emits
      * the discount as a net line) and showed a Subtotal 15% of the discount short of the lines.
      */
-    val grossSubtotalCents: Long get() = cart.sumOf { grossCents(it.netCents, it.product.vatRatePct) }
+    val grossSubtotalCents: Long get() = cart.sumOf { it.rowGrossCents }
 
     /**
      * What the basket discount actually takes off the bill the customer pays. Taken as the gap

@@ -1,5 +1,6 @@
 "use client";
 
+import { grossCents } from "@/lib/money";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Barcode, Search, TriangleAlert } from "lucide-react";
@@ -97,7 +98,10 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
 
   // When the business prices VAT-inclusive, show the gross sell price (what the
   // customer pays) rather than the ex-VAT figure we store.
-  const sellOf = (r: InventoryRow) => (pricesInclVat ? Math.round(r.sellCents * (1 + (r.vatRatePct ?? vatDefault) / 100)) : r.sellCents);
+  // grossCents, not the inline formula it replaced: net * (1 + r/100) rounds a cent differently
+  // from the ledger's add-its-own-rounded-VAT, so this column disagreed with the counter, the
+  // receipt and the invoice on 7 live products.
+  const sellOf = (r: InventoryRow) => (pricesInclVat ? grossCents(r.sellCents, r.vatRatePct ?? vatDefault) : r.sellCents);
 
   function newProduct() { setEditing(null); setOpen(true); }
   function edit(p: InventoryRow) { setEditing(p); setOpen(true); }

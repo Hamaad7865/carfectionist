@@ -87,6 +87,17 @@ android {
     }
 }
 
+hilt {
+    // Without this, NO unit test can run from a clean build tree. The aggregating task
+    // (hiltJavaCompileDebugUnitTest) re-validates @HiltAndroidApp in a javac pass where
+    // PosApplication's superclass resolves to the GENERATED Hilt_PosApplication rather than
+    // Application, so the build dies with "@HiltAndroidApp base class must extend Application.
+    // Found: Hilt_PosApplication". It only ever passed incrementally off a warm app build, so a
+    // green test run meant nothing about whether the tests could actually run. Turning the task
+    // off moves Hilt's processing into KSP, which resolves the superclass correctly.
+    enableAggregatingTask = false
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)

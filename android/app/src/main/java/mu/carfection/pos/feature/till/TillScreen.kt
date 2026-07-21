@@ -312,11 +312,13 @@ fun TillScreen(
     // RE-seeds on every change: the first version only filled a blank field, so once a figure
     // was in there it went stale — take Rs 500 out of the drawer and the field still showed the
     // pre-cash-out expectation. Only the cashier's own typing (countEdited) freezes it.
-    // Negatives are never seeded: a net cash refund can drive expected below zero, and
-    // close_service rejects a negative count, which would have blocked the close outright.
+    // Floored at zero rather than skipped: a net cash refund can drive expected below zero, and
+    // close_service rejects a negative count, which would block the close outright. Skipping the
+    // seed instead left the PREVIOUS figure standing on a drawer that had since emptied, and the
+    // close then stamped a variance that never happened.
     LaunchedEffect(s.expectedCash) {
-        if (s.expectedCash > 0.0 && !countEdited) {
-            countText = centsToPlainText(rupeesToCents(s.expectedCash))
+        if (!countEdited) {
+            countText = centsToPlainText(rupeesToCents(s.expectedCash).coerceAtLeast(0L))
         }
     }
 

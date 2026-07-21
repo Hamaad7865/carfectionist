@@ -11,6 +11,7 @@ import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.netFromGrossCents
+import mu.carfection.pos.core.money.netWithinGross
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.pctOfCents
 import mu.carfection.pos.core.money.rupeesToCents
@@ -35,15 +36,43 @@ data class CartLine(
     /** Ad-hoc (typed) lines carry a synthetic local id — they save with product_id = null. */
     val isAdhoc: Boolean get() = product.id.startsWith(ADHOC_PREFIX)
 
-    /** Rs discount in cents, clamped to the line's gross so a line can never go negative. */
-    val discountAmtCents: Long
-        get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceIn(0L, lineExclCents(qty, product.sellingPriceCents))
+    /** The line before its own discount, in the ledger's net cents. */
+    val lineExclCents: Long get() = lineExclCents(qty, product.sellingPriceCents)
 
-    /** What this line nets to on the invoice (gross − its own discount), server-rounded. */
+    /** The same line at the shelf price the cashier and the customer see. */
+    val lineGrossCents: Long get() = grossCents(lineExclCents, product.vatRatePct)
+
+    /**
+     * Rs discount in cents as TYPED — i.e. VAT-inclusive, what comes off the bill, matching the
+     * basket discount and the web's order discount. Clamped to the line's gross, so a line can
+     * never go negative.
+     */
+    val discountAmtCents: Long
+        get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceIn(0L, lineGrossCents)
+
+    /**
+     * The net the discount line must carry for the DB to take the typed gross back off. Snapped
+     * DOWN, so a Rs discount never takes off more than the cashier asked for.
+     */
+    val discountNetCents: Long get() = netWithinGross(discountAmtCents, product.vatRatePct)
+
+    /** What this line nets to on the invoice (line − its own discount), server-rounded. */
     val netCents: Long
         get() = when (discountMode) {
             DiscountMode.PCT -> lineExclCents(qty, product.sellingPriceCents, discountPct.toDouble())
-            DiscountMode.AMT -> lineExclCents(qty, product.sellingPriceCents) - discountAmtCents
+            DiscountMode.AMT -> lineExclCents - discountNetCents
+        }
+
+    /**
+     * The row's amount as the customer will be billed for it. Grossed the way the ledger bills it
+     * — the line and its discount are two separate rows on the invoice, each rounding its own VAT
+     * — rather than grossing the netted figure, which drifts a cent from the bill and used to
+     * surface as a phantom "Discount −Rs 0.01" in the footer.
+     */
+    val rowGrossCents: Long
+        get() = when (discountMode) {
+            DiscountMode.PCT -> grossCents(netCents, product.vatRatePct)
+            DiscountMode.AMT -> lineGrossCents - grossCents(discountNetCents, product.vatRatePct)
         }
 
     companion object { const val ADHOC_PREFIX = "adhoc:" }
@@ -79,7 +108,10 @@ fun expandSaleLines(
             DiscountMode.PCT -> specs += SaleLineSpec(pid, l.product.name, l.qty, l.product.sellingPriceCents, l.discountPct.toDouble(), l.product.vatRatePct)
             DiscountMode.AMT -> {
                 specs += SaleLineSpec(pid, l.product.name, l.qty, l.product.sellingPriceCents, 0.0, l.product.vatRatePct)
-                val amt = l.discountAmtCents
+                // The typed figure is what comes off the BILL, so the line carries the net that
+                // grosses back to it — not the typed figure itself, which the DB would then add
+                // VAT to, taking 1.15x off (type 100, give away 115).
+                val amt = l.discountNetCents
                 if (amt > 0) specs += SaleLineSpec(null, "Discount — ${l.product.name.take(60)}", 1.0, -amt, 0.0, l.product.vatRatePct)
             }
         }
@@ -99,20 +131,38 @@ fun expandSaleLines(
         // A typed Rs discount is what comes off the BILL, i.e. VAT-INCLUSIVE — the same convention
         // the web's order discount uses ("<amount> incl. VAT" on the printed document). Apportion in
         // gross space and convert each group's share back to the net the discount line must carry,
-        // so the DB's generated columns re-add exactly the VAT that was taken off.
-        // Previously the typed figure was emitted as the NET discount and the DB added VAT on top,
-        // so the bill fell by amount x 1.15: typing 100 gave away 115, and typing 1,400 on a
-        // Rs 1,540 bill zeroed it. The clamp is against the gross total for the same reason.
-        val groupGross = groupNets.mapValues { (rate, g) -> grossCents(g, rate) }
+        // so the DB's generated columns re-add the VAT that was taken off.
+        // The figure used to be emitted as the NET discount with the DB adding VAT on top, so the
+        // bill fell by amount x 1.15: typing 100 gave away 115, and 1,400 zeroed a Rs 1,540 bill.
+        //
+        // Every gross figure here is summed PER LINE, the way the DB bills it — grossing the summed
+        // group net instead is a cent higher on ~12% of multi-line carts, and clamping against that
+        // phantom cent drove the total to -Rs 0.01, which the payment screen then refused to settle.
+        val lineGross = specs.indices.associateWith { interim.lines[it].exclCents + interim.lines[it].vatCents }
+        val groupIdx = specs.indices.filter { lineGross.getValue(it) > 0 }.groupBy { specs[it].vatRatePct }
+        val groupGross = groupIdx.mapValues { (_, idxs) -> idxs.sumOf { lineGross.getValue(it) } }
         val totalGross = groupGross.values.sum()
+        if (totalGross <= 0) return specs
         val wanted = basketAmtCents.coerceIn(0, totalGross)
         if (wanted <= 0) return specs
+
+        // "Make it free": mirror each line with a discount of its OWN net, which cancels it to the
+        // cent. Apportioning a group total instead leaves a stray Rs 0.01 payable on a comped sale.
+        if (wanted == totalGross) {
+            groupIdx.forEach { (rate, idxs) ->
+                idxs.forEach { i -> specs += SaleLineSpec(null, title, 1.0, -interim.lines[i].exclCents, 0.0, rate) }
+            }
+            return specs
+        }
+
         val base = groupGross.mapValues { (_, g) -> wanted * g / totalGross }
         var leftover = wanted - base.values.sum()
         val byRemainder = groupGross.keys.sortedByDescending { (wanted * groupGross.getValue(it)) % totalGross }
         byRemainder.forEach { rate ->
             val share = base.getValue(rate) + if (leftover > 0) { leftover--; 1L } else 0L
-            val amt = netFromGrossCents(share, rate)
+            // Snapped DOWN: ~13% of gross figures have no exact net, and rounding to the nearest
+            // took a cent MORE than the cashier typed as often as a cent less.
+            val amt = netWithinGross(share, rate)
             if (amt > 0) specs += SaleLineSpec(null, title, 1.0, -amt, 0.0, rate)
         }
         return specs

@@ -300,7 +300,7 @@ fun CounterScreen(
                                         color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                                     )
                                 }
-                                Text(formatMUR(if (s.pricesInclVat) grossCents(l.netCents, l.product.vatRatePct) else l.netCents), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text(formatMUR(if (s.pricesInclVat) l.rowGrossCents else l.netCents), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                                 Box(
                                     Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
                                     contentAlignment = Alignment.Center,

@@ -169,6 +169,24 @@ fun formatMUR(cents: Long): String {
  * DB's generated columns do the same. Feeding a gross figure back into a total, a cart line,
  * or anything saved would charge the VAT twice. Same arithmetic the receipt already uses.
  */
+/**
+ * The largest net amount whose grossed-up value does not EXCEED [maxGross] at [vatRatePct].
+ *
+ * Needed because gross → net → gross is not an identity: `grossCents` skips roughly one integer
+ * in eight, so ~13% of gross figures have no net that grosses back to them exactly. Rounding to
+ * the nearest lands a cent over the target as often as under, and on a discount "over" means the
+ * shop hands back more than the cashier typed. This always errs downward, so a typed discount can
+ * come off a cent short but never a cent long, and a discount can never exceed the line it is
+ * taken from — which is what stops a bill going negative.
+ */
+fun netWithinGross(maxGross: Long, vatRatePct: Double): Long {
+    if (maxGross <= 0L) return 0L
+    var n = netFromGrossCents(maxGross, vatRatePct)
+    while (n > 0L && grossCents(n, vatRatePct) > maxGross) n--
+    while (grossCents(n + 1L, vatRatePct) <= maxGross) n++
+    return n
+}
+
 fun grossCents(netCents: Long, vatRatePct: Double): Long {
     // Half AWAY FROM ZERO, like Postgres's round() — Math.round breaks ties toward +∞, which
     // disagrees on negatives, i.e. on every discount line.

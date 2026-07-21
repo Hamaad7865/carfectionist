@@ -1,5 +1,6 @@
 "use client";
 
+import { grossCents } from "@/lib/money";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
@@ -17,7 +18,10 @@ type PForm = {
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
   isStocked: boolean; threshold: string; isActive: boolean;
 };
-const grossPrice = (p: InventoryRow, vatDefault: number) => (p.sellingPrice * (1 + (p.vatRatePct ?? vatDefault) / 100)).toFixed(2);
+// Via grossCents in CENTS — the old rupee-float formula gave a third, different shelf price for
+// the same product (the catalogue and the invoice each had their own), off on 20 of 305 products.
+const grossPrice = (p: InventoryRow, vatDefault: number) =>
+  (grossCents(Math.round(p.sellingPrice * 100), p.vatRatePct ?? vatDefault) / 100).toFixed(2);
 const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number, defaultKind?: PForm["kind"]): PForm => ({
   name: p?.name ?? "",
   sku: p?.sku ?? "",
