@@ -322,6 +322,14 @@ fun TillScreen(
         }
     }
 
+    // A new till session is a new count. Without this the latch, once tripped, held for the life of
+    // the screen: close the morning till, open the afternoon one, and its box still showed the
+    // morning's figure with the seed switched off.
+    LaunchedEffect(s.session?.id) {
+        countEdited = false
+        countText = ""
+    }
+
     // Scrollable and clear of the system bar: the "Close till & count" button sits at the
     // bottom of this column and was being clipped behind the nav bar on shorter screens,
     // leaving no way to close the till at all.

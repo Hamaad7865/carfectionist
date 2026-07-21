@@ -805,8 +805,11 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                                 }
                             } else {
                                 s.cart.forEach { l ->
-                                    val incl = lineExclCents(l.qty, l.product.sellingPriceCents).let { it + Math.round(it * (l.product.vatRatePct / 100.0)) }
-                                    BillLine(if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString(), l.product.name, incl)
+                                    // rowGrossCents, not the line at full price: this panel used to list
+                                    // every line UNDISCOUNTED beside a discounted TOTAL underneath it, so
+                                    // the bill the customer reads while paying didn't add up to what they
+                                    // were being charged.
+                                    BillLine(if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString(), l.product.name, l.rowGrossCents)
                                 }
                             }
                         }
