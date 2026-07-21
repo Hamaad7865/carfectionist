@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import mu.carfection.pos.core.database.CustomerDao
 import mu.carfection.pos.core.database.CustomerEntity
 import mu.carfection.pos.core.database.ProductDao
@@ -54,6 +55,13 @@ class CatalogRepository @Inject constructor(
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
+
+    /**
+     * Does the shop quote VAT-INCLUSIVE shelf prices? Live, not a one-shot read: the settings
+     * sync that writes this races the screens that read it, so a snapshot would leave the
+     * first launch after an update showing net prices until the app was reopened.
+     */
+    val pricesInclVatFlow: Flow<Boolean> = prefs.data.map { it[inclVatKey] ?: false }
 
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"

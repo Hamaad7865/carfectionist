@@ -326,10 +326,11 @@ class CounterViewModel @Inject constructor(
             runCatching { catalog.receiptBiz() }.getOrNull()?.let { biz ->
                 local.value = local.value.copy(bizName = biz.name, bizAddress = biz.address)
             }
-            // Does the shop quote gross? Decides whether tiles/lines read net or shelf price.
-            runCatching { catalog.pricesInclVat() }.getOrNull()?.let { incl ->
-                local.value = local.value.copy(pricesInclVat = incl)
-            }
+        }
+        // Does the shop quote gross? Collected, not read once — the settings sync below writes
+        // this flag, and a snapshot would lose the race on the first launch after an update.
+        viewModelScope.launch {
+            catalog.pricesInclVatFlow.collect { incl -> local.value = local.value.copy(pricesInclVat = incl) }
         }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }

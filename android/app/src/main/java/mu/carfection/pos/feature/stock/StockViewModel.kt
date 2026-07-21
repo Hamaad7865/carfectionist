@@ -67,18 +67,18 @@ class StockViewModel @Inject constructor(
     private val _s = MutableStateFlow(StockState())
     val state = _s.asStateFlow()
 
-    init { load() }
+    init {
+        load()
+        // Live, so a settings sync landing after this screen opened still flips the prices.
+        viewModelScope.launch {
+            catalog.pricesInclVatFlow.collect { incl -> _s.update { it.copy(pricesInclVat = incl) } }
+        }
+    }
 
     fun load() {
         _s.update { it.copy(loading = true) }
         viewModelScope.launch {
-            // Does the shop quote gross? Decides whether the rows read net or shelf price.
-            _s.update {
-                it.copy(
-                    pricesInclVat = runCatching { catalog.pricesInclVat() }.getOrDefault(false),
-                    vatDefault = runCatching { catalog.vatDefault() }.getOrDefault(15.0),
-                )
-            }
+            _s.update { it.copy(vatDefault = runCatching { catalog.vatDefault() }.getOrDefault(15.0)) }
             runCatching {
                 val products = api.fetchStockProducts()
                 // Count the same location this screen ADJUSTS. It used to sum

@@ -127,8 +127,7 @@ class JobsViewModel @Inject constructor(
         viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
         viewModelScope.launch {
-            val incl = runCatching { catalog.pricesInclVat() }.getOrDefault(false)
-            _s.update { it.copy(pricesInclVat = incl) }
+            catalog.pricesInclVatFlow.collect { incl -> _s.update { it.copy(pricesInclVat = incl) } }
         }
         viewModelScope.launch {
             captures.results.collect { r ->
