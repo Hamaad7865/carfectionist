@@ -22,6 +22,8 @@ export interface BuilderCustomer {
 }
 export interface BuilderContext {
   createdBy: string;
+  /** The shop quotes VAT-INCLUSIVE shelf prices — show/accept gross. Lines still save net. */
+  pricesInclVat: boolean;
   business: BuilderBusiness;
   templateTerms: string[];
   templateConfig: Partial<SectionFlags>;
@@ -58,6 +60,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
 
   return {
     createdBy: session?.displayName?.replace(/\s*\(.*\)\s*$/, "").trim() ?? "",
+    pricesInclVat: bs.prices_vat_exclusive === false,
     business: {
       tradingName: bs.trading_name ?? "Carfectionist",
       legalName: bs.legal_name ?? "",

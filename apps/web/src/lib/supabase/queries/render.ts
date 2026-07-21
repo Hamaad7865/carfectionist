@@ -123,6 +123,20 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const grossSubtotalCents = ((lines ?? []) as any[]).reduce((s, l) => s + rupeesToCents(Number(l.line_total_excl)), 0);
   const discountExclCents = grossSubtotalCents - rupeesToCents(Number(d.subtotal_excl));
+
+  // The shop quotes VAT-INCLUSIVE shelf prices, so the customer's copy should state them
+  // that way — the same figure they were told at the counter. Money is stored net (the DB's
+  // generated columns add VAT), so this is a presentation change only, per line at its own
+  // rate. Subtotal(incl) − Discount(incl) = Total exactly, so the column still adds up.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const inclVat = (b as any)?.prices_vat_exclusive === false;
+  const totalInclCents = rupeesToCents(Number(d.total_incl));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const subtotalInclCents = ((lines ?? []) as any[]).reduce(
+    (s, l) => s + rupeesToCents(Number(l.line_total_excl)) + rupeesToCents(Number(l.line_vat)),
+    0,
+  );
+  const discountInclCents = subtotalInclCents - totalInclCents;
   const discountLabel =
     d.discount_kind === "percent" ? `${Number(d.discount_value)}%`
     : d.discount_kind === "amount" ? `${formatMUR(rupeesToCents(Number(d.discount_value)))} incl. VAT`
@@ -151,19 +165,26 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
       title: l.title,
       detail: l.description,
       qty: Number(l.qty),
-      rateCents: rupeesToCents(Number(l.unit_price)),
-      amountCents: rupeesToCents(Number(l.line_total_excl)),
+      rateCents: inclVat
+        ? Math.round(rupeesToCents(Number(l.unit_price)) * (1 + Number(l.vat_rate) / 100))
+        : rupeesToCents(Number(l.unit_price)),
+      amountCents: inclVat
+        ? rupeesToCents(Number(l.line_total_excl)) + rupeesToCents(Number(l.line_vat))
+        : rupeesToCents(Number(l.line_total_excl)),
       discountNote:
         l.discount_kind === "amount" && Number(l.discount_amount) > 0 ? `less ${formatMUR(rupeesToCents(Number(l.discount_amount)))}`
         : Number(l.discount_pct) > 0 ? `less ${Number(l.discount_pct)}%`
         : null,
     })),
     // Subtotal row = pre-order-discount ex-VAT sum; the order discount shows as its own row.
-    subtotalCents: grossSubtotalCents,
-    discountCents: discountExclCents > 0 ? discountExclCents : undefined,
-    discountLabel: discountExclCents > 0 ? discountLabel : undefined,
+    subtotalCents: inclVat ? subtotalInclCents : grossSubtotalCents,
+    discountCents: inclVat
+      ? (discountInclCents > 0 ? discountInclCents : undefined)
+      : (discountExclCents > 0 ? discountExclCents : undefined),
+    discountLabel: (inclVat ? discountInclCents > 0 : discountExclCents > 0) ? discountLabel : undefined,
     vatCents: rupeesToCents(Number(d.vat_total)),
-    totalCents: rupeesToCents(Number(d.total_incl)),
+    totalCents: totalInclCents,
+    vatInclusive: inclVat,
     bank: {
       accountName: b.bank_account_name ?? "",
       accountNumber: b.bank_account_number ?? "",

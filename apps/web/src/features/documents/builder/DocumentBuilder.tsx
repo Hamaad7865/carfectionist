@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink } from "lucide-react";
-import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput } from "@/lib/money";
+import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput, grossCents, netFromGrossCents } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
@@ -153,6 +153,14 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct })),
     state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null,
   );
+  // Quoting gross: state the subtotal and discount at shelf price, each line at its own rate,
+  // so Subtotal − Discount = Total still reads correctly. VAT becomes "of which".
+  const subtotalShown = ctx.pricesInclVat
+    ? totals.lines.reduce((s, l) => s + l.exclCents + l.vatCents, 0)
+    : totals.grossSubtotalCents;
+  const discountShown = ctx.pricesInclVat
+    ? subtotalShown - totals.totalCents
+    : totals.grossSubtotalCents - totals.subtotalCents;
 
   // Render the A4 markup only when the document changes; zoom is a cheap wrapper
   // applied on top, so dragging the zoom control never re-runs renderToStaticMarkup.
@@ -163,6 +171,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       customerCountry: customer?.country ?? "Mauritius",
       terms: ctx.templateTerms,
       assets: ctx.assets,
+      pricesInclVat: ctx.pricesInclVat,
       number: state.number,
       issueDate: readOnly ? state.issueDate ?? new Date().toISOString().slice(0, 10) : null,
     });
@@ -207,8 +216,10 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   function addAdhoc() {
     // Clamp at zero like MoneyField — a typed "-500" must not build a negative-total
     // invoice (audit #10). The schema and a DB CHECK back this up.
-    const cents = Math.max(0, parseMoneyInput(adPrice) ?? 0);
+    const typed = Math.max(0, parseMoneyInput(adPrice) ?? 0);
     if (!adName.trim()) return;
+    // Typed as the shelf price when the shop quotes gross — store the net the ledger adds VAT to.
+    const cents = ctx.pricesInclVat ? netFromGrossCents(typed, 15) : typed;
     dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 } });
     setAdName("");
     setAdPrice("");
@@ -378,7 +389,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                       >
                         <span className="w-14 text-[9px] font-bold uppercase tracking-wide text-link">{p.kind}</span>
                         <span className="flex-1 text-[13px] font-semibold text-body">{p.name}</span>
-                        <span className="num text-[12.5px] font-bold text-muted">{formatMUR(p.unitCents)}</span>
+                        <span className="num text-[12.5px] font-bold text-muted">{formatMUR(ctx.pricesInclVat ? grossCents(p.unitCents, p.vatRatePct) : p.unitCents)}</span>
                         <span className="grid size-6 place-items-center rounded-[7px] bg-[rgba(43,140,255,0.14)] text-link"><Plus size={14} strokeWidth={2.6} /></span>
                       </button>
                     ))}
@@ -437,11 +448,11 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         </div>
                       )}
                       {!readOnly && (
-                        <div className="relative w-[96px]" title="Unit rate (excl. VAT)">
+                        <div className="relative w-[96px]" title={ctx.pricesInclVat ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
                           <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
                           <MoneyField
-                            cents={l.unitCents}
-                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: c } })}
+                            cents={ctx.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents}
+                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: ctx.pricesInclVat ? netFromGrossCents(c, l.vatRatePct) : c } })}
                             placeholder="rate"
                             className="num h-7 w-full rounded-[7px] border border-line-2 bg-sub pl-6 pr-2 text-right text-[12px] font-semibold text-ink outline-none placeholder:text-faint focus:border-brand"
                           />
@@ -454,7 +465,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                           <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: l.qty + 1 } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-[#e9edf3] text-[14px] font-bold text-body">+</button>
                         </div>
                       )}
-                      <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(net)}</span>
+                      <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(ctx.pricesInclVat ? grossCents(net, l.vatRatePct) : net)}</span>
                       {!readOnly && (
                         <button onClick={() => dispatch({ type: "removeLine", key: l.key })} className="grid size-[26px] place-items-center rounded-[7px] bg-[rgba(255,84,104,0.12)] text-rose"><X size={13} strokeWidth={2.6} /></button>
                       )}
@@ -574,11 +585,11 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                 </div>
               </div>
             )}
-            <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(totals.grossSubtotalCents)}</span></div>
-            {totals.grossSubtotalCents !== totals.subtotalCents && (
-              <div className="flex justify-between py-1 text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(totals.grossSubtotalCents - totals.subtotalCents)}</span></div>
+            <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(subtotalShown)}</span></div>
+            {discountShown > 0 && (
+              <div className="flex justify-between py-1 text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(discountShown)}</span></div>
             )}
-            <div className="flex justify-between py-1 text-muted"><span>VAT (15%)</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
+            <div className="flex justify-between py-1 text-muted"><span>{ctx.pricesInclVat ? "of which VAT (15%)" : "VAT (15%)"}</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
             <div className="mt-1 flex justify-between rounded-[10px] bg-sub px-3 py-2 font-bold"><span className="text-ink">Total (MUR)</span><span className="num text-brand">{formatMUR(totals.totalCents)}</span></div>
           </div>
         </div>
