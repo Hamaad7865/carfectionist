@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -140,7 +141,16 @@ class TillViewModel @Inject constructor(
         val notice = _s.value.notice
         _s.value = _s.value.copy(loading = true)
         runCatching { till.openSession() }
-            .onSuccess { _s.value = TillUiState(loading = false, session = it, z = z, notice = notice) }
+            .onSuccess { sess ->
+                _s.value = TillUiState(loading = false, session = sess, z = z, notice = notice)
+                // The system already knows what the drawer should hold, so fetch it NOW rather
+                // than on the way into the close dialog — the count field is on this screen.
+                sess?.id?.let { id ->
+                    runCatching { till.preClose(id) }.onSuccess { (_, expected, _) ->
+                        _s.value = _s.value.copy(expectedCash = expected)
+                    }
+                }
+            }
             .onFailure { _s.value = TillUiState(loading = false, error = it.uiMessage(), z = z, notice = notice) }
     }
 
@@ -296,13 +306,22 @@ fun TillScreen(
     // (pre_close_summary → expectedCash). Seed the count with that figure so the cashier
     // confirms/adjusts instead of typing from zero. Seed once, and never clobber what the
     // cashier already typed.
-    LaunchedEffect(s.preClose != null) {
-        if (s.preClose != null && countText.isBlank()) {
+    // Keyed on the figure itself, not on the close dialog: the count field lives on the till
+    // card and is reached long before the dialog exists, so seeding on the dialog left it empty.
+    LaunchedEffect(s.expectedCash) {
+        if (s.expectedCash != 0.0 && countText.isBlank()) {
             countText = centsToPlainText(rupeesToCents(s.expectedCash))
         }
     }
 
-    Column(Modifier.fillMaxSize().background(ScreenBg).padding(20.dp)) {
+    // Scrollable and clear of the system bar: the "Close till & count" button sits at the
+    // bottom of this column and was being clipped behind the nav bar on shorter screens,
+    // leaving no way to close the till at all.
+    Column(
+        Modifier.fillMaxSize().background(ScreenBg).navigationBarsPadding()
+            .verticalScroll(rememberScrollState())
+            .padding(start = 20.dp, top = 20.dp, end = 20.dp, bottom = 28.dp),
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (!forced) {
                 Box(Modifier.clickable(onClick = onBack)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = TextSecondary) }
