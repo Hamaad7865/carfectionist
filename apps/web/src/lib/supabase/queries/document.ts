@@ -47,6 +47,8 @@ export interface DocumentDetail {
   outstandingCents: number;
   voidReason: string | null;
   voidedAt: string | null;
+  /** Set when a human filed this out of the working list (never a delete). */
+  archivedAt: string | null;
   comment: string | null;
   sourceId: string | null;
   sourceNumber: string | null;
@@ -167,6 +169,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     outstandingCents: totalCents - paidCents,
     voidReason: d.void_reason ?? null,
     voidedAt: d.voided_at ?? null,
+    archivedAt: d.archived_at ?? null,
     comment: d.comment ?? null,
     sourceId: d.source_document_id ?? null,
     sourceNumber,

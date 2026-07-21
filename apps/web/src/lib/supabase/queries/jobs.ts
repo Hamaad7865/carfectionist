@@ -116,8 +116,19 @@ const DOC_COLS = "id, job_id, doc_type, status, number, total_incl, amount_paid,
 const chunk = <T,>(a: T[], n: number): T[][] =>
   Array.from({ length: Math.ceil(a.length / n) }, (_, i) => a.slice(i * n, i * n + n));
 
-export async function listJobs(): Promise<JobListRow[]> {
+/**
+ * Every job, newest first. A cancelled car is finished business — it clutters the
+ * working list nobody will act on again — so it is held back unless asked for
+ * ([onlyCancelled]). The row itself is untouched: the job, its audit trail and
+ * whatever it was billed all stay exactly where they were.
+ */
+export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobListRow[]> {
   const sb = await createClient();
+  const scopeJobs = <T>(q: T): T => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const qq = q as any;
+    return (opts?.onlyCancelled ? qq.eq("status", "cancelled") : qq.neq("status", "cancelled")) as T;
+  };
 
   // Flat reads joined in memory — the same shape as getJobsBoard above, and
   // deliberately no PostgREST embeds: jobs↔documents has two FKs and documents↔
@@ -127,7 +138,7 @@ export async function listJobs(): Promise<JobListRow[]> {
   // that quietly stops at row 1000 is worse than no feature.
   const [jobs, customers, vehicles, users, timers, linkedDocs] = await Promise.all([
     fetchAllRows<Record<string, unknown>>(() =>
-      sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, paused_at, paused_ms, source_quote_id"),
+      scopeJobs(sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, paused_at, paused_ms, source_quote_id")),
     ),
     fetchAllRows<{ id: string; name: string | null; phone: string | null }>(() => sb.from("customers").select("id, name, phone")),
     fetchAllRows<{ id: string; make: string | null; model: string | null; plate: string | null }>(() => sb.from("vehicles").select("id, make, model, plate")),

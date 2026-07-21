@@ -25,19 +25,22 @@ export default async function SalesPage({
 }) {
   const sp = await searchParams;
   const pick = (k: string) => (typeof sp[k] === "string" ? (sp[k] as string) : undefined);
-  const view = pick("view") === "tickets" ? "tickets" : "documents";
+  const raw = pick("view");
+  const view = raw === "tickets" ? "tickets" : raw === "archived" ? "archived" : "documents";
+  // The archive is the same table, scoped to dead paperwork — one renderer.
+  const listView = view === "documents" || view === "archived";
   const today = muToday();
 
-  const docsData =
-    view === "documents"
-      ? await listDocuments({
-          type: pick("type"),
-          status: pick("status"),
-          from: pick("from"),
-          to: pick("to"),
-          customer: pick("customer"),
-        })
-      : null;
+  const docsData = listView
+    ? await listDocuments({
+        type: pick("type"),
+        status: pick("status"),
+        from: pick("from"),
+        to: pick("to"),
+        customer: pick("customer"),
+        view: view === "archived" ? "archived" : undefined,
+      })
+    : null;
   const ticketsData = view === "tickets" ? await getTickets(pick("from"), pick("to")) : null;
   const ticketId = view === "tickets" ? pick("t") : undefined;
   const popup = ticketId ? await getReceipt(ticketId) : null;
@@ -59,6 +62,7 @@ export default async function SalesPage({
           <div className="flex rounded-[10px] border border-line-2 bg-sub p-0.5">
             <Link href="/sales" className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "documents" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Documents</Link>
             <Link href={`/sales?view=tickets&from=${today}&to=${today}`} className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "tickets" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Tickets</Link>
+            <Link href="/sales?view=archived" className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "archived" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Archive</Link>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -77,10 +81,16 @@ export default async function SalesPage({
         </div>
       </div>
 
-      {view === "documents" && (
+      {listView && (
       <Suspense fallback={null}>
         <DocumentsFilterBar />
       </Suspense>
+      )}
+      {view === "archived" && (
+        <p className="-mt-1 text-[12px] text-muted">
+          Cancelled and finished paperwork — voided bills, credit notes, declined and expired quotes, plus anything filed away by hand.
+          Nothing here is deleted: it all still counts in VAT and the reports.
+        </p>
       )}
 
       {/* ── TICKETS (Cashmag invoice history) ── */}
@@ -169,7 +179,7 @@ export default async function SalesPage({
         </>
       )}
 
-      {view === "documents" && (
+      {listView && (
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
         <div className={`hidden md:grid ${COLS} gap-3.5 border-b border-line bg-band px-5 py-3`}>
           {["Number", "Customer", "Date", "Method", "Status", "Total"].map((h, i) => (
@@ -181,7 +191,11 @@ export default async function SalesPage({
         </div>
 
         {rows.length === 0 ? (
-          <div className="px-5 py-16 text-center text-[13px] text-faint">No documents yet. Create your first quote or invoice.</div>
+          <div className="px-5 py-16 text-center text-[13px] text-faint">
+            {view === "archived"
+              ? "Nothing archived — cancelled bills and declined quotes will collect here."
+              : "No documents yet. Create your first quote or invoice."}
+          </div>
         ) : (
           rows.map((r) => (
             <Link key={r.id} href={`/sales/${r.id}`} className="block border-b border-line hover:bg-sub">
@@ -192,6 +206,7 @@ export default async function SalesPage({
                     <span className="num text-[13px] font-bold" style={{ color: r.doc_type === "quote" ? "#6f5cd9" : "#1e6fe0" }}>{r.number ?? "Draft"}</span>
                     <StatusPill status={r.status} />
                     {r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}
+                    {r.archivedReason && <span className="rounded-[5px] bg-[rgba(15,23,32,0.07)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">{r.archivedReason}</span>}
                   </div>
                   <div className="mt-1 truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</div>
                   <div className="mt-0.5 text-[11.5px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)} · {r.methodLabel}</div>
@@ -223,7 +238,11 @@ export default async function SalesPage({
                 </span>
                 <span className="num text-[12px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)}</span>
                 <span className="text-[12px] text-muted">{r.methodLabel}</span>
-                <span className="flex items-center gap-1.5"><StatusPill status={r.status} />{r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}</span>
+                <span className="flex items-center gap-1.5">
+                  <StatusPill status={r.status} />
+                  {r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}
+                  {r.archivedReason && <span className="rounded-[5px] bg-[rgba(15,23,32,0.07)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">{r.archivedReason}</span>}
+                </span>
                 <span className="num text-right text-[13px] font-bold text-ink-strong">{rs(r.total_incl)}</span>
                 <span className="flex items-center justify-end gap-1.5 text-faint">
                   {r.number && <RowSendButton documentId={r.id} />}

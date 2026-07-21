@@ -14,6 +14,7 @@ import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
 import { VoidButton } from "@/features/documents/VoidButton";
 import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
+import { ArchiveButton } from "@/features/documents/ArchiveButton";
 import { HandOverButton } from "@/features/documents/HandOverButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import { CarDiagram } from "@/features/intake/CarDiagram";
@@ -39,6 +40,14 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
   const canPay = isInvoice && (doc.status === "issued" || doc.status === "partly_paid");
   const canVoid = isInvoice && doc.status === "issued" && doc.paidCents === 0;
   const canCredit = isInvoice && doc.paidCents > 0 && doc.status !== "void" && !doc.creditedByNumber;
+  // Already archived by what it IS (void / credited / dead quote)? Then a manual
+  // toggle is meaningless. Otherwise owner/manager may file it away by hand.
+  const autoArchived =
+    doc.status === "void" ||
+    doc.docType === "credit_note" ||
+    !!doc.creditedByNumber ||
+    (doc.docType === "quote" && ["declined", "expired"].includes(doc.status));
+  const canArchive = !!session && ["owner", "manager"].includes(session.role) && !autoArchived;
   const title = doc.docType === "quote" ? "Quotation" : doc.docType === "credit_note" ? "Credit note" : "Invoice";
 
   // Once a quote is BILLED, "Convert to invoice" and "Accept → create job" are
@@ -84,6 +93,10 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
             {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
             {canCredit && <CreditNoteButton invoiceId={doc.id} number={doc.number} />}
+            {/* Void / credited / declined / expired documents are archived by
+                derivation — offering a button there would imply it could be
+                un-archived, which would be a lie. This is for the rest. */}
+            {canArchive && <ArchiveButton documentId={doc.id} archived={!!doc.archivedAt} />}
             {doc.docType === "quote" &&
               !["declined", "expired"].includes(doc.status) &&
               (billedHref ? (

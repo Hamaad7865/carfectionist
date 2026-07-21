@@ -8,6 +8,8 @@ export interface DocFilters {
   from?: string;
   to?: string;
   customer?: string;
+  /** "archived" shows only the tidied-away paperwork; anything else = the working list. */
+  view?: string;
 }
 
 export interface DocListRow {
@@ -24,6 +26,8 @@ export interface DocListRow {
   hasDiscount: boolean;
   comment: string | null;
   voidReason: string | null;
+  /** Why this row is in the archive — shown as a chip in the archived view. */
+  archivedReason: string | null;
 }
 
 export interface DocList {
@@ -39,9 +43,45 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   const sb = await createClient();
   const hasCustomer = !!f.customer?.trim();
   const rel = hasCustomer ? "customers!inner(name)" : "customers(name)";
+  const archivedView = f.view === "archived";
+
+  // An invoice reversed by a LIVE credit note is finished business. Resolved
+  // here because PostgREST can't express "id in (subquery)"; it's one small
+  // column and credit notes are rare.
+  const { data: cnRows } = await sb
+    .from("documents")
+    .select("source_document_id")
+    .eq("doc_type", "credit_note")
+    .neq("status", "void")
+    .not("source_document_id", "is", null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const creditedSet = new Set(((cnRows ?? []) as any[]).map((r) => r.source_document_id as string));
+  const creditedIds = [...creditedSet];
+
+  // A document is archived when it is dead paperwork — void, the credit note
+  // that killed a bill, the invoice that credit note reversed, a quote the
+  // customer declined or that expired — or when a human filed it away. Derived
+  // rather than stamped, so a status change tidies itself with no backfill.
+  const DEAD_QUOTE = "and(doc_type.eq.quote,status.in.(declined,expired))";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyScope = (q: any) => {
+    if (archivedView) {
+      const ors = ["archived_at.not.is.null", "status.eq.void", "doc_type.eq.credit_note", DEAD_QUOTE];
+      if (creditedIds.length) ors.push(`id.in.(${creditedIds.join(",")})`);
+      return q.or(ors.join(","));
+    }
+    q = q
+      .is("archived_at", null)
+      .neq("status", "void")
+      .neq("doc_type", "credit_note")
+      .or("doc_type.neq.quote,status.not.in.(declined,expired)");
+    if (creditedIds.length) q = q.not("id", "in", `(${creditedIds.join(",")})`);
+    return q;
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const applyFilters = (q: any) => {
+    q = applyScope(q);
     if (f.type) q = q.eq("doc_type", f.type);
     if (f.status) q = q.eq("status", f.status);
     if (f.from) q = q.gte("created_at", f.from);
@@ -53,7 +93,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   const listQ = applyFilters(
     sb
       .from("documents")
-      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, discount_kind, discount_value, comment, void_reason, payments(method, amount), ${rel}`)
+      .select(`id, doc_type, status, number, issue_date, created_at, total_incl, amount_paid, discount_kind, discount_value, comment, void_reason, archived_at, payments(method, amount), ${rel}`)
       .order("created_at", { ascending: false })
       .limit(200),
   );
@@ -81,6 +121,19 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
       hasDiscount: d.discount_kind != null && Number(d.discount_value) > 0,
       comment: d.comment ?? null,
       voidReason: d.status === "void" ? (d.void_reason ?? null) : null,
+      archivedReason: !archivedView
+        ? null
+        : d.status === "void"
+          ? "Voided"
+          : d.doc_type === "credit_note"
+            ? "Credit note"
+            : creditedSet.has(d.id)
+              ? "Credited"
+              : d.doc_type === "quote" && d.status === "declined"
+                ? "Declined"
+                : d.doc_type === "quote" && d.status === "expired"
+                  ? "Expired"
+                  : "Archived",
     };
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

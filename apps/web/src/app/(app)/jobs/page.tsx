@@ -13,12 +13,13 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
   const sp = await searchParams;
   // A repeated ?tab=a&tab=b arrives as an array — anything that isn't exactly
   // "list" falls back to the board rather than throwing.
-  const tab = sp.tab === "list" ? "list" : "board";
+  const tab = sp.tab === "list" ? "list" : sp.tab === "cancelled" ? "cancelled" : "board";
+  const isList = tab === "list" || tab === "cancelled";
 
   const [board, intake, rows] = await Promise.all([
     tab === "board" ? getJobsBoard() : Promise.resolve({} as Record<string, never[]>),
     getIntakeRef(),
-    tab === "list" ? listJobs() : Promise.resolve([]),
+    isList ? listJobs({ onlyCancelled: tab === "cancelled" }) : Promise.resolve([]),
   ]);
 
   return (
@@ -33,6 +34,11 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
             <Link href="/jobs?tab=list" className={tabCls(tab === "list")}>
               All jobs
             </Link>
+            {/* Cancelled cars are finished business — kept out of the working
+                list, one tap away when someone needs to look one up. */}
+            <Link href="/jobs?tab=cancelled" className={tabCls(tab === "cancelled")}>
+              Cancelled
+            </Link>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -46,7 +52,7 @@ export default async function JobsPage({ searchParams }: { searchParams: Promise
         </div>
       </div>
 
-      {tab === "list" ? (
+      {isList ? (
         <JobsList rows={rows} />
       ) : (
         <div className="grid grid-cols-1 gap-3.5 md:grid-cols-2 xl:grid-cols-4">

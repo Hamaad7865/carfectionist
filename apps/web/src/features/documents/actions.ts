@@ -413,3 +413,42 @@ export async function publicDocLinkAction(documentId: string): Promise<{ ok: tru
   const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
   return { ok: true, url: `${proto}://${host}/api/public/doc/${encodeURIComponent(await docToken(documentId))}/pdf` };
 }
+
+// ── Archive ───────────────────────────────────────────────────────────────────
+// Filing a document away hides it from the working list ONLY. An issued invoice
+// is a fiscal record — it keeps its number and still answers to the VAT report,
+// the P&L and the statements. Void / credited / declined / expired documents
+// archive themselves by derivation; this is for everything else the owner wants
+// out of the way.
+
+const ARCHIVE_ROLES = ["owner", "manager"] as const;
+
+async function setArchived(documentId: string, archived: boolean): Promise<ActionResult<null>> {
+  await requireRole(...ARCHIVE_ROLES);
+  if (!/^[0-9a-f-]{36}$/i.test(documentId)) return { ok: false, error: "Invalid document." };
+  const sb = await createClient();
+
+  // Through the RPC, not a table write: `authenticated` holds no update grant on
+  // documents (the fiscal lock), and the "don't hide a bill that's still owed"
+  // rule lives next to the data where it can't be bypassed.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (sb as any).rpc("set_document_archived", {
+    p_document_id: documentId,
+    p_archived: archived,
+  });
+  if (error) return { ok: false, error: error.message.replace(/^.*?:\s*/, "") };
+
+  revalidatePath("/sales");
+  revalidatePath(`/sales/${documentId}`);
+  return { ok: true, data: null };
+}
+
+// Every export in a "use server" module must be an async function — an arrow
+// alias compiles, but Next rejects the module at runtime.
+export async function archiveDocumentAction(documentId: string): Promise<ActionResult<null>> {
+  return setArchived(documentId, true);
+}
+
+export async function restoreDocumentAction(documentId: string): Promise<ActionResult<null>> {
+  return setArchived(documentId, false);
+}
