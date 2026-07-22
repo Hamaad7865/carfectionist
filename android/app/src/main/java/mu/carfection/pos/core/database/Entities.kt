@@ -19,10 +19,13 @@ data class ProductEntity(
     val isStocked: Boolean,
     val category: String?, // checkout/stock category rail
     val lowStockThreshold: Double?, // null = default
+    val photoPath: String? = null, // product-photos bucket object path; null = no reference photo
 ) {
     /** Business rule: blank = 10, hard cap 20 (mirrors the DB check + web form). */
     val effectiveLowStock: Int
         get() = (lowStockThreshold ?: DEFAULT_LOW_STOCK).coerceAtMost(MAX_LOW_STOCK).toInt()
+
+    val photoUrl: String? get() = mu.carfection.pos.core.data.productPhotoUrl(photoPath)
 
     companion object {
         const val DEFAULT_LOW_STOCK = 10.0

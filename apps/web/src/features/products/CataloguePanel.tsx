@@ -28,6 +28,20 @@ const isService = (p: InventoryRow) => p.kind === "service";
 /** LOW and OUT are different jobs, so they don't share a badge: LOW is in the
  *  warehouse and needs moving, OUT has to be bought. Lumping them together is
  *  what made the bell say 11 while the catalogue flagged 36. */
+/** A small square avatar so a similarly-named item can be told apart at a glance;
+ *  blank tile when there's no photo rather than reflowing the row around it. */
+function Thumb({ url, size = 28 }: { url: string | null; size?: number }) {
+  return (
+    <span
+      className="inline-flex shrink-0 items-center justify-center overflow-hidden rounded-[6px] bg-sub"
+      style={{ width: size, height: size }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      {url && <img src={url} alt="" className="h-full w-full object-cover" />}
+    </span>
+  );
+}
+
 function StockBadge({ state, floor }: { state: InventoryRow["state"]; floor: string }) {
   if (state === "ok") return null;
   const low = state === "low";
@@ -41,7 +55,7 @@ function StockBadge({ state, floor }: { state: InventoryRow["state"]; floor: str
   );
 }
 
-export function CataloguePanel({ products, locations, showArchived, vatDefault, pricesInclVat, lowOnly = false }: { products: InventoryRow[]; locations: StockLocation[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean; lowOnly?: boolean }) {
+export function CataloguePanel({ products, locations, showArchived, vatDefault, pricesInclVat, lowOnly = false, tenantId }: { products: InventoryRow[]; locations: StockLocation[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean; lowOnly?: boolean; tenantId: string }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryRow | null>(null);
   const [q, setQ] = useState("");
@@ -185,6 +199,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
             <button key={r.id} onClick={() => edit(r)} className={`block w-full border-b border-line text-left hover:bg-sub ${r.isActive ? "" : "opacity-55"}`}>
               {/* Mobile card */}
               <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
+                <Thumb url={r.photoUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-[13px] font-semibold text-body">{r.name}</span>
@@ -208,6 +223,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                   are long enough to shove the money columns into each other. */}
               <div className="hidden items-center gap-2.5 px-5 py-3 md:grid" style={gridCols(locations.length)}>
                 <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-body">
+                  <Thumb url={r.photoUrl} size={24} />
                   <span className="min-w-0 truncate" title={r.name}>{r.name}</span>
                   {/* Purple = workshop work, the same colour the dashboard uses
                       to split workshop revenue from counter revenue. */}
@@ -273,6 +289,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
         vatDefault={vatDefault}
         pricesInclVat={pricesInclVat}
         categories={categories}
+        tenantId={tenantId}
       />
     </>
   );

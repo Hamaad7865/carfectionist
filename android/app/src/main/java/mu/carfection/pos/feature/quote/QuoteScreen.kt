@@ -330,7 +330,17 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         // fillMaxHeight so the weight actually distributes — without it a 2-line
                         // name overflowed the tile and clipped the price off the bottom.
                         Column(Modifier.fillMaxHeight()) {
-                            Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 18.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp))
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
+                                // Reference photo, in-flow like the counter's tile — costs space
+                                // only on the products that actually have one.
+                                p.photoUrl?.let { url ->
+                                    coil.compose.AsyncImage(
+                                        model = url, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                                        modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)),
+                                    )
+                                }
+                                Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 18.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp).weight(1f))
+                            }
                             Spacer(Modifier.weight(1f))
                             Text(formatMUR(if (s.pricesInclVat) grossCents(p.sellingPriceCents, p.vatRatePct) else p.sellingPriceCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextSecondary)
                         }

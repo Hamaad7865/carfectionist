@@ -20,6 +20,9 @@ data class ProductDto(
     @SerialName("is_stocked") val isStocked: Boolean = false,
     val category: String? = null,
     @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
+    // product-photos is a PUBLIC bucket (see the web's productPhotoUrl) — this is a bare object
+    // path, and the full URL is built locally so it survives being cached offline unsigned.
+    @SerialName("photo_path") val photoPath: String? = null,
 )
 
 @Serializable
@@ -341,6 +344,7 @@ data class StockProductDto(
     // Needed to show the shelf price when the shop quotes VAT-inclusive; null = tenant default.
     @SerialName("vat_rate") val vatRate: FlexDouble? = null,
     @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
+    @SerialName("photo_path") val photoPath: String? = null,
 )
 
 @Serializable

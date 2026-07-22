@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveProductAction } from "./actions";
+import { ProductPhotoField } from "./ProductPhotoField";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 import { btn } from "@/components/ui/button";
 
@@ -16,7 +17,7 @@ type PForm = {
   name: string; sku: string; description: string;
   kind: (typeof KINDS)[number]; category: string; unit: (typeof UNITS)[number];
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
-  isStocked: boolean; threshold: string; isActive: boolean;
+  isStocked: boolean; threshold: string; isActive: boolean; photoPath: string;
 };
 // Via grossCents in CENTS — the old rupee-float formula gave a third, different shelf price for
 // the same product (the catalogue and the invoice each had their own), off on 20 of 305 products.
@@ -36,9 +37,10 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number,
   isStocked: p?.isStocked ?? false,
   threshold: p?.threshold != null ? String(p.threshold) : "",
   isActive: p?.isActive ?? true,
+  photoPath: p?.photoPath ?? "",
 });
 
-export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], defaultKind }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; defaultKind?: (typeof KINDS)[number] }) {
+export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], defaultKind, tenantId }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; defaultKind?: (typeof KINDS)[number]; tenantId: string }) {
   const router = useRouter();
   const editing = !!product;
   const [busy, setBusy] = useState(false);
@@ -97,6 +99,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
       isStocked: isService ? false : f.isStocked,
       threshold: f.threshold,
       isActive: f.isActive,
+      photoPath: f.photoPath,
     });
     setBusy(false);
     if (r.ok) {
@@ -130,6 +133,14 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
       <div className="flex flex-col gap-3">
         <FormError error={error} />
         <Field label="Name"><input className={inputCls} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Ceramic Coating 9H" autoFocus /></Field>
+        <Field label="Photo">
+          <ProductPhotoField
+            tenantId={tenantId}
+            path={f.photoPath}
+            previewUrl={product?.photoUrl ?? null}
+            onChange={(path) => set("photoPath", path)}
+          />
+        </Field>
         <Field label="Category" hint="Groups it in the catalogue">
           <input className={inputCls} value={f.category} onChange={(e) => set("category", e.target.value)} placeholder="e.g. Car Accessories" list="product-categories" />
           <datalist id="product-categories">

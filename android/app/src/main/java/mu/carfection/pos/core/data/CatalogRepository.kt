@@ -119,6 +119,7 @@ class CatalogRepository @Inject constructor(
                 isStocked = p.isStocked,
                 category = p.category?.ifBlank { null },
                 lowStockThreshold = p.lowStockThreshold,
+                photoPath = p.photoPath,
             )
         }
         if (products.isNotEmpty()) productDao.replaceAll(products)

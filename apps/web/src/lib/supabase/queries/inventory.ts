@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, pickSalesFloor, type StockLocation } from "@/lib/supabase/locations";
+import { productPhotoUrl } from "@/lib/supabase/storage";
 import { stockState, type StockState } from "@/lib/stock/low";
 import { rupeesToCents } from "@/lib/money";
 
@@ -13,6 +14,10 @@ export interface InventoryRow {
   category: string | null;
   unit: string;
   barcode: string | null;
+  /** The stored object path (product-photos bucket) — kept for the form to re-save it as-is. */
+  photoPath: string | null;
+  /** Ready-to-render URL. Public bucket, so this never expires. */
+  photoUrl: string | null;
   costCents: number;
   sellCents: number;
   sellingPrice: number; // raw rupees (2dp)
@@ -47,7 +52,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
   const makeProdQ = () => {
     let q = sb
       .from("products")
-      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active");
+      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active, photo_path");
     if (!includeArchived) q = q.eq("is_active", true);
     return q.order("category").order("name");
   };
@@ -93,6 +98,8 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
       category: p.category ?? null,
       unit: p.unit,
       barcode: p.barcode,
+      photoPath: p.photo_path ?? null,
+      photoUrl: productPhotoUrl(p.photo_path),
       costCents: cost,
       sellCents: sell,
       sellingPrice,

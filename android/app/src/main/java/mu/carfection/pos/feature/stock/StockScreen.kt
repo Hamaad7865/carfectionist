@@ -27,6 +27,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -107,6 +108,12 @@ private fun StockCard(p: StockItem, vm: StockViewModel) {
     val ohColor = if (p.zero) Danger else if (p.low) Warning else TextPrimary
     Column(Modifier.fillMaxWidth().background(CardBg, RoundedCornerShape(14.dp)).border(1.dp, if (p.low) LowRing else Hairline, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            p.photoUrl?.let { url ->
+                coil.compose.AsyncImage(
+                    model = url, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.size(40.dp).clip(RoundedCornerShape(9.dp)),
+                )
+            }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 17.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text("${p.category} · ${formatMUR(p.priceCents)}", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)

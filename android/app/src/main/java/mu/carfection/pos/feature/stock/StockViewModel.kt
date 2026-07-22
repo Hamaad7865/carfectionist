@@ -32,6 +32,7 @@ data class StockItem(
     val priceCents: Long,
     val onHand: Int,
     val threshold: Double,
+    val photoUrl: String? = null,
 ) {
     val low: Boolean get() = onHand < threshold
     val zero: Boolean get() = onHand == 0
@@ -124,6 +125,7 @@ class StockViewModel @Inject constructor(
                     if (s.pricesInclVat) grossCents(net, it.vatRate ?: s.vatDefault) else net,
                     s.onHand[it.id] ?: 0,
                     (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD),
+                    mu.carfection.pos.core.data.productPhotoUrl(it.photoPath),
                 )
             }
     }

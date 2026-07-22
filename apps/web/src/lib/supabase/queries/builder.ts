@@ -2,6 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { getSessionContext } from "@/lib/auth/session";
 import { resolveDocAssets, type DocAssets } from "@/lib/pdf/assets";
+import { productPhotoUrl } from "@/lib/supabase/storage";
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
 import type { BuilderBusiness } from "@/features/documents/builder/toDocumentProps";
 
@@ -12,6 +13,7 @@ export interface CatalogueProduct {
   vatRatePct: number;
   isStocked: boolean;
   kind: string;
+  photoUrl: string | null;
 }
 export interface BuilderCustomer {
   id: string;
@@ -48,7 +50,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
   const [bsRes, tmplRes, prodRes, custRes] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
-    sb.from("products").select("id, name, selling_price, vat_rate, is_stocked, kind").eq("is_active", true).order("kind").order("name"),
+    sb.from("products").select("id, name, selling_price, vat_rate, is_stocked, kind, photo_path").eq("is_active", true).order("kind").order("name"),
     sb.from("customers").select("id, name, country, email, phone").order("name"),
   ]);
 
@@ -88,6 +90,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       vatRatePct: p.vat_rate != null ? Number(p.vat_rate) : defaultVat,
       isStocked: p.is_stocked,
       kind: p.kind,
+      photoUrl: productPhotoUrl(p.photo_path),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     customers: (custRes.data ?? []).map((c: any) => ({

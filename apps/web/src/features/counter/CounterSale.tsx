@@ -394,7 +394,13 @@ export function CounterSale({
                     </span>
                   )}
                 </span>
-                <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
+                <span className="flex w-full items-center gap-1.5">
+                  {p.photoUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.photoUrl} alt="" className="size-7 shrink-0 rounded-[6px] object-cover" />
+                  )}
+                  <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
+                </span>
                 {unpriced ? (
                   <span className="mt-auto text-[11.5px] font-bold text-amber-ink">{canPrice ? "Set a price →" : "No price"}</span>
                 ) : (

@@ -53,6 +53,7 @@ const schema = z.object({
   isStocked: z.boolean().optional().default(false),
   threshold: numOpt,
   isActive: z.boolean().optional().default(true),
+  photoPath: strOpt,
 });
 
 export async function saveProductAction(input: z.input<typeof schema>): Promise<Result<{ id: string }>> {
@@ -78,6 +79,7 @@ export async function saveProductAction(input: z.input<typeof schema>): Promise<
     // blank = default 10 (client display); hard-capped at 20 (also a DB check constraint)
     low_stock_threshold: isStocked && p.data.threshold != null ? Math.min(Math.max(p.data.threshold, 0), 20) : null,
     is_active: p.data.isActive,
+    photo_path: p.data.photoPath,
   };
 
   if (p.data.id) {

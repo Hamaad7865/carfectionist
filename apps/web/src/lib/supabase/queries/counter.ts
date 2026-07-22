@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, pickSalesFloor } from "@/lib/supabase/locations";
+import { productPhotoUrl } from "@/lib/supabase/storage";
 import { rupeesToCents } from "@/lib/money";
 
 export interface CounterProduct {
@@ -11,6 +12,7 @@ export interface CounterProduct {
   priceCents: number;
   vatRate: number;
   barcode: string | null;
+  photoUrl: string | null;
   isStocked: boolean;
   shopQty: number;      // on-hand at the selling floor, where counter sales draw from
   warehouseQty: number; // on-hand everywhere else, summed (shown as a restock hint)
@@ -19,7 +21,7 @@ export interface CounterProduct {
 export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number; pricesInclVat: boolean }> {
   const sb = await createClient();
   const [prodData, bsRes, custData, ohData, locRes] = await Promise.all([
-    fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, vat_rate, barcode, is_stocked").eq("is_active", true).order("category").order("name")),
+    fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, vat_rate, barcode, is_stocked, photo_path").eq("is_active", true).order("category").order("name")),
     sb.from("business_settings").select("vat_rate, prices_vat_exclusive").limit(1).maybeSingle(),
     fetchAllRows(() => sb.from("customers").select("id, name").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
@@ -50,6 +52,7 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
     priceCents: rupeesToCents(Number(p.selling_price)),
     vatRate: p.vat_rate == null ? vatDefault : Number(p.vat_rate),
     barcode: p.barcode ?? null,
+    photoUrl: productPhotoUrl(p.photo_path),
     isStocked: !!p.is_stocked,
     shopQty: shopByProduct.get(p.id) ?? 0,
     warehouseQty: whByProduct.get(p.id) ?? 0,

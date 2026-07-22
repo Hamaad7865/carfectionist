@@ -397,6 +397,12 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
                       >
+                        {p.photoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={p.photoUrl} alt="" className="size-7 shrink-0 rounded-[6px] object-cover" />
+                        ) : (
+                          <span className="size-7 shrink-0 rounded-[6px] bg-sub" />
+                        )}
                         <span className="w-14 text-[9px] font-bold uppercase tracking-wide text-link">{p.kind}</span>
                         <span className="flex-1 text-[13px] font-semibold text-body">{p.name}</span>
                         <span className="num text-[12.5px] font-bold text-muted">{formatMUR(ctx.pricesInclVat ? grossCents(p.unitCents, p.vatRatePct) : p.unitCents)}</span>

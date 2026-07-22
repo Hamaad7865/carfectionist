@@ -463,10 +463,20 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
         // natural line heights) — without clipping; the Spacer absorbs the slack on
         // 1-line names so those tiles read the same as before.
         Column(Modifier.fillMaxWidth().height(112.dp).padding(horizontal = 13.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(
-                p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
-                maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp),
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.Top) {
+                // Reference photo — so a similarly-named part can be told apart at a glance.
+                // In-flow, not overlaid, so it only ever costs space on the products that have one.
+                p.photoUrl?.let { url ->
+                    coil.compose.AsyncImage(
+                        model = url, contentDescription = null, contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        modifier = Modifier.size(26.dp).clip(RoundedCornerShape(7.dp)),
+                    )
+                }
+                Text(
+                    p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp).weight(1f),
+                )
+            }
             Spacer(Modifier.weight(1f))
             val oh = (onHand ?: 0).coerceAtLeast(0) // oversold rows read as empty, not "-1"
             val lowAt = p.effectiveLowStock // per-product threshold: blank = 10, capped at 20

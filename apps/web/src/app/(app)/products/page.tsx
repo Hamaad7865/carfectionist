@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { getInventory } from "@/lib/supabase/queries/inventory";
+import { getSessionContext } from "@/lib/auth/session";
 import { CataloguePanel } from "@/features/products/CataloguePanel";
 import { getTransfers } from "@/lib/supabase/queries/transfers";
 import { TransfersPanel } from "@/features/transfers/TransfersPanel";
@@ -22,6 +23,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const showArchived = sp.archived === "1";
   const inventory = tab === "catalogue" ? await getInventory(showArchived) : null;
   const profile = tab === "catalogue" ? await getBusinessProfile() : null;
+  const session = tab === "catalogue" ? await getSessionContext() : null;
   const vatDefault = profile?.vatRate ?? 15;
   const pricesInclVat = profile?.pricesVatInclusive ?? false;
   const transferData = tab === "transfers" ? await getTransfers() : null;
@@ -41,7 +43,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         {(tab === "catalogue" || tab === "inventory") && <ImportExport kind="products" />}
       </div>
 
-      {tab === "catalogue" && inventory && (
+      {tab === "catalogue" && inventory && session && (
         <CataloguePanel
           products={inventory.rows}
           locations={inventory.locations}
@@ -49,6 +51,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           vatDefault={vatDefault}
           pricesInclVat={pricesInclVat}
           lowOnly={sp.low === "1"}
+          tenantId={session.tenantId}
         />
       )}
       {tab === "inventory" && invOps && <InventoryPanel data={invOps} />}

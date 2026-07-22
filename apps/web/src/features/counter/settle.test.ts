@@ -24,6 +24,7 @@ const product = (id: string, priceCents: number): CounterProduct => ({
   priceCents,
   vatRate: 15,
   barcode: null,
+  photoUrl: null,
   isStocked: true,
   shopQty: 10,
   warehouseQty: 0,
