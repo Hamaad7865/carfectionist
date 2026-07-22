@@ -281,7 +281,7 @@ fun CounterScreen(
                     Modifier.weight(1f).padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    items(s.cart, key = { it.product.id }) { l ->
+                    itemsIndexed(s.cart, key = { _, it -> it.product.id }) { i, l ->
                         Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Tile, RoundedCornerShape(11.dp)).border(1.dp, Color(0x0F0F1A24), RoundedCornerShape(11.dp))) {
                             Row(
                                 Modifier.fillMaxWidth().clickable { viewModel.toggleLine(l.product.id) }.padding(horizontal = 11.dp, vertical = 9.dp),
@@ -300,7 +300,7 @@ fun CounterScreen(
                                         color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                                     )
                                 }
-                                Text(formatMUR(if (s.pricesInclVat) l.rowGrossCents else l.netCents), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text(formatMUR(if (s.pricesInclVat) s.rowGrossCents(i) else s.docTotals.lineExclCents[i]), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                                 Box(
                                     Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
                                     contentAlignment = Alignment.Center,
@@ -804,12 +804,12 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                                     }
                                 }
                             } else {
-                                s.cart.forEach { l ->
+                                s.cart.forEachIndexed { i, l ->
                                     // rowGrossCents, not the line at full price: this panel used to list
                                     // every line UNDISCOUNTED beside a discounted TOTAL underneath it, so
                                     // the bill the customer reads while paying didn't add up to what they
                                     // were being charged.
-                                    BillLine(if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString(), l.product.name, l.rowGrossCents)
+                                    BillLine(if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString(), l.product.name, s.rowGrossCents(i))
                                 }
                             }
                         }

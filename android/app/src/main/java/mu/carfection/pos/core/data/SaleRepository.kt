@@ -5,6 +5,7 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.money.DocLineIn
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.centsToRupees
 import mu.carfection.pos.core.money.computeTotals
@@ -50,136 +51,92 @@ data class CartLine(
     val discountAmtCents: Long
         get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceIn(0L, lineGrossCents)
 
-    /**
-     * The net the discount line must carry for the DB to take the typed gross back off. Snapped
-     * DOWN, so a Rs discount never takes off more than the cashier asked for.
-     */
-    val discountNetCents: Long get() = netWithinGross(discountAmtCents, product.vatRatePct)
-
-    /** What this line nets to on the invoice (line − its own discount), server-rounded. */
-    val netCents: Long
-        get() = when (discountMode) {
-            DiscountMode.PCT -> lineExclCents(qty, product.sellingPriceCents, discountPct.toDouble())
-            DiscountMode.AMT -> lineExclCents - discountNetCents
-        }
-
-    /**
-     * The row's amount as the customer will be billed for it. Grossed the way the ledger bills it
-     * — the line and its discount are two separate rows on the invoice, each rounding its own VAT
-     * — rather than grossing the netted figure, which drifts a cent from the bill and used to
-     * surface as a phantom "Discount −Rs 0.01" in the footer.
-     */
-    val rowGrossCents: Long
-        get() = when (discountMode) {
-            DiscountMode.PCT -> grossCents(netCents, product.vatRatePct)
-            DiscountMode.AMT -> lineGrossCents - grossCents(discountNetCents, product.vatRatePct)
-        }
+    /** This line as one document row: [DocLineIn] is the DB's own line-discount arithmetic. */
+    val docLine: DocLineIn
+        get() = DocLineIn(
+            qty = qty,
+            unitCents = product.sellingPriceCents,
+            discountKind = if (discountMode == DiscountMode.AMT) "amount" else "percent",
+            discountPct = discountPct.toDouble(),
+            discountAmtInclCents = if (discountMode == DiscountMode.AMT) discountAmtCents else 0L,
+            vatRatePct = product.vatRatePct,
+        )
 
     companion object { const val ADHOC_PREFIX = "adhoc:" }
 }
 
-/** One row of the document as it will be saved — shared by totals, receipt, and the draft JSON. */
+/**
+ * One row of the document as it will be saved — shared by totals, receipt, and the draft JSON.
+ * Every price here is POSITIVE: see [expandSaleLines].
+ */
 data class SaleLineSpec(
     val productId: String?,
     val title: String,
     val qty: Double,
-    val unitCents: Long, // negative for discount lines
+    val unitCents: Long,
     val discountPct: Double,
     val vatRatePct: Double,
+    val discountKind: String = "percent",
+    val discountAmountInclCents: Long = 0, // VAT-INCLUSIVE, exactly as the cashier typed it
 )
 
 /**
- * Expand the cart into the exact line set the invoice will carry. Rs discounts become explicit
- * negative "Discount" lines (schema-legal: unit_price has no lower bound, and the DB's generated
- * columns stay the rounding authority), so client display and server totals agree to the cent.
- * A basket discount is apportioned across the VAT rates present (largest-remainder, sums exactly)
- * so mixed-rate baskets keep their VAT split honest.
+ * The cart as one saveable draft: the rows, plus the basket discount carried on the DOCUMENT.
+ * [orderDiscountValue] is a percentage for "percent" and RUPEES for "amount".
+ */
+data class SaleDraft(
+    val specs: List<SaleLineSpec>,
+    val orderDiscountKind: String?,
+    val orderDiscountValue: Double,
+)
+
+/**
+ * Expand the cart into the draft the invoice will carry.
+ *
+ * Discounts ride the DB's OWN columns — document_lines.discount_kind/discount_amount for a line,
+ * documents.discount_kind/discount_value for the basket — never synthesised negative rows. The
+ * previous scheme emitted a negative "Discount" line on the claim that "unit_price has no lower
+ * bound"; that stopped being true on 2026-07-15, when 20260715000010_audit_fixes.sql added
+ * document_lines_unit_price_nonneg CHECK (unit_price >= 0). Since then the DB has REJECTED every
+ * discounted sale the counter tried to save, and no negative row has ever reached the table.
+ *
+ * Riding the real columns also ends the arithmetic drift: app.discounted_vat_groups is now the one
+ * authority for what a discount takes off, so the tablet, the web counter and the quote builder
+ * agree to the cent instead of each apportioning its own way.
  */
 fun expandSaleLines(
     cart: List<CartLine>,
     basketMode: DiscountMode = DiscountMode.PCT,
     basketPct: Int = 0,
     basketAmtCents: Long = 0,
-): List<SaleLineSpec> {
-    val specs = mutableListOf<SaleLineSpec>()
-    cart.forEach { l ->
-        val pid = if (l.isAdhoc) null else l.product.id
-        when (l.discountMode) {
-            DiscountMode.PCT -> specs += SaleLineSpec(pid, l.product.name, l.qty, l.product.sellingPriceCents, l.discountPct.toDouble(), l.product.vatRatePct)
-            DiscountMode.AMT -> {
-                specs += SaleLineSpec(pid, l.product.name, l.qty, l.product.sellingPriceCents, 0.0, l.product.vatRatePct)
-                // The typed figure is what comes off the BILL, so the line carries the net that
-                // grosses back to it — not the typed figure itself, which the DB would then add
-                // VAT to, taking 1.15x off (type 100, give away 115).
-                val amt = l.discountNetCents
-                if (amt > 0) specs += SaleLineSpec(null, "Discount — ${l.product.name.take(60)}", 1.0, -amt, 0.0, l.product.vatRatePct)
-            }
-        }
+): SaleDraft {
+    val specs = cart.map { l ->
+        SaleLineSpec(
+            productId = if (l.isAdhoc) null else l.product.id,
+            title = l.product.name,
+            qty = l.qty,
+            unitCents = l.product.sellingPriceCents,
+            discountPct = if (l.discountMode == DiscountMode.PCT) l.discountPct.toDouble() else 0.0,
+            vatRatePct = l.product.vatRatePct,
+            discountKind = if (l.discountMode == DiscountMode.AMT) "amount" else "percent",
+            // The typed figure goes over as-is: the DB divides it by (1 + rate/100) itself and
+            // clamps the line at zero, so there is no client-side conversion left to round wrong.
+            discountAmountInclCents = if (l.discountMode == DiscountMode.AMT) l.discountAmtCents else 0L,
+        )
     }
-    // Basket discount on the net-after-line-discounts subtotal.
-    val interim = computeTotals(specs.map { LineInput(it.qty, it.unitCents, it.discountPct, it.vatRatePct) })
-    val net = interim.subtotalCents
-    if (net <= 0) return specs
-    // Net per VAT rate (positive groups only) — the base for apportionment.
-    val groupNets = specs.indices.groupBy { specs[it].vatRatePct }
-        .mapValues { (_, idxs) -> idxs.sumOf { interim.lines[it].exclCents } }
-        .filterValues { it > 0 }
-    if (groupNets.isEmpty()) return specs
-    val title = if (basketMode == DiscountMode.PCT) "Basket discount ($basketPct%)" else "Basket discount"
-
-    if (basketMode == DiscountMode.AMT) {
-        // A typed Rs discount is what comes off the BILL, i.e. VAT-INCLUSIVE — the same convention
-        // the web's order discount uses ("<amount> incl. VAT" on the printed document). Apportion in
-        // gross space and convert each group's share back to the net the discount line must carry,
-        // so the DB's generated columns re-add the VAT that was taken off.
-        // The figure used to be emitted as the NET discount with the DB adding VAT on top, so the
-        // bill fell by amount x 1.15: typing 100 gave away 115, and 1,400 zeroed a Rs 1,540 bill.
-        //
-        // Every gross figure here is summed PER LINE, the way the DB bills it — grossing the summed
-        // group net instead is a cent higher on ~12% of multi-line carts, and clamping against that
-        // phantom cent drove the total to -Rs 0.01, which the payment screen then refused to settle.
-        val lineGross = specs.indices.associateWith { interim.lines[it].exclCents + interim.lines[it].vatCents }
-        val groupIdx = specs.indices.filter { lineGross.getValue(it) > 0 }.groupBy { specs[it].vatRatePct }
-        val groupGross = groupIdx.mapValues { (_, idxs) -> idxs.sumOf { lineGross.getValue(it) } }
-        val totalGross = groupGross.values.sum()
-        if (totalGross <= 0) return specs
-        val wanted = basketAmtCents.coerceIn(0, totalGross)
-        if (wanted <= 0) return specs
-
-        // "Make it free": mirror each line with a discount of its OWN net, which cancels it to the
-        // cent. Apportioning a group total instead leaves a stray Rs 0.01 payable on a comped sale.
-        if (wanted == totalGross) {
-            groupIdx.forEach { (rate, idxs) ->
-                idxs.forEach { i -> specs += SaleLineSpec(null, title, 1.0, -interim.lines[i].exclCents, 0.0, rate) }
-            }
-            return specs
-        }
-
-        val base = groupGross.mapValues { (_, g) -> wanted * g / totalGross }
-        var leftover = wanted - base.values.sum()
-        val byRemainder = groupGross.keys.sortedByDescending { (wanted * groupGross.getValue(it)) % totalGross }
-        byRemainder.forEach { rate ->
-            val share = base.getValue(rate) + if (leftover > 0) { leftover--; 1L } else 0L
-            // Snapped DOWN: ~13% of gross figures have no exact net, and rounding to the nearest
-            // took a cent MORE than the cashier typed as often as a cent less.
-            val amt = netWithinGross(share, rate)
-            if (amt > 0) specs += SaleLineSpec(null, title, 1.0, -amt, 0.0, rate)
-        }
-        return specs
+    // The basket discount is a DOCUMENT-level figure. The DB clamps it to the bill (least(v, gross)),
+    // so "make it free" lands exactly on zero without a client clamp of its own.
+    val kind = when {
+        basketMode == DiscountMode.PCT && basketPct > 0 -> "percent"
+        basketMode == DiscountMode.AMT && basketAmtCents > 0 -> "amount"
+        else -> null
     }
-
-    // A percentage takes the same proportion off net and gross alike, so it apportions on net.
-    val basketAmt = pctOfCents(net, basketPct.coerceIn(0, 100))
-    if (basketAmt <= 0) return specs
-    val totalNet = groupNets.values.sum()
-    val base = groupNets.mapValues { (_, g) -> basketAmt * g / totalNet }
-    var leftover = basketAmt - base.values.sum()
-    val byRemainder = groupNets.keys.sortedByDescending { (basketAmt * groupNets.getValue(it)) % totalNet }
-    byRemainder.forEach { rate ->
-        val amt = base.getValue(rate) + if (leftover > 0) { leftover--; 1L } else 0L
-        if (amt > 0) specs += SaleLineSpec(null, title, 1.0, -amt, 0.0, rate)
+    val value = when (kind) {
+        "percent" -> basketPct.coerceIn(0, 100).toDouble()
+        "amount" -> centsToRupees(basketAmtCents)
+        else -> 0.0
     }
-    return specs
+    return SaleDraft(specs, kind, value)
 }
 
 enum class PayMethod(val rpcValue: String?, val label: String) {
@@ -369,22 +326,33 @@ class SaleRepository @Inject constructor(
         // (save_draft upserts by id), so failed attempts litter no orphan drafts and the
         // issue replay's same-document check lines up instead of refusing forever.
         val draftId = UUID.nameUUIDFromBytes("carfection:draft:$saleKey".toByteArray()).toString()
+        val draftSale = expandSaleLines(cart, basketMode, basketPct, basketAmtCents)
+        val draftDiscountKind = draftSale.orderDiscountKind
+        val draftDiscountValue = draftSale.orderDiscountValue
         val doc = buildJsonObject {
             put("id", draftId)
             put("doc_type", "invoice")
             put("customer_id", custId)
             put("origin", "standalone")
             comment?.trim()?.takeIf { it.isNotEmpty() }?.let { put("comment", it) }
+            // ALWAYS sent, JsonNull included. The counter reuses one deterministic draft id per
+            // sale, and save_draft's UPDATE branch keeps the stored discount when the key is
+            // absent — so omitting it after the cashier CLEARED a discount would silently
+            // re-apply the one they just removed.
+            if (draftDiscountKind == null) put("discount_kind", kotlinx.serialization.json.JsonNull)
+            else put("discount_kind", draftDiscountKind)
+            put("discount_value", draftDiscountValue)
         }
-        val specs = expandSaleLines(cart, basketMode, basketPct, basketAmtCents)
         val lines = buildJsonArray {
-            specs.forEachIndexed { i, sp ->
+            draftSale.specs.forEachIndexed { i, sp ->
                 add(buildJsonObject {
                     if (sp.productId == null) put("product_id", kotlinx.serialization.json.JsonNull) else put("product_id", sp.productId)
                     put("title", sp.title)
                     put("qty", sp.qty)
                     put("unit_price", centsToRupees(sp.unitCents))
                     put("discount_pct", sp.discountPct)
+                    put("discount_kind", sp.discountKind)
+                    put("discount_amount", centsToRupees(sp.discountAmountInclCents))
                     put("vat_rate", sp.vatRatePct)
                     put("sort_order", i)
                 })

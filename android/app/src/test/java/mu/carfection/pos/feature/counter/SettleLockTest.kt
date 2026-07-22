@@ -75,8 +75,7 @@ class SettleLockTest {
         val failed = before.withSettleFailure(SalePaymentUncertain("inv-1", "INV-0007", wifiDrop))
 
         assertEquals(before.cart, failed.cart)
-        assertEquals(before.specs, failed.specs)
-        assertEquals(before.totals, failed.totals)
+        assertEquals(before.docTotals, failed.docTotals)
         assertEquals(false, failed.busy)
     }
 

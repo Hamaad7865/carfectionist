@@ -57,7 +57,12 @@ fun saleReceiptDoc(h: SaleHistoryDto, biz: ReceiptBiz, vatRatePct: Int): Receipt
         subtotalCents = positives.sumOf { incl(it) },
         vatRatePct = vatRatePct,
         vatCents = rupeesToCents(h.vatTotal),
-        discountCents = -sorted.filter { incl(it) < 0 }.sumOf { incl(it) },
+        // Subtotal minus TOTAL, not "the sum of the negative rows". A discount is stored three
+        // different ways (documents.discount_value, document_lines.discount_amount, discount_pct)
+        // and only one of them was ever a negative row — so keying on negatives printed Rs 0.00
+        // beside a Subtotal that did not match the TOTAL underneath it. This rule is
+        // representation-agnostic and is the same one the web receipt and the at-sale slip use.
+        discountCents = (positives.sumOf { incl(it) } - rupeesToCents(h.totalIncl)).coerceAtLeast(0),
         totalCents = rupeesToCents(h.totalIncl),
         // With more than one tender the slip's single "paid in" label can't name them all — the
         // per-tender `payments` list below carries the breakdown; the label reads "Split".

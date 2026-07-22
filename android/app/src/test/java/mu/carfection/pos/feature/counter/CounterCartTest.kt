@@ -4,6 +4,7 @@ import mu.carfection.pos.core.data.CartLine
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.database.ProductEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -25,7 +26,8 @@ class CounterCartTest {
         CounterUiState(basketMode = DiscountMode.PCT, basketText = "10")
             .withCart(listOf(CartLine(brakePad, 1.0)))
 
-    private fun basketLines(s: CounterUiState) = s.specs.filter { it.title.startsWith("Basket discount") }
+    /** The basket discount now rides documents.discount_kind, so THAT is what must clear. */
+    private fun basketKind(s: CounterUiState) = s.orderDiscountKind
 
     @Test
     fun `a basket discount prices the ticket it was typed for`() {
@@ -50,7 +52,7 @@ class CounterCartTest {
             .withCart(emptyList()) // cashier ✕'d the last line
             .withCart(listOf(CartLine(brakePad, 1.0))) // next walk-in
 
-        assertTrue("no basket discount line may survive", basketLines(next).isEmpty())
+        assertNull("no basket discount may survive", basketKind(next))
         assertEquals(0L, next.basketAppliedCents)
         assertEquals(1_150_00L, next.totals.totalCents) // 1,000 + 15% VAT, undiscounted
     }

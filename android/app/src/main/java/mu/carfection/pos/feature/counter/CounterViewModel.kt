@@ -31,7 +31,9 @@ import mu.carfection.pos.core.hardware.CashDrawer
 import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
 import mu.carfection.pos.core.hardware.ReceiptPrinter
+import mu.carfection.pos.core.money.DocDiscountTotals
 import mu.carfection.pos.core.money.DocTotals
+import mu.carfection.pos.core.money.computeDocTotals
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.grossCents
@@ -72,8 +74,9 @@ data class CounterUiState(
     // basket-level discount (applies after line discounts; emitted as negative lines)
     val basketMode: DiscountMode = DiscountMode.PCT,
     val basketText: String = "",
-    val specs: List<SaleLineSpec> = emptyList(), // the exact lines the invoice will carry
-    val totals: DocTotals = computeTotals(emptyList()),
+    // Priced by the DB's OWN discount arithmetic, so the footer, the pay panel and the slip all
+    // read one figure and it is the figure the server will store.
+    val docTotals: DocDiscountTotals = computeDocTotals(emptyList(), null, 0.0, 0),
     // customer (optional walk-in name; picked id required for credit)
     val customerText: String = "",
     val customerId: String? = null,
@@ -194,30 +197,40 @@ data class CounterUiState(
     val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
     val basketAmtCents: Long get() = if (basketMode == DiscountMode.AMT) (parseMoneyToCents(basketText) ?: 0L).coerceAtLeast(0) else 0
 
-    /** What the basket discount actually takes off (post-clamp, post-apportionment). */
-    val basketAppliedCents: Long
-        get() = specs.filter { it.productId == null && it.title.startsWith("Basket discount") }.sumOf { -it.unitCents }
+    /**
+     * Every figure below comes from ONE call to the DB's own discount arithmetic
+     * ([computeDocTotals] mirrors app.discounted_vat_groups line for line), so the footer, the
+     * pay panel and the slip cannot disagree with each other or with what the server will store.
+     */
+    /** Subtotal / VAT / TOTAL, for the rows that only need the three headline figures. */
+    val totals: DocTotals
+        get() = DocTotals(emptyList(), docTotals.subtotalCents, docTotals.vatCents, docTotals.totalCents)
 
-    /** Subtotal before the basket discount — what the "Subtotal" row shows. */
-    val preBasketSubtotalCents: Long get() = totals.subtotalCents + basketAppliedCents
+    /** Each cart row at the price it will be billed — line discount applied, VAT added. */
+    fun rowGrossCents(i: Int): Long = grossCents(docTotals.lineExclCents[i], cart[i].product.vatRatePct)
+
+    val orderDiscountKind: String?
+        get() = when {
+            basketMode == DiscountMode.PCT && basketPct > 0 -> "percent"
+            basketMode == DiscountMode.AMT && basketAmtCents > 0 -> "amount"
+            else -> null
+        }
+
+    /** Subtotal before the basket discount — what the "Subtotal" row shows, ex-VAT. */
+    val preBasketSubtotalCents: Long get() = docTotals.lineExclCents.sum()
 
     /**
-     * Subtotal on a gross-quoting shop: the sum of the very line amounts printed in the cart,
-     * so the footer can never disagree with the list above it. Derived from the lines rather
-     * than from `total + basketApplied` — that shortcut assumed the basket discount was
-     * VAT-inclusive (true of the documents order-discount, false here, where the counter emits
-     * the discount as a net line) and showed a Subtotal 15% of the discount short of the lines.
+     * Subtotal on a gross-quoting shop: the sum of the very line amounts printed in the cart, so
+     * the footer can never disagree with the list above it.
      */
-    val grossSubtotalCents: Long get() = cart.sumOf { it.rowGrossCents }
+    val grossSubtotalCents: Long
+        get() = cart.indices.sumOf { rowGrossCents(it) }
 
-    /**
-     * What the basket discount actually takes off the bill the customer pays. Taken as the gap
-     * between the lines and the TOTAL rather than the typed figure, so Subtotal − Discount =
-     * TOTAL always holds. On a Rs discount this reads higher than the cashier typed, because
-     * the discount line carries VAT (see SaleRepository) — the footer states what really came
-     * off rather than repeating the request back.
-     */
-    val basketAppliedGrossCents: Long get() = (grossSubtotalCents - totals.totalCents).coerceAtLeast(0)
+    /** What the basket discount takes off the bill — now exactly what the DB will apply. */
+    val basketAppliedGrossCents: Long get() = docTotals.orderDiscountInclCents
+
+    /** The same figure ex-VAT, for the shop that quotes net. */
+    val basketAppliedCents: Long get() = preBasketSubtotalCents - docTotals.subtotalCents
 }
 
 enum class CheckoutMode { LIST, WALKIN }
@@ -253,9 +266,15 @@ internal fun CounterUiState.withCart(cart: List<CartLine>): CounterUiState {
     // Emptying the cart ends the ticket, so the whole-sale discount goes with it. Otherwise a
     // discount typed for one walk-in silently re-prices the next basket built on this screen.
     val s = if (cart.isEmpty() && this.cart.isNotEmpty()) copy(basketMode = DiscountMode.PCT, basketText = "") else this
-    val specs = expandSaleLines(cart, s.basketMode, s.basketPct, s.basketAmtCents)
-    val totals = computeTotals(specs.map { LineInput(it.qty, it.unitCents, it.discountPct, it.vatRatePct) })
-    return s.copy(cart = cart, specs = specs, totals = totals, error = null)
+    val priced = s.copy(cart = cart, error = null)
+    return priced.copy(
+        docTotals = computeDocTotals(
+            cart.map { it.docLine },
+            priced.orderDiscountKind,
+            priced.basketPct.toDouble(),
+            priced.basketAmtCents,
+        ),
+    )
 }
 
 /** The whole-sale discount is part of the basket, so it freezes with it. */
@@ -1094,13 +1113,12 @@ class CounterViewModel @Inject constructor(
                 )
                 // Sale is committed — printing/drawer are fire-and-forget (can never lose it).
                 // Receipt mirrors the SAVED lines (incl. discount lines) in the studio's slip format.
-                // Each cart line's undiscounted list price, VAT-inclusive (per line's own rate).
-                fun grossIncl(l: CartLine): Long {
-                    val excl = lineExclCents(l.qty, l.product.sellingPriceCents) // qty × unit, no discount
-                    return excl + Math.round(excl * (l.product.vatRatePct / 100.0))
-                }
-                val itemLines = s.cart.map { ReceiptLine(it.product.name, it.qty, grossIncl(it)) }
-                val subtotalIncl = itemLines.sumOf { it.inclCents } // gross, before discounts
+                // Each row at the price the INVOICE carries — line discount applied, VAT added.
+                // It used to print the undiscounted list price, so a slip for a line-discounted
+                // sale listed items that did not add up to the TOTAL printed beneath them, and
+                // contradicted the counter screen it was printed from.
+                val itemLines = s.cart.mapIndexed { i, l -> ReceiptLine(l.product.name, l.qty, s.rowGrossCents(i)) }
+                val subtotalIncl = itemLines.sumOf { it.inclCents }
                 val receipt = ReceiptDoc(
                     biz = catalog.receiptBiz(),
                     invoiceNo = result.number,
