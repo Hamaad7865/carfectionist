@@ -377,7 +377,20 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
           )}
           <Step label="Ready" value={fmtWhen(job.readyAt)} />
           <Step label="Delivered" value={fmtWhen(job.deliveredAt)} />
+          {/* A dropped car ends here — this is also the clock's end marker. */}
+          {job.cancelledAt && <Step label="Cancelled" value={fmtWhen(job.cancelledAt)} tone="late" />}
         </dl>
+
+        {/* The reason is the whole point of demanding one at cancel time; it
+            lived only in the audit trail, so the job itself never said why.
+            Its own line, not a `note` — that renders uppercase, and this is a
+            sentence someone typed. */}
+        {job.cancelReason && (
+          <div className="mt-3 rounded-[12px] border border-[rgba(214,59,80,0.25)] bg-[rgba(214,59,80,0.05)] px-3.5 py-2.5">
+            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-rose">Cancelled because</div>
+            <div className="mt-0.5 text-[13px] text-body">{job.cancelReason}</div>
+          </div>
+        )}
 
         {editWhen && (
           <div className="mt-4 flex flex-wrap items-end gap-3 border-t border-line pt-4">

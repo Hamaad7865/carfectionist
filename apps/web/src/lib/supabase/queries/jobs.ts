@@ -100,8 +100,7 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
 // NOT inherit the board's "delivered cards leave after 48h / when swiped" rules.
 
 export interface JobListRow extends JobCardSummary {
-  /** Why the car was dropped — cancel_job demands a reason but files it in the
-   *  audit trail, so the list has to go and fetch it to be able to say. */
+  /** Why the car was dropped, straight off the job row. */
   cancelReason: string | null;
   createdAt: string;
   phone: string | null;
@@ -141,7 +140,7 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
   // that quietly stops at row 1000 is worse than no feature.
   const [jobs, customers, vehicles, users, timers, linkedDocs] = await Promise.all([
     fetchAllRows<Record<string, unknown>>(() =>
-      scopeJobs(sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, paused_at, paused_ms, source_quote_id")),
+      scopeJobs(sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, cancelled_at, cancel_reason, paused_at, paused_ms, source_quote_id")),
     ),
     fetchAllRows<{ id: string; name: string | null; phone: string | null }>(() => sb.from("customers").select("id, name, phone")),
     fetchAllRows<{ id: string; make: string | null; model: string | null; plate: string | null }>(() => sb.from("vehicles").select("id, make, model, plate")),
@@ -217,23 +216,6 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
   const running = new Set(timers.map((t) => t.job_id));
   const now = Date.now();
 
-  // The cancel reasons for whatever cancelled jobs are in view (none on the
-  // normal list, so this costs nothing there).
-  const cancelledIds = jobs.filter((j) => j.status === "cancelled").map((j) => j.id as string);
-  const reasonOf = new Map<string, string>();
-  if (cancelledIds.length) {
-    const { data: audits } = await sb
-      .from("audit_events")
-      .select("ref_id, payload")
-      .eq("event_type", "job_cancelled")
-      .in("ref_id", cancelledIds);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const a of ((audits ?? []) as any[])) {
-      const reason = typeof a.payload?.reason === "string" ? a.payload.reason.trim() : "";
-      if (a.ref_id && reason) reasonOf.set(a.ref_id as string, reason);
-    }
-  }
-
   // Index by id — a .find() per job is quadratic, and this list is every job the
   // shop has ever done.
   const customerOf = new Map(customers.map((c) => [c.id, c]));
@@ -250,13 +232,13 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
     const quoteRaw = pickQuote(docs, (j.source_quote_id as string | null) ?? null);
     const invoiceRaw = pickDoc(docs, "invoice");
     const clock = jobClock(
-      { status: j.status as string, startedAt: j.started_at, readyAt: j.ready_at, deliveredAt: j.delivered_at, pausedAt: j.paused_at, pausedMs: Number(raw.paused_ms ?? 0) },
+      { status: j.status as string, startedAt: j.started_at, readyAt: j.ready_at, deliveredAt: j.delivered_at, cancelledAt: j.cancelled_at, pausedAt: j.paused_at, pausedMs: Number(raw.paused_ms ?? 0) },
       now,
     );
     return {
       id,
       status: j.status as string,
-      cancelReason: reasonOf.get(id) ?? null,
+      cancelReason: (j.cancel_reason as string | null) ?? null,
       service: j.notes,
       customer: cust?.name ?? null,
       phone: cust?.phone ?? null,
@@ -319,6 +301,9 @@ export interface JobDetail {
   startedAt: string | null;
   readyAt: string | null;
   deliveredAt: string | null;
+  /** When and why the car was dropped — the timeline's last honest row. */
+  cancelledAt: string | null;
+  cancelReason: string | null;
   pausedAt: string | null;
   pausedMs: number;
   estimatedMinutes: number | null;
@@ -366,7 +351,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const jr: any = job;
   const clock = jobClock(
-    { status: jr.status, startedAt: jr.started_at, readyAt: jr.ready_at, deliveredAt: jr.delivered_at, pausedAt: jr.paused_at, pausedMs: jr.paused_ms },
+    { status: jr.status, startedAt: jr.started_at, readyAt: jr.ready_at, deliveredAt: jr.delivered_at, cancelledAt: jr.cancelled_at, pausedAt: jr.paused_at, pausedMs: jr.paused_ms },
     now,
   );
 
@@ -414,6 +399,8 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       startedAt: j.started_at ?? null,
       readyAt: j.ready_at ?? null,
       deliveredAt: j.delivered_at ?? null,
+      cancelledAt: j.cancelled_at ?? null,
+      cancelReason: j.cancel_reason ?? null,
       pausedAt: j.paused_at ?? null,
       pausedMs: Number(j.paused_ms ?? 0),
       estimatedMinutes: j.estimated_minutes ?? null,

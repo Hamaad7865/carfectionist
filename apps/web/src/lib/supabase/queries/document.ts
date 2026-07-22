@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { presentLine } from "@/lib/money";
 import { rupeesToCents } from "@/lib/money";
 import { signVehiclePhotos } from "@/lib/supabase/storage";
 import type { Marker } from "@/features/intake/damage";
@@ -72,10 +73,13 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
   const { data: doc } = await sb.from("documents").select("*, customers(name, email, phone)").eq("id", id).maybeSingle();
   if (!doc) return null;
 
-  const [{ data: lines }, { data: payments }] = await Promise.all([
+  const [{ data: lines }, { data: payments }, { data: bs }] = await Promise.all([
     sb.from("document_lines").select("*").eq("document_id", id).order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
+    sb.from("business_settings").select("prices_vat_exclusive").limit(1).maybeSingle(),
   ]);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const inclVat = (bs as any)?.prices_vat_exclusive === false;
 
   // Resolve who took each payment, and which originals a mirror later undid.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,8 +189,9 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
       title: l.title,
       description: l.description,
       qty: Number(l.qty),
-      rateCents: rupeesToCents(Number(l.unit_price)),
-      amountCents: rupeesToCents(Number(l.line_total_excl)),
+      // presentLine, not a third hand-rolled derivation: this screen showed NET while its own
+      // PDF showed GROSS, so one invoice had two sets of Rate/Amount figures.
+      ...presentLine(l, inclVat),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payments: (payments ?? []).map((p: any) => ({

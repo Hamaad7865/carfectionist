@@ -64,7 +64,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   // which is how a cancelled job kept a live-looking row in the working list.
   // A quote counts as dead only when every job it produced was cancelled — one
   // re-booked after a cancellation is live business again.
-  const { data: jobRows } = await sb.from("jobs").select("id, status, source_quote_id");
+  const { data: jobRows } = await sb.from("jobs").select("id, status, source_quote_id, cancel_reason");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const jobs = (jobRows ?? []) as any[];
   const cancelledJobIds = jobs.filter((j) => j.status === "cancelled").map((j) => j.id as string);
@@ -84,22 +84,15 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
     ].filter((id) => !liveQuoteIds.has(id)),
   );
 
-  // WHY the car was dropped. cancel_job requires a reason but keeps it only in
-  // the job_cancelled audit event (the invoice gets it folded into void_reason,
-  // which is why voided bills already explain themselves — the quote didn't).
-  // Only needed for display, so only fetched for the archive.
+  // WHY the car was dropped — straight off jobs.cancel_reason now that a
+  // cancellation records itself on the job (it used to live only in the audit
+  // event, which is why the quote could never explain itself).
   const noteByQuote = new Map<string, string>();
-  if (archivedView && cancelledJobIds.length) {
-    const { data: audits } = await sb
-      .from("audit_events")
-      .select("ref_id, payload")
-      .eq("event_type", "job_cancelled")
-      .in("ref_id", cancelledJobIds);
+  if (archivedView) {
     const reasonByJob = new Map<string, string>();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const a of ((audits ?? []) as any[])) {
-      const reason = typeof a.payload?.reason === "string" ? a.payload.reason.trim() : "";
-      if (a.ref_id && reason) reasonByJob.set(a.ref_id as string, reason);
+    for (const j of jobs) {
+      const r = typeof j.cancel_reason === "string" ? j.cancel_reason.trim() : "";
+      if (r) reasonByJob.set(j.id as string, r);
     }
     for (const j of jobs) {
       if (j.status !== "cancelled" || !j.source_quote_id) continue;

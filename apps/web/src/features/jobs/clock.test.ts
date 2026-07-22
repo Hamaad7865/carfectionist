@@ -114,3 +114,31 @@ describe("estimatedFinish — when the car should be done", () => {
     expect(estimatedFinish({ ...est, status: "cancelled" }, T0)).toBeNull();
   });
 });
+
+describe("a cancelled job's clock", () => {
+  const base = {
+    status: "cancelled",
+    startedAt: "2026-07-21T12:01:00.000Z",
+    readyAt: null,
+    deliveredAt: null,
+    pausedAt: null,
+    pausedMs: 0,
+  };
+  // 16 hours after it was cancelled — the bug: with no end marker the clock
+  // ran to "now", so a car dropped after 3 minutes read 16:55:00 next morning.
+  const nextMorning = Date.parse("2026-07-22T04:56:00.000Z");
+
+  it("stops at cancelled_at instead of running to now", () => {
+    const c = jobClock({ ...base, cancelledAt: "2026-07-21T12:03:39.000Z" }, nextMorning);
+    expect(c?.elapsedSeconds).toBe(159); // 2m39s — what the car actually took
+    expect(c?.running).toBe(false);
+  });
+
+  it("still prefers ready/delivered when both exist", () => {
+    const c = jobClock(
+      { ...base, status: "delivered", readyAt: "2026-07-21T12:10:00.000Z", cancelledAt: "2026-07-21T13:00:00.000Z" },
+      nextMorning,
+    );
+    expect(c?.elapsedSeconds).toBe(540); // 9 minutes, from ready — not the cancel stamp
+  });
+});

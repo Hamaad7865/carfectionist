@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink } from "lucide-react";
-import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput, grossCents, netFromGrossCents } from "@/lib/money";
+import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput, grossCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
@@ -32,21 +32,31 @@ const editSig = (st: BuilderState) =>
  * fractional rates impossible to type). Commits parsed cents (clamped ≥ 0) up to
  * the parent, and re-syncs only when the cents value changes from OUTSIDE.
  */
-function MoneyField({ cents, onCents, className, placeholder }: { cents: number; onCents: (c: number) => void; className: string; placeholder?: string }) {
+/**
+ * A money input whose TYPED TEXT is the source of truth.
+ *
+ * `cents` seeds it and nothing more: the re-sync deliberately watches [syncKey], never [cents].
+ * When this field fed a VAT-inclusive box, watching `cents` corrupted prices — the parent echoed
+ * back grossCents(netFromGrossCents(typed)), which is not the typed figure for ~13% of values, so
+ * the effect fired mid-keystroke and rewrote the operator's input. Typing "1500" became "149.990"
+ * and saved a unit price of 130.43. Pass a syncKey that changes only when something OTHER than
+ * typing sets the price (picking a catalogue product), and the round trip can never reach the text.
+ * This is the shape the tablet's quote builder uses (QuoteViewModel.priceText).
+ */
+function MoneyField({ cents, onCents, className, placeholder, syncKey }: { cents: number; onCents: (c: number) => void; className: string; placeholder?: string; syncKey?: string | number }) {
   const [text, setText] = useState(cents ? String(cents / 100) : "");
-  const last = useRef(cents);
+  const seeded = useRef(syncKey);
   useEffect(() => {
-    if (cents !== last.current) { setText(cents ? String(cents / 100) : ""); last.current = cents; }
-  }, [cents]);
+    if (syncKey !== seeded.current) { setText(cents ? String(cents / 100) : ""); seeded.current = syncKey; }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [syncKey]);
   return (
     <input
       value={text}
       onChange={(e) => {
         const t = e.target.value;
         setText(t);
-        const c = Math.max(0, parseMoneyInput(t) ?? 0);
-        last.current = c;
-        onCents(c);
+        onCents(Math.max(0, parseMoneyInput(t) ?? 0));
       }}
       inputMode="decimal"
       placeholder={placeholder}
@@ -452,12 +462,18 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                            back into a controlled input, and that is not an identity (~13% of values land a
                            cent out) — the field rewrote itself under the cursor and saved a mangled rate
                            (typing "1500" could bill Rs 149.99). The line total and the printed document
-                           below state the shelf price; this one box is the net rate the ledger stores. */
-                        <div className="relative w-[96px]" title="Unit rate (excl. VAT)">
+                           below state the shelf price, and so does this box — type what the customer pays. */
+                        <div className="relative w-[96px]" title={ctx.pricesInclVat ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
                           <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
                           <MoneyField
-                            cents={l.unitCents}
-                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: c } })}
+                            // Gross in, net stored — ONE WAY. The typed text is never derived back
+                            // from unitCents (see MoneyField), so the conversion cannot round a
+                            // price out from under the person entering it. The tablet's quote box
+                            // takes gross too; this box used to take net, so the same typed 1500
+                            // billed Rs 1,725.00 here and Rs 1,500.00 there.
+                            syncKey={l.productId ?? l.key}
+                            cents={ctx.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents}
+                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: unitCentsFromTyped(c, l.vatRatePct, ctx.pricesInclVat) } })}
                             placeholder="rate"
                             className="num h-7 w-full rounded-[7px] border border-line-2 bg-sub pl-6 pr-2 text-right text-[12px] font-semibold text-ink outline-none placeholder:text-faint focus:border-brand"
                           />

@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { rupeesToCents, formatMUR, grossCents } from "@/lib/money";
+import { rupeesToCents, formatMUR, presentLine } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
@@ -171,12 +171,9 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
       // differ a cent or two from Amount when the stored net doesn't divide the shelf price
       // evenly (Rs 100 stores as 86.96); Amount stays the ledger's figure so the column always
       // foots to the TOTAL, which matters more on a fiscal document than the multiplication.
-      rateCents: inclVat
-        ? grossCents(rupeesToCents(Number(l.unit_price)), Number(l.vat_rate))
-        : rupeesToCents(Number(l.unit_price)),
-      amountCents: inclVat
-        ? rupeesToCents(Number(l.line_total_excl)) + rupeesToCents(Number(l.line_vat))
-        : rupeesToCents(Number(l.line_total_excl)),
+      // presentLine is shared with the back-office screen, which derived this itself and
+      // disagreed with the very PDF it links to.
+      ...presentLine(l, inclVat),
       discountNote:
         l.discount_kind === "amount" && Number(l.discount_amount) > 0 ? `less ${formatMUR(rupeesToCents(Number(l.discount_amount)))}`
         : Number(l.discount_pct) > 0 ? `less ${Number(l.discount_pct)}%`

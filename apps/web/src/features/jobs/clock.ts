@@ -12,6 +12,9 @@ export interface JobClockRow {
   startedAt: string | null;
   readyAt: string | null;
   deliveredAt: string | null;
+  /** Cancelling ends the clock too — without it a dropped car accrues time for
+   *  ever (one cancelled after 3 minutes read 16:55:00 the next morning). */
+  cancelledAt?: string | null;
   pausedAt: string | null;
   pausedMs: number | null;
 }
@@ -33,7 +36,7 @@ export function jobClock(j: JobClockRow, nowMs: number): JobClockState | null {
   const started = Date.parse(j.startedAt);
   if (Number.isNaN(started)) return null;
 
-  const endIso = j.readyAt ?? j.deliveredAt;
+  const endIso = j.readyAt ?? j.deliveredAt ?? j.cancelledAt ?? null;
   const end = endIso ? Date.parse(endIso) : nowMs;
   // A finished job's clock stopped at ready — an unfolded pause no longer counts.
   const paused = j.pausedAt != null && !endIso;

@@ -16,11 +16,11 @@ export interface CounterProduct {
   warehouseQty: number; // on-hand everywhere else, summed (shown as a restock hint)
 }
 
-export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number }> {
+export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number; pricesInclVat: boolean }> {
   const sb = await createClient();
   const [prodData, bsRes, custData, ohData, locRes] = await Promise.all([
     fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, vat_rate, barcode, is_stocked").eq("is_active", true).order("category").order("name")),
-    sb.from("business_settings").select("vat_rate").limit(1).maybeSingle(),
+    sb.from("business_settings").select("vat_rate, prices_vat_exclusive").limit(1).maybeSingle(),
     fetchAllRows(() => sb.from("customers").select("id, name").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     getStockLocations(sb),
@@ -56,5 +56,9 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
   }));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const customers = (custData as any[]).map((c) => ({ id: c.id, name: c.name }));
-  return { products, customers, vatDefault };
+  // The shop quotes VAT-INCLUSIVE shelf prices, so the till must show them that way — the
+  // tablet counter already does, and the two screens were quoting different figures.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pricesInclVat = (bsRes.data as any)?.prices_vat_exclusive === false;
+  return { products, customers, vatDefault, pricesInclVat };
 }

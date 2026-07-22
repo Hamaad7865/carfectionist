@@ -166,6 +166,9 @@ data class JobBoardDto(
     @SerialName("started_at") val startedAt: String? = null,
     @SerialName("ready_at") val readyAt: String? = null,
     @SerialName("delivered_at") val deliveredAt: String? = null,
+    // A cancelled car's clock stops here, and the board can say why it was dropped.
+    @SerialName("cancelled_at") val cancelledAt: String? = null,
+    @SerialName("cancel_reason") val cancelReason: String? = null,
     // set when staff swipe a delivered card off the board — the job itself is untouched
     @SerialName("board_dismissed_at") val boardDismissedAt: String? = null,
     @SerialName("paused_at") val pausedAt: String? = null, // timer paused since; null = running

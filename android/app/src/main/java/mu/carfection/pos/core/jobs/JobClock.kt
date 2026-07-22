@@ -21,7 +21,9 @@ object JobClock {
     /** Milliseconds of work on the car so far. */
     fun elapsedMs(j: JobBoardDto, nowMs: Long): Long? {
         val started = epoch(j.startedAt) ?: return null
-        val endIso = j.readyAt ?: j.deliveredAt
+        // Cancelling ends the clock as surely as ready/delivered — without it a
+        // dropped car accrues time for ever (web bug, same logic, same fix).
+        val endIso = j.readyAt ?: j.deliveredAt ?: j.cancelledAt
         val end = epoch(endIso) ?: nowMs
         // A finished job's clock stopped at ready — an unfolded pause no longer counts.
         val openPause = if (endIso == null) openPauseMs(j, nowMs) else 0L
