@@ -56,7 +56,34 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
     .not("source_document_id", "is", null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const creditedSet = new Set(((cnRows ?? []) as any[]).map((r) => r.source_document_id as string));
-  const creditedIds = [...creditedSet];
+
+  // A quote whose car never got worked on is dead too. cancel_job resolves the
+  // BILL (void / credit note) but leaves the quote sitting there "Accepted",
+  // which is how a cancelled job kept a live-looking row in the working list.
+  // A quote counts as dead only when every job it produced was cancelled — one
+  // re-booked after a cancellation is live business again.
+  const { data: jobRows } = await sb.from("jobs").select("id, status, source_quote_id");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const jobs = (jobRows ?? []) as any[];
+  const cancelledJobIds = jobs.filter((j) => j.status === "cancelled").map((j) => j.id as string);
+  const liveQuoteIds = new Set(
+    jobs.filter((j) => j.status !== "cancelled" && j.source_quote_id).map((j) => j.source_quote_id as string),
+  );
+  // Two ways a quote reaches its job: the job points back (source_quote_id), or
+  // the quote points forward (documents.job_id). Honour both.
+  const { data: byJobId } = cancelledJobIds.length
+    ? await sb.from("documents").select("id").eq("doc_type", "quote").in("job_id", cancelledJobIds)
+    : { data: [] };
+  const deadQuoteSet = new Set(
+    [
+      ...jobs.filter((j) => j.status === "cancelled" && j.source_quote_id).map((j) => j.source_quote_id as string),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...((byJobId ?? []) as any[]).map((d) => d.id as string),
+    ].filter((id) => !liveQuoteIds.has(id)),
+  );
+
+  // Both sets end up as one "id in (…)" filter; kept apart for the reason chip.
+  const archivedIds = [...new Set([...creditedSet, ...deadQuoteSet])];
 
   // A document is archived when it is dead paperwork — void, the credit note
   // that killed a bill, the invoice that credit note reversed, a quote the
@@ -67,7 +94,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   const applyScope = (q: any) => {
     if (archivedView) {
       const ors = ["archived_at.not.is.null", "status.eq.void", "doc_type.eq.credit_note", DEAD_QUOTE];
-      if (creditedIds.length) ors.push(`id.in.(${creditedIds.join(",")})`);
+      if (archivedIds.length) ors.push(`id.in.(${archivedIds.join(",")})`);
       return q.or(ors.join(","));
     }
     q = q
@@ -75,7 +102,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
       .neq("status", "void")
       .neq("doc_type", "credit_note")
       .or("doc_type.neq.quote,status.not.in.(declined,expired)");
-    if (creditedIds.length) q = q.not("id", "in", `(${creditedIds.join(",")})`);
+    if (archivedIds.length) q = q.not("id", "in", `(${archivedIds.join(",")})`);
     return q;
   };
 
@@ -129,7 +156,9 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
             ? "Credit note"
             : creditedSet.has(d.id)
               ? "Credited"
-              : d.doc_type === "quote" && d.status === "declined"
+              : deadQuoteSet.has(d.id)
+                ? "Job cancelled"
+                : d.doc_type === "quote" && d.status === "declined"
                 ? "Declined"
                 : d.doc_type === "quote" && d.status === "expired"
                   ? "Expired"
