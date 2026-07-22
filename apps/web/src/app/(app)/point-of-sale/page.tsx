@@ -40,7 +40,9 @@ export default async function PointOfSalePage() {
           <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Tills · active devices</span>
         </div>
         <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
-          {data.devices.map((d) => (
+          {/* A retired device (Settings → Deactivate) drops out of this list — it isn't
+              an "active device" any more, and deviceCount above already only counts these. */}
+          {data.devices.filter((d) => d.isActive).map((d) => (
             <DeviceCard key={d.code} device={d} />
           ))}
         </div>
