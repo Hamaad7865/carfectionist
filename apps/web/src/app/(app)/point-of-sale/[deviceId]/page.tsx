@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import {
   Power, UserRound, Download, Wallet, CalendarCheck, BadgePercent,
-  ReceiptText, FileDown, CircleDot, Coins, Ban, Banknote, Monitor, TabletSmartphone,
+  ReceiptText, FileDown, CircleDot, Coins, Ban, Banknote, Monitor, TabletSmartphone, HandCoins,
 } from "lucide-react";
 import { getDeviceDashboard } from "@/lib/supabase/queries/pos-devices";
 import { DeviceSettings } from "@/features/pos/DeviceSettings";
@@ -27,6 +27,7 @@ const KIND_ICON: Record<string, typeof CircleDot> = {
   version: Download,
   operator: UserRound,
   till_open: Wallet,
+  float_in: HandCoins,
   till_close: CalendarCheck,
   payment: Coins,
   discount: BadgePercent,

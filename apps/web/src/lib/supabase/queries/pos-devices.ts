@@ -238,7 +238,7 @@ export interface TraceEvent {
   key: string;
   at: string;    // ISO for sorting
   atLabel: string; // MU display
-  kind: string;  // terminal_started | version | operator | till_open | till_close | payment | discount | receipt | export | period | device_state | cash_out
+  kind: string;  // terminal_started | version | operator | till_open | float_in | till_close | payment | discount | receipt | export | period | device_state | cash_out
   title: string;
   detail: string | null;
   href: string | null; // → /sales/[id] when the event concerns a document
@@ -642,8 +642,12 @@ export async function getDeviceDashboard(
   for (const s of sessForTrace) {
     const pays = (rangeGiven ? flowBySession : paysBySession).get(s.id) ?? [];
     if (!rangeGiven || inRange(s.opened_at)) {
-      push(`so${s.id}`, s.opened_at, "till_open", "Till opened",
-        `Float ${(rupeesToCents(Number(s.opening_float)) / 100).toLocaleString("en-US")}${nameById.get(s.opened_by) ? ` · ${nameById.get(s.opened_by)}` : ""}`);
+      const operator = nameById.get(s.opened_by) ?? null;
+      push(`so${s.id}`, s.opened_at, "till_open", "Till opened", operator);
+      // Its own line, like every other cash movement (Disbursement/cash_out already
+      // gets one) — it used to be folded into "Till opened" as a trailing detail string.
+      push(`sof${s.id}`, s.opened_at, "float_in", "Float in",
+        [`Rs ${(rupeesToCents(Number(s.opening_float)) / 100).toLocaleString("en-US")}`, operator].filter(Boolean).join(" · "));
     }
     if (s.closed_at && (!rangeGiven || inRange(s.closed_at))) {
       const net = new Map<string, number>();
