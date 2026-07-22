@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import mu.carfection.pos.BuildConfig
+import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.hardware.CaptureBus
@@ -45,7 +46,8 @@ enum class TillGate { NONE, OPEN_REQUIRED, STALE_CLOSE_REQUIRED }
 class RootViewModel @Inject constructor(
     private val session: SessionRepository,
     connectivity: ConnectivityObserver,
-    outbox: OutboxRepository,
+    private val outbox: OutboxRepository,
+    private val catalog: CatalogRepository,
     private val captures: CaptureBus,
     private val api: PosApi,
     private val tillRepo: mu.carfection.pos.core.data.TillRepository,
@@ -55,6 +57,29 @@ class RootViewModel @Inject constructor(
     val staffRole: String get() = session.userRole
     val online = connectivity.online
     val pendingSync = outbox.pending
+
+    // ── manual sync (the header button) ───────────────────────────────────────
+    // Everything else here is either push-on-write (outbox) or read-on-navigate (screens
+    // fetch when opened) — the one thing sitting in a local cache that only refreshes on
+    // its own schedule is the catalogue (products/prices/settings), so that's what a tap
+    // pulls fresh. The outbox drains itself the instant connectivity returns; draining it
+    // here too just means a tap also clears a backlog without waiting for that edge.
+    private val _syncing = MutableStateFlow(false)
+    val syncing = _syncing.asStateFlow()
+    fun syncNow() {
+        if (_syncing.value) return
+        viewModelScope.launch {
+            _syncing.value = true
+            try {
+                outbox.drain()
+                catalog.refresh()
+            } catch (_: Exception) {
+                // Silent: the sync pill already shows offline/pending state on failure.
+            } finally {
+                _syncing.value = false
+            }
+        }
+    }
 
     /** Tab to snap back to after a camera round-trip ("jobs" | "intake"), latched by CaptureBus. */
     val captureReturnTo = captures.returnTo
@@ -190,6 +215,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 }
                 val online by rootViewModel.online.collectAsState()
                 val pendingSync by rootViewModel.pendingSync.collectAsState(initial = 0)
+                val syncing by rootViewModel.syncing.collectAsState()
                 PosShell(
                     active = tab,
                     onSelect = rootViewModel::navigate,
@@ -198,6 +224,11 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                     staffRole = rootViewModel.staffRole,
                     online = online,
                     pendingSync = pendingSync,
+                    syncing = syncing,
+                    // A tap pulls the catalogue fresh, drains anything queued, and checks the
+                    // manifest for a newer build — the button covers "sync" and "update" in one
+                    // press rather than making the operator find two places for it.
+                    onSyncNow = { rootViewModel.syncNow(); updateVm.check() },
                     onStaffClick = { rootViewModel.signOut() },
                 ) {
                     when (tab) {

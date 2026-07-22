@@ -19,8 +19,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -35,6 +42,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -83,6 +91,8 @@ fun PosShell(
     staffRole: String,
     online: Boolean,
     pendingSync: Int,
+    syncing: Boolean,
+    onSyncNow: () -> Unit,
     onStaffClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -90,7 +100,7 @@ fun PosShell(
     // clock/battery never overlap the header, and the navigation bar so Samsung's One UI
     // taskbar (a full-height bottom bar on the real tablet) never covers footer buttons.
     Column(Modifier.fillMaxSize().background(ScreenBg).windowInsetsPadding(WindowInsets.systemBars)) {
-        Header(studioName, staffName, staffRole, online, pendingSync, onStaffClick)
+        Header(studioName, staffName, staffRole, online, pendingSync, syncing, onSyncNow, onStaffClick)
         Row(Modifier.fillMaxSize()) {
             NavRail(active, onSelect)
             Box(Modifier.weight(1f).fillMaxHeight().background(ScreenBg)) { content() }
@@ -99,7 +109,16 @@ fun PosShell(
 }
 
 @Composable
-private fun Header(studioName: String, staffName: String, staffRole: String, online: Boolean, pendingSync: Int, onStaffClick: () -> Unit) {
+private fun Header(
+    studioName: String,
+    staffName: String,
+    staffRole: String,
+    online: Boolean,
+    pendingSync: Int,
+    syncing: Boolean,
+    onSyncNow: () -> Unit,
+    onStaffClick: () -> Unit,
+) {
     var now by remember { mutableStateOf(LocalDateTime.now()) }
     LaunchedEffect(Unit) { while (true) { now = LocalDateTime.now(); delay(1000) } }
     val timeStr = now.format(DateTimeFormatter.ofPattern("HH:mm"))
@@ -120,6 +139,28 @@ private fun Header(studioName: String, staffName: String, staffRole: String, onl
             Text("Helvetia · Mauritius", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, letterSpacing = 0.4.sp)
         }
         Spacer(Modifier.weight(1f))
+        // manual sync — pulls the catalogue fresh, drains the outbox, checks for an update.
+        // Everything it does already happens on its own (outbox drains on reconnect, the
+        // catalogue refreshes on its own schedule, the update check runs once at launch); this
+        // is just "don't make me wait for that" for the moment staff actually need it current.
+        val spin by rememberInfiniteTransition(label = "sync-spin").animateFloat(
+            initialValue = 0f, targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(900, easing = LinearEasing)),
+            label = "sync-spin-angle",
+        )
+        Box(
+            Modifier.size(34.dp).clip(CircleShape)
+                .background(if (syncing) AccentSoft else Tile)
+                .border(1.dp, Hairline, CircleShape)
+                .clickable(enabled = !syncing, onClick = onSyncNow),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Filled.Sync, contentDescription = "Sync now",
+                tint = if (syncing) Accent else TextSecondary,
+                modifier = Modifier.size(18.dp).graphicsLayer { if (syncing) rotationZ = spin },
+            )
+        }
         // time / date
         Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(timeStr, fontFamily = Condensed, fontWeight = FontWeight.SemiBold, fontSize = 19.sp, letterSpacing = 1.sp, color = TextPrimary)

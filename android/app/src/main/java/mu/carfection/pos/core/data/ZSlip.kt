@@ -45,6 +45,13 @@ object ZSlip {
             val room = (width - left.length - right.length).coerceAtLeast(1)
             appendLine(left + " ".repeat(room) + right)
         }
+        // Same layout as line(), wrapped in the bold sentinels — the sentinels are single chars
+        // that become 3-byte ESC/POS codes at the byte layer, so they don't cost any of the
+        // padding width the room calc above them relies on.
+        fun boldLine(left: String, right: String) {
+            val room = (width - left.length - right.length).coerceAtLeast(1)
+            appendLine(ESC_BOLD_ON + left + " ".repeat(room) + right + ESC_BOLD_OFF)
+        }
         fun centre(s: String) = appendLine(s.padStart(((width + s.length) / 2).coerceAtMost(width)))
         fun rule() = appendLine("-".repeat(width))
         // Bold section headers — the sentinels become ESC/POS emphasis (ESC E 1/0) at the byte layer.
@@ -75,7 +82,7 @@ object ZSlip {
             rule()
         }
 
-        appendTotalsBlock(periodTotals, ::line, ::rule, ::header)
+        appendTotalsBlock(periodTotals, ::line, ::boldLine, ::rule, ::header)
 
         // Sale modes — SALES [trading name] restated with its VAT, like the owner's slip.
         header("Sale modes")
@@ -114,7 +121,13 @@ object ZSlip {
         rule()
     }
 
-    private fun appendTotalsBlock(t: JsonObject, line: (String, String) -> Unit, rule: () -> Unit, header: (String) -> Unit) {
+    private fun appendTotalsBlock(
+        t: JsonObject,
+        line: (String, String) -> Unit,
+        boldLine: (String, String) -> Unit,
+        rule: () -> Unit,
+        header: (String) -> Unit,
+    ) {
         line("Total incl. tax", money(t.num("total_incl")))
         line("${t.int("tickets")} tickets", "Avg. " + money(t.num("avg_basket")))
         val reversals = t.int("reversals")
@@ -129,17 +142,17 @@ object ZSlip {
             val method = o.str("method")?.replace('_', ' ')?.uppercase() ?: "?"
             val count = o.int("count")
             if (method == "CASH") {
-                line("  CASH", money(o.num("gross")))
-                line("  CHANGE", money(o.num("change")))
-                line("  CASHBACK", money(0.0))
-                line("  CASH NET", money(o.num("net")))
+                boldLine("  CASH", money(o.num("gross")))
+                boldLine("  CHANGE", money(o.num("change")))
+                boldLine("  CASHBACK", money(0.0))
+                boldLine("  CASH NET", money(o.num("net")))
             } else {
-                line("  $count $method", money(o.num("net")))
+                boldLine("  $count $method", money(o.num("net")))
             }
         }
         val credit = t["customer_credit"]?.jsonObject
         if (credit != null && credit.num("amount") != 0.0) {
-            line("  ${credit.int("count")} CUSTOMER CREDIT", money(credit.num("amount")))
+            boldLine("  ${credit.int("count")} CUSTOMER CREDIT", money(credit.num("amount")))
         }
         rule()
 
