@@ -162,6 +162,10 @@ export function JobsList({ rows }: { rows: JobListRow[] }) {
                   <span className="truncate text-[12.5px] text-body">{r.customer ?? "—"}</span>
                   <span className="shrink-0 text-[11.5px] text-faint">{r.technician ?? "Unassigned"}</span>
                 </div>
+                {/* "Cancelled" alone invites the question; the reason answers it. */}
+                {r.cancelReason && (
+                  <div className="line-clamp-2 text-[11.5px] text-rose" title={r.cancelReason}>Cancelled — {r.cancelReason}</div>
+                )}
                 <div className="mt-1 flex items-start gap-5 border-t border-line pt-2">
                   <DocChip doc={r.quote} kind="quote" />
                   <span className="flex min-w-0 flex-col">
@@ -184,6 +188,9 @@ export function JobsList({ rows }: { rows: JobListRow[] }) {
                 </span>
                 <span className="min-w-0">
                   <JobStatus status={r.status} />
+                  {r.cancelReason && (
+                    <span className="mt-0.5 block truncate text-[11px] text-rose" title={r.cancelReason}>{r.cancelReason}</span>
+                  )}
                 </span>
                 <span className="min-w-0">
                   <DocChip doc={r.quote} kind="quote" />

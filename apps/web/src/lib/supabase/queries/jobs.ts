@@ -100,6 +100,9 @@ export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> 
 // NOT inherit the board's "delivered cards leave after 48h / when swiped" rules.
 
 export interface JobListRow extends JobCardSummary {
+  /** Why the car was dropped — cancel_job demands a reason but files it in the
+   *  audit trail, so the list has to go and fetch it to be able to say. */
+  cancelReason: string | null;
   createdAt: string;
   phone: string | null;
   quote: JobDoc | null;
@@ -214,6 +217,23 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
   const running = new Set(timers.map((t) => t.job_id));
   const now = Date.now();
 
+  // The cancel reasons for whatever cancelled jobs are in view (none on the
+  // normal list, so this costs nothing there).
+  const cancelledIds = jobs.filter((j) => j.status === "cancelled").map((j) => j.id as string);
+  const reasonOf = new Map<string, string>();
+  if (cancelledIds.length) {
+    const { data: audits } = await sb
+      .from("audit_events")
+      .select("ref_id, payload")
+      .eq("event_type", "job_cancelled")
+      .in("ref_id", cancelledIds);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const a of ((audits ?? []) as any[])) {
+      const reason = typeof a.payload?.reason === "string" ? a.payload.reason.trim() : "";
+      if (a.ref_id && reason) reasonOf.set(a.ref_id as string, reason);
+    }
+  }
+
   // Index by id — a .find() per job is quadratic, and this list is every job the
   // shop has ever done.
   const customerOf = new Map(customers.map((c) => [c.id, c]));
@@ -236,6 +256,7 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
     return {
       id,
       status: j.status as string,
+      cancelReason: reasonOf.get(id) ?? null,
       service: j.notes,
       customer: cust?.name ?? null,
       phone: cust?.phone ?? null,

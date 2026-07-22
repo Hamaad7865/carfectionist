@@ -28,6 +28,8 @@ export interface DocListRow {
   voidReason: string | null;
   /** Why this row is in the archive — shown as a chip in the archived view. */
   archivedReason: string | null;
+  /** The human sentence behind it (the cancel reason), when there is one. */
+  archivedNote: string | null;
 }
 
 export interface DocList {
@@ -72,7 +74,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   // Two ways a quote reaches its job: the job points back (source_quote_id), or
   // the quote points forward (documents.job_id). Honour both.
   const { data: byJobId } = cancelledJobIds.length
-    ? await sb.from("documents").select("id").eq("doc_type", "quote").in("job_id", cancelledJobIds)
+    ? await sb.from("documents").select("id, job_id").eq("doc_type", "quote").in("job_id", cancelledJobIds)
     : { data: [] };
   const deadQuoteSet = new Set(
     [
@@ -81,6 +83,35 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
       ...((byJobId ?? []) as any[]).map((d) => d.id as string),
     ].filter((id) => !liveQuoteIds.has(id)),
   );
+
+  // WHY the car was dropped. cancel_job requires a reason but keeps it only in
+  // the job_cancelled audit event (the invoice gets it folded into void_reason,
+  // which is why voided bills already explain themselves — the quote didn't).
+  // Only needed for display, so only fetched for the archive.
+  const noteByQuote = new Map<string, string>();
+  if (archivedView && cancelledJobIds.length) {
+    const { data: audits } = await sb
+      .from("audit_events")
+      .select("ref_id, payload")
+      .eq("event_type", "job_cancelled")
+      .in("ref_id", cancelledJobIds);
+    const reasonByJob = new Map<string, string>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const a of ((audits ?? []) as any[])) {
+      const reason = typeof a.payload?.reason === "string" ? a.payload.reason.trim() : "";
+      if (a.ref_id && reason) reasonByJob.set(a.ref_id as string, reason);
+    }
+    for (const j of jobs) {
+      if (j.status !== "cancelled" || !j.source_quote_id) continue;
+      const r = reasonByJob.get(j.id as string);
+      if (r) noteByQuote.set(j.source_quote_id as string, r);
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const d of ((byJobId ?? []) as any[])) {
+      const r = reasonByJob.get(d.job_id as string);
+      if (r) noteByQuote.set(d.id as string, r);
+    }
+  }
 
   // Both sets end up as one "id in (…)" filter; kept apart for the reason chip.
   const archivedIds = [...new Set([...creditedSet, ...deadQuoteSet])];
@@ -163,6 +194,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
                 : d.doc_type === "quote" && d.status === "expired"
                   ? "Expired"
                   : "Archived",
+      archivedNote: archivedView ? (noteByQuote.get(d.id) ?? null) : null,
     };
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

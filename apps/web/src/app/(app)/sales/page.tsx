@@ -217,6 +217,7 @@ export default async function SalesPage({
                     </div>
                   )}
                   {r.voidReason && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-rose" title={r.voidReason}>Voided — {r.voidReason}</div>}
+                  {r.archivedNote && <div className="mt-0.5 line-clamp-2 text-[11.5px] text-rose" title={r.archivedNote}>Cancelled — {r.archivedNote}</div>}
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
                   <div className="num text-[14px] font-bold text-ink-strong">{rs(r.total_incl)}</div>
@@ -235,6 +236,7 @@ export default async function SalesPage({
                     </span>
                   )}
                   {r.voidReason && <span className="mt-0.5 block truncate text-[11px] text-rose" title={r.voidReason}>Voided — {r.voidReason}</span>}
+                  {r.archivedNote && <span className="mt-0.5 block truncate text-[11px] text-rose" title={r.archivedNote}>Cancelled — {r.archivedNote}</span>}
                 </span>
                 <span className="num text-[12px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)}</span>
                 <span className="text-[12px] text-muted">{r.methodLabel}</span>
