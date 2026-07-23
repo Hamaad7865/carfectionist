@@ -7,6 +7,7 @@ import { navForUser, ROLE_LABEL, type Role } from "@/lib/auth/roles";
 import { signOut } from "@/lib/auth/actions";
 import { Brand } from "./Brand";
 import { btn } from "@/components/ui/button";
+import { ANIMATED_NAV_ICONS } from "./NavIcons";
 
 function initials(name: string): string {
   const clean = name.replace(/\s*\(.*\)\s*$/, "").trim();
@@ -40,20 +41,23 @@ export function Sidebar({ role, displayName, modules }: { role: Role; displayNam
       <div className="flex flex-col gap-[3px] overflow-y-auto">
         {items.map((item) => {
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-          const Icon = item.icon;
+          // Each icon has its own bespoke hover animation (see NavIcons.tsx) —
+          // the certificate's tick draws in, the report's bars grow, the truck
+          // rolls in, and so on — rather than one generic effect on all of them.
+          const Icon = ANIMATED_NAV_ICONS[item.href] ?? item.icon;
           return (
             <Link
               key={item.href}
               href={item.href}
               aria-current={active ? "page" : undefined}
-              className={`relative flex h-11 items-center gap-3 rounded-[10px] px-[13px] text-[13.5px] font-semibold transition-colors ${
+              className={`group relative flex h-11 items-center gap-3 rounded-[10px] px-[13px] text-[13.5px] font-semibold transition-colors ${
                 active
                   ? "bg-[rgba(43,140,255,0.10)] text-link"
                   : "text-[#3d4a59] hover:bg-[rgba(15,23,32,0.04)]"
               }`}
             >
               {active && <span className="grad-rail absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-[3px]" />}
-              <Icon size={18} strokeWidth={active ? 2.3 : 2} />
+              <Icon size={18} strokeWidth={active ? 2.3 : 2} className="shrink-0" />
               <span className="flex-1">{item.label}</span>
             </Link>
           );

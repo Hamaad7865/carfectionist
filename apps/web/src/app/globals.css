@@ -115,3 +115,175 @@
 @media (prefers-reduced-motion: reduce) {
   .animate-pop-check { animation: none; }
 }
+
+/* ── Sidebar nav icons — each does its own thing on hover, not one generic
+   effect on all fifteen (NavIcons.tsx). Two families:
+   "Reveal" — real stock geometry (a tick, a checklist line, a receipt line)
+     is hidden at rest and draws in via stroke-dashoffset, using the SVG2
+     pathLength="1" trick so dasharray/dashoffset work in 0..1 regardless of
+     the path's actual length. The BASELINE rule below (outside the media
+     query) keeps it fully drawn — i.e. identical to the stock lucide icon —
+     for everyone; only inside prefers-reduced-motion:no-preference does it
+     hide-then-reveal, so a reduced-motion user never loses real content.
+   "Bounce" — added decoration (typing dots, sound waves) or pure transform
+     (scale/rotate/translate) on stock geometry that already looks correct at
+     rest; entirely inside the motion-safe block since resting is unaffected
+     either way. Decorative-only elements (dots/waves) default to opacity:0
+     unconditionally — nothing real is lost when motion is off.
+   @keyframes stay top-level (not nested in the @media below) — the dev
+   bundler dropped the whole block when they were nested inside it. Defining
+   a keyframe is inert on its own; only the `animation:` rules that USE them
+   are motion-gated. ── */
+
+@keyframes nav-pkg-drop {
+  0% { transform: translateY(-3px); }
+  55% { transform: translateY(0.6px); }
+  80% { transform: translateY(-0.4px); }
+  100% { transform: translateY(0); }
+}
+@keyframes nav-truck-drive {
+  0% { transform: translateX(0); }
+  55% { transform: translateX(2.5px); }
+  100% { transform: translateX(0); }
+}
+@keyframes nav-inbox-drop {
+  0% { transform: translateY(-1px); }
+  50% { transform: translateY(1.4px); }
+  100% { transform: translateY(0); }
+}
+@keyframes nav-gear-spin { to { transform: rotate(360deg); } }
+
+.nav-ic-jobs .row1, .nav-ic-jobs .row2,
+.nav-ic-receipt .ln,
+.nav-ic-cert .tick {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 0;
+}
+.nav-ic-msg .dot { opacity: 0; }
+.nav-ic-mega .wave { opacity: 0; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Jobs — the checklist ticks itself off, top row then bottom. */
+  .nav-ic-jobs .row1, .nav-ic-jobs .row2 {
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 0.35s ease;
+  }
+  .group:hover .nav-ic-jobs .row1 { transition-delay: 0ms; stroke-dashoffset: 0; }
+  .group:hover .nav-ic-jobs .row2 { transition-delay: 130ms; stroke-dashoffset: 0; }
+
+  /* Sales & Invoices — the lines print out top to bottom. */
+  .nav-ic-receipt .ln {
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 0.3s ease;
+  }
+  .group:hover .nav-ic-receipt .ln1 { transition-delay: 0ms; stroke-dashoffset: 0; }
+  .group:hover .nav-ic-receipt .ln2 { transition-delay: 90ms; stroke-dashoffset: 0; }
+  .group:hover .nav-ic-receipt .ln3 { transition-delay: 180ms; stroke-dashoffset: 0; }
+
+  /* Certificates — the tick draws in like a stamp of approval. */
+  .nav-ic-cert .badge {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .nav-ic-cert .tick {
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 0.35s ease 90ms;
+  }
+  .group:hover .nav-ic-cert .badge { transform: scale(1.08); }
+  .group:hover .nav-ic-cert .tick { stroke-dashoffset: 0; }
+
+  /* Dashboard — the four tiles wake up in reading order. */
+  .nav-ic-dash rect {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .group:hover .nav-ic-dash rect:nth-of-type(1) { transition-delay: 0ms; transform: scale(1.16); }
+  .group:hover .nav-ic-dash rect:nth-of-type(2) { transition-delay: 60ms; transform: scale(1.16); }
+  .group:hover .nav-ic-dash rect:nth-of-type(3) { transition-delay: 120ms; transform: scale(1.16); }
+  .group:hover .nav-ic-dash rect:nth-of-type(4) { transition-delay: 180ms; transform: scale(1.16); }
+
+  /* Appointments — the clock hand ticks forward one notch. */
+  .nav-ic-cal .hand {
+    transform-origin: 16px 16px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .group:hover .nav-ic-cal .hand { transform: rotate(35deg); }
+
+  /* Contacts — the front person gives a small nod. */
+  .nav-ic-users .front {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .group:hover .nav-ic-users .front { transform: translateY(-1.5px); }
+
+  /* Products & Inventory — the box lands and settles on the shelf. */
+  .group:hover .nav-ic-pkg { animation: nav-pkg-drop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1); }
+
+  /* Point of Sale — the handheld screen lights up. */
+  .nav-ic-pos .phone {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.25s ease, filter 0.25s ease;
+  }
+  .group:hover .nav-ic-pos .phone { transform: scale(1.1); filter: drop-shadow(0 0 2.5px currentColor); }
+
+  /* Purchases & Expenses — the truck rolls in and its wheels catch. */
+  .group:hover .nav-ic-truck { animation: nav-truck-drive 0.5s ease; }
+  .nav-ic-truck .wheel {
+    transform-box: fill-box;
+    transform-origin: center;
+    transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .group:hover .nav-ic-truck .wheel1 { transition-delay: 0ms; transform: scale(1.3); }
+  .group:hover .nav-ic-truck .wheel2 { transition-delay: 110ms; transform: scale(1.3); }
+
+  /* Accounting & Reports — the bars grow, left to right. */
+  .nav-ic-chart .bar {
+    transform-box: fill-box;
+    transform-origin: bottom;
+    transition: transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .group:hover .nav-ic-chart .bar1 { transition-delay: 0ms; transform: scaleY(1.22); }
+  .group:hover .nav-ic-chart .bar2 { transition-delay: 80ms; transform: scaleY(1.16); }
+  .group:hover .nav-ic-chart .bar3 { transition-delay: 160ms; transform: scaleY(1.12); }
+
+  /* Forms & Enquiries — a new letter drops into the tray. */
+  .nav-ic-inbox .flap { transform-box: fill-box; transform-origin: center; }
+  .group:hover .nav-ic-inbox .flap { animation: nav-inbox-drop 0.45s ease; }
+
+  /* Messages — a typing indicator blips, like a reply coming in. */
+  .nav-ic-msg .dot {
+    transform-box: fill-box;
+    transform-origin: center;
+    transform: translateY(2px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+  .group:hover .nav-ic-msg .dot1 { transition-delay: 0ms; opacity: 1; transform: translateY(0); }
+  .group:hover .nav-ic-msg .dot2 { transition-delay: 100ms; opacity: 1; transform: translateY(0); }
+  .group:hover .nav-ic-msg .dot3 { transition-delay: 200ms; opacity: 1; transform: translateY(0); }
+
+  /* Marketing — the megaphone broadcasts a couple of sound waves. */
+  .nav-ic-mega .wave {
+    transform-box: fill-box;
+    transform-origin: left center;
+    transform: scale(0.6);
+    transition: opacity 0.25s ease, transform 0.25s ease;
+  }
+  .group:hover .nav-ic-mega .wave1 { transition-delay: 0ms; opacity: 1; transform: scale(1); }
+  .group:hover .nav-ic-mega .wave2 { transition-delay: 120ms; opacity: 0.7; transform: scale(1); }
+
+  /* Team & Settings — the gears turn, meshing in opposite directions. */
+  .nav-ic-gear .gear { transform-box: fill-box; transform-origin: center; }
+  .group:hover .nav-ic-gear .gear1 { animation: nav-gear-spin 1.1s linear infinite; }
+  .group:hover .nav-ic-gear .gear2 { animation: nav-gear-spin 1.1s linear infinite reverse; }
+
+  /* Activity — the hand winds back, matching what "history" means. */
+  .nav-ic-hist .hand {
+    transform-origin: 12px 12px;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  .group:hover .nav-ic-hist .hand { transform: rotate(-28deg); }
+}
