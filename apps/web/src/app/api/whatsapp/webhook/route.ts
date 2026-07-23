@@ -1,6 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ingestInbound } from "@/lib/wa-inbox";
-import { verifyWebhookSignature, webhookVerifyToken } from "@/lib/whatsapp";
+import { verifyWebhookSignature, webhookVerifyToken, explainWaFailure } from "@/lib/whatsapp";
 
 // Meta WhatsApp Cloud API webhook.
 //   GET  — one-time verification handshake (echo hub.challenge when the token matches).
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
         if (!row) continue;
 
         if (status === "failed") {
-          const err = (s.errors?.[0]?.title as string) ?? "Delivery failed";
+          const err = explainWaFailure(s.errors?.[0]);
           await admin.from("campaign_recipients").update({ status: "failed", error: err }).eq("id", row.id);
         } else if ((RANK[status] ?? 0) > (RANK[row.status] ?? 0)) {
           await admin.from("campaign_recipients").update({ status }).eq("id", row.id);
@@ -83,7 +83,7 @@ export async function POST(req: Request) {
         if (!wamid || !status || !tenantId) continue;
         if (status === "failed") {
           await admin.from("wa_messages")
-            .update({ status: "failed", error: (s.errors?.[0]?.title as string) ?? "Delivery failed" })
+            .update({ status: "failed", error: explainWaFailure(s.errors?.[0]) })
             .eq("tenant_id", tenantId).eq("wa_message_id", wamid);
         } else if (["sent", "delivered", "read"].includes(status)) {
           await admin.from("wa_messages").update({ status }).eq("tenant_id", tenantId).eq("wa_message_id", wamid);

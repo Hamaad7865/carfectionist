@@ -1,5 +1,5 @@
 import { describe, expect, it, beforeEach, afterEach } from "vitest";
-import { buildTemplatePayload, buildSendPayload, buildDocumentSendPayload, verifyWebhookSignature, isConfigured } from "./whatsapp";
+import { buildTemplatePayload, buildSendPayload, buildDocumentSendPayload, verifyWebhookSignature, isConfigured, explainWaFailure } from "./whatsapp";
 
 describe("buildTemplatePayload", () => {
   it("builds a BODY component with variable examples", () => {
@@ -125,6 +125,20 @@ describe("document-header templates", () => {
     expect(comps[2]).toEqual({
       type: "button", sub_type: "url", index: "0",
       parameters: [{ type: "text", text: "tok.sig" }],
+    });
+  });
+
+  describe("explainWaFailure", () => {
+    it("turns the opaque 131026 into an actionable sentence", () => {
+      const msg = explainWaFailure({ code: 131026, title: "Message undeliverable" });
+      expect(msg).toContain("isn't reachable on WhatsApp");
+      expect(msg).toContain("email");
+    });
+    it("keeps the title and code for anything unmapped", () => {
+      expect(explainWaFailure({ code: 999999, title: "Weird thing" })).toBe("Weird thing (WhatsApp error 999999)");
+    });
+    it("falls back to a default when Meta sends nothing useful", () => {
+      expect(explainWaFailure(undefined)).toBe("Delivery failed");
     });
   });
 });

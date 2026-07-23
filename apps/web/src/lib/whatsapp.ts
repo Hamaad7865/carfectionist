@@ -350,6 +350,33 @@ export function webhookVerifyToken(): string | undefined {
   return waEnv().verifyToken;
 }
 
+/**
+ * Turn a Meta delivery-failure error into a sentence the operator can act on —
+ * the raw title ("Message undeliverable") tells them nothing about what to do.
+ * Shown verbatim under the failed message in the inbox.
+ * Codes: https://developers.facebook.com/docs/whatsapp/cloud-api/support/error-codes
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function explainWaFailure(err: any): string {
+  const code = Number(err?.code);
+  const title = (err?.title as string) || (err?.message as string) || "Delivery failed";
+  const map: Record<number, string> = {
+    131026: "This number isn't reachable on WhatsApp — it may not have a WhatsApp account, or hasn't accepted WhatsApp's terms. Check the number or send by email instead.",
+    131030: "This number isn't on the WhatsApp test-recipient list. Add it in Meta, or verify the business to message any number.",
+    131047: "The 24-hour reply window has closed — send an approved template to re-open the conversation.",
+    131049: "WhatsApp held this back to limit marketing frequency to this contact. Try again later or send by email.",
+    131051: "WhatsApp couldn't accept this message type.",
+    131053: "WhatsApp couldn't fetch the attached PDF in time. Try again.",
+    132000: "The template's fill-in values didn't match its approved format.",
+    132001: "This template isn't approved (or was paused) — check it in Marketing.",
+    133010: "The WhatsApp number isn't registered yet — finish the Meta setup.",
+    190: "The WhatsApp access token has expired — reconnect WhatsApp in Settings.",
+  };
+  const help = map[code];
+  if (help) return help;
+  return code ? `${title} (WhatsApp error ${code})` : title;
+}
+
 // ─── two-way messaging (the reply inbox) ─────────────────────────────────────
 
 /** Free-typed reply. Meta ONLY allows this inside the 24h service window (i.e.
