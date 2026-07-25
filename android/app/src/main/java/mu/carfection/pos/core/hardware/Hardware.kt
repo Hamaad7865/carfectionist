@@ -212,6 +212,13 @@ object ReceiptText {
         d.billNo?.let { appendLine(center(bold("Bill $it"), w)) }
         appendLine(center(d.saleModeLabel, w))
         appendLine(center(d.dateTime, w))
+        // Who it was for. The builders already fall back to "Walk-in", so this line is never
+        // blank — a counter sale says so rather than leaving the customer unidentified.
+        // Wrapped, not truncated: a long Mauritian name would otherwise lose its surname on
+        // 58mm paper, and it is the customer's own receipt.
+        d.customer.takeIf { it.isNotBlank() }?.let { name ->
+            wrap("Customer : $name", w).forEach { appendLine(center(it, w)) }
+        }
         appendLine(rule(w))
 
         if (d.lines.isNotEmpty()) {

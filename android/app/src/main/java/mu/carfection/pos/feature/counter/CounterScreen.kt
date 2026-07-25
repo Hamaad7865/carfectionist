@@ -1573,6 +1573,10 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         d.billNo?.let { Text("Bill $it", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center) }
         Text(d.saleModeLabel, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
         Text(d.dateTime, color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center)
+        // Who it was for — "Walk-in" when nobody was named, never blank.
+        d.customer.takeIf { it.isNotBlank() }?.let {
+            Text("Customer : $it", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        }
         DashRule()
         // ── items: Qty | Designation | UP | Total ───────────────────────────────
         if (d.lines.isNotEmpty()) {

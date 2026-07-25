@@ -97,6 +97,21 @@ class ReceiptTextTest {
         assertTrue("bill ref", out.any { it.contains("Bill 1-N00000028") })
         assertTrue("sale mode", out.any { it.contains("Sale - SALES [CARFECTIONIST]") })
         assertTrue("timestamp", out.any { it.contains("25-07-2026 12:08:44") })
+        assertTrue("customer", out.any { it.contains("Customer : Walk-in") })
+    }
+
+    /** A named customer is printed; an unnamed counter sale still says who it was for. */
+    @Test
+    fun `the slip always names the customer, walk-in included`() {
+        assertTrue(render().contains("Customer : Walk-in"))
+        assertTrue(ReceiptText.render(referenceDoc().copy(customer = "ANESH KUMAR"), 48).contains("Customer : ANESH KUMAR"))
+        // A long name must not push the line off the paper at either width.
+        for (w in listOf(32, 48)) {
+            ReceiptText.render(referenceDoc().copy(customer = "Jean-Christophe Ramgoolam-Beeharry"), w).lines().forEach {
+                val printed = it.replace(ESC_BOLD_ON.toString(), "").replace(ESC_BOLD_OFF.toString(), "")
+                assertTrue("w=$w overflowed (${printed.length}): $printed", printed.length <= w)
+            }
+        }
     }
 
     /**
