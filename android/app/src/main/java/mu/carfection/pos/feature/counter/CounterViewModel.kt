@@ -31,6 +31,7 @@ import mu.carfection.pos.core.hardware.CashDrawer
 import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
 import mu.carfection.pos.core.hardware.ReceiptPrinter
+import mu.carfection.pos.core.hardware.ReceiptVatGroup
 import mu.carfection.pos.core.money.DocDiscountTotals
 import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.computeDocTotals
@@ -483,31 +484,17 @@ class CounterViewModel @Inject constructor(
     /** Rebuild a past sale's slip from the server's stored lines + payments and show it. */
     fun viewHistoryReceipt(h: SaleHistoryDto) {
         viewModelScope.launch {
-            fun incl(l: SaleHistoryLineDto) = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
-            val sorted = h.lines.sortedBy { it.sortOrder }
-            val positives = sorted.filter { incl(it) >= 0 }
-            val pay = h.payments.filter { it.reversesPaymentId == null }.maxByOrNull { it.receivedAt ?: "" }
-            val doc = ReceiptDoc(
-                biz = catalog.receiptBiz(),
-                invoiceNo = h.number,
-                dateTime = runCatching {
-                    java.time.OffsetDateTime.parse(h.issuedAt)
-                        .atZoneSameInstant(ZoneOffset.ofHours(4))
-                        .format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm"))
-                }.getOrDefault(h.issuedAt?.take(10) ?: "—"),
-                cashier = h.creator?.displayName?.replace(Regex("\\s*\\(.*\\)$"), "") ?: "—",
-                customer = h.customers?.name ?: "Walk-in",
-                lines = positives.map { ReceiptLine(it.title, it.qty, incl(it)) },
-                subtotalCents = positives.sumOf { incl(it) },
-                vatRatePct = catalog.vatDefault().toInt(),
-                vatCents = rupeesToCents(h.vatTotal),
-                discountCents = -sorted.filter { incl(it) < 0 }.sumOf { incl(it) },
-                totalCents = rupeesToCents(h.totalIncl),
-                payLabel = pay?.let { p -> PayMethod.entries.firstOrNull { it.rpcValue == p.method }?.label ?: p.method },
-                paidCents = pay?.tendered?.let { rupeesToCents(it) } ?: rupeesToCents(h.amountPaid),
-                changeCents = pay?.changeGiven?.let { rupeesToCents(it) } ?: 0L,
-                onAccount = pay == null,
-                voided = h.status == "void",
+            // saleReceiptDoc, not a second hand-rolled copy of it. This used to duplicate the
+            // whole builder — and carried the OLD discount rule ("sum of the negative lines"),
+            // which printed Rs 0.00 on any sale discounted per line or on the basket, beside a
+            // Subtotal that then disagreed with the TOTAL underneath it.
+            // Reprints declare themselves: this paper is not the original. The copy number
+            // comes from the audit trail, so it keeps counting across reboots and devices.
+            val printed = h.id?.let { api.receiptPrintCount(it) } ?: 0
+            val doc = saleReceiptDoc(
+                h, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                duplicataNo = if (printed > 0) printed + 1 else null,
+                duplicataAt = if (printed > 0) java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) else null,
             )
             local.value = local.value.copy(viewDoc = doc)
         }
@@ -1117,12 +1104,28 @@ class CounterViewModel @Inject constructor(
                 // It used to print the undiscounted list price, so a slip for a line-discounted
                 // sale listed items that did not add up to the TOTAL printed beneath them, and
                 // contradicted the counter screen it was printed from.
-                val itemLines = s.cart.mapIndexed { i, l -> ReceiptLine(l.product.name, l.qty, s.rowGrossCents(i)) }
-                val subtotalIncl = itemLines.sumOf { it.inclCents }
+                // Each row at FULL price in the "UP" column and at what it actually cost in
+                // "Total", so the slip can spell out the saving line by line. The line's own
+                // discount comes from the cart, never from `full − charged`: VAT rounds once
+                // per line, so that subtraction is a cent adrift on plenty of UNdiscounted
+                // lines and would print a phantom "Discount 0.01" under them.
+                val itemLines = s.cart.mapIndexed { i, l ->
+                    val charged = s.rowGrossCents(i)
+                    val discounted = l.discountPct > 0 || (l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0)
+                    ReceiptLine(
+                        title = l.product.name,
+                        qty = l.qty,
+                        inclCents = charged,
+                        unitInclCents = grossCents(l.product.sellingPriceCents, l.product.vatRatePct),
+                        grossInclCents = if (discounted) l.lineGrossCents else charged,
+                        discountPct = if (l.discountMode == DiscountMode.PCT) l.discountPct.toDouble() else 0.0,
+                    )
+                }
+                val subtotalIncl = itemLines.sumOf { it.grossInclCents }
                 val receipt = ReceiptDoc(
                     biz = catalog.receiptBiz(),
                     invoiceNo = result.number,
-                    dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm")),
+                    dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")),
                     cashier = session.userName,
                     customer = s.customerText.trim().ifBlank { "Walk-in" },
                     lines = itemLines,
@@ -1135,10 +1138,20 @@ class CounterViewModel @Inject constructor(
                     paidCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else result.totalCents,
                     changeCents = result.changeCents,
                     onAccount = result.onAccount,
+                    vatGroups = s.docTotals.let {
+                        listOf(ReceiptVatGroup(catalog.vatDefault(), it.subtotalCents, it.vatCents))
+                    },
                 )
                 launch {
+                    // "No. N" and "Appareil N" are looked up off the hot path: the sale is
+                    // already committed, so a slow or failed lookup costs the slip a line,
+                    // never the sale. Both return null rather than a wrong number.
+                    val stamped = receipt.copy(
+                        ticketNo = s.till?.id?.let { api.sessionTicketNo(it, result.invoiceId) },
+                        terminalNo = api.terminalNo(session.deviceId()),
+                    )
                     val printed = runCatching {
-                        printer.printDoc(receipt) // prints the moment the sale completes
+                        printer.printDoc(stamped) // prints the moment the sale completes
                     }.isSuccess
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
                     logReceiptOutcome(result.number, printed)

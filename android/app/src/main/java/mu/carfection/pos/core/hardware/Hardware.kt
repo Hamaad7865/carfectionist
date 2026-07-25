@@ -48,8 +48,28 @@ data class ReceiptBiz(
     val footer: String = DEFAULT_RECEIPT_FOOTER,
 )
 
-/** One sold line: title, qty, VAT-inclusive line total. */
-data class ReceiptLine(val title: String, val qty: Double, val inclCents: Long)
+/**
+ * One sold line as the slip prints it: the UNDISCOUNTED unit price ("UP" column) beside the
+ * line total the customer actually pays, with the saving spelled out underneath.
+ *
+ * [inclCents] is what this line adds to the bill (post-discount, VAT-inclusive);
+ * [grossInclCents] is what it would have been at full price. The difference is the discount,
+ * so `Σ grossInclCents − Σ inclCents` is exactly the "Discount" the totals block shows.
+ */
+data class ReceiptLine(
+    val title: String,
+    val qty: Double,
+    val inclCents: Long,
+    /** Full unit price, VAT-inclusive, before any line discount. */
+    val unitInclCents: Long = 0,
+    /** qty × unitInclCents — the "Initial price" sub-line, and what Subtotal sums. */
+    val grossInclCents: Long = inclCents,
+    /** Set only for a percentage discount, so the slip can say "Discount 35.0% / 608.30". */
+    val discountPct: Double = 0.0,
+) {
+    /** What this line saved the customer, VAT-inclusive. 0 = print no discount sub-lines. */
+    val discountInclCents: Long get() = (grossInclCents - inclCents).coerceAtLeast(0)
+}
 
 /**
  * The receipt as a structured document — one source of truth rendered two ways:
@@ -63,7 +83,9 @@ data class ReceiptDoc(
     val cashier: String,
     val customer: String,
     val lines: List<ReceiptLine>,
-    val subtotalCents: Long, // gross, VAT-inclusive, before discount
+    // Σ of the lines at FULL price, VAT-inclusive — i.e. before any discount, line or basket.
+    // Subtotal − Discount = TOTAL always holds, so the customer can see what they saved.
+    val subtotalCents: Long,
     val vatRatePct: Int,
     val vatCents: Long,
     val discountCents: Long, // total discount, VAT-inclusive (>= 0)
@@ -81,8 +103,21 @@ data class ReceiptDoc(
     val payments: List<ReceiptPayment> = emptyList(),
     // A voided invoice must never reprint looking alive — the web card stamps it, so do we.
     val voided: Boolean = false,
+    // ── the fiscal slip's identity block (matches the studio's Cashmag layout) ──
+    /** "No. 11" — this sale's position within the current till session. */
+    val ticketNo: Int? = null,
+    /** "Appareil 1" — which terminal rang it up. */
+    val terminalNo: Int? = null,
+    /** "Duplicata 2 - <when>" — set only when this is a REPRINT, never on the original. */
+    val duplicataNo: Int? = null,
+    val duplicataAt: String? = null,
+    /** Per-VAT-rate tax breakdown ("TAUX NORMAL 15.0% : 202.23Rs"). */
+    val vatGroups: List<ReceiptVatGroup> = emptyList(),
 ) {
     val footer: String get() = biz.footer
+
+    /** "Sale - SALES [CARFECTIONIST]" — the sale-mode line under the numbers. */
+    val saleModeLabel: String get() = "Sale - SALES [${biz.name.uppercase()}]"
 
     /** Under-barcode caption, matching the web card: "INV-0004 · 18072026". Falls back to
      *  the bare number when the display date doesn't parse (offline fallback strings). */
@@ -96,6 +131,13 @@ data class ReceiptDoc(
 
 /** One dated payment row on the slip (a deposit, the balance, a reversal). */
 data class ReceiptPayment(val dateTime: String, val method: String, val amountCents: Long, val isReversal: Boolean = false)
+
+/** One VAT rate's tax line: base excl., the tax itself, and the inclusive figure. */
+data class ReceiptVatGroup(val ratePct: Double, val baseCents: Long, val vatCents: Long) {
+    val inclCents: Long get() = baseCents + vatCents
+    /** The reference slip's wording, kept verbatim from the studio's own receipt. */
+    val label: String get() = "TAUX NORMAL " + (if (ratePct % 1.0 == 0.0) "%.1f".format(ratePct) else ratePct.toString()) + "%"
+}
 
 /**
  * Renders a [ReceiptDoc] to the plain text a thermal printer prints — mirroring
@@ -127,53 +169,125 @@ object ReceiptText {
         return out
     }
 
+    /** Plain 2dp, NO thousands separator — the studio's slip prints "2233.00", not "2,233.00". */
+    private fun plain(c: Long): String {
+        val n = c < 0
+        val a = if (n) -c else c
+        return (if (n) "-" else "") + (a / 100).toString() + "." + (a % 100).toString().padStart(2, '0')
+    }
+
+    /** "1550.45Rs" — the reference puts the unit AFTER the figure. */
+    private fun rs(c: Long) = plain(c) + "Rs"
+
+    private fun bold(s: String) = "$ESC_BOLD_ON$s$ESC_BOLD_OFF"
+    private fun qtyText(q: Double) = if (q % 1.0 == 0.0) q.toInt().toString() else q.toString()
+
+    /**
+     * Laid out to match the studio's own fiscal slip section for section: identity, the
+     * numbered sale block, Qty/Designation/UP/Total columns with each line's saving spelled
+     * out beneath it, a Subtotal/Discount/Total block that shows what the discount was worth,
+     * the tender lines, the per-rate tax breakdown, and the fiscal footer.
+     */
     fun render(d: ReceiptDoc, w: Int = 32): String = buildString {
-        appendLine(center(d.biz.name.uppercase(), w))
-        d.biz.address?.takeIf { it.isNotBlank() }?.let { appendLine(center(it, w)) }
-        val ids = listOfNotNull(d.biz.brn?.let { "BRN $it" }, d.biz.vatNo?.let { "VAT $it" }).joinToString(" · ")
-        if (ids.isNotBlank()) appendLine(center(ids, w))
-        d.biz.phone?.takeIf { it.isNotBlank() }?.let { appendLine(center(it, w)) }
+        // ── identity ──────────────────────────────────────────────────────────────
+        // The logo raster is prepended by the transport, so the name only prints when
+        // there is no logo — otherwise the studio's name would appear on the slip twice.
+        if (d.biz.logoFile == null) appendLine(center(bold(d.biz.name.uppercase()), w))
+        // "Helvetia, 80840 Moka, MU" prints as two centred lines, as on the reference.
+        d.biz.address?.takeIf { it.isNotBlank() }?.split(",", limit = 2)?.forEach {
+            val part = it.trim()
+            if (part.isNotEmpty()) appendLine(center(part, w))
+        }
         appendLine(rule(w))
         if (d.voided) {
-            appendLine(center("*** VOID ***", w))
+            appendLine(center(bold("*** VOID ***"), w))
             appendLine(rule(w))
         }
-        appendLine(kv("Invoice", d.invoiceNo ?: "—", w))
-        appendLine(kv("Date", d.dateTime, w))
-        appendLine(kv("Cashier", d.cashier, w))
-        appendLine(kv("Customer", d.customer, w))
+
+        // ── the numbered sale block ───────────────────────────────────────────────
+        d.ticketNo?.let { appendLine(center(bold("No. $it"), w)) }
+        appendLine(center("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", w))
+        appendLine(center(d.saleModeLabel, w))
+        appendLine(center(d.dateTime, w))
         appendLine(rule(w))
-        // What the customer bought belongs on the slip whether they paid at the counter or
-        // against a job's invoice — how the money arrived says nothing about what it was
-        // for. Print the items whenever we have them; only a slip we could not price
-        // (offline fallback) falls back to a bare total.
+
         if (d.lines.isNotEmpty()) {
+            // ── items: Qty | Designation | UP | Total ─────────────────────────────
+            // Columns scale with the paper: the money columns keep their width and the
+            // designation takes what is left, so 58mm and 80mm both stay aligned.
+            val qtyW = 4
+            val numW = if (w >= 48) 10 else 8
+            val nameW = (w - qtyW - numW * 2).coerceAtLeast(6)
+            appendLine("Qty ".take(qtyW).padEnd(qtyW) + "Designation".take(nameW).padEnd(nameW) + "UP".padStart(numW) + "Total".padStart(numW))
             d.lines.forEach { l ->
-                val qty = if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString()
-                val amt = money(l.inclCents)
-                val nameW = w - amt.length - 1
-                appendLine("$qty x ${l.title}".take(nameW).padEnd(nameW) + " " + amt)
+                appendLine(
+                    qtyText(l.qty).take(qtyW).padEnd(qtyW) + l.title.take(nameW).padEnd(nameW) +
+                        plain(l.unitInclCents).padStart(numW) + plain(l.inclCents).padStart(numW),
+                )
+                // What they saved, in the reference's own words — only when there IS a saving.
+                if (l.discountInclCents > 0) {
+                    appendLine("Initial price : " + plain(l.grossInclCents))
+                    appendLine(
+                        if (l.discountPct > 0) "Discount " + "%.1f".format(l.discountPct) + "% / " + plain(l.discountInclCents)
+                        else "Discount : " + plain(l.discountInclCents),
+                    )
+                }
             }
             appendLine(rule(w))
-            appendLine(kv("Subtotal", money(d.subtotalCents), w))
-            // Zero prints as noise — the web card hides it too.
-            if (d.discountCents > 0) appendLine(kv("Discount", money(d.discountCents), w))
+
+            // ── totals ────────────────────────────────────────────────────────────
+            // Subtotal is the lines at FULL price and Discount is the gap to the total, so
+            // Subtotal − Discount = Total foots however the discount was stored (per line,
+            // whole-basket, or both).
+            appendLine(kv("    Subtotal :", plain(d.subtotalCents), w))
+            if (d.discountCents > 0) appendLine(kv("    Discount :", plain(d.discountCents), w))
         }
-        appendLine(kv("TOTAL", money(d.totalCents), w))
-        if (d.lines.isNotEmpty()) appendLine(kv("Excl. VAT", money(d.totalCents - d.vatCents), w))
-        if (d.onAccount) appendLine(kv("On account", money(d.totalCents), w))
-        else if (d.payments.size > 1) {
+        appendLine(center(bold("Total: " + rs(d.totalCents)), w))
+        if (d.lines.isNotEmpty()) appendLine(center(bold("excl. VAT : " + rs(d.totalCents - d.vatCents)), w))
+        appendLine(rule(w))
+
+        // ── tenders ───────────────────────────────────────────────────────────────
+        if (d.onAccount) {
+            appendLine("1   ON ACCOUNT : " + rs(d.totalCents))
+        } else if (d.payments.size > 1) {
             // A deposit then the balance — one dated line per payment.
-            d.payments.forEach { p -> appendLine(kv("${p.method} ${p.dateTime}", money(p.amountCents), w)) }
+            d.payments.forEach { p -> appendLine("1   ${p.method.uppercase()} ${p.dateTime} : " + rs(p.amountCents)) }
         } else {
-            appendLine(kv("Paid · ${d.payLabel?.lowercase()}", money(d.paidCents), w))
-            appendLine(kv("Change", money(d.changeCents), w))
+            appendLine("1   ${(d.payLabel ?: "PAID").uppercase()} : " + rs(d.paidCents))
+            if (d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
         }
         // The one number a customer leaving a deposit needs to see on the paper.
-        if (d.balanceDueCents > 0) appendLine(kv("BALANCE DUE", money(d.balanceDueCents), w))
+        if (d.balanceDueCents > 0) appendLine(kv("    BALANCE DUE :", plain(d.balanceDueCents), w))
         appendLine(rule(w))
-        wrap(d.footer, w).forEach { appendLine(center(it, w)) }
-        appendLine(center("powered by ${d.biz.name}", w))
+
+        // ── tax breakdown ─────────────────────────────────────────────────────────
+        if (d.lines.isNotEmpty()) {
+            val groups = d.vatGroups.ifEmpty {
+                listOf(ReceiptVatGroup(d.vatRatePct.toDouble(), d.totalCents - d.vatCents, d.vatCents))
+            }
+            groups.forEach { g ->
+                appendLine("${g.label} : " + rs(g.vatCents))
+                // One line on 80mm as the reference has it; 58mm can't hold it, so it
+                // breaks in two rather than running off the edge of the paper.
+                val both = "excl. VAT = " + rs(g.baseCents) + " / Incl. tax = " + rs(g.inclCents)
+                if (both.length <= w) appendLine(both)
+                else {
+                    appendLine("excl. VAT = " + rs(g.baseCents))
+                    appendLine("Incl. tax = " + rs(g.inclCents))
+                }
+            }
+            appendLine(rule(w))
+        }
+
+        // ── fiscal footer ─────────────────────────────────────────────────────────
+        wrap(d.footer, w).forEach { appendLine(center(bold(it), w)) }
+        // A reprint has to declare itself — the original is the only one that doesn't.
+        d.duplicataNo?.let { appendLine(center("Duplicata $it" + (d.duplicataAt?.let { at -> " - $at" } ?: ""), w)) }
+        d.terminalNo?.let { appendLine(center("Appareil $it", w)) }
+        d.biz.brn?.takeIf { it.isNotBlank() }?.let { appendLine(center("BRN : $it", w)) }
+        // Stored as "VAT28070619"; the slip states the number itself under its own label.
+        d.biz.vatNo?.takeIf { it.isNotBlank() }?.let { appendLine(center("VAT number : " + it.removePrefix("VAT").trim(), w)) }
+        appendLine(center(d.cashier, w))
     }
 }
 

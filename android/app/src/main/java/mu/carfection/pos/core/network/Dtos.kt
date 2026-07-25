@@ -227,6 +227,14 @@ data class SaleHistoryLineDto(
     @SerialName("line_total_excl") val lineTotalExcl: FlexDouble = 0.0,
     @SerialName("line_vat") val lineVat: FlexDouble = 0.0,
     @SerialName("sort_order") val sortOrder: Int = 0,
+    // The slip prints the UNDISCOUNTED unit price ("UP") beside the discounted line total,
+    // then spells the saving out underneath — so a reprint has to carry the discount too,
+    // or the reprinted paper silently loses what the customer was shown at the counter.
+    @SerialName("unit_price") val unitPrice: FlexDouble = 0.0,
+    @SerialName("vat_rate") val vatRate: FlexDouble = 15.0,
+    @SerialName("discount_kind") val discountKind: String? = null, // percent | amount
+    @SerialName("discount_pct") val discountPct: FlexDouble = 0.0,
+    @SerialName("discount_amount") val discountAmount: FlexDouble = 0.0, // VAT-INCLUSIVE, as typed
 )
 
 @Serializable
@@ -482,4 +490,17 @@ data class NewCustomerDto(
     val address: String? = null,
     val brn: String? = null,
     @SerialName("vat_number") val vatNumber: String? = null,
+)
+
+/** Minimal projections for the receipt's "No. N" / "Appareil N" lookups. */
+@Serializable
+data class PaymentDocRefDto(
+    @SerialName("document_id") val documentId: String = "",
+    @SerialName("received_at") val receivedAt: String? = null,
+)
+
+@Serializable
+data class DeviceOrdinalDto(
+    @SerialName("device_code") val deviceCode: String = "",
+    @SerialName("first_seen") val firstSeen: String? = null,
 )

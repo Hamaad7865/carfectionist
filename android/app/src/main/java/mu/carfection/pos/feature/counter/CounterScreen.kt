@@ -1529,6 +1529,12 @@ private fun rsSlip(cents: Long): String {
     return (if (neg) "-" else "") + "Rs $grouped.${(a % 100).toString().padStart(2, '0')}"
 }
 
+/** Plain 2dp, NO thousands separator — the studio's slip reads "2233.00", not "Rs 2,233.00". */
+private fun plainSlip(cents: Long): String {
+    val neg = cents < 0; val a = if (neg) -cents else cents
+    return (if (neg) "-" else "") + "${a / 100}.${(a % 100).toString().padStart(2, '0')}"
+}
+
 /** The on-screen paper slip — styled to the studio's retail receipt (no PAID stamp). */
 @Composable
 internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifier: Modifier = Modifier) {
@@ -1547,55 +1553,94 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
                 contentScale = androidx.compose.ui.layout.ContentScale.Fit,
             )
         }
-        Text(d.biz.name.uppercase(), color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 0.5.sp, textAlign = TextAlign.Center)
-        d.biz.address?.takeIf { it.isNotBlank() }?.let {
-            Text(it, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 3.dp))
+        // The logo already carries the studio's name — printing it again duplicates it,
+        // exactly as the paper slip does.
+        if (d.biz.logoFile == null) {
+            Text(d.biz.name.uppercase(), color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 0.5.sp, textAlign = TextAlign.Center)
         }
-        val ids = listOfNotNull(d.biz.brn?.let { "BRN $it" }, d.biz.vatNo?.let { "VAT $it" }).joinToString(" · ")
-        if (ids.isNotBlank()) Text(ids, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
-        d.biz.phone?.takeIf { it.isNotBlank() }?.let { Text(it, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp) }
+        // "Helvetia, 80840 Moka, MU" reads as two centred lines, as on the paper.
+        d.biz.address?.takeIf { it.isNotBlank() }?.split(",", limit = 2)?.forEach { part ->
+            val t = part.trim()
+            if (t.isNotEmpty()) Text(t, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center)
+        }
 
         DashRule()
-        // meta rows
-        SlipRow("Invoice", d.invoiceNo ?: "—")
-        SlipRow("Date", d.dateTime)
-        SlipRow("Cashier", d.cashier)
-        SlipRow("Customer", d.customer)
+        // ── the numbered sale block ─────────────────────────────────────────────
+        d.ticketNo?.let {
+            Text("No. $it", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, textAlign = TextAlign.Center)
+        }
+        Text("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        Text(d.saleModeLabel, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
+        Text(d.dateTime, color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center)
         DashRule()
-        // items — what was bought belongs on the slip however the money arrived
+        // ── items: Qty | Designation | UP | Total ───────────────────────────────
         if (d.lines.isNotEmpty()) {
+            Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
+                Text("Qty", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.width(24.dp))
+                Text("Designation", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.weight(1f))
+                Text("UP", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
+                Text("Total", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+            }
             d.lines.forEach { l ->
-                Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.Top) {
-                    Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty} ×", color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.width(28.dp))
-                    Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
-                    Text(rsSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontSize = 11.sp, modifier = Modifier.padding(start = 6.dp))
+                Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
+                    Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty}", color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.width(24.dp))
+                    Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
+                    Text(plainSlip(l.unitInclCents), color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
+                    Text(plainSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+                }
+                // What this line saved — only when there was a saving.
+                if (l.discountInclCents > 0) {
+                    Text("Initial price : ${plainSlip(l.grossInclCents)}", color = PaperFaint, fontFamily = Mono, fontSize = 9.5.sp, modifier = Modifier.fillMaxWidth())
+                    Text(
+                        if (l.discountPct > 0) "Discount ${"%.1f".format(l.discountPct)}% / ${plainSlip(l.discountInclCents)}"
+                        else "Discount : ${plainSlip(l.discountInclCents)}",
+                        color = PaperFaint, fontFamily = Mono, fontSize = 9.5.sp, modifier = Modifier.fillMaxWidth(),
+                    )
                 }
             }
             DashRule()
+            // ── totals: Subtotal is PRE-discount, so the saving is visible ───────
+            SlipRow("    Subtotal :", plainSlip(d.subtotalCents))
+            if (d.discountCents > 0) SlipRow("    Discount :", plainSlip(d.discountCents))
         }
-        // totals — a zero discount prints as noise; the web card hides it too
+        Text("Total: ${plainSlip(d.totalCents)}Rs", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 5.dp))
         if (d.lines.isNotEmpty()) {
-            SlipRow("Subtotal", rsSlip(d.subtotalCents))
-            if (d.discountCents > 0) SlipRow("Discount", rsSlip(d.discountCents))
+            Text("excl. VAT : ${plainSlip(d.totalCents - d.vatCents)}Rs", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = TextAlign.Center)
         }
-        Row(Modifier.fillMaxWidth().padding(top = 6.dp, bottom = 2.dp)) {
-            Text("TOTAL", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
-            Text(rsSlip(d.totalCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        }
-        if (d.lines.isNotEmpty()) SlipRow("Excl. VAT", rsSlip(d.totalCents - d.vatCents))
-        if (d.onAccount) SlipRow("On account", rsSlip(d.totalCents), strong = true)
+        DashRule()
+        // ── tenders ─────────────────────────────────────────────────────────────
+        if (d.onAccount) Text("1   ON ACCOUNT : ${plainSlip(d.totalCents)}Rs", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
         else if (d.payments.size > 1) {
-            // Deposit then balance — each dated, so the customer sees the breakdown.
-            d.payments.forEach { p -> SlipRow("${p.method} · ${p.dateTime}", rsSlip(p.amountCents)) }
+            d.payments.forEach { p ->
+                Text("1   ${p.method.uppercase()} ${p.dateTime} : ${plainSlip(p.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+            }
         } else {
-            SlipRow("Paid · ${d.payLabel?.lowercase()}", rsSlip(d.paidCents))
-            SlipRow("Change", rsSlip(d.changeCents))
+            Text("1   ${(d.payLabel ?: "PAID").uppercase()} : ${plainSlip(d.paidCents)}Rs", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+            if (d.changeCents > 0) SlipRow("    Change :", plainSlip(d.changeCents))
         }
         // A deposit is only half a story without the half still to pay.
-        if (d.balanceDueCents > 0) SlipRow("Balance due", rsSlip(d.balanceDueCents), strong = true)
+        if (d.balanceDueCents > 0) SlipRow("    BALANCE DUE :", plainSlip(d.balanceDueCents), strong = true)
         DashRule()
-        Text(d.footer, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 14.sp, textAlign = TextAlign.Center)
-        Text("powered by ${d.biz.name}", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 8.5.sp, letterSpacing = 0.3.sp, modifier = Modifier.padding(top = 6.dp, bottom = 12.dp))
+        // ── tax breakdown ───────────────────────────────────────────────────────
+        if (d.lines.isNotEmpty()) {
+            val groups = d.vatGroups.ifEmpty {
+                listOf(mu.carfection.pos.core.hardware.ReceiptVatGroup(d.vatRatePct.toDouble(), d.totalCents - d.vatCents, d.vatCents))
+            }
+            groups.forEach { g ->
+                Text("${g.label} : ${plainSlip(g.vatCents)}Rs", color = PaperInk, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.fillMaxWidth())
+                Text("excl. VAT = ${plainSlip(g.baseCents)}Rs / Incl. tax = ${plainSlip(g.inclCents)}Rs", color = PaperFaint, fontFamily = Mono, fontSize = 9.5.sp, modifier = Modifier.fillMaxWidth())
+            }
+            DashRule()
+        }
+        // ── fiscal footer ───────────────────────────────────────────────────────
+        Text(d.footer, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, textAlign = TextAlign.Center)
+        d.duplicataNo?.let {
+            Text("Duplicata $it" + (d.duplicataAt?.let { at -> " - $at" } ?: ""), color = PaperFaint, fontFamily = Mono, fontSize = 9.5.sp, textAlign = TextAlign.Center)
+        }
+        d.terminalNo?.let { Text("Appareil $it", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
+        d.biz.brn?.takeIf { it.isNotBlank() }?.let { Text("BRN : $it", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
+        d.biz.vatNo?.takeIf { it.isNotBlank() }?.let { Text("VAT number : ${it.removePrefix("VAT").trim()}", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
+        Text(d.cashier, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 10.dp))
         // barcode of the invoice number, captioned like the web card ("INV-0004 · 18072026")
         d.invoiceNo?.let { no ->
             Barcode128(no, Modifier.fillMaxWidth().height(44.dp))

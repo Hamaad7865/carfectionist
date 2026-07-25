@@ -232,6 +232,51 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         })
     }
 
+    /**
+     * "No. 11" — this sale's position within the till session. Counted from the payments
+     * booked to the session, so a reprint of an old sale still shows the number it had.
+     * Returns null rather than a wrong number if the count can't be read.
+     */
+    suspend fun sessionTicketNo(cashSessionId: String, documentId: String): Int? = runCatching {
+        val ids = client.postgrest.from("payments")
+            .select(Columns.raw("document_id, received_at")) {
+                filter { eq("booked_session_id", cashSessionId) }
+                order("received_at", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList<PaymentDocRefDto>()
+            .map { it.documentId }
+            .distinct()
+        val idx = ids.indexOf(documentId)
+        if (idx >= 0) idx + 1 else null
+    }.getOrNull()
+
+    /**
+     * "Appareil 1" — this tablet's ordinal in the studio's device registry (registration
+     * order), so two terminals print distinguishable slips.
+     */
+    suspend fun terminalNo(deviceCode: String): Int? = runCatching {
+        client.postgrest.from("devices")
+            .select(Columns.raw("device_code, first_seen")) {
+                order("first_seen", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList<DeviceOrdinalDto>()
+            .indexOfFirst { it.deviceCode == deviceCode }
+            .takeIf { it >= 0 }?.plus(1)
+    }.getOrNull()
+
+    /**
+     * How many times this sale's receipt has already been printed — the slip's "Duplicata N".
+     * Read from the audit trail rather than a local counter so the number survives a reboot,
+     * a different tablet, and the back office printing a copy. 0 = never printed = the original.
+     */
+    suspend fun receiptPrintCount(documentId: String): Int = runCatching {
+        client.postgrest.from("audit_events")
+            .select(Columns.raw("id")) {
+                filter { eq("ref_id", documentId); eq("event_type", "receipt_printed") }
+            }
+            .decodeList<kotlinx.serialization.json.JsonObject>().size
+    }.getOrDefault(0)
+
     // ── Jobs board ──────────────────────────────────────────────────────────────
     // documents↔jobs have TWO relationships (documents.job_id AND
     // jobs.source_quote_id) — every embed between them MUST name its FK or
@@ -599,7 +644,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     private val SALE_COLS =
         "id, number, status, issued_at, total_incl, vat_total, amount_paid, " +
             "customers(name, phone, email), creator:app_users!documents_created_by_fkey(display_name), " +
-            "document_lines(title, qty, line_total_excl, line_vat, sort_order), " +
+            "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount), " +
             "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"
 
     /** Past sales with lines + payments — the history list and its reprints. */
