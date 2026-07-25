@@ -264,6 +264,11 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     suspend fun terminalNo(deviceCode: String): Int? = runCatching {
         client.postgrest.from("devices")
             .select(Columns.raw("device_code, first_seen")) {
+                // ACTIVE terminals only, oldest first — the same list the back office counts.
+                // Without this filter a retired tablet (registered before both live ones) shifts
+                // every ordinal, and the paper slip would say "Appareil 2" where the web copy of
+                // the same sale says "Appareil 1".
+                filter { eq("is_active", true) }
                 order("first_seen", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }
             .decodeList<DeviceOrdinalDto>()

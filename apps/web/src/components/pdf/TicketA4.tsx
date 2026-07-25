@@ -53,7 +53,16 @@ export function TicketA4({ r }: { r: ReceiptData }) {
           {r.lines.map((l, i) => (
             <tr key={i}>
               <td style={{ ...td, textAlign: "left" }}>{Number.isInteger(l.qty) ? l.qty : l.qty.toFixed(2)}</td>
-              <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{l.title}</td>
+              <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>
+                {l.title}
+                {/* The unit columns state the FULL price, as on the slip — so a discounted line
+                    has to name what closed the gap to its total, or the money looks lost. */}
+                {l.discountInclCents > 0 && (
+                  <div style={{ fontSize: 10.5, fontWeight: 400, color: "#8a6410", marginTop: 1 }}>
+                    less {l.discountLabel} · {formatMUR(l.discountInclCents)}
+                  </div>
+                )}
+              </td>
               <td style={td}>{formatMUR(l.unitExclCents)}</td>
               <td style={td}>{formatMUR(l.unitInclCents)}</td>
               <td style={td}>{formatMUR(l.totalExclCents)}</td>
@@ -84,11 +93,20 @@ export function TicketA4({ r }: { r: ReceiptData }) {
           </tbody>
         </table>
         <div style={{ minWidth: 260 }}>
+          {/* Subtotal is the lines at FULL price, so Subtotal − Discount = TOTAL foots here the
+              same way it does on the slip. Without the Subtotal row the discount was a figure
+              with nothing to subtract it from. */}
           {r.discountInclCents > 0 && (
-            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "5px 0", color: "#8a6410" }}>
-              <span>Discount</span>
-              <span style={{ fontVariantNumeric: "tabular-nums" }}>−{formatMUR(r.discountInclCents)}</span>
-            </div>
+            <>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0" }}>
+                <span style={{ color: "#5b6572" }}>Subtotal incl</span>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontWeight: 600 }}>{formatMUR(r.subtotalInclCents)}</span>
+              </div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, padding: "5px 0", color: "#8a6410" }}>
+                <span>Discount</span>
+                <span style={{ fontVariantNumeric: "tabular-nums" }}>−{formatMUR(r.discountInclCents)}</span>
+              </div>
+            </>
           )}
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "5px 0" }}>
             <span style={{ color: "#5b6572" }}>Total excl</span>
