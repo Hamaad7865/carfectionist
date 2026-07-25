@@ -51,6 +51,7 @@ class ReceiptTextTest {
         changeCents = 0,
         onAccount = false,
         ticketNo = 11,
+        billNo = "1-N00000028",
         terminalNo = 1,
         vatGroups = listOf(ReceiptVatGroup(15.0, 134822, 20223)),
     )
@@ -93,15 +94,47 @@ class ReceiptTextTest {
         val out = render().lines()
         assertTrue("ticket no", out.any { it.contains("No. 11") })
         assertTrue("vat invoice", out.any { it.contains("NUM VAT INVOICE INV-0031") })
+        assertTrue("bill ref", out.any { it.contains("Bill 1-N00000028") })
         assertTrue("sale mode", out.any { it.contains("Sale - SALES [CARFECTIONIST]") })
         assertTrue("timestamp", out.any { it.contains("25-07-2026 12:08:44") })
+    }
+
+    /**
+     * Emphasis, matching the studio's slip: the numbers that identify the sale, each item,
+     * the money the customer pays, and the thank-you. The discount sub-lines, the column
+     * header and the tax breakdown stay light so the bold actually means something.
+     */
+    @Test
+    fun `the lines the reference prints heavy are the ones we embolden`() {
+        fun isBold(needle: String) = render().lines()
+            .first { it.contains(needle) }
+            .let { it.contains(ESC_BOLD_ON) && it.contains(ESC_BOLD_OFF) }
+
+        listOf("No. 11", "NUM VAT INVOICE", "Bill 1-N", "HANGING CAR DIFFU", "SAVORE CARD AIR FR",
+               "Total: 1550.45Rs", "excl. VAT : 1348.22Rs", "BANK CARD", "Thank you for visiting.")
+            .forEach { assertTrue("expected BOLD: $it", isBold(it)) }
+
+        listOf("Initial price : 1738.00", "Discount 35.0% / 608.30", "Qty Designation",
+               "Subtotal :", "TAUX NORMAL")
+            .forEach { assertFalse("expected light: $it", isBold(it)) }
+    }
+
+    @Test
+    fun `the bill reference is terminal and padded order number`() {
+        assertEquals("1-N00000028", mu.carfection.pos.core.data.billRef(28L, 1))
+        assertEquals("2-N00003210", mu.carfection.pos.core.data.billRef(3210L, 2))
+        // Unknown terminal falls back to 1; an unknown bill number omits the line entirely.
+        assertEquals("1-N00000005", mu.carfection.pos.core.data.billRef(5L, null))
+        assertEquals(null, mu.carfection.pos.core.data.billRef(null, 1))
     }
 
     @Test
     fun `items print qty, designation, full unit price and the discounted total`() {
         val out = render().lines()
         assertTrue("column header", out.any { it.startsWith("Qty ") && it.contains("Designation") && it.contains("UP") && it.trimEnd().endsWith("Total") })
+        // The row is emphasised, so strip the bold sentinels before reading its columns.
         val row = out.first { it.contains("HANGING CAR DIFFU") }
+            .replace(ESC_BOLD_ON.toString(), "").replace(ESC_BOLD_OFF.toString(), "")
         assertTrue("qty first", row.startsWith("1"))
         assertTrue("UP is the FULL price, not the discounted one", row.contains("1738.00"))
         assertTrue("line total is what it cost", row.contains("1129.70"))
@@ -128,6 +161,24 @@ class ReceiptTextTest {
     @Test
     fun `tender line names the method and the amount`() {
         assertTrue(render().contains("1   BANK CARD : 1550.45Rs"))
+    }
+
+    /** The leading digit counts tenders of that kind — a split used to print "1" on every row. */
+    @Test
+    fun `a split bill counts each method rather than printing 1 three times`() {
+        val d = referenceDoc().copy(
+            payLabel = "Split",
+            payments = listOf(
+                ReceiptPayment("25/07 12:08", "Cash", 50000),
+                ReceiptPayment("25/07 12:09", "Cash", 30000),
+                ReceiptPayment("25/07 12:10", "Card", 75045),
+            ),
+        )
+        val out = ReceiptText.render(d, 48)
+        assertTrue("two cash legs collapse into one counted row", out.contains("2   CASH : 800.00Rs"))
+        assertTrue("the card leg stands alone", out.contains("1   CARD : 750.45Rs"))
+        // And the tenders still add up to the bill.
+        assertEquals(d.totalCents, 50000L + 30000L + 75045L)
     }
 
     @Test

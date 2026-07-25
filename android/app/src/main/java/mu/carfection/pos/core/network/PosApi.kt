@@ -250,6 +250,13 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         if (idx >= 0) idx + 1 else null
     }.getOrNull()
 
+    /** The internal order reference for a just-issued sale — the slip's "Bill" line. */
+    suspend fun billNoFor(documentId: String): Long? = runCatching {
+        client.postgrest.from("documents")
+            .select(Columns.raw("bill_no")) { filter { eq("id", documentId) } }
+            .decodeList<BillNoDto>().firstOrNull()?.billNo
+    }.getOrNull()
+
     /**
      * "Appareil 1" — this tablet's ordinal in the studio's device registry (registration
      * order), so two terminals print distinguishable slips.
@@ -644,6 +651,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     private val SALE_COLS =
         "id, number, status, issued_at, total_incl, vat_total, amount_paid, " +
             "customers(name, phone, email), creator:app_users!documents_created_by_fkey(display_name), " +
+            "bill_no, " +
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount), " +
             "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"
 

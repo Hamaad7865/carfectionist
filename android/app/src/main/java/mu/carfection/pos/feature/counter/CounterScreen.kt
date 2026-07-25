@@ -1569,7 +1569,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         d.ticketNo?.let {
             Text("No. $it", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, textAlign = TextAlign.Center)
         }
-        Text("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        Text("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        d.billNo?.let { Text("Bill $it", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center) }
         Text(d.saleModeLabel, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
         Text(d.dateTime, color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center)
         DashRule()
@@ -1583,10 +1584,10 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             }
             d.lines.forEach { l ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
-                    Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty}", color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, modifier = Modifier.width(24.dp))
-                    Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
-                    Text(plainSlip(l.unitInclCents), color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
-                    Text(plainSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+                    Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.width(24.dp))
+                    Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
+                    Text(plainSlip(l.unitInclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
+                    Text(plainSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
                 }
                 // What this line saved — only when there was a saving.
                 if (l.discountInclCents > 0) {
@@ -1609,13 +1610,13 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         DashRule()
         // ── tenders ─────────────────────────────────────────────────────────────
-        if (d.onAccount) Text("1   ON ACCOUNT : ${plainSlip(d.totalCents)}Rs", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+        if (d.onAccount) Text("1   ON ACCOUNT : ${plainSlip(d.totalCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
         else if (d.payments.size > 1) {
             d.payments.forEach { p ->
-                Text("1   ${p.method.uppercase()} ${p.dateTime} : ${plainSlip(p.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+                Text("1   ${p.method.uppercase()} ${p.dateTime} : ${plainSlip(p.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
             }
         } else {
-            Text("1   ${(d.payLabel ?: "PAID").uppercase()} : ${plainSlip(d.paidCents)}Rs", color = PaperInk, fontFamily = Mono, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+            Text("1   ${(d.payLabel ?: "PAID").uppercase()} : ${plainSlip(d.paidCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
             if (d.changeCents > 0) SlipRow("    Change :", plainSlip(d.changeCents))
         }
         // A deposit is only half a story without the half still to pay.

@@ -106,6 +106,8 @@ data class ReceiptDoc(
     // ── the fiscal slip's identity block (matches the studio's Cashmag layout) ──
     /** "No. 11" — this sale's position within the current till session. */
     val ticketNo: Int? = null,
+    /** "Bill 1-N00000028" — the internal order reference, already formatted. */
+    val billNo: String? = null,
     /** "Appareil 1" — which terminal rang it up. */
     val terminalNo: Int? = null,
     /** "Duplicata 2 - <when>" — set only when this is a REPRINT, never on the original. */
@@ -206,7 +208,8 @@ object ReceiptText {
 
         // ── the numbered sale block ───────────────────────────────────────────────
         d.ticketNo?.let { appendLine(center(bold("No. $it"), w)) }
-        appendLine(center("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", w))
+        appendLine(center(bold("NUM VAT INVOICE ${d.invoiceNo ?: "—"}"), w))
+        d.billNo?.let { appendLine(center(bold("Bill $it"), w)) }
         appendLine(center(d.saleModeLabel, w))
         appendLine(center(d.dateTime, w))
         appendLine(rule(w))
@@ -220,9 +223,13 @@ object ReceiptText {
             val nameW = (w - qtyW - numW * 2).coerceAtLeast(6)
             appendLine("Qty ".take(qtyW).padEnd(qtyW) + "Designation".take(nameW).padEnd(nameW) + "UP".padStart(numW) + "Total".padStart(numW))
             d.lines.forEach { l ->
+                // The item itself carries the weight; its discount sub-lines stay light, so the
+                // eye lands on what was bought and what it cost — as on the studio's own slip.
                 appendLine(
-                    qtyText(l.qty).take(qtyW).padEnd(qtyW) + l.title.take(nameW).padEnd(nameW) +
-                        plain(l.unitInclCents).padStart(numW) + plain(l.inclCents).padStart(numW),
+                    bold(
+                        qtyText(l.qty).take(qtyW).padEnd(qtyW) + l.title.take(nameW).padEnd(nameW) +
+                            plain(l.unitInclCents).padStart(numW) + plain(l.inclCents).padStart(numW),
+                    ),
                 )
                 // What they saved, in the reference's own words — only when there IS a saving.
                 if (l.discountInclCents > 0) {
@@ -247,13 +254,21 @@ object ReceiptText {
         appendLine(rule(w))
 
         // ── tenders ───────────────────────────────────────────────────────────────
+        // The leading digit is the COUNT of tenders of that kind, as on the reference slip —
+        // two cash legs of a split read "2   CASH", not "1" twice.
         if (d.onAccount) {
-            appendLine("1   ON ACCOUNT : " + rs(d.totalCents))
+            appendLine(bold("1   ON ACCOUNT : " + rs(d.totalCents)))
         } else if (d.payments.size > 1) {
-            // A deposit then the balance — one dated line per payment.
-            d.payments.forEach { p -> appendLine("1   ${p.method.uppercase()} ${p.dateTime} : " + rs(p.amountCents)) }
+            d.payments
+                .filterNot { it.isReversal }
+                .groupBy { it.method.uppercase() }
+                .forEach { (method, ps) -> appendLine(bold("${ps.size}   $method : " + rs(ps.sumOf { it.amountCents }))) }
+            // A reversed leg is money that came back — state it rather than quietly netting it.
+            d.payments.filter { it.isReversal }.forEach { p ->
+                appendLine(bold("1   ${p.method.uppercase()} REVERSED : " + rs(p.amountCents)))
+            }
         } else {
-            appendLine("1   ${(d.payLabel ?: "PAID").uppercase()} : " + rs(d.paidCents))
+            appendLine(bold("1   ${(d.payLabel ?: "PAID").uppercase()} : " + rs(d.paidCents)))
             if (d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
         }
         // The one number a customer leaving a deposit needs to see on the paper.

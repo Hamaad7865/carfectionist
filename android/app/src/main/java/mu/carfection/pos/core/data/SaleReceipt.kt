@@ -14,6 +14,14 @@ import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 
 /**
+ * The slip's "Bill" reference: terminal, then the internal order number.
+ * "1-N00000028", mirroring the studio's own slip. Null when either part is unknown, so the
+ * line is simply omitted rather than printed half-formed.
+ */
+fun billRef(billNo: Long?, terminalNo: Int?): String? =
+    billNo?.let { "${terminalNo ?: 1}-N" + it.toString().padStart(8, '0') }
+
+/**
  * One stored line → the slip's row: the full unit price for the "UP" column, what the line
  * actually cost, and what it saved.
  *
@@ -116,6 +124,7 @@ fun saleReceiptDoc(
         payments = paymentRows,
         voided = h.status == "void",
         ticketNo = ticketNo,
+        billNo = billRef(h.billNo, terminalNo),
         terminalNo = terminalNo,
         duplicataNo = duplicataNo,
         duplicataAt = duplicataAt,

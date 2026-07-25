@@ -256,6 +256,8 @@ data class SaleHistoryDto(
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
     @SerialName("vat_total") val vatTotal: FlexDouble = 0.0,
     @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+    // Internal order reference for the slip's "Bill" line — not the fiscal series.
+    @SerialName("bill_no") val billNo: Long? = null,
     val customers: JobCustomerDto? = null,
     val creator: JobTechDto? = null,
     @SerialName("document_lines") val lines: List<SaleHistoryLineDto> = emptyList(),
@@ -504,3 +506,6 @@ data class DeviceOrdinalDto(
     @SerialName("device_code") val deviceCode: String = "",
     @SerialName("first_seen") val firstSeen: String? = null,
 )
+
+@Serializable
+data class BillNoDto(@SerialName("bill_no") val billNo: Long? = null)

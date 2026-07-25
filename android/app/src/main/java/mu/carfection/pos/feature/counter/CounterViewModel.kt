@@ -48,6 +48,7 @@ import mu.carfection.pos.core.network.CashSessionDto
 import mu.carfection.pos.core.network.JobServiceDetailDto
 import mu.carfection.pos.core.network.OutstandingInvoiceDto
 import mu.carfection.pos.core.network.PosApi
+import mu.carfection.pos.core.data.billRef
 import mu.carfection.pos.core.data.saleReceiptDoc
 import mu.carfection.pos.core.network.SaleHistoryDto
 import mu.carfection.pos.core.network.SaleHistoryLineDto
@@ -1146,9 +1147,11 @@ class CounterViewModel @Inject constructor(
                     // "No. N" and "Appareil N" are looked up off the hot path: the sale is
                     // already committed, so a slow or failed lookup costs the slip a line,
                     // never the sale. Both return null rather than a wrong number.
+                    val terminal = api.terminalNo(session.deviceId())
                     val stamped = receipt.copy(
                         ticketNo = s.till?.id?.let { api.sessionTicketNo(it, result.invoiceId) },
-                        terminalNo = api.terminalNo(session.deviceId()),
+                        billNo = billRef(api.billNoFor(result.invoiceId), terminal),
+                        terminalNo = terminal,
                     )
                     val printed = runCatching {
                         printer.printDoc(stamped) // prints the moment the sale completes
