@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { rupeesToCents, formatMUR, presentLine } from "@/lib/money";
+import { rupeesToCents, formatMUR, presentLine, presentLineDiscount } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
@@ -174,10 +174,12 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
       // presentLine is shared with the back-office screen, which derived this itself and
       // disagreed with the very PDF it links to.
       ...presentLine(l, inclVat),
-      discountNote:
-        l.discount_kind === "amount" && Number(l.discount_amount) > 0 ? `less ${formatMUR(rupeesToCents(Number(l.discount_amount)))}`
-        : Number(l.discount_pct) > 0 ? `less ${Number(l.discount_pct)}%`
-        : null,
+      // presentLineDiscount is shared with the back-office screen — which showed no
+      // discount at all, so the PDF and the screen disagreed about whether one existed.
+      discountNote: (() => {
+        const d = presentLineDiscount(l, inclVat);
+        return d ? `less ${d.label} · ${formatMUR(d.savedCents)}` : null;
+      })(),
     })),
     // Subtotal row = pre-order-discount ex-VAT sum; the order discount shows as its own row.
     subtotalCents: inclVat ? subtotalInclCents : grossSubtotalCents,

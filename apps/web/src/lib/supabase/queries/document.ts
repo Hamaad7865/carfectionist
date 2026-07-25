@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { presentLine } from "@/lib/money";
+import { presentLine, presentLineDiscount, type PresentedDiscount } from "@/lib/money";
 import { rupeesToCents } from "@/lib/money";
 import { signVehiclePhotos } from "@/lib/supabase/storage";
 import type { Marker } from "@/features/intake/damage";
@@ -64,7 +64,16 @@ export interface DocumentDetail {
   intake: DocIntake | null;
   /** Client signature captured on the tablet when the quote was accepted. */
   acceptedSignature: { url: string; name: string | null; at: string | null } | null;
-  lines: { title: string; description: string | null; qty: number; rateCents: number; amountCents: number }[];
+  /** Ex-VAT total taken off by per-LINE discounts (the order discount is separate, above). */
+  lineDiscountCents: number;
+  lines: {
+    title: string;
+    description: string | null;
+    qty: number;
+    rateCents: number;
+    amountCents: number;
+    discount: PresentedDiscount | null;
+  }[];
   payments: PaymentView[];
 }
 
@@ -150,6 +159,13 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const grossSubtotalCents = ((lines ?? []) as any[]).reduce((s, l) => s + rupeesToCents(Number(l.line_total_excl)), 0);
   const orderDiscountCents = Math.max(0, grossSubtotalCents - subtotalCents);
+  // What per-line discounts took off, ex-VAT — the gap between each line at full price and the
+  // line total the DB stored. Kept ex-VAT so the totals block still foots:
+  // (Subtotal before discount) − (line discounts) − (order discount) + VAT = Total.
+  const lineDiscountCents = ((lines ?? []) as any[]).reduce((s, l) => {
+    const full = Math.round(Number(l.qty) * rupeesToCents(Number(l.unit_price)));
+    return s + Math.max(0, full - rupeesToCents(Number(l.line_total_excl)));
+  }, 0);
 
   return {
     id: d.id,
@@ -165,6 +181,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     subtotalCents,
     grossSubtotalCents,
     orderDiscountCents,
+    lineDiscountCents,
     discountKind: d.discount_kind ?? null,
     discountValue: Number(d.discount_value ?? 0),
     vatCents: rupeesToCents(Number(d.vat_total)),
@@ -192,6 +209,9 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
       // presentLine, not a third hand-rolled derivation: this screen showed NET while its own
       // PDF showed GROSS, so one invoice had two sets of Rate/Amount figures.
       ...presentLine(l, inclVat),
+      // The per-line discount, same helper the PDF uses. Without it a discounted line read as
+      // an unexplained gap between its Rate and its Amount.
+      discount: presentLineDiscount(l, inclVat),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payments: (payments ?? []).map((p: any) => ({

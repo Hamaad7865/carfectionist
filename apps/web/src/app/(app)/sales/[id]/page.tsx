@@ -267,18 +267,40 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                 <div>
                   <div className="text-[13px] font-semibold text-ink">{l.title}</div>
                   {l.description && <div className="whitespace-pre-wrap text-[12px] text-muted">{l.description}</div>}
+                  {/* Name the discount on the line that got it. Without this the row read
+                      "Rate 660.00 / Amount 626.99" and nothing on the page said why. */}
+                  {l.discount && (
+                    <div className="mt-0.5 text-[11.5px] font-semibold text-amber-ink">
+                      Less {l.discount.label} · saved {formatMUR(l.discount.savedCents)}
+                    </div>
+                  )}
                 </div>
                 <span className="num text-right text-[12.5px] text-muted">{l.qty}</span>
                 <span className="num text-right text-[12.5px] text-body">{formatMUR(l.rateCents)}</span>
-                <span className="num text-right text-[13px] font-semibold text-ink">{formatMUR(l.amountCents)}</span>
+                <span className="num text-right text-[13px] font-semibold text-ink">
+                  {l.discount && (
+                    <span className="block text-[11.5px] font-normal text-faint line-through">{formatMUR(l.discount.fullAmountCents)}</span>
+                  )}
+                  {formatMUR(l.amountCents)}
+                </span>
               </div>
             ))}
             <div className="flex justify-end px-5 py-3">
               <div className="w-56 text-[13px]">
-                <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(doc.grossSubtotalCents)}</span></div>
+                {/* Subtotal is the sum BEFORE any discount, so the column foots:
+                    subtotal − line discounts − order discount + VAT = Total. On an
+                    undiscounted invoice both discount rows are absent and this is the
+                    same figure it always showed. */}
+                <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(doc.grossSubtotalCents + doc.lineDiscountCents)}</span></div>
+                {doc.lineDiscountCents > 0 && (
+                  <div className="flex justify-between py-1 text-amber-ink">
+                    <span>Discount on items</span>
+                    <span className="num">−{formatMUR(doc.lineDiscountCents)}</span>
+                  </div>
+                )}
                 {doc.orderDiscountCents > 0 && (
                   <div className="flex justify-between py-1 text-amber-ink">
-                    <span>Discount{doc.discountKind === "percent" ? ` (${doc.discountValue}%)` : ""}</span>
+                    <span>Discount{doc.discountKind === "percent" ? ` (${doc.discountValue}%)` : ""} on the bill</span>
                     <span className="num">−{formatMUR(doc.orderDiscountCents)}</span>
                   </div>
                 )}

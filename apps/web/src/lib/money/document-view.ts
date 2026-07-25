@@ -17,6 +17,11 @@ export interface DocLineRow {
   line_total_excl: number | string;
   line_vat: number | string;
   vat_rate: number | string;
+  // Optional: only the surfaces that show a discount need to pass these.
+  qty?: number | string;
+  discount_kind?: string | null;
+  discount_pct?: number | string | null;
+  discount_amount?: number | string | null;
 }
 
 export interface PresentedLine {
@@ -31,6 +36,49 @@ export function presentLine(l: DocLineRow, inclVat: boolean): PresentedLine {
   return inclVat
     ? { rateCents: grossCents(cents(l.unit_price), Number(l.vat_rate)), amountCents: excl + cents(l.line_vat) }
     : { rateCents: cents(l.unit_price), amountCents: excl };
+}
+
+export interface PresentedDiscount {
+  /** What this line would have cost at full price, in the SAME basis as amountCents. */
+  fullAmountCents: number;
+  /** What the customer saved on it. */
+  savedCents: number;
+  /** How it was given: "5%" or "Rs 50.00 off". Null when there is no discount. */
+  label: string;
+}
+
+/**
+ * What a per-LINE discount took off, presented in the same basis as the Rate/Amount columns.
+ *
+ * A discounted line otherwise reads as an unexplained gap: the invoice screen showed
+ * "Rate 660.00 / Amount 626.99" with nothing anywhere naming the 5% that made up the
+ * difference, so the owner could see money missing and not where it went.
+ *
+ * Keyed off the STORED discount (discount_pct / discount_amount), never off
+ * `qty × rate − amount`: VAT rounds once per line, so that subtraction is a cent or two adrift
+ * on plenty of perfectly undiscounted lines and would invent a "Less Rs 0.02" on them.
+ * Returns null when the line carries no discount at all.
+ */
+export function presentLineDiscount(l: DocLineRow, inclVat: boolean): PresentedDiscount | null {
+  const pct = Number(l.discount_pct ?? 0);
+  const amt = Number(l.discount_amount ?? 0);
+  const byAmount = l.discount_kind === "amount" && amt > 0;
+  if (!byAmount && !(pct > 0)) return null;
+
+  const { amountCents } = presentLine(l, inclVat);
+  const qty = Number(l.qty ?? 1);
+  const unitNet = cents(l.unit_price);
+  const rate = Number(l.vat_rate);
+  // Full price by the same route the DB priced the discounted figure: net line total first,
+  // then its own rounded VAT — so the saving is exact rather than a cent off its own line.
+  const fullNet = Math.round(qty * unitNet);
+  const fullAmountCents = inclVat ? grossCents(fullNet, rate) : fullNet;
+
+  return {
+    fullAmountCents,
+    savedCents: Math.max(0, fullAmountCents - amountCents),
+    label: byAmount ? `Rs ${amt.toFixed(2)} off` : `${pct}%`,
+  };
 }
 
 /**
