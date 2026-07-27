@@ -62,6 +62,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -607,7 +609,7 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("PAID TODAY", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp, modifier = Modifier.weight(1f))
                 Text(
-                    "History →", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
+                    "Scan / history →", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp,
                     modifier = Modifier.clickable { vm.openHistory() }.padding(horizontal = 4.dp, vertical = 2.dp),
                 )
             }
@@ -1308,10 +1310,15 @@ private fun HistoryDialog(s: CounterUiState, vm: CounterViewModel) {
                 ) { Text("✕", color = TextSecondary, fontSize = 15.sp) }
             }
             Spacer(Modifier.height(12.dp))
+            // Focused on open: a scanner is a keyboard, so the burst needs somewhere to land.
+            // Without this the operator has to tap the field before scanning, which defeats
+            // the point of holding a scanner in one hand and the receipt in the other.
+            val scanFocus = remember { FocusRequester() }
+            LaunchedEffect(Unit) { runCatching { scanFocus.requestFocus() } }
             FilledInput(
                 value = s.historyQuery, onValueChange = vm::setHistoryQuery,
-                placeholder = "Search by invoice number or customer…",
-                modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = Inset, leadingSearch = true,
+                placeholder = "Scan a receipt, or search by number or customer…",
+                modifier = Modifier.fillMaxWidth().focusRequester(scanFocus), height = 44.dp, bg = Inset, leadingSearch = true,
             )
             Spacer(Modifier.height(10.dp))
             val q = s.historyQuery.trim().lowercase()

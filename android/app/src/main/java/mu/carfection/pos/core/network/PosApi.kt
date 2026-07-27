@@ -654,7 +654,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // The slip needs the lines, the payments and who served — and the send dialog needs the
     // customer's email/phone to prefill. One shape, two callers (history, and a job's invoice).
     private val SALE_COLS =
-        "id, number, status, issued_at, total_incl, vat_total, amount_paid, " +
+        "id, number, doc_type, status, issued_at, total_incl, vat_total, amount_paid, " +
             "customers(name, phone, email), creator:app_users!documents_created_by_fkey(display_name), " +
             "bill_no, " +
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount), " +
@@ -669,6 +669,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                 limit(limit)
             }
             .decodeList()
+
+    /**
+     * One document looked up by the number PRINTED on it — what the receipt's CODE128
+     * barcode encodes. Scanning an old slip pulls the whole sale back up.
+     */
+    suspend fun fetchDocumentByNumber(number: String): SaleHistoryDto? =
+        client.postgrest.from("documents")
+            .select(Columns.raw(SALE_COLS)) { filter { eq("number", number) }; limit(1) }
+            .decodeList<SaleHistoryDto>()
+            .firstOrNull()
 
     /** One invoice, rebuilt for viewing/printing/sending — the job sheet's "View invoice". */
     suspend fun fetchInvoice(id: String): SaleHistoryDto? =

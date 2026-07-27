@@ -235,6 +235,25 @@ data class CounterUiState(
     val basketAppliedCents: Long get() = preBasketSubtotalCents - docTotals.subtotalCents
 }
 
+/**
+ * A printed document reference, exactly as the slip's CODE128 barcode encodes it —
+ * "INV-0031" for a sale, "A00024" for a quotation.
+ *
+ * Matched WHOLE, never as a prefix: the scanner delivers the complete code in one burst, and
+ * requiring a full match means an operator typing into the product search only triggers a
+ * lookup once they have typed a real reference — at which point that IS what they wanted.
+ */
+private val DOC_REF = Regex("^(INV-\\d{3,}|[A-Z]\\d{5,})$", RegexOption.IGNORE_CASE)
+
+fun isDocumentRef(code: String): Boolean = DOC_REF.matches(code.trim())
+
+/** "quote" → "quotation" — what to call a scanned reference that isn't a sale. */
+fun docKindLabel(docType: String): String = when (docType) {
+    "quote" -> "quotation"
+    "credit_note" -> "credit note"
+    else -> docType.replace('_', ' ')
+}
+
 enum class CheckoutMode { LIST, WALKIN }
 
 /** The methods a split bill can be allocated across — Credit is a receivable, not a tender. */
@@ -479,7 +498,6 @@ class CounterViewModel @Inject constructor(
     }
 
     fun closeHistory() { local.value = local.value.copy(historyOpen = false, viewDoc = null, historyQuery = "") }
-    fun setHistoryQuery(q: String) { local.value = local.value.copy(historyQuery = q) }
     fun closeViewDoc() { local.value = local.value.copy(viewDoc = null) }
 
     /** Rebuild a past sale's slip from the server's stored lines + payments and show it. */
@@ -830,8 +848,46 @@ class CounterViewModel @Inject constructor(
         if (hit != null) {
             add(hit) // oversell prompt and settle-freeze rules apply exactly as a tap would
             local.value = local.value.copy(query = "", notice = "Scanned — ${hit.name}")
+        } else if (isDocumentRef(code)) {
+            // A RECEIPT was scanned, not a product — the slip's barcode carries the document
+            // number. Pull the whole sale back up instead of searching the catalogue for a
+            // code no product will ever carry.
+            openScannedDocument(code)
         } else {
             local.value = local.value.copy(query = q)
+        }
+    }
+
+    /** Same landing strip inside the history sheet — scanning there opens the sale directly. */
+    fun setHistoryQuery(q: String) {
+        val code = q.trim()
+        if (isDocumentRef(code)) openScannedDocument(code)
+        else local.value = local.value.copy(historyQuery = q)
+    }
+
+    /**
+     * Look a scanned/typed document reference up and show its slip.
+     *
+     * Read-only, so it is safe mid-sale: it never touches the cart, and the preview is
+     * dismissible. A miss leaves the code in the box rather than swallowing it, so the
+     * operator can see what was actually read off the paper.
+     */
+    fun openScannedDocument(code: String) {
+        val ref = code.trim().uppercase()
+        local.value = local.value.copy(query = "", historyQuery = "", notice = "Looking up $ref…")
+        viewModelScope.launch {
+            val doc = runCatching { api.fetchDocumentByNumber(ref) }.getOrNull()
+            when {
+                doc == null ->
+                    local.value = local.value.copy(query = ref, notice = "No sale found for $ref")
+                // A quote's reference can be printed too; rendering it as a paid slip would be a lie.
+                doc.docType != "invoice" ->
+                    local.value = local.value.copy(query = ref, notice = "$ref is a ${docKindLabel(doc.docType)}, not a sale")
+                else -> {
+                    viewHistoryReceipt(doc)
+                    local.value = local.value.copy(notice = null)
+                }
+            }
         }
     }
 

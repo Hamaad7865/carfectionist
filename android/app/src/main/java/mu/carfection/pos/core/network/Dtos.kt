@@ -251,6 +251,7 @@ data class SaleHistoryPaymentDto(
 data class SaleHistoryDto(
     val id: String,
     val number: String? = null,
+    @SerialName("doc_type") val docType: String = "invoice",
     val status: String = "issued",
     @SerialName("issued_at") val issuedAt: String? = null,
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
