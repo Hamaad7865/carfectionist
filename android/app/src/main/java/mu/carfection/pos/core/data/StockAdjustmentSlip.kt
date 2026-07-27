@@ -62,9 +62,11 @@ object StockAdjustmentSlip {
             appendLine(ESC_BOLD_ON + left + " ".repeat(room) + right + ESC_BOLD_OFF)
         }
 
-        // The name is text only when there is no logo — the raster prints above this,
-        // exactly as it does on a receipt.
-        if (biz.logoFile == null) centreBold(biz.name.uppercase())
+        // ALWAYS as text, unlike the receipt. This slip goes out through printReceipt(), which
+        // is escPosReceipt(text) — no logo raster is prepended, only printDoc() does that. Making
+        // the name conditional on a logo (as the receipt does) left this slip with no header at
+        // all on the live tablet, where a logo IS configured. Same rule ZSlip uses.
+        centreBold(biz.name.uppercase())
         // split(",", limit = 2) — the SAME rule the receipt header uses, so the studio's
         // address reads identically on both papers ("Helvetia" / "80840 Moka, MU").
         biz.address?.takeIf { it.isNotBlank() }?.split(",", limit = 2)?.forEach { centre(it.trim()) }

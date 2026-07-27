@@ -161,6 +161,11 @@ private fun AdjustModal(a: AdjustState, vm: StockViewModel) {
                 BigStep("+") { vm.adjStep(+1) }
                 Spacer(Modifier.weight(1f))
             }
+            Text(
+                if (a.reason.isBlank()) "WHY IS THIS STOCK MOVING? (REQUIRED)" else "REASON",
+                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp,
+                color = if (a.reason.isBlank()) Warning else TextMuted,
+            )
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                 STOCK_REASONS.forEach { r ->
                     val on = a.reason == r
@@ -173,8 +178,14 @@ private fun AdjustModal(a: AdjustState, vm: StockViewModel) {
                 Box(Modifier.weight(1f).height(52.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(13.dp)).clickable { vm.closeAdj() }, contentAlignment = Alignment.Center) {
                     Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
                 }
-                Box(Modifier.weight(2f).height(52.dp).background(if (a.delta != 0) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = a.delta != 0) { vm.adjApply() }, contentAlignment = Alignment.Center) {
-                    Text("Apply adjustment", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (a.delta != 0) AccentInk else TextMuted)
+                Box(Modifier.weight(2f).height(52.dp).background(if (a.canApply) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = a.canApply) { vm.adjApply() }, contentAlignment = Alignment.Center) {
+                    // Named for what is missing, so a disabled button explains itself.
+                    val label = when {
+                        a.delta == 0 -> "Choose + or −"
+                        a.reason.isBlank() -> "Pick a reason"
+                        else -> "Apply adjustment"
+                    }
+                    Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (a.canApply) AccentInk else TextMuted)
                 }
             }
         }

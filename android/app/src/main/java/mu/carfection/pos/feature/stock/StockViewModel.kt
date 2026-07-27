@@ -42,8 +42,10 @@ data class StockItem(
     val zero: Boolean get() = onHand == 0
 }
 
-data class AdjustState(val productId: String, val name: String, val onHand: Int, val delta: Int = 0, val reason: String = "Received stock") {
+data class AdjustState(val productId: String, val name: String, val onHand: Int, val delta: Int = 0, val reason: String = "") {
     val result: Int get() = (onHand + delta).coerceAtLeast(0)
+    /** Nothing is written until BOTH a movement and a reason exist. */
+    val canApply: Boolean get() = delta != 0 && reason.isNotBlank()
 }
 
 data class StockState(
@@ -155,10 +157,15 @@ class StockViewModel @Inject constructor(
 
     fun clearToast() = _s.update { it.copy(toast = null) }
 
-    /** ±1 quick adjust — one signed adjustment movement. */
+    /**
+     * ±1 from the card. It used to post immediately with the note "Quick +1", which recorded
+     * THAT stock moved but never WHY — so the ledger, and the printed log built from it, could
+     * not answer the only question worth asking of an adjustment. It now opens the adjust
+     * dialog with the step already applied; a reason still has to be chosen before it commits.
+     */
     fun quickAdjust(item: StockItem, delta: Int) {
         if (delta < 0 && item.onHand <= 0) return
-        post(item.id, delta, "Quick ${if (delta > 0) "+1" else "−1"}", item.onHand + delta)
+        _s.update { it.copy(adj = AdjustState(item.id, item.name, item.onHand, delta = delta)) }
     }
 
     // ── printable adjustment log ──────────────────────────────────────────────
@@ -214,6 +221,9 @@ class StockViewModel @Inject constructor(
     fun adjApply() {
         val a = _s.value.adj ?: return
         if (a.delta == 0) { _s.update { it.copy(adj = null) }; return }
+        // The dialog already disables Apply without a reason; this is the guarantee the
+        // LEDGER gets, independent of whatever the UI does.
+        if (a.reason.isBlank()) { _s.update { it.copy(toast = "Pick a reason first") }; return }
         _s.update { it.copy(adj = null) }
         post(a.productId, a.delta, a.reason, a.result, "${a.name} → ${a.result} on hand")
     }

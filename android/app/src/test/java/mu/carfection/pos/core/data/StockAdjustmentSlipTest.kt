@@ -43,6 +43,18 @@ class StockAdjustmentSlipTest {
         assertTrue("address split", out.contains("Helvetia") && out.contains("80840 Moka, MU"))
     }
 
+    /**
+     * This slip prints via printReceipt(), which sends text only — no logo raster, unlike
+     * printDoc(). So the studio name must ALWAYS be text here, or a tablet with a logo
+     * configured prints a slip with no header at all.
+     */
+    @Test
+    fun `the studio name is printed as text even when a logo is configured`() {
+        val withLogo = biz.copy(logoFile = "/data/user/0/mu.carfection.pos/files/logo.png")
+        val out = plain(StockAdjustmentSlip.render(listOf(row("S40 350", 1.0)), withLogo, 48, "27-07-2026 12:30"))
+        assertTrue("name must survive a configured logo", out.contains("CARFECTIONIST"))
+    }
+
     @Test
     fun `a line carries when, what, how much and why`() {
         val out = plain(render(listOf(row("Ultra Glass 500ml", 3.0, "Received stock"))))
