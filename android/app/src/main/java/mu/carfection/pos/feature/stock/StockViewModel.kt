@@ -5,9 +5,13 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import mu.carfection.pos.core.data.AdjustmentRow
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.StockAdjustmentSlip
+import mu.carfection.pos.core.data.adjustmentRow
 import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.NewStockMovementDto
@@ -58,15 +62,31 @@ data class StockState(
     val busy: Boolean = false,
     val toast: String? = null,
     val error: String? = null,
-)
+    // ── the printable adjustment log ──────────────────────────────────────────
+    val logOpen: Boolean = false,
+    val logBusy: Boolean = false,
+    val log: List<AdjustmentRow> = emptyList(),
+    /** Ids ticked for printing. Everything loaded starts ticked — the common case is
+     *  "print what I just did", and un-ticking a few is less work than ticking many. */
+    val logPicked: Set<String> = emptySet(),
+    val logPrinting: Boolean = false,
+) {
+    val logSelected: List<AdjustmentRow> get() = log.filter { it.id in logPicked }
+    val logAllPicked: Boolean get() = log.isNotEmpty() && logPicked.size == log.size
+}
 
 @HiltViewModel
 class StockViewModel @Inject constructor(
     private val api: PosApi,
     private val catalog: CatalogRepository,
+    private val printer: mu.carfection.pos.core.hardware.ReceiptPrinter,
+    private val hw: mu.carfection.pos.core.hardware.HardwareSettings,
 ) : ViewModel() {
     private val _s = MutableStateFlow(StockState())
     val state = _s.asStateFlow()
+
+    /** Resolved once per session — it never changes while signed in. */
+    private var appUserId: String? = null
 
     init {
         load()
@@ -141,6 +161,48 @@ class StockViewModel @Inject constructor(
         post(item.id, delta, "Quick ${if (delta > 0) "+1" else "−1"}", item.onHand + delta)
     }
 
+    // ── printable adjustment log ──────────────────────────────────────────────
+    fun openLog() {
+        _s.update { it.copy(logOpen = true, logBusy = true) }
+        viewModelScope.launch {
+            val rows = runCatching { api.fetchStockAdjustments() }.getOrDefault(emptyList()).map(::adjustmentRow)
+            _s.update { it.copy(logBusy = false, log = rows, logPicked = rows.map { r -> r.id }.toSet()) }
+        }
+    }
+
+    fun closeLog() = _s.update { it.copy(logOpen = false, log = emptyList(), logPicked = emptySet()) }
+
+    fun toggleLogRow(id: String) = _s.update {
+        it.copy(logPicked = if (id in it.logPicked) it.logPicked - id else it.logPicked + id)
+    }
+
+    fun toggleLogAll() = _s.update {
+        it.copy(logPicked = if (it.logAllPicked) emptySet() else it.log.map { r -> r.id }.toSet())
+    }
+
+    /** Print the ticked adjustments. Nothing ticked prints nothing — say so instead. */
+    fun printLog() {
+        val picked = _s.value.logSelected
+        if (picked.isEmpty()) { _s.update { it.copy(toast = "Tick at least one adjustment") }; return }
+        _s.update { it.copy(logPrinting = true) }
+        viewModelScope.launch {
+            val at = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"))
+            val text = StockAdjustmentSlip.render(picked, catalog.receiptBiz(), printerWidth(), at)
+            val ok = runCatching { printer.printReceipt(text) }.isSuccess
+            _s.update {
+                it.copy(
+                    logPrinting = false,
+                    toast = if (ok) "Printed ${picked.size} adjustment${if (picked.size == 1) "" else "s"}"
+                    else "Couldn't reach the printer — check it's on and paired",
+                )
+            }
+        }
+    }
+
+    /** 58mm rolls fit 32 columns, 80mm fit 48 — the same rule TillZReport applies. */
+    private suspend fun printerWidth(): Int =
+        runCatching { if (hw.config.first().paperWidthMm == 58) 32 else 48 }.getOrDefault(48)
+
     fun openAdj(item: StockItem) = _s.update { it.copy(adj = AdjustState(item.id, item.name, item.onHand)) }
     fun closeAdj() = _s.update { it.copy(adj = null) }
     fun adjStep(delta: Int) = _s.update { st ->
@@ -162,7 +224,11 @@ class StockViewModel @Inject constructor(
         if (tenant == null || loc == null) { _s.update { it.copy(toast = "Not synced — pull the catalogue first") }; return }
         _s.update { it.copy(onHand = it.onHand + (productId to newOnHand), toast = toast) }
         viewModelScope.launch {
-            runCatching { api.adjustStock(NewStockMovementDto(tenant, productId, loc, delta.toDouble(), refType = "adjustment", note = note)) }
+            // Stamp WHO moved the stock. Every historical row has created_by null because the
+            // JWT carries a name but not the app_users id, so the ledger could never answer
+            // "who did this" — and that is the first question asked of a printed adjustment log.
+            val by = appUserId ?: api.currentAppUserId()?.also { appUserId = it }
+            runCatching { api.adjustStock(NewStockMovementDto(tenant, productId, loc, delta.toDouble(), refType = "adjustment", note = note, createdBy = by)) }
                 .onFailure { e ->
                     val msg = if (e.message?.contains("row-level security", true) == true) "Stock adjustments need owner or manager access" else "Couldn't save the adjustment — try again"
                     _s.update { it.copy(error = e.uiMessage(), toast = msg) }; load()

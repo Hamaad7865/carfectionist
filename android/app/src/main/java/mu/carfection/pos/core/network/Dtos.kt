@@ -392,7 +392,28 @@ data class NewStockMovementDto(
     val qty: Double,
     @SerialName("ref_type") val refType: String,
     val note: String? = null,
+    // Who adjusted. Omitted from the JSON when null so the column keeps its own default.
+    @SerialName("created_by") val createdBy: String? = null,
 )
+
+@Serializable data class ProductNameDto(val name: String? = null)
+@Serializable data class LocationNameDto(val name: String? = null)
+
+/** One stock adjustment, as the printable log lists it. */
+@Serializable
+data class StockAdjustmentDto(
+    val id: String,
+    val qty: FlexDouble = 0.0,
+    val note: String? = null,
+    @SerialName("moved_at") val movedAt: String? = null,
+    val products: ProductNameDto? = null,
+    @SerialName("stock_locations") val location: LocationNameDto? = null,
+    // Null on every row written before the tablet started stamping it — the slip then
+    // simply omits the operator rather than inventing one.
+    val creator: JobTechDto? = null,
+)
+
+@Serializable data class AppUserIdDto(val id: String)
 
 @Serializable
 data class BusinessSettingsDto(

@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -69,6 +71,12 @@ fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
             if (low > 0) Box(Modifier.height(32.dp).background(Color(0x24C17A00), RoundedCornerShape(16.dp)).padding(horizontal = 13.dp), contentAlignment = Alignment.Center) {
                 Text("⚠ $low low-stock item${if (low > 1) "s" else ""}", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Warning)
             }
+            Box(
+                Modifier.height(38.dp).background(AccentSoft, RoundedCornerShape(12.dp))
+                    .border(1.5.dp, AccentLine, RoundedCornerShape(12.dp))
+                    .clickable { viewModel.openLog() }.padding(horizontal = 15.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("Print adjustments", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
         }
         FilledInput(
             value = s.query, onValueChange = viewModel::setQuery,
@@ -99,6 +107,7 @@ fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
         }
     }
     s.adj?.let { AdjustModal(it, viewModel) }
+    if (s.logOpen) AdjustmentLogDialog(s, viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(2000); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
 }
@@ -181,5 +190,116 @@ private fun AdjustModal(a: AdjustState, vm: StockViewModel) {
 @Composable private fun Toast(msg: String) = Box(Modifier.fillMaxSize().padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
     Box(Modifier.background(Color(0xF01B2733), RoundedCornerShape(11.dp)).padding(horizontal = 20.dp, vertical = 13.dp)) {
         Text(msg, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = Color.White)
+    }
+}
+
+/**
+ * The printable adjustment log: what was moved recently, tick what to print.
+ *
+ * Everything loaded starts ticked — the common errand is "print what I just did", and
+ * un-ticking a few is less work than ticking many.
+ */
+@Composable
+private fun AdjustmentLogDialog(s: StockState, vm: StockViewModel) {
+    Dialog(onDismissRequest = vm::closeLog) {
+        Column(
+            Modifier.fillMaxWidth(0.92f).heightIn(max = 620.dp)
+                .background(CardBg, RoundedCornerShape(18.dp)).border(1.dp, Hairline, RoundedCornerShape(18.dp))
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("STOCK ADJUSTMENTS", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.2.sp, color = TextPrimary)
+                    Text("Tick what to print", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+                }
+                Box(
+                    Modifier.size(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { vm.closeLog() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕", color = TextSecondary, fontSize = 15.sp) }
+            }
+
+            if (s.logBusy) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("Loading…", color = TextMuted, fontFamily = Barlow)
+                }
+            } else if (s.log.isEmpty()) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
+                    Text("No stock adjustments yet.", color = TextMuted, fontFamily = Barlow, fontSize = 14.sp)
+                }
+            } else {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier.height(34.dp).border(1.dp, Hairline, RoundedCornerShape(10.dp))
+                            .clickable { vm.toggleLogAll() }.padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(if (s.logAllPicked) "Clear all" else "Select all", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary)
+                    }
+                    Spacer(Modifier.weight(1f))
+                    Text("${s.logPicked.size} of ${s.log.size} selected", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary)
+                }
+                androidx.compose.foundation.lazy.LazyColumn(
+                    Modifier.weight(1f).fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    items(s.log, key = { it.id }) { r ->
+                        val on = r.id in s.logPicked
+                        Row(
+                            Modifier.fillMaxWidth()
+                                .background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(11.dp))
+                                .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(11.dp))
+                                .clickable { vm.toggleLogRow(r.id) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            // A tick box rather than a colour alone — the row has to read as
+                            // chosen-or-not at a glance across a counter.
+                            Box(
+                                Modifier.size(22.dp)
+                                    .background(if (on) Accent else Color.Transparent, RoundedCornerShape(6.dp))
+                                    .border(1.5.dp, if (on) Accent else Hairline, RoundedCornerShape(6.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) { if (on) Text("✓", color = AccentInk, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Text(r.product, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(
+                                    listOfNotNull(r.whenLabel, r.reason, r.location, r.who?.let { "by $it" }).joinToString(" · "),
+                                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                            Text(
+                                r.qtyLabel,
+                                fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 19.sp,
+                                color = if (r.qty < 0) Danger else Success,
+                            )
+                        }
+                    }
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.closeLog() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Close", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                val canPrint = s.logPicked.isNotEmpty() && !s.logPrinting
+                Box(
+                    Modifier.weight(1.5f).height(50.dp)
+                        .background(if (canPrint) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                        .clickable(enabled = canPrint) { vm.printLog() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (s.logPrinting) "Printing…" else "Print ${s.logPicked.size}",
+                        fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        color = if (canPrint) AccentInk else TextMuted,
+                    )
+                }
+            }
+        }
     }
 }

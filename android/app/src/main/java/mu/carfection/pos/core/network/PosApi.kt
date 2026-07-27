@@ -1,6 +1,7 @@
 package mu.carfection.pos.core.network
 
 import io.github.jan.supabase.SupabaseClient
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import io.github.jan.supabase.postgrest.query.Columns
 import io.github.jan.supabase.storage.storage
@@ -174,6 +175,36 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     }
 
     /** Insert a signed adjustment movement (sm_insert RLS: adjustment + owner/manager). */
+    /**
+     * Recent stock adjustments for the printable log — newest first, with the product,
+     * the location and (where stamped) who made it.
+     */
+    suspend fun fetchStockAdjustments(limit: Long = 80): List<StockAdjustmentDto> =
+        client.postgrest.from("stock_movements")
+            .select(
+                Columns.raw(
+                    "id, qty, note, moved_at, products(name), stock_locations(name), " +
+                        "creator:app_users!stock_movements_created_by_fkey(display_name)",
+                ),
+            ) {
+                filter { eq("ref_type", "adjustment") }
+                order("moved_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(limit)
+            }
+            .decodeList()
+
+    /**
+     * This operator's app_users row id, for stamping what they write. The JWT carries a
+     * name and a role but not this id, so stock adjustments landed with created_by null
+     * and the ledger could not say who moved the stock.
+     */
+    suspend fun currentAppUserId(): String? = runCatching {
+        val uid = client.auth.currentUserOrNull()?.id ?: return@runCatching null
+        client.postgrest.from("app_users")
+            .select(Columns.raw("id")) { filter { eq("auth_user_id", uid) }; limit(1) }
+            .decodeList<AppUserIdDto>().firstOrNull()?.id
+    }.getOrNull()
+
     suspend fun adjustStock(row: NewStockMovementDto) {
         client.postgrest.from("stock_movements").insert(row)
     }
