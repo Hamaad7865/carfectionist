@@ -40,6 +40,36 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone, receipt_logo_path, receipt_footer_text, prices_vat_exclusive")) { limit(1) }
             .decodeSingle()
 
+    /**
+     * Customers matching free text, asked of the SERVER.
+     *
+     * The tablet searches its local cache first, but that cache is only as fresh as the last
+     * sync — a customer added on the web, on the other tablet, or moments ago on this one
+     * simply is not in it. Falling back here is what stops staff concluding "not in the
+     * system" and creating a duplicate.
+     */
+    suspend fun searchCustomers(term: String, limit: Long = 8): List<CustomerDto> = runCatching {
+        val safe = term.trim().replace("%", "").replace(",", " ")
+        if (safe.length < 2) return@runCatching emptyList()
+        client.postgrest.from("customers")
+            .select(Columns.raw("id, name, phone")) {
+                filter { or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
+                order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                limit(limit)
+            }
+            .decodeList<CustomerDto>()
+    }.getOrDefault(emptyList())
+
+    /** Who already holds this plate — so a duplicate-plate error can name them. */
+    suspend fun vehicleOwnerByPlate(plate: String): String? = runCatching {
+        client.postgrest.from("vehicles")
+            .select(Columns.raw("plate, customers(name)")) {
+                filter { ilike("plate", plate.trim()) }
+                limit(1)
+            }
+            .decodeList<PlateOwnerDto>().firstOrNull()?.customers?.name
+    }.getOrNull()
+
     suspend fun findCustomerByName(name: String): CustomerDto? =
         client.postgrest.from("customers")
             .select(Columns.raw("id, name, phone")) {

@@ -57,6 +57,16 @@ class CatalogRepository @Inject constructor(
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
 
     /**
+     * Put one customer into the local cache immediately.
+     *
+     * Intake searches the CACHE, which is only refreshed by a full sync — so a customer created
+     * on the tablet was invisible to the very next search. Staff concluded they were not in the
+     * system and created them again; the duplicate then collided on the vehicle's unique plate
+     * and the real car ended up on a different record from the job.
+     */
+    suspend fun cacheCustomer(c: CustomerEntity) = customerDao.upsertAll(listOf(c))
+
+    /**
      * Does the shop quote VAT-INCLUSIVE shelf prices? Live, not a one-shot read: the settings
      * sync that writes this races the screens that read it, so a snapshot would leave the
      * first launch after an update showing net prices until the app was reopened.

@@ -414,6 +414,7 @@ data class StockAdjustmentDto(
 )
 
 @Serializable data class AppUserIdDto(val id: String)
+@Serializable data class PlateOwnerDto(val plate: String? = null, val customers: CustomerNameDto? = null)
 
 @Serializable
 data class BusinessSettingsDto(

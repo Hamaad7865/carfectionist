@@ -36,6 +36,7 @@ enum class DamageType(val label: String, val color: Color, val letter: String) {
 data class IntakeState(
     val query: String = "",
     val results: List<CustomerEntity> = emptyList(),
+    val searching: Boolean = false, // asking the server after the local cache came up empty
     val newCustOpen: Boolean = false,
     val nName: String = "",
     val nPhone: String = "",
@@ -111,11 +112,35 @@ class IntakeViewModel @Inject constructor(
         }
     }
 
+    private var searchJob: kotlinx.coroutines.Job? = null
+
+    /**
+     * Local cache first (instant, works offline), then the SERVER.
+     *
+     * The cache is only as fresh as the last sync, so a customer added on the web, on the other
+     * tablet, or moments ago on this one was simply absent — and "not found" is what makes staff
+     * create a duplicate. The server pass is what makes "not in the system" mean it.
+     */
     fun setQuery(q: String) {
         val query = q.trim().lowercase()
-        val results = if (query.isBlank()) emptyList()
+        val local = if (query.isBlank()) emptyList()
         else allCustomers.filter { it.name.lowercase().contains(query) || (it.phone ?: "").contains(query) }.take(6)
-        _s.update { it.copy(query = q, results = results) }
+        _s.update { it.copy(query = q, results = local, searching = query.length >= 2 && local.isEmpty()) }
+
+        searchJob?.cancel()
+        if (query.length < 2) return
+        searchJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(250) // let typing settle before asking the server
+            val remote = api.searchCustomers(query)
+            // Merge, keeping the local hits first and dropping anything already shown.
+            val seen = local.map { it.id }.toSet()
+            val merged = local + remote.filterNot { it.id in seen }.map { CustomerEntity(it.id, it.name, it.phone) }
+            // Cache what the server found, so the next search is instant and offline-safe.
+            remote.forEach { runCatching { catalog.cacheCustomer(CustomerEntity(it.id, it.name, it.phone)) } }
+            if (_s.value.query.trim().lowercase() == query) {
+                _s.update { it.copy(results = merged.take(8), searching = false) }
+            }
+        }
     }
 
     fun toggleNewCust() = _s.update { it.copy(newCustOpen = !it.newCustOpen, error = null) }
@@ -148,6 +173,9 @@ class IntakeViewModel @Inject constructor(
                 )
             }.onSuccess { c ->
                 _s.update { it.copy(newCustOpen = false, nName = "", nPhone = "", nIsCompany = false, nEmail = "", nAddress = "", nBrn = "", nVat = "") }
+                // Into the cache NOW — otherwise the next search for this very customer finds
+                // nothing and whoever is standing there creates them a second time.
+                runCatching { catalog.cacheCustomer(CustomerEntity(c.id, c.name, c.phone)) }
                 pickCustomer(CustomerEntity(c.id, c.name, c.phone))
             }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
         }
@@ -178,7 +206,18 @@ class IntakeViewModel @Inject constructor(
                 api.insertVehicle(NewVehicleDto(tenant, cust.id, plate, st.nvMake.trim().ifBlank { null }, st.nvModel.trim().ifBlank { null }, st.nvColour.trim().ifBlank { null }, st.nvCategory.trim().ifBlank { null }))
             }.onSuccess { v ->
                 _s.update { it.copy(vehicles = it.vehicles + v, vehicle = v, addVehOpen = false, nvPlate = "", nvMake = "", nvModel = "", nvColour = "", nvCategory = "") }
-            }.onFailure { e -> _s.update { it.copy(error = if ((e.message ?: "").contains("duplicate", true)) "That plate already exists" else e.uiMessage()) } }
+            }.onFailure { e ->
+                val dup = (e.message ?: "").contains("duplicate", true) || (e.message ?: "").contains("plate_normalized", true)
+                if (dup) {
+                    // Name the owner. "That plate already exists" is a dead end — it is what led
+                    // staff to invent a placeholder plate and strand a job on the wrong record.
+                    val owner = api.vehicleOwnerByPlate(plate)
+                    _s.update {
+                        it.copy(error = if (owner != null) "$plate is already registered to $owner — search for them instead of adding it again."
+                        else "$plate is already registered to another customer — search for them by name or phone.")
+                    }
+                } else _s.update { it.copy(error = e.uiMessage()) }
+            }
         }
     }
 
