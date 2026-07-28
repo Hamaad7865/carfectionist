@@ -15,6 +15,10 @@ import javax.inject.Singleton
 data class IntakeHandoff(
     val customerId: String,
     val customerName: String,
+    // Carried so the quote's send dialog can prefill WhatsApp/email. Without these a quote
+    // started at intake opened with an empty number and staff had to type it from the card.
+    val customerPhone: String? = null,
+    val customerEmail: String? = null,
     val vehicleId: String,
     val plate: String?,
     val vehLabel: String,

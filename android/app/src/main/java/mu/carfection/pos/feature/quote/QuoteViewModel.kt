@@ -190,6 +190,8 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
+    // The phone rides in from intake so the WhatsApp field is prefilled on a brand-new quote,
+    // exactly as it already is on one reopened from the list.
     private fun beginFromIntake(h: IntakeHandoff) = _s.update {
         it.copy(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
@@ -204,10 +206,12 @@ class QuoteViewModel @Inject constructor(
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
             hasIntake = true, signed = false, billed = false,
-            // Never carry a previously-opened customer's contact into this fresh
-            // quote's send dialog — that would email/WhatsApp the signed quote to
-            // the wrong person. Intake carries no contact; the operator fills it.
-            customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
+            // Set from THIS handoff's customer, never left over from a previously-opened one —
+            // carrying the last customer's contact would WhatsApp a signed quote to the wrong
+            // person. Intake now passes the contact it captured, so the send dialog is prefilled
+            // instead of making staff retype a number off the customer's card.
+            customerEmail = h.customerEmail, customerPhone = h.customerPhone,
+            sendBusy = false, sendDone = null, sendError = null,
         )
     }
 

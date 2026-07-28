@@ -60,6 +60,25 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList<CustomerDto>()
     }.getOrDefault(emptyList())
 
+    /**
+     * Customers who own a vehicle matching this plate.
+     *
+     * Intake's search box has always invited "name, phone or plate", but only name and phone
+     * were ever matched — so looking a returning customer up by the registration in front of
+     * you found nothing, which is one way staff end up creating a duplicate.
+     */
+    suspend fun searchCustomersByPlate(plate: String, limit: Long = 6): List<CustomerDto> = runCatching {
+        val safe = plate.trim().replace("%", "").replace(",", " ")
+        if (safe.length < 2) return@runCatching emptyList()
+        client.postgrest.from("vehicles")
+            .select(Columns.raw("plate, customers(id, name, phone)")) {
+                filter { ilike("plate", "%$safe%") }
+                limit(limit)
+            }
+            .decodeList<PlateCustomerDto>()
+            .mapNotNull { it.customers }
+    }.getOrDefault(emptyList())
+
     /** Who already holds this plate — so a duplicate-plate error can name them. */
     suspend fun vehicleOwnerByPlate(plate: String): String? = runCatching {
         client.postgrest.from("vehicles")

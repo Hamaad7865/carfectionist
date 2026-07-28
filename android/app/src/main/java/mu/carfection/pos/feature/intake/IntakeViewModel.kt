@@ -131,10 +131,11 @@ class IntakeViewModel @Inject constructor(
         if (query.length < 2) return
         searchJob = viewModelScope.launch {
             kotlinx.coroutines.delay(250) // let typing settle before asking the server
-            val remote = api.searchCustomers(query)
+            // Name/phone AND plate — the box has always said "or plate", so it must mean it.
+            val remote = api.searchCustomers(query) + api.searchCustomersByPlate(query)
             // Merge, keeping the local hits first and dropping anything already shown.
-            val seen = local.map { it.id }.toSet()
-            val merged = local + remote.filterNot { it.id in seen }.map { CustomerEntity(it.id, it.name, it.phone) }
+            val seen = local.map { it.id }.toMutableSet()
+            val merged = local + remote.filter { seen.add(it.id) }.map { CustomerEntity(it.id, it.name, it.phone) }
             // Cache what the server found, so the next search is instant and offline-safe.
             remote.forEach { runCatching { catalog.cacheCustomer(CustomerEntity(it.id, it.name, it.phone)) } }
             if (_s.value.query.trim().lowercase() == query) {
