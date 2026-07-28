@@ -60,6 +60,14 @@ data class JobsState(
     val loading: Boolean = true,
     val jobs: List<JobBoardDto> = emptyList(),
     val technicians: List<TechnicianDto> = emptyList(),
+    // Everyone ON the open job, not just its lead. jobs.technician_id stays the lead (every
+    // report and the web read it); job_technicians carries the rest of the crew.
+    val crew: List<String> = emptyList(), // app_user ids
+    // The open job's comment thread — dated and attributed, unlike jobs.notes which is the
+    // job's standing description.
+    val comments: List<mu.carfection.pos.core.network.JobCommentDto> = emptyList(),
+    val commentDraft: String = "",
+    val commentBusy: Boolean = false,
     val activeJobId: String? = null,
     // The shop quotes VAT-inclusive shelf prices — show gross in the product picker. Display only.
     val pricesInclVat: Boolean = false,
@@ -115,6 +123,7 @@ class JobsViewModel @Inject constructor(
     private val printer: ReceiptPrinter,
     private val sendApi: DocumentSendApi,
 ) : ViewModel() {
+    private var appUserId: String? = null
     private val _s = MutableStateFlow(JobsState())
     val state = _s.asStateFlow()
     private val checklistJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
@@ -380,8 +389,16 @@ class JobsViewModel @Inject constructor(
     // Clear photoUploading too: it isn't job-scoped, so leaving it set would show a phantom
     // "Uploading…" (and a disabled capture button) on the next job opened.
     fun open(id: String) {
-        _s.update { it.copy(activeJobId = id, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null, detailLines = emptyList()) }
+        // Clear the PREVIOUS job's crew and comments as well — showing one car's notes under
+        // another's would be worse than showing none.
+        _s.update {
+            it.copy(
+                activeJobId = id, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null,
+                detailLines = emptyList(), crew = emptyList(), comments = emptyList(), commentDraft = "",
+            )
+        }
         loadPhotos(id)
+        loadJobDetail(id)
         // Pull the ordered services off the job's quote so the work order is detailed.
         _s.value.jobs.firstOrNull { it.id == id }?.sourceQuoteId?.let { quoteId ->
             viewModelScope.launch {
@@ -448,6 +465,58 @@ class JobsViewModel @Inject constructor(
             }.onFailure { e ->
                 _s.update { st -> if (st.activeJobId != jobId) st else st.copy(photoUploading = null, toast = "Couldn’t save the photo — ${e.uiMessage("try again")}") }
             }
+        }
+    }
+
+    // ── crew + comments for the open job ──────────────────────────────────────
+    /** Load both when a job is opened — they are what the detail sheet shows. */
+    fun loadJobDetail(jobId: String) {
+        viewModelScope.launch {
+            val crew = runCatching { api.fetchJobCrew(jobId) }.getOrDefault(emptyList()).map { it.appUserId }
+            val comments = runCatching { api.fetchJobComments(jobId) }.getOrDefault(emptyList())
+            _s.update { it.copy(crew = crew, comments = comments) }
+        }
+    }
+
+    /**
+     * Put someone on the job, or take them off. Several people work one car, so this is a
+     * membership toggle rather than a single choice — the lead stays on jobs.technician_id.
+     */
+    fun toggleCrew(jobId: String, appUserId: String) {
+        val on = appUserId in _s.value.crew
+        _s.update { it.copy(crew = if (on) it.crew - appUserId else it.crew + appUserId) }
+        viewModelScope.launch {
+            val tenant = catalog.tenantId() ?: return@launch
+            runCatching {
+                if (on) api.removeJobTechnician(jobId, appUserId)
+                else api.addJobTechnician(tenant, jobId, appUserId)
+            }.onFailure {
+                // Put the chip back rather than showing a crew the server never accepted.
+                _s.update { st -> st.copy(crew = if (on) st.crew + appUserId else st.crew - appUserId, error = it.uiMessage()) }
+            }
+        }
+    }
+
+    fun setCommentDraft(v: String) = _s.update { it.copy(commentDraft = v) }
+
+    fun addComment(jobId: String) {
+        val body = _s.value.commentDraft.trim()
+        if (body.isBlank()) return
+        _s.update { it.copy(commentBusy = true) }
+        viewModelScope.launch {
+            val tenant = catalog.tenantId()
+            runCatching {
+                requireNotNull(tenant) { "not synced" }
+                api.addJobComment(
+                    mu.carfection.pos.core.network.NewJobCommentDto(
+                        tenantId = tenant, jobId = jobId, body = body,
+                        createdBy = appUserId ?: api.currentAppUserId()?.also { appUserId = it },
+                    ),
+                )
+            }.onSuccess {
+                _s.update { it.copy(commentDraft = "", commentBusy = false) }
+                loadJobDetail(jobId)
+            }.onFailure { e -> _s.update { it.copy(commentBusy = false, error = e.uiMessage()) } }
         }
     }
 

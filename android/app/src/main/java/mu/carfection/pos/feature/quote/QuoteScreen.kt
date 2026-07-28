@@ -119,17 +119,24 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     LaunchedEffect(s.createdJobId, s.depositPending) {
         if (s.createdJobId != null && s.depositPending) { viewModel.clearToast(); onGoCheckout() }
     }
-    if (!s.depositPending) s.createdJobId?.let { jobId ->
+    // Shown right after accepting (createdJobId) AND on demand for any saved quote (sendOpen),
+    // so a lost WhatsApp or an "email it too" does not require re-accepting the quote.
+    if (!s.depositPending && (s.createdJobId != null || s.sendOpen)) run {
+        val jobId = s.createdJobId
         // Accepted, no deposit → offer to send the signed quotation PDF right away (the server
         // renders + delivers it; WhatsApp needs the Meta connection, email the
         // Cloudflare enable — both fail with a clear message until then).
         var email by remember(s.customerEmail) { mutableStateOf(s.customerEmail ?: "") }
         var phone by remember(s.customerPhone) { mutableStateOf(s.customerPhone ?: "") }
         var note by remember { mutableStateOf(SEND_NOTE_PRESETS.first().second) }
-        Dialog(onDismissRequest = { viewModel.clearToast(); viewModel.back() }) {
+        Dialog(onDismissRequest = { viewModel.clearToast(); if (jobId != null) viewModel.back() else viewModel.closeSend() }) {
             Column(Modifier.width(470.dp).card().padding(26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Quote accepted", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
-                Text("JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
+                Text(if (jobId != null) "Quote accepted" else "Send quotation", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+                Text(
+                    if (jobId != null) "JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:"
+                    else "Send ${s.ref} to the customer — again if they have already had it:",
+                    fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary,
+                )
 
                 MiniLabel("MESSAGE")
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -175,6 +182,7 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
         }
     }
     if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
+    if (s.pickerOpen) QuoteCustomerPicker(s, viewModel)
     if (s.datePickerOpen) StartDatePicker(s, viewModel)
     if (s.timePickerOpen) StartTimePicker(s, viewModel)
 }
@@ -225,6 +233,13 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
             )
         }
+        // Quotes no longer have to start at reception: plenty are raised over the phone, or
+        // for a customer who is not leaving the car today.
+        Box(
+            Modifier.height(44.dp).background(Accent, RoundedCornerShape(12.dp))
+                .clickable { vm.newQuote() }.padding(horizontal = 18.dp),
+            contentAlignment = Alignment.Center,
+        ) { Text("+ New quote", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = AccentInk) }
     }
     if (s.loading) {
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) { Text("Loading…", color = TextMuted) }
@@ -242,7 +257,7 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
             Text(
                 if (s.listQuery.isNotBlank()) "No quote matches “${s.listQuery}”."
                 else if (s.quotes.isNotEmpty()) "Every quote is delivered — search to find one."
-                else "No quotes yet — start one from Intake.",
+                else "No quotes yet — start one from Intake, or tap New quote.",
                 color = TextMuted, fontFamily = Barlow, fontSize = 14.sp,
             )
         }
@@ -290,6 +305,15 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         Box(Modifier.size(44.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(12.dp)).clickable { vm.back() }, contentAlignment = Alignment.Center) { Text("←", fontFamily = Barlow, fontSize = 18.sp, color = TextSecondary) }
         Text(s.ref.uppercase(), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
         StatusChip(s.status)
+        // Re-send: reachable for any SAVED quote, not only in the moment after accepting.
+        if (s.quoteId != null) {
+            Box(
+                Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
+                    .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
+                    .clickable { vm.openSend() }.padding(horizontal = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
+        }
         Spacer(Modifier.weight(1f))
         Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
         s.vehPlate?.let { Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) { Text(it, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Color(0xFF151208)) } }
@@ -1037,3 +1061,96 @@ private val SEND_NOTE_PRESETS = listOf(
     "As discussed" to "As discussed — please review and let us know if you have any questions.",
     "Reminder" to "A gentle reminder regarding this document. We remain at your service.",
 )
+
+
+/**
+ * Who is this quote for? Shown when a quote is started from the list rather than from
+ * reception, where intake has already established the customer and the car.
+ *
+ * The car is OPTIONAL: a price for "a full detail on a Hilux" is a real quote before anyone
+ * has taken a registration, and forcing a vehicle here would push staff into inventing one
+ * (which is how a job ended up against a car plated "NIL").
+ */
+@Composable
+private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
+    Dialog(onDismissRequest = { if (s.customerId != null) vm.closePicker() else vm.back() }) {
+        Column(
+            Modifier.width(560.dp).heightIn(max = 620.dp)
+                .background(CardBg, RoundedCornerShape(18.dp)).border(1.dp, Hairline, RoundedCornerShape(18.dp))
+                .padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                if (s.customerId == null) "WHO IS THIS QUOTE FOR?" else "WHICH CAR?",
+                fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.2.sp, color = TextPrimary,
+            )
+
+            if (s.customerId == null) {
+                FilledInput(
+                    value = s.pickQuery, onValueChange = vm::setPickQuery,
+                    placeholder = "Search name, phone or plate…",
+                    modifier = Modifier.fillMaxWidth(), height = 48.dp, bg = Inset, leadingSearch = true,
+                )
+                if (s.pickSearching) Text("Searching…", fontFamily = Barlow, fontSize = 12.sp, color = TextMuted)
+                if (s.pickQuery.isNotBlank() && s.pickResults.isEmpty() && !s.pickSearching) {
+                    Text(
+                        "Nobody found. Add them at Intake first.",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted,
+                    )
+                }
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(s.pickResults, key = { it.id }) { c ->
+                        Row(
+                            Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(11.dp))
+                                .border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                                .clickable { vm.pickQuoteCustomer(c) }.padding(horizontal = 13.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(c.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(c.phone ?: "—", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+                LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    items(s.pickVehicles, key = { it.id }) { v ->
+                        Row(
+                            Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(11.dp))
+                                .border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                                .clickable { vm.pickQuoteVehicle(v) }.padding(horizontal = 13.dp, vertical = 11.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                                Text(v.plate, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Color(0xFF151208))
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(
+                                listOfNotNull(v.make, v.model, v.colour).joinToString(" "),
+                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, color = TextSecondary,
+                            )
+                        }
+                    }
+                    item {
+                        Box(
+                            Modifier.fillMaxWidth().height(46.dp).dashedBorder(Color(0x40101A24), 11.dp)
+                                .clickable { vm.pickQuoteVehicle(null) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text("No car yet — quote anyway", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary) }
+                    }
+                }
+            }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(48.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp))
+                        .clickable { if (s.customerId != null) vm.closePicker() else vm.back() },
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (s.customerId != null) "Skip" else "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+            }
+        }
+    }
+}

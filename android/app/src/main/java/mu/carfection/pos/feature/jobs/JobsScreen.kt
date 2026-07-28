@@ -17,6 +17,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -459,6 +462,7 @@ private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onDismiss: (() -> 
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGoCheckout: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
@@ -521,18 +525,37 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 }
                 // The car's journey — same five steps as the back office.
                 FlowStrip(jobFlow(j))
-                // technician
-                SectionLabel("TECHNICIAN")
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    if (s.technicians.isEmpty()) Text("No active technicians", fontFamily = Barlow, fontSize = 12.5.sp, color = TextMuted)
+                // technicians — the LEAD (tap) plus everyone else on the car (long-press)
+                SectionLabel("TECHNICIANS")
+                Text(
+                    "Tap to set the lead · long-press to add or remove a second pair of hands",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                )
+                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                    if (s.technicians.isEmpty()) Text("No active technicians — add one in Settings", fontFamily = Barlow, fontSize = 12.5.sp, color = TextMuted)
                     s.technicians.forEach { u ->
-                        val on = u.id == j.technicianId
-                        Row(Modifier.height(40.dp).background(if (on) AccentSoft else CardTile, RoundedCornerShape(20.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(20.dp)).clickable { vm.assignTech(u.id) }.padding(start = 5.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        val lead = u.id == j.technicianId
+                        val onCrew = u.id in s.crew
+                        val on = lead || onCrew
+                        Row(
+                            Modifier.height(40.dp)
+                                .background(if (on) AccentSoft else CardTile, RoundedCornerShape(20.dp))
+                                .border(if (lead) 2.dp else if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(20.dp))
+                                .combinedClickable(
+                                    onClick = { vm.assignTech(u.id) },
+                                    onLongClick = { vm.toggleCrew(j.id, u.id) },
+                                )
+                                .padding(start = 5.dp, end = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        ) {
                             Avatar(firstName(u.displayName).take(1), 29)
                             Text(firstName(u.displayName), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextPrimary)
+                            // The lead is named on the job and every report; the rest are crew.
+                            if (lead) Text("LEAD", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, letterSpacing = 0.8.sp, color = Accent)
                         }
                     }
                 }
+                CommentsCard(s, j, vm)
                 // timer
                 if (j.status != "delivered") TimerCard(j, vm)
                 // checklist
@@ -865,3 +888,59 @@ private fun RescheduleTimePicker(vm: JobsViewModel) {
         }
     }
 }
+
+
+/**
+ * The job's comment thread — dated and attributed, appended never edited.
+ *
+ * Distinct from jobs.notes, which is the job's standing description: a comment is
+ * "customer called, wants it by 4" or "found a scratch on the bumper", said at a moment by a
+ * person, and the value is in knowing who said it and when.
+ */
+@Composable
+private fun CommentsCard(s: JobsState, j: JobBoardDto, vm: JobsViewModel) {
+    SectionLabel("COMMENTS")
+    Column(
+        Modifier.fillMaxWidth().background(CardTile, RoundedCornerShape(14.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(14.dp)).padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledInput(
+                value = s.commentDraft, onValueChange = vm::setCommentDraft,
+                placeholder = "Add a note about this car…",
+                modifier = Modifier.weight(1f), height = 44.dp, bg = Inset,
+            )
+            val can = s.commentDraft.isNotBlank() && !s.commentBusy
+            Box(
+                Modifier.height(44.dp).background(if (can) Accent else Inset, RoundedCornerShape(12.dp))
+                    .clickable(enabled = can) { vm.addComment(j.id) }.padding(horizontal = 18.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(if (s.commentBusy) "…" else "Post", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = if (can) AccentInk else TextMuted) }
+        }
+
+        if (s.comments.isEmpty()) {
+            Text("No comments yet.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+        } else {
+            s.comments.forEach { c ->
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(c.body, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 17.sp, color = TextPrimary)
+                    Text(
+                        listOfNotNull(
+                            c.creator?.displayName?.let { firstName(it) },
+                            c.createdAt?.let { commentWhen(it) },
+                        ).joinToString(" · "),
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** "2026-07-28T09:12:00Z" → "28 Jul 13:12" in Mauritius time. */
+private fun commentWhen(iso: String): String = runCatching {
+    java.time.OffsetDateTime.parse(iso)
+        .atZoneSameInstant(java.time.ZoneOffset.ofHours(4))
+        .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm"))
+}.getOrDefault(iso.take(16).replace('T', ' '))

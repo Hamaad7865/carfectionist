@@ -228,7 +228,11 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * Recent stock adjustments for the printable log — newest first, with the product,
      * the location and (where stamped) who made it.
      */
-    suspend fun fetchStockAdjustments(limit: Long = 80): List<StockAdjustmentDto> =
+    suspend fun fetchStockAdjustments(
+        limit: Long = 200,
+        fromIso: String? = null,
+        toIso: String? = null,
+    ): List<StockAdjustmentDto> =
         client.postgrest.from("stock_movements")
             .select(
                 Columns.raw(
@@ -236,7 +240,13 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                         "creator:app_users!stock_movements_created_by_fkey(display_name)",
                 ),
             ) {
-                filter { eq("ref_type", "adjustment") }
+                filter {
+                    eq("ref_type", "adjustment")
+                    // Bounds are MU-local day edges resolved by the caller, so "today" means
+                    // the shop's today rather than UTC's.
+                    if (fromIso != null) gte("moved_at", fromIso)
+                    if (toIso != null) lte("moved_at", toIso)
+                }
                 order("moved_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(limit)
             }
@@ -766,6 +776,105 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .select(Columns.raw(SALE_COLS)) { filter { eq("id", id) } }
             .decodeList<SaleHistoryDto>()
             .firstOrNull()
+
+    // ── Staff / technicians ───────────────────────────────────────────────────
+    /** Everyone who can be put on a job. Technicians first, then anyone else who works on cars. */
+    suspend fun fetchStaff(includeInactive: Boolean = false): List<StaffDto> =
+        client.postgrest.from("app_users")
+            .select(Columns.raw("id, display_name, role, is_active")) {
+                filter { if (!includeInactive) eq("is_active", true) }
+                order("display_name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList()
+
+    /**
+     * Add a technician — via RPC, not a direct insert.
+     *
+     * app_users has NO insert policy and an OWNER-only update policy, so writing it from the
+     * tablet failed with "new row violates row-level security policy". Opening the table up was
+     * the wrong fix: it holds roles and PIN hashes, and a client that can write it can escalate
+     * its own role. The RPC is SECURITY DEFINER, checks owner/manager itself, and can only ever
+     * touch technicians who have no login.
+     */
+    suspend fun insertStaff(row: NewStaffDto): StaffDto =
+        client.postgrest.rpc("add_technician", buildJsonObject { put("p_name", row.displayName) }).decodeAs()
+
+    suspend fun renameStaff(id: String, name: String) {
+        client.postgrest.rpc("rename_technician", buildJsonObject { put("p_id", id); put("p_name", name) })
+    }
+
+    /** Retire/restore. Never a delete: past jobs reference them and must keep reading. */
+    suspend fun setStaffActive(id: String, active: Boolean) {
+        client.postgrest.rpc("set_technician_active", buildJsonObject { put("p_id", id); put("p_active", active) })
+    }
+
+    // ── A job's crew (several technicians) ────────────────────────────────────
+    suspend fun fetchJobCrew(jobId: String): List<JobCrewDto> =
+        client.postgrest.from("job_technicians")
+            .select(Columns.raw("app_user_id, app_users(display_name)")) { filter { eq("job_id", jobId) } }
+            .decodeList()
+
+    suspend fun addJobTechnician(tenantId: String, jobId: String, appUserId: String) {
+        client.postgrest.from("job_technicians").insert(JobTechLinkDto(jobId, appUserId, tenantId))
+    }
+
+    suspend fun removeJobTechnician(jobId: String, appUserId: String) {
+        client.postgrest.from("job_technicians").delete { filter { eq("job_id", jobId); eq("app_user_id", appUserId) } }
+    }
+
+    // ── Job comments ──────────────────────────────────────────────────────────
+    suspend fun fetchJobComments(jobId: String): List<JobCommentDto> =
+        client.postgrest.from("job_comments")
+            .select(Columns.raw("id, body, created_at, creator:app_users!job_comments_created_by_fkey(display_name)")) {
+                filter { eq("job_id", jobId) }
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            }
+            .decodeList()
+
+    suspend fun addJobComment(row: NewJobCommentDto) {
+        client.postgrest.from("job_comments").insert(row)
+    }
+
+    // ── Contacts ──────────────────────────────────────────────────────────────
+    /** The customer book with each customer's cars — the tablet's Contacts tab. */
+    suspend fun fetchContacts(term: String = "", limit: Long = 60): List<ContactDto> {
+        val safe = term.trim().replace("%", "").replace(",", " ")
+        return client.postgrest.from("customers")
+            .select(Columns.raw("id, name, phone, email, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
+                filter { if (safe.length >= 2) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
+                order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                limit(limit)
+            }
+            .decodeList()
+    }
+
+    /** Edit a car's identity from Contacts. Plate included — typos get corrected. */
+    suspend fun updateVehicle(id: String, plate: String, make: String?, model: String?, colour: String?, category: String?) {
+        client.postgrest.from("vehicles").update({
+            set("plate", plate)
+            set("make", make)
+            set("model", model)
+            set("color", colour)
+            set("category", category)
+        }) { filter { eq("id", id) } }
+    }
+
+    /**
+     * Mark a car not-used, or bring it back. Never a delete: jobs, quotes and invoices
+     * reference it and must keep reading. Retiring also RELEASES the plate, so the same
+     * registration can be re-registered to whoever owns the car next.
+     */
+    suspend fun setVehicleActive(id: String, active: Boolean) {
+        client.postgrest.from("vehicles").update({ set("is_active", active) }) { filter { eq("id", id) } }
+    }
+
+    /** The coated flag and its note live on the CAR — a standing fact, not job history. */
+    suspend fun setVehicleCoating(vehicleId: String, coated: Boolean, notes: String?) {
+        client.postgrest.from("vehicles").update({
+            set("is_coated", coated)
+            set("notes", notes)
+        }) { filter { eq("id", vehicleId) } }
+    }
 
     // ── Corrections (owner/manager per the RPCs' require_role) ────────────────
     /** Void an unpaid/issued document (voids stock movements too). */

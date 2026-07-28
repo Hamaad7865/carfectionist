@@ -27,6 +27,19 @@ const val MAX_LOW_THRESHOLD = 20.0
 // Kept in step with the web's quick-reason chips (features/inventory/InventoryPanel).
 // "Return to supplier" is stock going back OUT to where it came from — faulty batches,
 // over-orders, wrong parts — which the shop was previously logging as "Damaged".
+/**
+ * How far back the printable adjustment log reaches.
+ *
+ * Days, not a calendar picker: the errands are "what did we do today", "this week", "since the
+ * last count" — and a two-date picker on a tablet at a stock shelf is slower than three taps.
+ */
+enum class LogRange(val label: String, val days: Long?) {
+    TODAY("Today", 0),
+    WEEK("7 days", 7),
+    MONTH("30 days", 30),
+    ALL("Everything", null),
+}
+
 val STOCK_REASONS = listOf("Received stock", "Used in job", "Return to supplier", "Damaged", "Correction")
 
 data class StockItem(
@@ -72,6 +85,8 @@ data class StockState(
      *  "print what I just did", and un-ticking a few is less work than ticking many. */
     val logPicked: Set<String> = emptySet(),
     val logPrinting: Boolean = false,
+    /** Which stretch of time the log covers. */
+    val logRange: LogRange = LogRange.WEEK,
 ) {
     val logSelected: List<AdjustmentRow> get() = log.filter { it.id in logPicked }
     val logAllPicked: Boolean get() = log.isNotEmpty() && logPicked.size == log.size
@@ -170,9 +185,30 @@ class StockViewModel @Inject constructor(
 
     // ── printable adjustment log ──────────────────────────────────────────────
     fun openLog() {
-        _s.update { it.copy(logOpen = true, logBusy = true) }
+        _s.update { it.copy(logOpen = true) }
+        reloadLog()
+    }
+
+    fun setLogRange(r: LogRange) {
+        if (_s.value.logRange == r) return
+        _s.update { it.copy(logRange = r) }
+        reloadLog()
+    }
+
+    /** Mauritius day bounds (UTC+4), so "Today" is the shop's today and not UTC's. */
+    private fun reloadLog() {
+        _s.update { it.copy(logBusy = true) }
         viewModelScope.launch {
-            val rows = runCatching { api.fetchStockAdjustments() }.getOrDefault(emptyList()).map(::adjustmentRow)
+            val range = _s.value.logRange
+            val mu = java.time.ZoneId.of("Indian/Mauritius")
+            val today = java.time.ZonedDateTime.now(mu).toLocalDate()
+            val fromIso = range.days?.let {
+                today.minusDays(it).atStartOfDay(mu).toOffsetDateTime().toString()
+            }
+            val rows = runCatching { api.fetchStockAdjustments(fromIso = fromIso) }
+                .getOrDefault(emptyList()).map(::adjustmentRow)
+            // Everything in range starts ticked: the usual errand is "print what is on screen",
+            // and un-ticking a few beats ticking many.
             _s.update { it.copy(logBusy = false, log = rows, logPicked = rows.map { r -> r.id }.toSet()) }
         }
     }
@@ -194,7 +230,10 @@ class StockViewModel @Inject constructor(
         _s.update { it.copy(logPrinting = true) }
         viewModelScope.launch {
             val at = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm"))
-            val text = StockAdjustmentSlip.render(picked, catalog.receiptBiz(), printerWidth(), at)
+            // The paper has to say WHICH stretch it covers, or a filed slip is unreadable later.
+            val text = StockAdjustmentSlip.render(
+                picked, catalog.receiptBiz(), printerWidth(), at, _s.value.logRange.label,
+            )
             val ok = runCatching { printer.printReceipt(text) }.isSuccess
             _s.update {
                 it.copy(

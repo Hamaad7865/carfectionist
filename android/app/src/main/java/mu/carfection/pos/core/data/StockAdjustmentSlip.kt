@@ -49,7 +49,13 @@ fun adjustmentRow(d: StockAdjustmentDto): AdjustmentRow = AdjustmentRow(
  */
 object StockAdjustmentSlip {
 
-    fun render(rows: List<AdjustmentRow>, biz: ReceiptBiz, width: Int = 48, printedAt: String): String = buildString {
+    fun render(
+        rows: List<AdjustmentRow>,
+        biz: ReceiptBiz,
+        width: Int = 48,
+        printedAt: String,
+        rangeLabel: String? = null,
+    ): String = buildString {
         fun centre(s: String) = appendLine(s.padStart(((width + s.length) / 2).coerceAtMost(width)))
         fun centreBold(s: String) = appendLine(ESC_BOLD_ON + s.padStart(((width + s.length) / 2).coerceAtMost(width)) + ESC_BOLD_OFF)
         fun rule() = appendLine("-".repeat(width))
@@ -71,6 +77,8 @@ object StockAdjustmentSlip {
         // address reads identically on both papers ("Helvetia" / "80840 Moka, MU").
         biz.address?.takeIf { it.isNotBlank() }?.split(",", limit = 2)?.forEach { centre(it.trim()) }
         centreBold("STOCK ADJUSTMENTS")
+        // Which stretch of time this covers — a slip filed without it cannot be read back.
+        rangeLabel?.let { centre(it) }
         centre(printedAt)
         rule()
 

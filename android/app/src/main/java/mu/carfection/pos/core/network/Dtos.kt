@@ -414,6 +414,65 @@ data class StockAdjustmentDto(
 )
 
 @Serializable data class AppUserIdDto(val id: String)
+
+// ── Staff (technicians) ──────────────────────────────────────────────────────
+@Serializable data class StaffDto(
+    val id: String,
+    @SerialName("display_name") val displayName: String,
+    val role: String = "technician",
+    @SerialName("is_active") val isActive: Boolean = true,
+)
+@Serializable data class NewStaffDto(
+    @SerialName("tenant_id") val tenantId: String,
+    @SerialName("display_name") val displayName: String,
+    val role: String = "technician",
+    @SerialName("is_active") val isActive: Boolean = true,
+)
+@Serializable data class JobTechLinkDto(
+    @SerialName("job_id") val jobId: String,
+    @SerialName("app_user_id") val appUserId: String,
+    @SerialName("tenant_id") val tenantId: String,
+)
+@Serializable data class JobCrewDto(
+    @SerialName("app_user_id") val appUserId: String,
+    @SerialName("app_users") val user: JobTechDto? = null,
+)
+
+// ── Job comments ─────────────────────────────────────────────────────────────
+@Serializable data class JobCommentDto(
+    val id: String,
+    val body: String,
+    @SerialName("created_at") val createdAt: String? = null,
+    val creator: JobTechDto? = null,
+)
+@Serializable data class NewJobCommentDto(
+    @SerialName("tenant_id") val tenantId: String,
+    @SerialName("job_id") val jobId: String,
+    val body: String,
+    @SerialName("created_by") val createdBy: String? = null,
+)
+
+// ── Contacts (the tablet's own customer book) ────────────────────────────────
+@Serializable data class ContactDto(
+    val id: String,
+    val name: String,
+    val phone: String? = null,
+    val email: String? = null,
+    @SerialName("is_company") val isCompany: Boolean = false,
+    val vehicles: List<ContactVehicleDto> = emptyList(),
+)
+@Serializable data class ContactVehicleDto(
+    val id: String,
+    val plate: String,
+    val make: String? = null,
+    val model: String? = null,
+    @SerialName("color") val colour: String? = null,
+    val category: String? = null,
+    @SerialName("is_coated") val isCoated: Boolean = false,
+    val notes: String? = null,
+    // false = retired ("not used"). Kept on the card, dimmed, because the history is still real.
+    @SerialName("is_active") val isActive: Boolean = true,
+)
 @Serializable data class PlateCustomerDto(val plate: String? = null, val customers: CustomerDto? = null)
 @Serializable data class PlateOwnerDto(val plate: String? = null, val customers: CustomerNameDto? = null)
 

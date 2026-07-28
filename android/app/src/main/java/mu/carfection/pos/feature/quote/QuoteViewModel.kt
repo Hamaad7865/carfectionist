@@ -89,6 +89,14 @@ data class QuoteState(
     val veh: String = "",
     val customerId: String? = null,
     val vehicleId: String? = null,
+    // ── a quote started from nothing (no intake) ──────────────────────────────
+    // Reception raises quotes over the phone and for walk-ins who are not dropping the car
+    // off, so the builder has to be able to pick its own customer and car.
+    val pickerOpen: Boolean = false,
+    val pickQuery: String = "",
+    val pickResults: List<mu.carfection.pos.core.database.CustomerEntity> = emptyList(),
+    val pickSearching: Boolean = false,
+    val pickVehicles: List<mu.carfection.pos.core.network.VehicleDto> = emptyList(),
     val tab: String = "All", // the selected CATEGORY (same rail as Checkout)
     val kindFilter: KindFilter = KindFilter.ALL, // Products / Services toggle (mirrors the web builder)
     val query: String = "", // product search (name or scanned barcode)
@@ -133,6 +141,9 @@ data class QuoteState(
     // "Send to customer" (post-accept): prefill + progress
     val customerEmail: String? = null,
     val customerPhone: String? = null,
+    // Opened on demand for a quote that was already saved/accepted — a customer who lost the
+    // WhatsApp, or wants it emailed too, should not need the quote re-accepted to get it again.
+    val sendOpen: Boolean = false,
     val sendBusy: Boolean = false,
     val sendDone: String? = null,
     val sendError: String? = null,
@@ -168,6 +179,8 @@ class QuoteViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
+        // The standalone-quote picker searches the same cached customer book intake does.
+        viewModelScope.launch { catalog.customers.collect { allCustomers = it } }
         // Pull the latest catalogue so SERVICES (and any newly-added products) show in the
         // grid even when the on-device cache predates them — stale-while-revalidate, the
         // observed flow above updates the grid the moment the fetch lands.
@@ -280,6 +293,69 @@ class QuoteViewModel @Inject constructor(
     fun setKindFilter(k: KindFilter) = _s.update { it.copy(kindFilter = k, tab = "All") }
     fun setQuery(q: String) = _s.update { it.copy(query = q) }
     fun setCatQuery(q: String) = _s.update { it.copy(catQuery = q) }
+
+    // ── standalone quote ──────────────────────────────────────────────────────
+    /** Start a quote with no intake behind it: pick the customer, then the car. */
+    fun newQuote() = _s.update {
+        it.copy(
+            mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
+            who = "", vehPlate = null, veh = "", customerId = null, vehicleId = null,
+            lines = emptyList(), acceptOpen = false, techId = null, startAt = null,
+            estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT,
+            depositAmtText = "", depositPending = false,
+            basketMode = DiscountMode.PCT, basketText = "", query = "",
+            savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
+            intake = null, jobId = null, hasIntake = false, signed = false, billed = false,
+            customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
+            pickerOpen = true, pickQuery = "", pickResults = emptyList(), pickVehicles = emptyList(),
+        )
+    }
+
+    private var pickJob: kotlinx.coroutines.Job? = null
+    private var allCustomers: List<mu.carfection.pos.core.database.CustomerEntity> = emptyList()
+
+    /** Same rule as intake: cache first, then the server, so a new customer is findable. */
+    fun setPickQuery(q: String) {
+        val query = q.trim().lowercase()
+        val local = if (query.isBlank()) emptyList()
+        else allCustomers.filter { it.name.lowercase().contains(query) || (it.phone ?: "").contains(query) }.take(6)
+        _s.update { it.copy(pickQuery = q, pickResults = local, pickSearching = query.length >= 2 && local.isEmpty()) }
+        pickJob?.cancel()
+        if (query.length < 2) return
+        pickJob = viewModelScope.launch {
+            kotlinx.coroutines.delay(250)
+            val remote = api.searchCustomers(query) + api.searchCustomersByPlate(query)
+            val seen = local.map { it.id }.toMutableSet()
+            val merged = local + remote.filter { seen.add(it.id) }
+                .map { mu.carfection.pos.core.database.CustomerEntity(it.id, it.name, it.phone) }
+            if (_s.value.pickQuery.trim().lowercase() == query) {
+                _s.update { it.copy(pickResults = merged.take(8), pickSearching = false) }
+            }
+        }
+    }
+
+    fun pickQuoteCustomer(c: mu.carfection.pos.core.database.CustomerEntity) {
+        _s.update { it.copy(customerId = c.id, who = c.name, customerPhone = c.phone, pickResults = emptyList(), pickQuery = "") }
+        viewModelScope.launch {
+            runCatching { api.fetchVehicles(c.id) }.onSuccess { vs -> _s.update { it.copy(pickVehicles = vs) } }
+        }
+    }
+
+    /** A car is optional — plenty of quotes are for a customer before a car is nominated. */
+    fun pickQuoteVehicle(v: mu.carfection.pos.core.network.VehicleDto?) = _s.update {
+        it.copy(
+            vehicleId = v?.id, vehPlate = v?.plate,
+            veh = listOfNotNull(v?.make, v?.model).joinToString(" "),
+            pickerOpen = false,
+        )
+    }
+
+    /** Send (or re-send) a saved quotation, any time after it was raised. */
+    fun openSend() = _s.update { it.copy(sendOpen = true, sendDone = null, sendError = null) }
+    fun closeSend() = _s.update { it.copy(sendOpen = false, sendDone = null, sendError = null) }
+
+    fun closePicker() = _s.update { it.copy(pickerOpen = false) }
+    fun reopenPicker() = _s.update { it.copy(pickerOpen = true, pickQuery = "", pickResults = emptyList()) }
 
     fun openQuote(q: QuoteRowDto) {
         _s.update {

@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 import mu.carfection.pos.core.hardware.CashDrawer
 import mu.carfection.pos.core.hardware.HardwareConfig
 import mu.carfection.pos.core.hardware.HardwareSettings
+import mu.carfection.pos.core.network.uiMessage
 import mu.carfection.pos.core.hardware.PrinterLink
 import mu.carfection.pos.core.hardware.ReceiptPrinter
 import mu.carfection.pos.core.hardware.ScannerMode
@@ -68,6 +69,11 @@ data class SettingsUiState(
     val cfg: HardwareConfig = HardwareConfig(),
     val loaded: Boolean = false,
     val toast: String? = null,
+    // Technicians: names that can be put on a job. No login required.
+    val staff: List<mu.carfection.pos.core.network.StaffDto> = emptyList(),
+    val newTechName: String = "",
+    val staffBusy: Boolean = false,
+    val staffNotice: String? = null,
 )
 
 @HiltViewModel
@@ -75,12 +81,54 @@ class SettingsViewModel @Inject constructor(
     private val hw: HardwareSettings,
     private val printer: ReceiptPrinter,
     private val drawer: CashDrawer,
+    private val api: mu.carfection.pos.core.network.PosApi,
+    private val catalog: mu.carfection.pos.core.data.CatalogRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(SettingsUiState())
     val state = _s.asStateFlow()
 
     init {
         viewModelScope.launch { hw.config.collect { c -> _s.update { it.copy(cfg = c, loaded = true) } } }
+        loadStaff()
+    }
+
+    // ── technicians ───────────────────────────────────────────────────────────
+    fun loadStaff() {
+        viewModelScope.launch {
+            val staff = runCatching { api.fetchStaff(includeInactive = true) }.getOrDefault(emptyList())
+            _s.update { it.copy(staff = staff.filter { u -> u.role == "technician" }) }
+        }
+    }
+
+    fun setNewTechName(v: String) = _s.update { it.copy(newTechName = v) }
+
+    /**
+     * Add a technician. No login is created — a detailer who never touches the POS is a staff
+     * RECORD that jobs can be assigned to, which is why app_users.auth_user_id is nullable.
+     */
+    fun addTechnician() {
+        val name = _s.value.newTechName.trim()
+        if (name.isBlank()) return
+        _s.update { it.copy(staffBusy = true) }
+        viewModelScope.launch {
+            val tenant = catalog.tenantId()
+            runCatching {
+                requireNotNull(tenant) { "not synced" }
+                api.insertStaff(mu.carfection.pos.core.network.NewStaffDto(tenant, name))
+            }.onSuccess {
+                _s.update { it.copy(newTechName = "", staffBusy = false, staffNotice = "$name added") }
+                loadStaff()
+            }.onFailure { e ->
+                _s.update { it.copy(staffBusy = false, staffNotice = e.uiMessage("Couldn't add them")) }
+            }
+        }
+    }
+
+    /** Retire, never delete: past jobs reference them and must keep reading. */
+    fun toggleTechnician(id: String, active: Boolean) {
+        viewModelScope.launch {
+            runCatching { api.setStaffActive(id, active) }.onSuccess { loadStaff() }
+        }
     }
 
     /** Edits apply immediately — a till has no "save" ritual. */
@@ -234,6 +282,49 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
                 }
 
                 // ── barcode scanner ────────────────────────────────────────────
+                SettingsCard("TECHNICIANS") {
+                    Text(
+                        "People who can be put on a job. They do not need a login — a technician here is a name to assign, nothing more.",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary,
+                    )
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        FilledInput(
+                            value = s.newTechName, onValueChange = viewModel::setNewTechName,
+                            placeholder = "Technician's name…",
+                            modifier = Modifier.weight(1f), height = 46.dp, bg = Inset,
+                        )
+                        val can = s.newTechName.isNotBlank() && !s.staffBusy
+                        Box(
+                            Modifier.height(46.dp).background(if (can) Accent else Inset, RoundedCornerShape(12.dp))
+                                .clickable(enabled = can) { viewModel.addTechnician() }.padding(horizontal = 20.dp),
+                            contentAlignment = Alignment.Center,
+                        ) { Text(if (s.staffBusy) "…" else "Add", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (can) AccentInk else TextMuted) }
+                    }
+                    s.staffNotice?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary) }
+                    if (s.staff.isEmpty()) {
+                        Text("No technicians yet.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+                    }
+                    s.staff.forEach { u ->
+                        Row(
+                            Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(11.dp))
+                                .border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                                .padding(horizontal = 13.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            Text(
+                                u.displayName, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
+                                color = if (u.isActive) TextPrimary else TextMuted, modifier = Modifier.weight(1f),
+                            )
+                            if (!u.isActive) Text("RETIRED", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.sp, letterSpacing = 0.8.sp, color = TextMuted)
+                            Box(
+                                Modifier.height(34.dp).border(1.dp, Hairline, RoundedCornerShape(10.dp))
+                                    .clickable { viewModel.toggleTechnician(u.id, !u.isActive) }.padding(horizontal = 13.dp),
+                                contentAlignment = Alignment.Center,
+                            ) { Text(if (u.isActive) "Retire" else "Restore", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary) }
+                        }
+                    }
+                }
+
                 SettingsCard("BARCODE SCANNER") {
                     FieldLabel("MODE")
                     ChipRow(

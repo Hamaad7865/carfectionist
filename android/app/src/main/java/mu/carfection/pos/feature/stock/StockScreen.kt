@@ -230,6 +230,21 @@ private fun AdjustmentLogDialog(s: StockState, vm: StockViewModel) {
                 ) { Text("✕", color = TextSecondary, fontSize = 15.sp) }
             }
 
+            // How far back to look. Reloads from the server, so a wider range really does
+            // fetch more rather than filtering what happened to be cached.
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                LogRange.entries.forEach { r ->
+                    val on = s.logRange == r
+                    Box(
+                        Modifier.height(36.dp)
+                            .background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(18.dp))
+                            .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(18.dp))
+                            .clickable { vm.setLogRange(r) }.padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(r.label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = if (on) Accent else TextSecondary) }
+                }
+            }
+
             if (s.logBusy) {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Text("Loading…", color = TextMuted, fontFamily = Barlow)

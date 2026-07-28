@@ -76,6 +76,7 @@ enum class PosTab(val label: String, val icon: ImageVector, val title: String, v
     SALE("Checkout", PosIcons.Checkout, "Checkout", "Collect payment — job invoices & counter sales"),
     STOCK("Stock", PosIcons.Stock, "Stock", "On-hand per product · quick adjust"),
     CERT("Warranty", PosIcons.Warranty, "Certificates & warranty", "Ceramic certificates + maintenance"),
+    CONTACTS("Contacts", PosIcons.Intake, "Contacts", "Customers, their cars, and what has been coated"),
     DASH("Today", PosIcons.Today, "Today at the studio", "KPIs, turnover, best sellers, technicians"),
     SETTINGS("Settings", PosIcons.Settings, "Device settings", "Printer · cash drawer · barcode scanner"),
 }
