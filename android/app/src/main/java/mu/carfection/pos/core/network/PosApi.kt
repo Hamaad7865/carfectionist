@@ -534,6 +534,19 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    /**
+     * Discard a DRAFT document, lines and all.
+     *
+     * Safe by construction rather than by trust: the doc_delete RLS policy already allows a
+     * delete only when status = 'draft' and the caller is owner/manager/cashier, so an issued
+     * quote or invoice cannot be removed even if this were called with its id. document_lines
+     * cascade; anything with a job or a payment hanging off it fails on its foreign key rather
+     * than silently shedding history.
+     */
+    suspend fun deleteDraftDocument(id: String) {
+        client.postgrest.from("documents").delete { filter { eq("id", id); eq("status", "draft") } }
+    }
+
     /** Save the quote as a draft document (save_draft RPC). p_lines carry rupee prices. */
     suspend fun saveQuoteDraft(
         existingId: String?,

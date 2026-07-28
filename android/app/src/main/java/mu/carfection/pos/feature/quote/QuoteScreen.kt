@@ -183,6 +183,7 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     }
     if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
     if (s.pickerOpen) QuoteCustomerPicker(s, viewModel)
+    if (s.confirmDelete) DiscardDraftDialog(s, viewModel)
     if (s.datePickerOpen) StartDatePicker(s, viewModel)
     if (s.timePickerOpen) StartTimePicker(s, viewModel)
 }
@@ -318,6 +319,20 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
         s.vehPlate?.let { Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) { Text(it, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Color(0xFF151208)) } }
         if (s.veh.isNotBlank()) Text(s.veh, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
+        // Only while it is a DRAFT. Once a quote is issued it is a document the customer has
+        // been shown, so neither who it is for nor its existence is ours to change quietly.
+        if (s.status == "draft") {
+            Box(
+                Modifier.height(38.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(11.dp))
+                    .clickable { vm.changeCustomer() }.padding(horizontal = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("Change customer", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary) }
+            Box(
+                Modifier.height(38.dp).border(1.dp, Color(0x33D63B50), RoundedCornerShape(11.dp))
+                    .clickable { vm.askDelete() }.padding(horizontal = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("Discard", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Danger) }
+        }
     }
 
     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -1150,6 +1165,46 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                         .clickable { if (s.customerId != null) vm.closePicker() else vm.back() },
                     contentAlignment = Alignment.Center,
                 ) { Text(if (s.customerId != null) "Skip" else "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+            }
+        }
+    }
+}
+
+/**
+ * Discarding is destructive and irreversible, so it is never one tap — and it names what is
+ * about to go, because "are you sure?" on its own tells nobody anything.
+ */
+@Composable
+private fun DiscardDraftDialog(s: QuoteState, vm: QuoteViewModel) {
+    Dialog(onDismissRequest = vm::cancelDelete) {
+        Column(
+            Modifier.width(460.dp).background(CardBg, RoundedCornerShape(18.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(18.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("DISCARD THIS DRAFT?", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary)
+            Text(
+                buildString {
+                    append("The draft for ")
+                    append(s.who.ifBlank { "this customer" })
+                    s.vehPlate?.let { append(" ($it)") }
+                    append(" and its ")
+                    append(s.lines.size)
+                    append(if (s.lines.size == 1) " line" else " lines")
+                    append(" will be deleted. This cannot be undone.")
+                },
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 18.sp, color = TextSecondary,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.cancelDelete() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Keep it", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                Box(
+                    Modifier.weight(1.2f).height(50.dp).background(Danger, RoundedCornerShape(13.dp))
+                        .clickable(enabled = !s.busy) { vm.deleteDraft() },
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (s.busy) "Discarding…" else "Discard", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White) }
             }
         }
     }

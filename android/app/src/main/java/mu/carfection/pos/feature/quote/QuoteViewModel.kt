@@ -93,6 +93,8 @@ data class QuoteState(
     // Reception raises quotes over the phone and for walk-ins who are not dropping the car
     // off, so the builder has to be able to pick its own customer and car.
     val pickerOpen: Boolean = false,
+    /** Confirming discard of this draft. Destructive, so it is never one tap. */
+    val confirmDelete: Boolean = false,
     val pickQuery: String = "",
     val pickResults: List<mu.carfection.pos.core.database.CustomerEntity> = emptyList(),
     val pickSearching: Boolean = false,
@@ -342,7 +344,16 @@ class QuoteViewModel @Inject constructor(
     }
 
     fun pickQuoteCustomer(c: mu.carfection.pos.core.database.CustomerEntity) {
-        _s.update { it.copy(customerId = c.id, who = c.name, customerPhone = c.phone, pickResults = emptyList(), pickQuery = "") }
+        _s.update {
+            it.copy(
+                customerId = c.id, who = c.name, customerPhone = c.phone,
+                // The car MUST go with the customer. Changing who a draft is for while leaving
+                // the previous customer's vehicle attached would save one person's quote against
+                // another person's car — the same wrong-record failure that stranded a live job.
+                vehicleId = null, vehPlate = null, veh = "",
+                pickVehicles = emptyList(), pickResults = emptyList(), pickQuery = "",
+            )
+        }
         viewModelScope.launch {
             runCatching { api.fetchVehicles(c.id) }.onSuccess { vs -> _s.update { it.copy(pickVehicles = vs) } }
         }
@@ -647,6 +658,48 @@ class QuoteViewModel @Inject constructor(
                 put("sort_order", i)
             })
         }
+    }
+
+    fun askDelete() = _s.update { it.copy(confirmDelete = true, error = null) }
+    fun cancelDelete() = _s.update { it.copy(confirmDelete = false) }
+
+    /**
+     * Discard this draft. Only ever a draft: an issued or accepted quote is a document the
+     * customer has been shown, and the DB refuses to delete one regardless of what is asked.
+     * An unsaved draft (no id) has nothing on the server, so it just closes.
+     */
+    fun deleteDraft() {
+        val s = _s.value
+        if (s.status != "draft") { _s.update { it.copy(confirmDelete = false, error = "Only a draft can be discarded.") }; return }
+        val id = s.quoteId
+        if (id == null) { _s.update { it.copy(confirmDelete = false) }; back(); return }
+        _s.update { it.copy(busy = true, confirmDelete = false, error = null) }
+        viewModelScope.launch {
+            runCatching { api.deleteDraftDocument(id) }
+                .onSuccess {
+                    _s.update { it.copy(busy = false) }
+                    back()
+                    loadQuotes()
+                }
+                .onFailure { e ->
+                    // A draft that already spawned a job or carries a payment is referenced by
+                    // something real — say so rather than leaking a foreign-key message.
+                    val fk = (e.message ?: "").contains("foreign key", true) || (e.message ?: "").contains("violates", true)
+                    _s.update {
+                        it.copy(busy = false, error = if (fk) "This quote already has work booked against it, so it can't be discarded." else e.uiMessage())
+                    }
+                }
+        }
+    }
+
+    /**
+     * Change who a DRAFT is for. The picker is the same one a standalone quote starts from, and
+     * the change persists on the next save — saveQuoteDraft already sends customer_id and
+     * vehicle_id. Refused on anything issued: that document has been shown to a customer.
+     */
+    fun changeCustomer() {
+        if (_s.value.status != "draft") { _s.update { it.copy(error = "This quote is already issued — its customer can't be changed.") }; return }
+        reopenPicker()
     }
 
     fun saveDraft() {
