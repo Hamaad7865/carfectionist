@@ -448,7 +448,26 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
-    fun back() { _s.update { it.copy(mode = QuoteMode.LIST) }; loadQuotes() }
+    /**
+     * Leave the builder for the list.
+     *
+     * Every builder-owned dialog closes with it. The picker is mounted on the screen, not
+     * inside the builder branch, so returning to the list while it was open left it sitting
+     * over the list — Cancel appeared to do nothing at all, because the thing it dismissed was
+     * still on screen. The rest are here so no builder modal can outlive the quote it belongs to.
+     */
+    fun back() {
+        _s.update {
+            it.copy(
+                mode = QuoteMode.LIST,
+                pickerOpen = false, confirmDelete = false, sendOpen = false,
+                adhocOpen = false, acceptOpen = false,
+                datePickerOpen = false, timePickerOpen = false,
+                error = null,
+            )
+        }
+        loadQuotes()
+    }
 
     /**
      * Only a draft can be changed. Once a quote is issued the customer has been shown a

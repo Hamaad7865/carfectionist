@@ -53,3 +53,4 @@ backups/
 # losing it means no more updates can ever install over the shop's app.
 android/keystore/
 android/keystore.properties
+scripts/.merge-lucas-snapshot.json
