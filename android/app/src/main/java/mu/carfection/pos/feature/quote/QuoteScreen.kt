@@ -1124,13 +1124,31 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(c.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(c.phone ?: "—", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                                // The phone is what tells two identical names apart. Four
+                                // "Lucas Lutchmoodoo" records exist, two of them with no car,
+                                // and picking the wrong one is how a job lands on the wrong record.
+                                Text(c.phone ?: "no phone on file", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
                             }
                         }
                     }
                 }
             } else {
-                Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary)
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = TextPrimary, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    // Back to the customer list — picking the wrong one of several same-named
+                    // records should not mean cancelling out of the whole dialog.
+                    Box(
+                        Modifier.height(36.dp).border(1.dp, Hairline, RoundedCornerShape(10.dp))
+                            .clickable { vm.clearPickedCustomer() }.padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Change", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary) }
+                }
+                if (s.pickVehicles.isEmpty()) {
+                    Text(
+                        "No car on this customer yet.",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted,
+                    )
+                }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(s.pickVehicles, key = { it.id }) { v ->
                         Row(

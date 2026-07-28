@@ -156,7 +156,23 @@ data class QuoteState(
 
 /** A quote whose car was handed over — or whose job was CANCELLED — is finished
  *  business, off the working list. (Cancelled used to linger here forever.) */
-private fun QuoteRowDto.isDelivered(): Boolean = job?.status == "delivered" || job?.status == "cancelled"
+/**
+ * Is this quote finished business — off the working list?
+ *
+ * Delivered or cancelled work was already retired. Two more count as dead and were not:
+ *  - the quote itself was VOIDED (cancel_job now does this to the quote that produced the job);
+ *  - every invoice raised from it has been voided, which is the shop saying the billing was
+ *    undone. A00023 sat in the live list on exactly that footing, with both its invoices void.
+ *
+ * A quote with NO invoices is untouched by the second rule — that is a quote nobody has billed
+ * yet, which is the most live thing on the list.
+ */
+private fun QuoteRowDto.isRetired(): Boolean {
+    if (status == "void") return true
+    if (job?.status == "delivered" || job?.status == "cancelled") return true
+    val bills = invoices.filter { it.docType == "invoice" }
+    return bills.isNotEmpty() && bills.all { it.status == "void" }
+}
 
 private fun QuoteRowDto.matches(q: String): Boolean {
     val hay = listOfNotNull(
@@ -252,11 +268,11 @@ class QuoteViewModel @Inject constructor(
      */
     fun filteredQuotes(s: QuoteState): List<QuoteRowDto> {
         val q = s.listQuery.trim()
-        return if (q.isEmpty()) s.quotes.filterNot { it.isDelivered() } else s.quotes.filter { it.matches(q) }
+        return if (q.isEmpty()) s.quotes.filterNot { it.isRetired() } else s.quotes.filter { it.matches(q) }
     }
 
     /** How many delivered quotes the empty search bar is hiding — shown as a hint on the list. */
-    fun retiredCount(s: QuoteState): Int = s.quotes.count { it.isDelivered() }
+    fun retiredCount(s: QuoteState): Int = s.quotes.count { it.isRetired() }
 
     fun setListQuery(q: String) = _s.update { it.copy(listQuery = q) }
 
@@ -373,6 +389,12 @@ class QuoteViewModel @Inject constructor(
     fun closeSend() = _s.update { it.copy(sendOpen = false, sendDone = null, sendError = null) }
 
     fun closePicker() = _s.update { it.copy(pickerOpen = false) }
+
+    /** Step back to the customer list — the picked one was the wrong same-named record. */
+    fun clearPickedCustomer() = _s.update {
+        it.copy(customerId = null, who = "", customerPhone = null, vehicleId = null, vehPlate = null, veh = "",
+            pickVehicles = emptyList(), pickResults = emptyList(), pickQuery = "")
+    }
     fun reopenPicker() = _s.update { it.copy(pickerOpen = true, pickQuery = "", pickResults = emptyList()) }
 
     fun openQuote(q: QuoteRowDto) {
