@@ -133,7 +133,7 @@ class JobsViewModel @Inject constructor(
 
     init {
         load()
-        viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
+        loadTechnicians()
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
         viewModelScope.launch {
             catalog.pricesInclVatFlow.collect { incl -> _s.update { it.copy(pricesInclVat = incl) } }
@@ -275,7 +275,19 @@ class JobsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The assignable roster. Re-read on every board load, not once at construction: this
+     * ViewModel outlives tab switches, so a technician added in Settings never appeared on a
+     * job until the whole app was restarted.
+     */
+    fun loadTechnicians() {
+        viewModelScope.launch {
+            runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } }
+        }
+    }
+
     fun load() {
+        loadTechnicians()
         _s.update { it.copy(loading = true) }
         viewModelScope.launch {
             runCatching { api.fetchJobs() }

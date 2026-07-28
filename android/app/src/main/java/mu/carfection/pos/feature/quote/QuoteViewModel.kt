@@ -189,7 +189,7 @@ class QuoteViewModel @Inject constructor(
             catalog.pricesInclVatFlow.collect { incl -> _s.update { it.copy(pricesInclVat = incl) } }
         }
         loadQuotes()
-        viewModelScope.launch { runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } } }
+        loadTechnicians()
         // Reception hands over a customer+vehicle (+condition) — open a fresh builder on it.
         viewModelScope.launch {
             intakeBus.pending.collect { h -> if (h != null) { intakeBus.consume(); beginFromIntake(h) } }
@@ -226,6 +226,13 @@ class QuoteViewModel @Inject constructor(
             customerEmail = h.customerEmail, customerPhone = h.customerPhone,
             sendBusy = false, sendDone = null, sendError = null,
         )
+    }
+
+    /** Same reason as the jobs board: the roster must be re-read, not cached for the session. */
+    fun loadTechnicians() {
+        viewModelScope.launch {
+            runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } }
+        }
     }
 
     fun loadQuotes() {
