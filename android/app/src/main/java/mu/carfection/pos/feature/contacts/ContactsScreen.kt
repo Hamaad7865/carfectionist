@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -146,7 +148,7 @@ private fun ContactRow(c: ContactDto, onClick: () -> Unit) {
 private fun ContactCard(c: ContactDto, s: ContactsState, vm: ContactsViewModel) {
     Dialog(onDismissRequest = vm::closeContact) {
         Column(
-            Modifier.width(600.dp).heightIn(max = 640.dp)
+            Modifier.width(600.dp).fillMaxHeight(0.9f)
                 .background(CardBg, RoundedCornerShape(18.dp)).border(1.dp, Hairline, RoundedCornerShape(18.dp))
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -265,14 +267,25 @@ private fun VehicleDialog(s: ContactsState, vm: ContactsViewModel) {
     val editing = s.editing
     Dialog(onDismissRequest = vm::cancelEdit) {
         Column(
-            Modifier.width(560.dp).heightIn(max = 660.dp).background(CardBg, RoundedCornerShape(18.dp))
-                .border(1.dp, Hairline, RoundedCornerShape(18.dp)).padding(22.dp),
+            // A tablet in landscape is only ~800dp tall and the system bars take their cut, so
+            // this is a FRACTION of the screen, not a fixed 660dp that overflowed on the shorter
+            // one. Header and footer are fixed; the fields between them scroll.
+            Modifier.width(560.dp).fillMaxHeight(0.92f)
+                .background(CardBg, RoundedCornerShape(18.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(18.dp))
+                .padding(horizontal = 22.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
                 if (s.adding) "ADD A CAR" else "EDIT CAR",
                 fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary,
             )
+
+            // Everything from here to the footer scrolls.
+            Column(
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
 
             MiniLabel("PLATE")
             FilledInput(
@@ -322,7 +335,7 @@ private fun VehicleDialog(s: ContactsState, vm: ContactsViewModel) {
             FilledInput(
                 value = s.draftNote, onValueChange = vm::setDraftNote,
                 placeholder = "Anything worth remembering about this car…",
-                modifier = Modifier.fillMaxWidth().height(84.dp), bg = Inset,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 76.dp), bg = Inset,
             )
 
             s.error?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Danger) }
@@ -348,7 +361,9 @@ private fun VehicleDialog(s: ContactsState, vm: ContactsViewModel) {
                 }
             }
 
-            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            } // end of the scrolling region
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Box(
                     Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.cancelEdit() },
                     contentAlignment = Alignment.Center,
