@@ -300,7 +300,7 @@ class JobsViewModel @Inject constructor(
                         val o = overlays[job.id] ?: return@map job
                         job.copy(
                             checklist = o.checklist?.let { runCatching { checklistJson.decodeFromString<List<ChecklistItemDto>>(it.toString()) }.getOrNull() } ?: job.checklist,
-                            technicianId = o.technicianId ?: job.technicianId,
+                            technicianId = if (o.technicianQueued) o.technicianId else job.technicianId,
                         )
                     }
                     _s.update { it.copy(loading = false, jobs = merged) }
@@ -491,21 +491,70 @@ class JobsViewModel @Inject constructor(
     }
 
     /**
-     * Put someone on the job, or take them off. Several people work one car, so this is a
-     * membership toggle rather than a single choice — the lead stays on jobs.technician_id.
+     * Everyone on the job, lead first. The lead lives on jobs.technician_id and the rest in
+     * job_technicians, never both — the filter is defensive, so a stray duplicate row can't
+     * show someone twice.
      */
-    fun toggleCrew(jobId: String, appUserId: String) {
-        val on = appUserId in _s.value.crew
-        _s.update { it.copy(crew = if (on) it.crew - appUserId else it.crew + appUserId) }
+    fun roster(jobId: String): List<String> {
+        val lead = _s.value.jobs.firstOrNull { it.id == jobId }?.technicianId
+        return listOfNotNull(lead) + _s.value.crew.filter { it != lead }
+    }
+
+    /**
+     * One tap puts someone on the job or takes them off — the same rule as the quote's accept
+     * panel, so the two screens behave alike. First on is the lead; take the lead off and the
+     * next person is promoted, because a job with a crew should never be leaderless.
+     */
+    fun tapTech(jobId: String, appUserId: String) {
+        val current = roster(jobId)
+        when {
+            appUserId !in current -> if (current.isEmpty()) setLead(jobId, appUserId) else addToCrew(jobId, appUserId)
+            appUserId == current.first() -> promote(jobId, current.getOrNull(1))
+            else -> removeFromCrew(jobId, appUserId)
+        }
+    }
+
+    private fun setLead(jobId: String, techId: String?) {
+        val name = _s.value.technicians.firstOrNull { it.id == techId }?.displayName ?: "technician"
+        _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == jobId) it.copy(technicianId = techId) else it }) }
+        // Durable + idempotent: survives a dropped connection, replays safely on reconnect.
+        viewModelScope.launch {
+            outbox.enqueueAssignTech(jobId, techId, if (techId == null) "Unassign job" else "Assign $name")
+        }
+    }
+
+    private fun addToCrew(jobId: String, appUserId: String) {
+        _s.update { it.copy(crew = it.crew + appUserId) }
         viewModelScope.launch {
             val tenant = catalog.tenantId() ?: return@launch
-            runCatching {
-                if (on) api.removeJobTechnician(jobId, appUserId)
-                else api.addJobTechnician(tenant, jobId, appUserId)
-            }.onFailure {
-                // Put the chip back rather than showing a crew the server never accepted.
-                _s.update { st -> st.copy(crew = if (on) st.crew + appUserId else st.crew - appUserId, error = it.uiMessage()) }
+            runCatching { api.addJobTechnician(tenant, jobId, appUserId) }.onFailure { e ->
+                // Take the chip back off rather than showing a crew the server never accepted.
+                _s.update { st -> st.copy(crew = st.crew - appUserId, error = e.uiMessage()) }
             }
+        }
+    }
+
+    private fun removeFromCrew(jobId: String, appUserId: String) {
+        _s.update { it.copy(crew = it.crew - appUserId) }
+        viewModelScope.launch {
+            runCatching { api.removeJobTechnician(jobId, appUserId) }.onFailure { e ->
+                _s.update { st -> st.copy(crew = st.crew + appUserId, error = e.uiMessage()) }
+            }
+        }
+    }
+
+    /**
+     * The lead steps off. Whoever is next moves out of job_technicians and onto the job itself —
+     * their crew row goes FIRST, so a failure there leaves the old lead in place rather than
+     * booking one person into both seats.
+     */
+    private fun promote(jobId: String, next: String?) {
+        if (next == null) { setLead(jobId, null); return }
+        _s.update { it.copy(crew = it.crew - next) }
+        viewModelScope.launch {
+            runCatching { api.removeJobTechnician(jobId, next) }
+                .onSuccess { setLead(jobId, next) }
+                .onFailure { e -> _s.update { st -> st.copy(crew = st.crew + next, error = e.uiMessage()) } }
         }
     }
 
@@ -532,13 +581,6 @@ class JobsViewModel @Inject constructor(
         }
     }
 
-    fun assignTech(techId: String) {
-        val id = _s.value.activeJobId ?: return
-        val tech = _s.value.technicians.firstOrNull { it.id == techId }?.displayName ?: "technician"
-        _s.update { st -> st.copy(jobs = st.jobs.map { if (it.id == id) it.copy(technicianId = techId) else it }) }
-        // Durable + idempotent: survives a dropped connection, replays safely on reconnect.
-        viewModelScope.launch { outbox.enqueueAssignTech(id, techId, "Assign $tech") }
-    }
 
     fun toggleChecklist(index: Int) {
         val id = _s.value.activeJobId ?: return

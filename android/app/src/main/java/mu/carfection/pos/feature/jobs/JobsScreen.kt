@@ -17,8 +17,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -462,7 +460,7 @@ private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onDismiss: (() -> 
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class, androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGoCheckout: () -> Unit) {
     Box(Modifier.fillMaxSize()) {
@@ -525,30 +523,30 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 }
                 // The car's journey — same five steps as the back office.
                 FlowStrip(jobFlow(j))
-                // technicians — the LEAD (tap) plus everyone else on the car (long-press)
-                SectionLabel("TECHNICIANS")
+                // Who is on the car — one tap on or off, exactly as the quote's accept panel does
+                // it, because a long-press was something nobody found.
+                val crewOnJob = vm.roster(j.id)
+                SectionLabel(if (crewOnJob.size > 1) "CREW" else "TECHNICIANS")
                 Text(
-                    "Tap to set the lead · long-press to add or remove a second pair of hands",
+                    if (crewOnJob.size > 1) "Tap to add or remove · the first one is the lead"
+                    else "Tap to put someone on the car · tap more than one for a crew",
                     fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
                 )
                 FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     if (s.technicians.isEmpty()) Text("No active technicians — add one in Settings", fontFamily = Barlow, fontSize = 12.5.sp, color = TextMuted)
                     s.technicians.forEach { u ->
-                        val lead = u.id == j.technicianId
-                        val onCrew = u.id in s.crew
-                        val on = lead || onCrew
+                        val on = u.id in crewOnJob
+                        // Only worth flagging once there is a crew for someone to lead.
+                        val lead = on && crewOnJob.size > 1 && u.id == crewOnJob.first()
                         Row(
                             Modifier.height(40.dp)
                                 .background(if (on) AccentSoft else CardTile, RoundedCornerShape(20.dp))
                                 .border(if (lead) 2.dp else if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(20.dp))
-                                .combinedClickable(
-                                    onClick = { vm.assignTech(u.id) },
-                                    onLongClick = { vm.toggleCrew(j.id, u.id) },
-                                )
+                                .clickable { vm.tapTech(j.id, u.id) }
                                 .padding(start = 5.dp, end = 12.dp),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp),
                         ) {
-                            Avatar(firstName(u.displayName).take(1), 29)
+                            Avatar(firstName(u.displayName).take(1), 29, on)
                             Text(firstName(u.displayName), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextPrimary)
                             // The lead is named on the job and every report; the rest are crew.
                             if (lead) Text("LEAD", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, letterSpacing = 0.8.sp, color = Accent)
@@ -792,7 +790,7 @@ private fun launchCapture(
 @Composable private fun PlateBadge(text: String, big: Boolean = false) = Box(Modifier.background(Plate, RoundedCornerShape(if (big) 5.dp else 4.dp)).padding(horizontal = if (big) 9.dp else 7.dp, vertical = if (big) 4.dp else 3.dp)) {
     Text(text, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = if (big) 12.5.sp else 11.sp, letterSpacing = 0.4.sp, color = Color(0xFF151208))
 }
-@Composable private fun Avatar(letter: String, size: Int) = Box(Modifier.size(size.dp).background(Accent, CircleShape), contentAlignment = Alignment.Center) {
+@Composable private fun Avatar(letter: String, size: Int, on: Boolean = true) = Box(Modifier.size(size.dp).background(if (on) Accent else Color(0xFFBAC4CE), CircleShape), contentAlignment = Alignment.Center) {
     Text(letter.uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = (size * 0.36f).sp, color = AccentInk)
 }
 @Composable private fun OutlineBtn(text: String, modifier: Modifier = Modifier, h: Int = 44, onClick: () -> Unit) = Box(modifier.height(h.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(12.dp)).clickable(onClick = onClick).padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {

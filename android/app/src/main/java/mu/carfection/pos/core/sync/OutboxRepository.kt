@@ -62,7 +62,8 @@ class OutboxRepository @Inject constructor(
         }
     }
 
-    @Serializable private data class AssignTech(val jobId: String, val technicianId: String)
+    // Nullable: taking the last person off a job leaves it unassigned, which is a real state.
+    @Serializable private data class AssignTech(val jobId: String, val technicianId: String? = null)
     @Serializable private data class SetChecklist(val jobId: String, val checklist: JsonArray)
     @Serializable private data class AuditEvent(
         val id: String,          // client-minted UUID — what makes the append replay-safe
@@ -74,7 +75,14 @@ class OutboxRepository @Inject constructor(
     )
 
     /** The latest still-queued checklist / technician per job — what the server hasn't caught up to. */
-    data class JobOverlay(val checklist: JsonArray? = null, val technicianId: String? = null)
+    // technicianQueued distinguishes "an assign op is waiting" from "no assign op": a queued
+    // UNassign is itself a null technicianId, and without the flag it would read as no overlay
+    // and let the stale server snapshot put the old lead back.
+    data class JobOverlay(
+        val checklist: JsonArray? = null,
+        val technicianId: String? = null,
+        val technicianQueued: Boolean = false,
+    )
 
     /**
      * A fresh fetchJobs() is behind any writes still in the queue; overlay those so re-entering the
@@ -89,15 +97,16 @@ class OutboxRepository @Inject constructor(
                     out[it.jobId] = (out[it.jobId] ?: JobOverlay()).copy(checklist = it.checklist)
                 }
                 OP_ASSIGN_TECH -> json.decodeFromString<AssignTech>(op.payload).let {
-                    out[it.jobId] = (out[it.jobId] ?: JobOverlay()).copy(technicianId = it.technicianId)
+                    out[it.jobId] = (out[it.jobId] ?: JobOverlay())
+                        .copy(technicianId = it.technicianId, technicianQueued = true)
                 }
             }
         }
         return out
     }
 
-    /** Reassign a job's technician. Idempotent — safe to replay after a reconnect. */
-    suspend fun enqueueAssignTech(jobId: String, technicianId: String, label: String) =
+    /** Reassign a job's technician, or null to leave it unassigned. Safe to replay. */
+    suspend fun enqueueAssignTech(jobId: String, technicianId: String?, label: String) =
         enqueue(OP_ASSIGN_TECH, json.encodeToString(AssignTech(jobId, technicianId)), "assign:$jobId", label)
 
     /** Persist a job's checklist state. Idempotent — the last write for a job wins. */
