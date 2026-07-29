@@ -474,6 +474,11 @@ class QuoteViewModel @Inject constructor(
                 pickerOpen = false, confirmDelete = false, sendOpen = false,
                 adhocOpen = false, acceptOpen = false,
                 datePickerOpen = false, timePickerOpen = false,
+                // busy belongs to work that was happening IN the builder. Carrying it out left
+                // every control gated on !busy dead for the life of the screen — Back, Continue
+                // to signature, Save draft, all of it — with nothing on screen explaining why.
+                // Cleared here rather than in each caller, so no future one can strand it.
+                busy = false,
                 error = null,
             )
         }
@@ -678,7 +683,7 @@ class QuoteViewModel @Inject constructor(
         _s.update { it.copy(busy = true, error = null, confirmDelete = false) }
         viewModelScope.launch {
             runCatching { api.voidQuote(id) }
-                .onSuccess { back() }
+                .onSuccess { _s.update { it.copy(busy = false) }; back() }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
@@ -909,6 +914,19 @@ class QuoteViewModel @Inject constructor(
                 // "Create job" on this quote raises it whenever the customer comes back.
                 if (!s.startJobNow) {
                     api.acceptQuoteOnly(quoteId, sigPath, s.who.takeUnless { it.isBlank() || it == "—" })
+                    // Finish the job the success path below would have done. Returning early
+                    // from runCatching skips it entirely, which left busy stuck true — every
+                    // control gated on it then read "Saving…"/"Working…" for ever, with the
+                    // quote actually accepted on the server and no way to tell from the screen.
+                    _s.update {
+                        it.copy(
+                            busy = false, quoteId = quoteId, status = "accepted",
+                            acceptOpen = false, intake = null, signed = sigPath != null,
+                            jobId = null, createdJobId = null, depositPending = false,
+                            sendBusy = false, sendDone = null, sendError = null,
+                        )
+                    }
+                    loadQuotes()
                     return@runCatching Triple(quoteId, null, null)
                 }
                 val jobId = api.convertQuoteToJob(quoteId, s.techId, signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
