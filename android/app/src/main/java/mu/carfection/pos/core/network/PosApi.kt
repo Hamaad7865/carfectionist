@@ -457,7 +457,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }) { filter { eq("id", jobId) } }
     }
 
-    suspend fun assignTechnician(jobId: String, technicianId: String) {
+    suspend fun assignTechnician(jobId: String, technicianId: String?) {
         client.postgrest.from("jobs").update({ set("technician_id", technicianId) }) { filter { eq("id", jobId) } }
     }
 
@@ -539,10 +539,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         })
     }
 
+    /**
+     * Ordered, and it matters: these come back as a row of tap targets that re-fetches whenever
+     * a screen is entered. Postgres does not promise a stable order without ORDER BY, so an
+     * unordered list can reshuffle under a finger already on its way down and put the wrong
+     * person on the car.
+     */
     suspend fun fetchTechnicians(): List<TechnicianDto> =
         client.postgrest.from("app_users")
             .select(Columns.raw("id, display_name")) {
                 filter { eq("role", "technician"); eq("is_active", true) }
+                order("display_name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }
             .decodeList()
 
