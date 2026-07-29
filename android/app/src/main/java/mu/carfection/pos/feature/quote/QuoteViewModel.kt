@@ -102,6 +102,10 @@ data class QuoteState(
     // Adding a customer without leaving the quote — quoting over the phone is exactly when
     // they are not on file yet, and sending staff to Intake and back loses the quote.
     val newCustOpen: Boolean = false,
+    val newVehOpen: Boolean = false,
+    val newVehPlate: String = "",
+    val newVehMake: String = "",
+    val newVehModel: String = "",
     val newCustName: String = "",
     val newCustPhone: String = "",
     val tab: String = "All", // the selected CATEGORY (same rail as Checkout)
@@ -577,6 +581,52 @@ class QuoteViewModel @Inject constructor(
 
     fun setStartJobNow(v: Boolean) = _s.update { it.copy(startJobNow = v) }
 
+    fun toggleNewVeh(open: Boolean) = _s.update {
+        it.copy(newVehOpen = open, newVehPlate = "", newVehMake = "", newVehModel = "", error = null)
+    }
+    fun setNewVehPlate(v: String) = _s.update { it.copy(newVehPlate = v) }
+    fun setNewVehMake(v: String) = _s.update { it.copy(newVehMake = v) }
+    fun setNewVehModel(v: String) = _s.update { it.copy(newVehModel = v) }
+
+    /** Register the car and put the quote straight onto it. */
+    fun saveNewVehicle() {
+        val st = _s.value
+        val plate = st.newVehPlate.trim()
+        val cust = st.customerId ?: return
+        if (plate.isBlank()) { _s.update { it.copy(error = "Enter a plate") }; return }
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val tenant = catalog.tenantId() ?: error("Not synced — pull the catalogue first")
+                api.insertVehicle(
+                    mu.carfection.pos.core.network.NewVehicleDto(
+                        tenant, cust, plate,
+                        st.newVehMake.trim().ifBlank { null },
+                        st.newVehModel.trim().ifBlank { null },
+                    ),
+                )
+            }.onSuccess { v ->
+                _s.update { it.copy(busy = false, newVehOpen = false, pickVehicles = it.pickVehicles + v) }
+                pickQuoteVehicle(v)
+            }.onFailure { e ->
+                // Name the holder rather than dead-ending on "already exists" — that is what
+                // drove staff to invent placeholder plates in the first place.
+                val dup = (e.message ?: "").contains("duplicate", true) || (e.message ?: "").contains("plate", true)
+                val owner = if (dup) api.vehicleOwnerByPlate(plate) else null
+                _s.update {
+                    it.copy(
+                        busy = false,
+                        error = when {
+                            owner != null -> "$plate is already on $owner's card."
+                            dup -> "$plate is already registered to another customer."
+                            else -> e.uiMessage()
+                        },
+                    )
+                }
+            }
+        }
+    }
+
     fun toggleNewCust(open: Boolean) = _s.update {
         // Seed the name from whatever they already typed in the search box — they have just
         // told us who they are looking for.
@@ -621,6 +671,18 @@ class QuoteViewModel @Inject constructor(
      * ones on record. The RPC is idempotent — a second tap returns the same job rather than
      * putting the car on the board twice.
      */
+    /** Void a signed quote the customer never returned for. Retires it from the list. */
+    fun voidThisQuote() {
+        val id = _s.value.quoteId ?: return
+        if (_s.value.busy) return
+        _s.update { it.copy(busy = true, error = null, confirmDelete = false) }
+        viewModelScope.launch {
+            runCatching { api.voidQuote(id) }
+                .onSuccess { back() }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
     fun createJobFromQuote() {
         val id = _s.value.quoteId ?: return
         if (_s.value.busy) return

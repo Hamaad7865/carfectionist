@@ -340,6 +340,18 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         if (idx >= 0) idx + 1 else null
     }.getOrNull()
 
+    /**
+     * The customer never came back. An accepted quote carries a number and a signature, so it
+     * is VOIDED rather than erased — the record of what was agreed survives, it just stops
+     * reading as live work. The RPC refuses one with a live job or a live invoice.
+     */
+    suspend fun voidQuote(quoteId: String, reason: String? = null) {
+        client.postgrest.rpc("void_quote", buildJsonObject {
+            put("p_quote_id", quoteId)
+            if (reason != null) put("p_reason", reason) else put("p_reason", JsonNull)
+        })
+    }
+
     /** The internal order reference for a just-issued sale — the slip's "Bill" line. */
     suspend fun billNoFor(documentId: String): Long? = runCatching {
         client.postgrest.from("documents")

@@ -34,6 +34,9 @@ data class ContactsState(
     val draftActive: Boolean = true,
     /** Retired cars are hidden by default - they are history, not the working list. */
     val showRetired: Boolean = false,
+    val addingCustomer: Boolean = false,
+    val newName: String = "",
+    val newPhone: String = "",
     val startingJob: Boolean = false,
     val startedJobId: String? = null,
     val busy: Boolean = false,
@@ -90,6 +93,44 @@ class ContactsViewModel @Inject constructor(
             draftCoated = v.isCoated, draftNote = v.notes.orEmpty(), draftActive = v.isActive,
             error = null,
         )
+    }
+
+    fun addCustomer() = _s.update { it.copy(addingCustomer = true, newName = it.query.trim(), newPhone = "", error = null) }
+    fun cancelAddCustomer() = _s.update { it.copy(addingCustomer = false, newName = "", newPhone = "", error = null) }
+    fun setNewName(v: String) = _s.update { it.copy(newName = v) }
+    fun setNewPhone(v: String) = _s.update { it.copy(newPhone = v) }
+
+    /** Create the customer, then open their card so the car can be added straight away. */
+    fun saveNewCustomer() {
+        val st = _s.value
+        val name = st.newName.trim()
+        if (name.isBlank()) { _s.update { it.copy(error = "Enter a name") }; return }
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val tenant = requireNotNull(catalog.tenantId()) { "not synced" }
+                api.insertCustomer(
+                    mu.carfection.pos.core.network.NewCustomerDto(
+                        tenantId = tenant, name = name, phone = st.newPhone.trim().ifBlank { null },
+                    ),
+                )
+            }.onSuccess { c ->
+                // Into the local cache too, so intake and the quote picker find them at once
+                // rather than inviting a duplicate.
+                runCatching { catalog.cacheCustomer(mu.carfection.pos.core.database.CustomerEntity(c.id, c.name, c.phone)) }
+                _s.update { it.copy(busy = false, addingCustomer = false, newName = "", newPhone = "", toast = "Customer added") }
+                load("")
+                // Open the fresh card with the "add car" form already up.
+                _s.update {
+                    it.copy(
+                        open = mu.carfection.pos.core.network.ContactDto(
+                            id = c.id, name = c.name, phone = c.phone, email = null, isCompany = false, vehicles = emptyList(),
+                        ),
+                    )
+                }
+                addVehicle()
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
     }
 
     /** Add a car to the open customer. */

@@ -588,6 +588,15 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             "Signed and agreed. Put the car on the board whenever they bring it in.",
                             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
                         )
+                        // …and if they never do. Voided, not erased: the quote has a number and
+                        // a signature, so what was agreed stays on the record.
+                        Box(
+                            Modifier.fillMaxWidth().height(44.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp))
+                                .clickable(enabled = !s.busy) { vm.askDelete() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text("Customer never came back", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Danger)
+                        }
                     }
                     s.billed -> {
                         Box(Modifier.fillMaxWidth().height(52.dp).background(InsetAlt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
@@ -1224,11 +1233,48 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                         contentAlignment = Alignment.Center,
                     ) { Text("Change", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary) }
                 }
-                if (s.pickVehicles.isEmpty()) {
+                if (s.pickVehicles.isEmpty() && !s.newVehOpen) {
                     Text(
                         "No car on this customer yet.",
                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted,
                     )
+                }
+                // A customer created a moment ago has no car by definition, and a quote for a
+                // car nobody has registered is how a placeholder plate gets invented.
+                if (s.newVehOpen) {
+                    Column(
+                        Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(12.dp))
+                            .border(1.dp, Hairline, RoundedCornerShape(12.dp)).padding(13.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        Text("NEW CAR", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, color = TextMuted)
+                        FilledInput(s.newVehPlate, vm::setNewVehPlate, "Plate — e.g. 2211 MR 23", Modifier.fillMaxWidth(), height = 46.dp, bg = CardBg)
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilledInput(s.newVehMake, vm::setNewVehMake, "Make", Modifier.weight(1f), height = 46.dp, bg = CardBg)
+                            FilledInput(s.newVehModel, vm::setNewVehModel, "Model", Modifier.weight(1f), height = 46.dp, bg = CardBg)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                Modifier.weight(1f).height(44.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                                    .clickable { vm.toggleNewVeh(false) },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary) }
+                            val canSave = s.newVehPlate.isNotBlank() && !s.busy
+                            Box(
+                                Modifier.weight(1.4f).height(44.dp)
+                                    .background(if (canSave) Accent else InsetAlt, RoundedCornerShape(11.dp))
+                                    .clickable(enabled = canSave) { vm.saveNewVehicle() },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(if (s.busy) "Saving…" else "Add car", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = if (canSave) AccentInk else TextMuted) }
+                        }
+                        s.error?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Danger) }
+                    }
+                } else {
+                    Box(
+                        Modifier.fillMaxWidth().height(46.dp).border(1.5.dp, AccentLine, RoundedCornerShape(12.dp))
+                            .clickable { vm.toggleNewVeh(true) },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("+ Add car", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent) }
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(s.pickVehicles, key = { it.id }) { v ->
@@ -1281,16 +1327,30 @@ private fun DiscardDraftDialog(s: QuoteState, vm: QuoteViewModel) {
                 .border(1.dp, Hairline, RoundedCornerShape(18.dp)).padding(22.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("DISCARD THIS DRAFT?", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary)
+            val isDraft = s.status == "draft"
+            Text(
+                if (isDraft) "DISCARD THIS DRAFT?" else "CUSTOMER NEVER CAME BACK?",
+                fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary,
+            )
             Text(
                 buildString {
-                    append("The draft for ")
-                    append(s.who.ifBlank { "this customer" })
-                    s.vehPlate?.let { append(" ($it)") }
-                    append(" and its ")
-                    append(s.lines.size)
-                    append(if (s.lines.size == 1) " line" else " lines")
-                    append(" will be deleted. This cannot be undone.")
+                    if (isDraft) {
+                        append("The draft for ")
+                        append(s.who.ifBlank { "this customer" })
+                        s.vehPlate?.let { append(" ($it)") }
+                        append(" and its ")
+                        append(s.lines.size)
+                        append(if (s.lines.size == 1) " line" else " lines")
+                        append(" will be deleted. This cannot be undone.")
+                    } else {
+                        // Not "deleted": it was signed, so what was agreed stays on the record.
+                        append(s.ref)
+                        append(" for ")
+                        append(s.who.ifBlank { "this customer" })
+                        s.vehPlate?.let { append(" ($it)") }
+                        append(" will be marked void and drop off the quotes list. ")
+                        append("It stays on the record as what was agreed, and no job is created.")
+                    }
                 },
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 18.sp, color = TextSecondary,
             )
@@ -1301,9 +1361,9 @@ private fun DiscardDraftDialog(s: QuoteState, vm: QuoteViewModel) {
                 ) { Text("Keep it", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
                 Box(
                     Modifier.weight(1.2f).height(50.dp).background(Danger, RoundedCornerShape(13.dp))
-                        .clickable(enabled = !s.busy) { vm.deleteDraft() },
+                        .clickable(enabled = !s.busy) { if (isDraft) vm.deleteDraft() else vm.voidThisQuote() },
                     contentAlignment = Alignment.Center,
-                ) { Text(if (s.busy) "Discarding…" else "Discard", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White) }
+                ) { Text(if (s.busy) "Working…" else if (isDraft) "Discard" else "Mark void", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White) }
             }
         }
     }

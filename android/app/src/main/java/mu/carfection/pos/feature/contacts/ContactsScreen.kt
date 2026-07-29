@@ -73,6 +73,13 @@ fun ContactsScreen(viewModel: ContactsViewModel = hiltViewModel()) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("CONTACTS", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
             Text("Customers, their cars, and what has been coated", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+            Spacer(Modifier.weight(1f))
+            Box(
+                Modifier.height(38.dp).background(AccentSoft, RoundedCornerShape(12.dp))
+                    .border(1.5.dp, AccentLine, RoundedCornerShape(12.dp))
+                    .clickable { viewModel.addCustomer() }.padding(horizontal = 15.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("+ New customer", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
         }
         FilledInput(
             value = s.query, onValueChange = viewModel::setQuery,
@@ -108,6 +115,7 @@ fun ContactsScreen(viewModel: ContactsViewModel = hiltViewModel()) {
     }
 
     s.open?.let { ContactCard(it, s, viewModel) }
+    if (s.addingCustomer) NewCustomerDialog(s, viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(1600); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
 }
@@ -393,5 +401,43 @@ private fun MiniLabel(t: String) =
 private fun Toast(msg: String) = Box(Modifier.fillMaxSize().padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
     Box(Modifier.background(Color(0xF01B2733), RoundedCornerShape(11.dp)).padding(horizontal = 20.dp, vertical = 13.dp)) {
         Text(msg, color = Color.White, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+    }
+}
+
+/**
+ * Add a customer from the shop floor. Name and phone only — the phone because it is what
+ * prefills a WhatsApp quote, and everything else can be filled in on their card afterwards.
+ */
+@Composable
+private fun NewCustomerDialog(s: ContactsState, vm: ContactsViewModel) {
+    Dialog(onDismissRequest = vm::cancelAddCustomer) {
+        Column(
+            Modifier.width(480.dp).background(CardBg, RoundedCornerShape(18.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(18.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("NEW CUSTOMER", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary)
+            FilledInput(s.newName, vm::setNewName, "Full name", Modifier.fillMaxWidth(), height = 48.dp, bg = Inset)
+            FilledInput(s.newPhone, vm::setNewPhone, "Phone", Modifier.fillMaxWidth(), height = 48.dp, bg = Inset)
+            Text(
+                "Their card opens next, so you can add the car straight away.",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+            )
+            s.error?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Danger) }
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp))
+                        .clickable { vm.cancelAddCustomer() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                val can = s.newName.isNotBlank() && !s.busy
+                Box(
+                    Modifier.weight(1.5f).height(50.dp)
+                        .background(if (can) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                        .clickable(enabled = can) { vm.saveNewCustomer() },
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (s.busy) "Saving…" else "Add customer", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (can) AccentInk else TextMuted) }
+            }
+        }
     }
 }
