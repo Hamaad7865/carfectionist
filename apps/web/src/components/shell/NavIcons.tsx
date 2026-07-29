@@ -147,6 +147,17 @@ export function PurchasesIcon(props: IconProps) {
   );
 }
 
+// Sales Journal — the ledger rules itself in, line by line. (lucide book-text)
+export function SalesJournalIcon(props: IconProps) {
+  return (
+    <svg {...base(props, "nav-ic-journal")}>
+      <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20" />
+      <path className="rule rule1" d="M8 7h6" />
+      <path className="rule rule2" d="M8 11h8" />
+    </svg>
+  );
+}
+
 // Accounting & Reports — the bars grow, left to right.
 export function ReportsIcon(props: IconProps) {
   return (
@@ -227,6 +238,7 @@ export const ANIMATED_NAV_ICONS: Record<string, ComponentType<IconProps>> = {
   "/point-of-sale": PosIcon,
   "/certificates": CertificatesIcon,
   "/purchases": PurchasesIcon,
+  "/sales-journal": SalesJournalIcon,
   "/reports": ReportsIcon,
   "/enquiries": EnquiriesIcon,
   "/messages": MessagesIcon,

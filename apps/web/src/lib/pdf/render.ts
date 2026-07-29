@@ -10,7 +10,28 @@ import { serverEnv } from "@/lib/server-env";
  */
 export class PdfConfigError extends Error {}
 
-export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
+/**
+ * Opt-in true A4 pagination with a running footer, for multi-page REPORTS.
+ * Documents (invoices, statements, Z-reports) deliberately do NOT use this —
+ * they grow one tall page instead of splitting, and passing no options keeps
+ * exactly that behaviour.
+ */
+export interface PaginatedPdf {
+  /** Left-hand footer text, e.g. "Generated on Wednesday 29 July 2026". */
+  footerLeft: string;
+}
+
+/** Chromium renders header/footer templates in an isolated document — no inherited
+ *  styles, and no font-size unless one is stated, so it must be spelled out here. */
+function footerTemplate(left: string): string {
+  const esc = left.replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]!);
+  return `<div style="width:100%;margin:0 12mm;font:9px Arial,Helvetica,sans-serif;color:#5b6b7a;display:flex;justify-content:space-between;">
+    <span>${esc}</span>
+    <span>Page <span class="pageNumber"></span> / <span class="totalPages"></span></span>
+  </div>`;
+}
+
+export async function htmlToPdf(html: string, paginate?: PaginatedPdf): Promise<ArrayBuffer> {
   // ── Preferred: the Browser Rendering binding (deployed Worker) ──────────────
   let browserBinding: unknown;
   try {
@@ -25,19 +46,37 @@ export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
     try {
       const page = await browser.newPage();
       await page.setContent(html, { waitUntil: "networkidle0" });
-      // One page sized to the content (min A4), like the reference system: a
-      // long invoice grows the page instead of splitting onto a second sheet.
-      const contentPx = await page.evaluate(() => document.documentElement.scrollHeight);
-      const heightMm = Math.max(297, Math.ceil((contentPx * 25.4) / 96) + 2);
-      // margin 0 is load-bearing: unset, Chromium applies ~1cm defaults, which
-      // shrinks the printable area below the measured height (content spills to
-      // a 2nd page) and insets the full-bleed banner bands off the page edges.
-      const pdf = (await page.pdf({
-        printBackground: true,
-        width: "210mm",
-        height: `${heightMm}mm`,
-        margin: { top: 0, right: 0, bottom: 0, left: 0 },
-      })) as Uint8Array;
+
+      let options: Record<string, unknown>;
+      if (paginate) {
+        // A report flows onto real sheets, each carrying the running footer.
+        // The bottom margin is what reserves room for it — with margin 0 the
+        // footer renders off the page and silently disappears.
+        options = {
+          printBackground: true,
+          format: "A4",
+          displayHeaderFooter: true,
+          headerTemplate: "<span></span>",
+          footerTemplate: footerTemplate(paginate.footerLeft),
+          margin: { top: "10mm", right: "0", bottom: "14mm", left: "0" },
+        };
+      } else {
+        // One page sized to the content (min A4), like the reference system: a
+        // long invoice grows the page instead of splitting onto a second sheet.
+        const contentPx = await page.evaluate(() => document.documentElement.scrollHeight);
+        const heightMm = Math.max(297, Math.ceil((contentPx * 25.4) / 96) + 2);
+        // margin 0 is load-bearing: unset, Chromium applies ~1cm defaults, which
+        // shrinks the printable area below the measured height (content spills to
+        // a 2nd page) and insets the full-bleed banner bands off the page edges.
+        options = {
+          printBackground: true,
+          width: "210mm",
+          height: `${heightMm}mm`,
+          margin: { top: 0, right: 0, bottom: 0, left: 0 },
+        };
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const pdf = (await page.pdf(options as any)) as Uint8Array;
       // Copy into a fresh ArrayBuffer (page.pdf's buffer may be Shared on workerd).
       const out = new ArrayBuffer(pdf.byteLength);
       new Uint8Array(out).set(pdf);
@@ -60,7 +99,21 @@ export async function htmlToPdf(html: string): Promise<ArrayBuffer> {
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ html, pdfOptions: { printBackground: true, format: "A4" } }),
+      body: JSON.stringify({
+        html,
+        pdfOptions: {
+          printBackground: true,
+          format: "A4",
+          ...(paginate
+            ? {
+                displayHeaderFooter: true,
+                headerTemplate: "<span></span>",
+                footerTemplate: footerTemplate(paginate.footerLeft),
+                margin: { top: "10mm", right: "0", bottom: "14mm", left: "0" },
+              }
+            : {}),
+        },
+      }),
     },
   );
   if (!res.ok) throw new Error(`Browser Rendering error ${res.status}: ${await res.text()}`);

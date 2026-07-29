@@ -404,7 +404,13 @@ export function CounterSale({
                 {unpriced ? (
                   <span className="mt-auto text-[11.5px] font-bold text-amber-ink">{canPrice ? "Set a price →" : "No price"}</span>
                 ) : (
-                  <span className="num mt-auto text-[13px] font-extrabold text-ink">{formatMUR(p.priceCents)}</span>
+                  // The shelf price, quoted the way the shop quotes it. The tile used to
+                  // print the NET figure while the ticket line beside it printed the GROSS
+                  // one, so tapping Wiper 24 turned "Rs 573.91" into "Rs 660.00 each" —
+                  // the tablet has always grossed it up here (CounterScreen.kt tile).
+                  <span className="num mt-auto text-[13px] font-extrabold text-ink">
+                    {formatMUR(pricesInclVat ? grossCents(p.priceCents, p.vatRate) : p.priceCents)}
+                  </span>
                 )}
               </button>
               );

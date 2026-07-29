@@ -14,6 +14,7 @@ import {
   MonitorSmartphone,
   Megaphone,
   MessageCircle,
+  BookText,
   type LucideIcon,
 } from "lucide-react";
 
@@ -49,6 +50,7 @@ export const NAV: NavItem[] = [
   { label: "Point of Sale", href: "/point-of-sale", icon: MonitorSmartphone, roles: ["owner", "manager"] },
   { label: "Certificates", href: "/certificates", icon: BadgeCheck, roles: ["owner", "manager", "cashier", "technician"] },
   { label: "Purchases & Expenses", href: "/purchases", icon: Truck, roles: ["owner", "manager", "accountant"] },
+  { label: "Sales Journal", href: "/sales-journal", icon: BookText, roles: ["owner", "manager", "accountant"] },
   { label: "Accounting & Reports", href: "/reports", icon: BarChart3, roles: ["owner", "manager", "accountant"] },
   { label: "Forms & Enquiries", href: "/enquiries", icon: Inbox, roles: ["owner", "manager"] },
   { label: "Messages", href: "/messages", icon: MessageCircle, roles: ["owner", "manager", "cashier"] },

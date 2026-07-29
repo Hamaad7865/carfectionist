@@ -155,6 +155,7 @@
 
 .nav-ic-jobs .row1, .nav-ic-jobs .row2,
 .nav-ic-receipt .ln,
+.nav-ic-journal .rule,
 .nav-ic-cert .tick {
   stroke-dasharray: 1;
   stroke-dashoffset: 0;
@@ -179,6 +180,14 @@
   .group:hover .nav-ic-receipt .ln1 { transition-delay: 0ms; stroke-dashoffset: 0; }
   .group:hover .nav-ic-receipt .ln2 { transition-delay: 90ms; stroke-dashoffset: 0; }
   .group:hover .nav-ic-receipt .ln3 { transition-delay: 180ms; stroke-dashoffset: 0; }
+
+  /* Sales Journal — the ledger rules itself in, line by line. */
+  .nav-ic-journal .rule {
+    stroke-dashoffset: 1;
+    transition: stroke-dashoffset 0.3s ease;
+  }
+  .group:hover .nav-ic-journal .rule1 { transition-delay: 0ms; stroke-dashoffset: 0; }
+  .group:hover .nav-ic-journal .rule2 { transition-delay: 100ms; stroke-dashoffset: 0; }
 
   /* Certificates — the tick draws in like a stamp of approval. */
   .nav-ic-cert .badge {

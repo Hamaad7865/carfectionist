@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { effectiveModules, hasModule, navForUser, defaultModulesForRole } from "./roles";
+import { effectiveModules, hasModule, navForUser, defaultModulesForRole, TOGGLEABLE_MODULES } from "./roles";
 
 describe("per-user module access", () => {
   it("owner is always full-access, regardless of override", () => {
@@ -25,5 +25,20 @@ describe("per-user module access", () => {
 
   it("an override can widen beyond the role default", () => {
     expect(hasModule("technician", ["/sales", "/products"], "/sales")).toBe(true);
+  });
+
+  it("gates Sales Journal like the rest of accounting", () => {
+    // It shows the shop's takings by till and by user — same floor as Reports.
+    expect(hasModule("owner", [], "/sales-journal")).toBe(true);
+    expect(hasModule("manager", null, "/sales-journal")).toBe(true);
+    expect(hasModule("accountant", null, "/sales-journal")).toBe(true);
+    expect(hasModule("cashier", null, "/sales-journal")).toBe(false);
+    expect(hasModule("technician", null, "/sales-journal")).toBe(false);
+    // …and the owner can still revoke it from one user
+    expect(hasModule("manager", ["/reports"], "/sales-journal")).toBe(false);
+  });
+
+  it("offers Sales Journal in the per-user module toggles", () => {
+    expect(TOGGLEABLE_MODULES.some((m) => m.href === "/sales-journal")).toBe(true);
   });
 });

@@ -111,6 +111,8 @@ data class QuoteState(
     val basketText: String = "",
     val technicians: List<TechnicianDto> = emptyList(),
     val acceptOpen: Boolean = false,
+    /** Ticked = the car is here and the work starts now. Unticked = signed, come back later. */
+    val startJobNow: Boolean = true,
     val techId: String? = null,
     // When the car is booked in for. null = start now; otherwise the picked date+time.
     val startAt: Long? = null,
@@ -776,6 +778,12 @@ class QuoteViewModel @Inject constructor(
                 val quoteId =
                     if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
+                // Signed, but the work is not starting today — no job, no card on the board.
+                // "Create job" on this quote raises it whenever the customer comes back.
+                if (!s.startJobNow) {
+                    api.acceptQuoteOnly(quoteId, sigPath, s.who.takeUnless { it.isBlank() || it == "—" })
+                    return@runCatching Triple(quoteId, null, null)
+                }
                 val jobId = api.convertQuoteToJob(quoteId, s.techId, signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
                 // Book the car in, with how long it should take. Safe to retry: the conversion
                 // is idempotent, so a failed schedule write simply re-runs against the same job.
@@ -797,13 +805,17 @@ class QuoteViewModel @Inject constructor(
             }.onSuccess { (quoteId, jobId, depositInvoice) ->
                 // Stamp what reception recorded onto the new job — best-effort; the
                 // job exists either way and the board still opens it.
-                s.intake?.let { h ->
+                // Only when a job was actually created. Accepting without starting the work
+                // leaves the condition record on the quote; it lands on the job when one is
+                // raised later.
+                val stampOn = jobId
+                if (stampOn != null) s.intake?.let { h ->
                     viewModelScope.launch {
-                        if (h.markerCount > 0) runCatching { api.setJobDamageMarkers(jobId, h.markers) }
+                        if (h.markerCount > 0) runCatching { api.setJobDamageMarkers(stampOn, h.markers) }
                         h.photoPaths.forEach { p ->
                             runCatching {
                                 val tenant = catalog.tenantId() ?: return@runCatching
-                                api.insertJobPhotoRecord(tenant, jobId, p, "before")
+                                api.insertJobPhotoRecord(tenant, stampOn, p, "before")
                             }
                         }
                     }

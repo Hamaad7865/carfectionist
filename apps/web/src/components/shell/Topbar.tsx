@@ -18,6 +18,7 @@ const SUBS: Record<string, string> = {
   "/products": "Catalogue & inventory",
   "/certificates": "Warranty certificates",
   "/purchases": "Suppliers, orders & expenses",
+  "/sales-journal": "Period sales, broken down five ways",
   "/reports": "Accounting & reports",
   "/enquiries": "Public enquiry inbox",
   "/settings": "Business, team & templates",

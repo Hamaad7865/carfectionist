@@ -253,6 +253,9 @@ class IntakeViewModel @Inject constructor(
         handoff.publish(
             IntakeHandoff(
                 customerId = c.id, customerName = c.name,
+                // The number captured at reception, so the quote's WhatsApp field is
+                // prefilled instead of staff retyping it off the customer's card.
+                customerPhone = c.phone,
                 vehicleId = v.id, plate = v.plate,
                 vehLabel = listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" },
                 markers = markersJson, markerCount = st.markers.size, photoPaths = st.photoPaths,

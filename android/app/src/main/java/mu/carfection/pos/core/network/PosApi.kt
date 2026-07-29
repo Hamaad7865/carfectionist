@@ -609,6 +609,27 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * [signaturePath]/[signedName] carry the client's acceptance signature —
      * stamped onto the quote in the same transaction (server adds the timestamp).
      */
+    /**
+     * The customer agreed the price and signed — and nothing goes on the board.
+     *
+     * Accepting and STARTING THE WORK are separate decisions: a quote accepted today for work
+     * booked next month should not put a car in the bay tonight. The job can be raised from
+     * this same quote whenever they actually turn up.
+     */
+    suspend fun acceptQuoteOnly(quoteId: String, signaturePath: String? = null, signedName: String? = null) {
+        client.postgrest.rpc("accept_quote", buildJsonObject {
+            put("p_quote_id", quoteId)
+            if (signaturePath != null) {
+                put("p_signature", buildJsonObject {
+                    put("path", signaturePath)
+                    if (signedName != null) put("name", signedName)
+                })
+            } else {
+                put("p_signature", JsonNull)
+            }
+        })
+    }
+
     suspend fun convertQuoteToJob(
         quoteId: String,
         technicianId: String? = null,
