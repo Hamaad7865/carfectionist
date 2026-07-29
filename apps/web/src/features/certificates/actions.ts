@@ -8,10 +8,10 @@ import { existsInTenant } from "@/lib/supabase/guards";
 
 const ROLES = ["owner", "manager", "cashier", "technician"] as const;
 type Result = { ok: true; number: string } | { ok: false; error: string };
+type VoidResult = { ok: true } | { ok: false; error: string };
 
 const schema = z.object({
-  customerId: z.string().min(1),
-  vehicleId: z.string().min(1),
+  jobId: z.string().min(1),
   productId: z.string().nullable().optional(),
   warrantyMonths: z.number().int().positive(),
   appliedAt: z.string().min(1), // yyyy-mm-dd
@@ -28,12 +28,35 @@ function addMonths(iso: string, months: number): string {
 export async function createCertificateAction(input: z.infer<typeof schema>): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const p = schema.safeParse(input);
-  if (!p.success) return { ok: false, error: "Pick a customer, vehicle, warranty period and date." };
+  if (!p.success) return { ok: false, error: "Pick a completed job, warranty period and date." };
   const sb = await createClient();
 
-  // Client-supplied FKs must belong to the caller's tenant.
-  if (!(await existsInTenant(sb, "customers", p.data.customerId))) return { ok: false, error: "Unknown customer." };
-  if (!(await existsInTenant(sb, "vehicles", p.data.vehicleId))) return { ok: false, error: "Unknown vehicle." };
+  // The job — and, through it, customer/vehicle — is never taken from the
+  // client. It's re-derived here from a job row the caller merely points at,
+  // so a certificate can't be minted for work that isn't this tenant's.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: job } = await (sb as any)
+    .from("jobs")
+    .select("id, customer_id, vehicle_id, status")
+    .eq("id", p.data.jobId)
+    .maybeSingle();
+  if (!job) return { ok: false, error: "Unknown job." };
+  if (job.status !== "delivered") return { ok: false, error: "Certificates can only be issued for a completed (delivered) job." };
+
+  // A completed job isn't enough on its own — the invoice for it must be
+  // settled in full, not merely issued or part-paid.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: invoice } = await (sb as any)
+    .from("documents")
+    .select("id, status")
+    .eq("job_id", job.id)
+    .eq("doc_type", "invoice")
+    .eq("status", "paid")
+    .order("issued_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (!invoice) return { ok: false, error: "This job has no fully paid invoice — settle the invoice before issuing a certificate." };
+
   if (p.data.productId && !(await existsInTenant(sb, "products", p.data.productId))) return { ok: false, error: "Unknown treatment." };
 
   const expiresAt = addMonths(p.data.appliedAt, p.data.warrantyMonths);
@@ -60,8 +83,10 @@ export async function createCertificateAction(input: z.infer<typeof schema>): Pr
       tenant_id: ctx.tenantId,
       number,
       created_by: createdBy,
-      customer_id: p.data.customerId,
-      vehicle_id: p.data.vehicleId,
+      customer_id: job.customer_id,
+      vehicle_id: job.vehicle_id,
+      job_id: job.id,
+      invoice_id: invoice.id,
       product_id: p.data.productId || null,
       applied_at: p.data.appliedAt,
       warranty_months: p.data.warrantyMonths,
@@ -75,4 +100,19 @@ export async function createCertificateAction(input: z.infer<typeof schema>): Pr
     if (!/duplicate key|unique/i.test(error.message)) return { ok: false, error: error.message };
   }
   return { ok: false, error: "Could not assign a certificate number — please retry." };
+}
+
+/** Revoke a certificate after its invoice was credited (or issued in error).
+ *  The RPC is definer-scoped and does the actual state transition + stamping;
+ *  this action is just role gating + plumbing. Voiding, not deleting: the
+ *  certificate stays visible everywhere it's already been referenced. */
+export async function voidCertificateAction(certificateId: string, reason: string): Promise<VoidResult> {
+  await requireRole("owner", "manager");
+  const clean = reason.trim();
+  if (!clean) return { ok: false, error: "A reason is required to void a certificate." };
+  const sb = await createClient();
+  const { error } = await sb.rpc("void_certificate" as never, { p_certificate_id: certificateId, p_reason: clean } as never);
+  if (error) return { ok: false, error: error.message };
+  revalidatePath("/certificates");
+  return { ok: true };
 }

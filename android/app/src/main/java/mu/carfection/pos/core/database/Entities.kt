@@ -38,4 +38,8 @@ data class CustomerEntity(
     @PrimaryKey val id: String,
     val name: String,
     val phone: String?,
+    // So a customer created at Intake carries their email into the quote's send dialog
+    // without the operator retyping it off the card. Optional/defaulted: every existing
+    // call site that only ever had id/name/phone still compiles unchanged.
+    val email: String? = null,
 )

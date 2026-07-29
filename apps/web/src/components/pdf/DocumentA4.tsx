@@ -54,6 +54,10 @@ export interface DocumentA4Props {
   /** Client acceptance captured on the tablet — stamps the document with the
    *  signature so the customer receives proof of what they agreed to. */
   accepted?: { name: string | null; at: string | null; signatureUrl: string | null } | null;
+  /** The document's status is VOID. The cancelling of any scheduled send is the
+   *  primary defence; this is the backstop — even a PDF that slips out some other
+   *  way (an old email link, a manual re-send) can never read as a live payable. */
+  voided?: boolean;
 }
 
 // Baked-in Diamondbrite artwork (served from apps/web/public) — the default so
@@ -109,6 +113,25 @@ const s = {
     lineHeight: 1.5,
     display: "flex",
     flexDirection: "column",
+    position: "relative",
+  } as CSSProperties,
+  // Fixed to the viewport (not absolute to the page), so it stays centred on
+  // whatever prints even if the content grows past one A4 sheet.
+  voidWatermark: {
+    position: "fixed",
+    top: "50%",
+    left: "50%",
+    transform: "translate(-50%, -50%) rotate(-30deg)",
+    fontSize: "130px",
+    fontWeight: 800,
+    letterSpacing: "0.08em",
+    color: "rgba(200, 30, 30, 0.32)",
+    border: "8px solid rgba(200, 30, 30, 0.32)",
+    borderRadius: "12px",
+    padding: "8px 36px",
+    whiteSpace: "nowrap",
+    pointerEvents: "none",
+    zIndex: 999,
   } as CSSProperties,
   // Banner bands are capped at the reference height (~43mm — the Refrens bands
   // are 582×122pt) and centre-cropped, so a tall/square image configured in
@@ -194,6 +217,8 @@ export function DocumentA4(props: DocumentA4Props) {
   return (
     <div style={s.page}>
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
+
+      {props.voided && <div style={s.voidWatermark}>VOID</div>}
 
       {/* header band */}
       <img src={headerUrl} alt={from.tradingName} style={s.banner} />

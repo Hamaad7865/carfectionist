@@ -65,6 +65,8 @@ class OutboxRepository @Inject constructor(
     // Nullable: taking the last person off a job leaves it unassigned, which is a real state.
     @Serializable private data class AssignTech(val jobId: String, val technicianId: String? = null)
     @Serializable private data class SetChecklist(val jobId: String, val checklist: JsonArray)
+    @Serializable private data class CrewAdd(val jobId: String, val appUserId: String, val tenantId: String)
+    @Serializable private data class CrewRemove(val jobId: String, val appUserId: String)
     @Serializable private data class AuditEvent(
         val id: String,          // client-minted UUID — what makes the append replay-safe
         val tenantId: String,
@@ -72,6 +74,8 @@ class OutboxRepository @Inject constructor(
         val deviceId: String?,
         val payload: String,     // JsonObject, serialized
         val createdAt: String,   // the moment it happened, not the moment it flushed
+        val refType: String? = null,
+        val refId: String? = null,
     )
 
     /** The latest still-queued checklist / technician per job — what the server hasn't caught up to. */
@@ -114,6 +118,20 @@ class OutboxRepository @Inject constructor(
         enqueue(OP_SET_CHECKLIST, json.encodeToString(SetChecklist(jobId, checklist)), "checklist:$jobId", label)
 
     /**
+     * Put someone on a job's crew. Durable, like [enqueueAssignTech] — tapping a crew chip and
+     * setting the lead used to behave differently offline (one queued, one lost) even though
+     * the screen claims they work the same way. job_technicians' composite key (job_id,
+     * app_user_id) makes a replayed insert collide with ITSELF, so [dispatch] reads that
+     * duplicate as already-landed — the same rule [enqueueAuditEvent] relies on.
+     */
+    suspend fun enqueueAddCrew(jobId: String, appUserId: String, tenantId: String, label: String) =
+        enqueue(OP_ADD_CREW, json.encodeToString(CrewAdd(jobId, appUserId, tenantId)), "add_crew:$jobId:$appUserId", label)
+
+    /** Take someone off a job's crew. A replayed delete is naturally idempotent — it deletes 0 rows the second time. */
+    suspend fun enqueueRemoveCrew(jobId: String, appUserId: String, label: String) =
+        enqueue(OP_REMOVE_CREW, json.encodeToString(CrewRemove(jobId, appUserId)), "remove_crew:$jobId:$appUserId", label)
+
+    /**
      * Record a traceability event that must SURVIVE a network blip — the owner reads
      * these (receipt printed / skipped) as the device's history, so silently dropping
      * one falsifies the record. An audit INSERT is an append, which the outbox normally
@@ -121,11 +139,22 @@ class OutboxRepository @Inject constructor(
      * id HERE: a replay of the same UUID hits the primary key, and [dispatch] reads
      * that duplicate as "already landed", not as a failure.
      */
-    suspend fun enqueueAuditEvent(tenantId: String, eventType: String, deviceId: String?, payload: JsonObject, label: String) {
+    suspend fun enqueueAuditEvent(
+        tenantId: String,
+        eventType: String,
+        deviceId: String?,
+        payload: JsonObject,
+        label: String,
+        // What the event is ABOUT — receiptPrintCount reads ref_id back to count "Duplicata N";
+        // an event minted with none is invisible to that count.
+        refType: String? = null,
+        refId: String? = null,
+    ) {
         val id = UUID.randomUUID().toString()
         val op = AuditEvent(
             id = id, tenantId = tenantId, eventType = eventType, deviceId = deviceId,
             payload = payload.toString(), createdAt = Instant.now().toString(),
+            refType = refType, refId = refId,
         )
         enqueue(OP_AUDIT_EVENT, json.encodeToString(op), "audit:$id", label)
     }
@@ -166,12 +195,23 @@ class OutboxRepository @Inject constructor(
     private suspend fun dispatch(op: OutboxOp) = when (op.opType) {
         OP_ASSIGN_TECH -> json.decodeFromString<AssignTech>(op.payload).let { api.assignTechnician(it.jobId, it.technicianId) }
         OP_SET_CHECKLIST -> json.decodeFromString<SetChecklist>(op.payload).let { api.setChecklist(it.jobId, it.checklist) }
+        OP_ADD_CREW -> json.decodeFromString<CrewAdd>(op.payload).let {
+            try {
+                api.addJobTechnician(it.tenantId, it.jobId, it.appUserId)
+            } catch (e: Exception) {
+                // Same story as the audit event insert below: a replayed add can only collide
+                // with the row it already wrote, via the (job_id, app_user_id) primary key.
+                if (!isDuplicateKey(e)) throw e
+            }
+        }
+        OP_REMOVE_CREW -> json.decodeFromString<CrewRemove>(op.payload).let { api.removeJobTechnician(it.jobId, it.appUserId) }
         OP_AUDIT_EVENT -> json.decodeFromString<AuditEvent>(op.payload).let {
             try {
                 api.insertAuditEvent(
                     tenantId = it.tenantId, eventType = it.eventType, deviceId = it.deviceId,
                     payload = json.parseToJsonElement(it.payload).jsonObject,
                     id = it.id, createdAt = it.createdAt,
+                    refType = it.refType, refId = it.refId,
                 )
             } catch (e: Exception) {
                 // The insert of a client-minted id can only collide with ITSELF: a lost
@@ -190,6 +230,8 @@ class OutboxRepository @Inject constructor(
     companion object {
         const val OP_ASSIGN_TECH = "assign_tech"
         const val OP_SET_CHECKLIST = "set_checklist"
+        const val OP_ADD_CREW = "add_crew"
+        const val OP_REMOVE_CREW = "remove_crew"
         const val OP_AUDIT_EVENT = "audit_event"
         private const val MAX_ATTEMPTS = 5
         private const val RETRY_INTERVAL_MS = 10_000L

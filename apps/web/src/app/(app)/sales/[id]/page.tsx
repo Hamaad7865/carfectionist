@@ -1,12 +1,15 @@
 import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { Printer, FileMinus, Receipt, ArrowRight, Check } from "lucide-react";
+import { Printer, FileMinus, Receipt, ArrowRight, Check, Undo2 } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { getDealFlow } from "@/lib/supabase/queries/flow";
 import { FlowStepper } from "@/components/flow/FlowStepper";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { StatementSendButton } from "@/features/reports/StatementSendButton";
-import { getSessionContext } from "@/lib/auth/session";
+import { getSessionContext, requireRole } from "@/lib/auth/session";
+import { createClient } from "@/lib/supabase/server";
+import * as rpc from "@/lib/supabase/rpc";
 import { btn } from "@/components/ui/button";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
@@ -17,6 +20,8 @@ import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
 import { ArchiveButton } from "@/features/documents/ArchiveButton";
 import { HandOverButton } from "@/features/documents/HandOverButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
+import { ScheduledSends } from "@/features/documents/ScheduledSends";
+import { getScheduledSends } from "@/lib/supabase/queries/scheduled-sends";
 import { CarDiagram } from "@/features/intake/CarDiagram";
 import { StartJobButton } from "@/features/intake/StartJobButton";
 import { markerMeta } from "@/features/intake/damage";
@@ -25,20 +30,59 @@ import { muDateTime } from "@/lib/mu-date";
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
 
-export default async function DocumentDetailPage({ params }: { params: Promise<{ id: string }> }) {
+// Inline: reverse_payment has no lever anywhere in features/documents yet, so this
+// keeps the one correction control and its action next to the only place it's used.
+// A credit note is NOT a substitute — it's one-shot, full-invoice and auto-restocking;
+// reversing a wrong amount/method needs this negative-mirror + audit path instead.
+async function reversePaymentAction(formData: FormData) {
+  "use server";
+  await requireRole("owner", "manager");
+  const paymentId = String(formData.get("paymentId") ?? "").trim();
+  const documentId = String(formData.get("documentId") ?? "").trim();
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!paymentId || !documentId) return;
+  const sb = await createClient();
+  try {
+    await rpc.reversePayment(sb, paymentId, reason || null);
+  } catch (e) {
+    redirect(`/sales/${documentId}?reverseError=${encodeURIComponent((e as Error).message)}`);
+  }
+  revalidatePath(`/sales/${documentId}`);
+  revalidatePath("/sales");
+  redirect(`/sales/${documentId}`);
+}
+
+export default async function DocumentDetailPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ reverseError?: string }>;
+}) {
   const { id } = await params;
-  const [doc, session] = await Promise.all([getDocumentDetail(id), getSessionContext()]);
+  const [doc, session, sp, scheduledSends] = await Promise.all([
+    getDocumentDetail(id), getSessionContext(), searchParams, getScheduledSends(id),
+  ]);
   if (!doc) notFound();
   if (doc.status === "draft") redirect(`/sales/${id}/edit`);
   // Statements are receivables — same floor as Reports (owner/manager/accountant).
   const canStatement = !!session && ["owner", "manager", "accountant"].includes(session.role);
+  // reverse_payment is owner/manager only — same floor the RPC itself enforces.
+  const canReversePayment = !!session && ["owner", "manager"].includes(session.role);
 
   // The car's journey — quotes and invoices sit inside the same five steps.
   const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
 
   const isInvoice = doc.docType === "invoice";
   const canPay = isInvoice && (doc.status === "issued" || doc.status === "partly_paid");
-  const canVoid = isInvoice && doc.status === "issued" && doc.paidCents === 0;
+  // An accepted quote is still billable (Archive only hides the row, status stays
+  // 'accepted') — void_quote is the real lever, same "no live job / no live invoice"
+  // refusals as the tablet. Declined/expired quotes are already dead and archive
+  // themselves; issued/accepted are the live, billable ones this is for. The RPC's
+  // own job/invoice guards decide the rest — this only narrows to what CAN apply.
+  const canVoid =
+    (isInvoice && doc.status === "issued" && doc.paidCents === 0) ||
+    (doc.docType === "quote" && ["issued", "accepted"].includes(doc.status));
   const canCredit = isInvoice && doc.paidCents > 0 && doc.status !== "void" && !doc.creditedByNumber;
   // Already archived by what it IS (void / credited / dead quote)? Then a manual
   // toggle is meaningless. Otherwise owner/manager may file it away by hand.
@@ -88,6 +132,9 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                 <Printer size={15} /> Print / PDF
               </a>
             )}
+            {/* What is still queued to go out. Scheduling a send used to be a one-way trip:
+                a toast, then nothing anywhere ever mentioned it again. */}
+            <ScheduledSends documentId={doc.id} sends={scheduledSends} />
             {/* Revising is negotiation; a billed quote is past negotiating. */}
             {doc.docType === "quote" && !billedHref && <ReviseButton quoteId={doc.id} />}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
@@ -124,13 +171,19 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
           !(doc.intake && (doc.intake.markers.length > 0 || doc.intake.photos.length > 0)) &&
           !(billedHref && !doc.jobId) && (
           <div className="mt-4 flex items-center justify-between rounded-[13px] border border-line bg-card px-4 py-2.5">
-            <span className="text-[12.5px] text-muted">{doc.jobId ? "This quote has a job on the board." : "Client accepted this quote?"}</span>
+            <span className="text-[12.5px] text-muted">
+              {doc.jobId
+                ? "This quote has a job on the board."
+                : doc.status === "accepted"
+                ? "Signed — car not here yet. Start the job when it arrives."
+                : "Client accepted this quote?"}
+            </span>
             {doc.jobId ? (
               <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job -&gt;</Link>
             ) : ["declined", "expired"].includes(doc.status) ? (
               <span className="text-[12px] font-semibold text-faint">Quote is {doc.status}</span>
             ) : (
-              <StartJobButton documentId={doc.id} quote />
+              <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} />
             )}
           </div>
         )}
@@ -211,7 +264,11 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               {doc.jobId ? (
                 <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job →</Link>
               ) : billedHref ? null : (
-                <StartJobButton documentId={doc.id} quote={doc.docType === "quote"} />
+                <StartJobButton
+                  documentId={doc.id}
+                  quote={doc.docType === "quote"}
+                  alreadyAccepted={doc.docType === "quote" && doc.status === "accepted"}
+                />
               )}
             </div>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
@@ -352,6 +409,12 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
               </div>
             )}
 
+            {sp.reverseError && (
+              <div className="rounded-[13px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.06)] px-4 py-2.5 text-[12.5px] text-rose">
+                {sp.reverseError}
+              </div>
+            )}
+
             {doc.payments.length > 0 && (
               <div className="overflow-hidden rounded-[15px] border border-line bg-card">
                 <div className="border-b border-line px-4 py-2 text-[11px] font-bold uppercase tracking-[0.1em] text-faint">
@@ -390,6 +453,34 @@ export default async function DocumentDetailPage({ params }: { params: Promise<{
                                 : <span className="font-semibold text-mint">paid in full</span>
                             )}
                           </div>
+                          {/* reverse_payment is the only correction path for a wrong amount
+                              or method — never an edit-in-place. Hidden once cancelled: the
+                              RPC itself refuses reversing a reversal / a payment already
+                              reversed, this just keeps the dead-end control out of the way. */}
+                          {canReversePayment && !cancelled && (
+                            <details className="mt-1">
+                              <summary className="cursor-pointer text-[11px] font-semibold text-rose hover:underline">
+                                Reverse this payment
+                              </summary>
+                              <form action={reversePaymentAction} className="mt-1.5 flex items-center gap-2">
+                                <input type="hidden" name="paymentId" value={p.id} />
+                                <input type="hidden" name="documentId" value={doc.id} />
+                                <input
+                                  type="text"
+                                  name="reason"
+                                  required
+                                  placeholder="Reason (e.g. wrong amount or method)"
+                                  className="min-w-0 flex-1 rounded-[8px] border border-line bg-transparent px-2 py-1 text-[11.5px] text-body placeholder:text-faint"
+                                />
+                                <button
+                                  type="submit"
+                                  className="flex shrink-0 items-center gap-1 rounded-[8px] bg-rose px-2.5 py-1 text-[11px] font-bold text-white"
+                                >
+                                  <Undo2 size={12} /> Confirm
+                                </button>
+                              </form>
+                            </details>
+                          )}
                         </li>
                       );
                     });

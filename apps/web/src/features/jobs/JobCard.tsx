@@ -12,13 +12,14 @@ import { CarDiagram } from "@/features/intake/CarDiagram";
 import { PhotoUploader, type IntakePhoto } from "@/features/intake/PhotoUploader";
 import { markerMeta } from "@/features/intake/damage";
 import { addJobPhotoAction } from "@/features/intake/actions";
+import { HandOverButton } from "@/features/documents/HandOverButton";
 import {
   toggleTimerAction,
   toggleJobPauseAction,
   assignTechnicianAction,
   setJobDepartmentAction,
   updateChecklistAction,
-  setJobStatusAction,
+  deliverPaidJobAction,
   cancelJobAction,
   completeJobAction,
   createDocumentFromJobAction,
@@ -659,14 +660,44 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         </div>
       )}
 
-      {job.status === "ready" && (
-        <>
-          <button onClick={() => run(() => setJobStatusAction(job.id, "delivered"), "bottom")} disabled={busy} className={btn("ghost", "lg", "mt-5 w-full text-[14px]")}>
-            Mark delivered
-          </button>
-          {errNote("bottom")}
-        </>
-      )}
+      {/* Handing the car over is gated on the bill, not just a role check: a paid
+          invoice delivers straight through deliver_paid_job; a balance still owed
+          only delivers through the same deliberate on-account handover the counter
+          and the tablet use (HandOverButton) — never a silent status flip. */}
+      {job.status === "ready" && (() => {
+        const liveInvoice = job.documents.find((d) => d.docType === "invoice" && d.status !== "void");
+        if (!liveInvoice || liveInvoice.status === "draft") {
+          return <p className="mt-5 text-center text-[13px] text-faint">Issue an invoice before this job can be delivered.</p>;
+        }
+        if (liveInvoice.status === "paid") {
+          return (
+            <>
+              <button onClick={() => run(() => deliverPaidJobAction(job.id), "bottom")} disabled={busy} className={btn("ghost", "lg", "mt-5 w-full text-[14px]")}>
+                Car collected — mark delivered
+              </button>
+              {errNote("bottom")}
+            </>
+          );
+        }
+        if (!job.customer) {
+          return (
+            <p className="mt-5 text-center text-[13px] text-faint">
+              {formatMUR(liveInvoice.outstandingCents)} is still owed and this job has no customer on file — an on-account handover needs one.
+            </p>
+          );
+        }
+        return (
+          <div className="mt-5">
+            <HandOverButton
+              invoiceId={liveInvoice.id}
+              number={liveInvoice.number}
+              customerName={job.customer}
+              outstanding={formatMUR(liveInvoice.outstandingCents)}
+            />
+            {errNote("bottom")}
+          </div>
+        );
+      })()}
 
       {/* a booking that won't happen — cancelling resolves the bill in the same stroke:
           a draft goes, an unpaid bill voids, money already taken is refunded by credit note */}

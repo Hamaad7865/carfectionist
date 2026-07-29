@@ -77,6 +77,23 @@ export async function createJobFromDocumentAction(documentId: string): Promise<R
   }
 }
 
+/** Sign the quote off WITHOUT starting the job — a quote accepted today for
+ *  work booked next month should not put a car on tonight's board. "Accept →
+ *  create job" (createJobFromDocumentAction) stays the other choice; same
+ *  two-way split as the tablet's "signed, come back later" toggle. */
+export async function acceptQuoteOnlyAction(documentId: string): Promise<Result> {
+  await requireRole("owner", "manager", "cashier");
+  const sb = await createClient();
+  try {
+    await rpc.acceptQuote(sb, documentId);
+    revalidatePath("/sales");
+    revalidatePath(`/sales/${documentId}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
 const addPhotoSchema = z.object({
   jobId: z.string().min(1),
   path: z.string().min(1),

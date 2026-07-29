@@ -509,7 +509,7 @@ class JobsViewModel @Inject constructor(
         val current = roster(jobId)
         when {
             appUserId !in current -> if (current.isEmpty()) setLead(jobId, appUserId) else addToCrew(jobId, appUserId)
-            appUserId == current.first() -> promote(jobId, current.getOrNull(1))
+            appUserId == current.first() -> promote(jobId, appUserId, current.getOrNull(1))
             else -> removeFromCrew(jobId, appUserId)
         }
     }
@@ -523,24 +523,24 @@ class JobsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Same rule as [setLead]: optimistic update, then a durably-queued write — a crew chip and
+     * the lead picker are the same kind of action to the operator, so a dropped connection must
+     * not make one of them stick and the other vanish.
+     */
     private fun addToCrew(jobId: String, appUserId: String) {
+        val name = _s.value.technicians.firstOrNull { it.id == appUserId }?.displayName ?: "technician"
         _s.update { it.copy(crew = it.crew + appUserId) }
         viewModelScope.launch {
             val tenant = catalog.tenantId() ?: return@launch
-            runCatching { api.addJobTechnician(tenant, jobId, appUserId) }.onFailure { e ->
-                // Take the chip back off rather than showing a crew the server never accepted.
-                _s.update { st -> st.copy(crew = st.crew - appUserId, error = e.uiMessage()) }
-            }
+            outbox.enqueueAddCrew(jobId, appUserId, tenant, "Add $name")
         }
     }
 
     private fun removeFromCrew(jobId: String, appUserId: String) {
+        val name = _s.value.technicians.firstOrNull { it.id == appUserId }?.displayName ?: "technician"
         _s.update { it.copy(crew = it.crew - appUserId) }
-        viewModelScope.launch {
-            runCatching { api.removeJobTechnician(jobId, appUserId) }.onFailure { e ->
-                _s.update { st -> st.copy(crew = st.crew + appUserId, error = e.uiMessage()) }
-            }
-        }
+        viewModelScope.launch { outbox.enqueueRemoveCrew(jobId, appUserId, "Remove $name") }
     }
 
     /**
@@ -548,8 +548,18 @@ class JobsViewModel @Inject constructor(
      * their crew row goes FIRST, so a failure there leaves the old lead in place rather than
      * booking one person into both seats.
      */
-    private fun promote(jobId: String, next: String?) {
-        if (next == null) { setLead(jobId, null); return }
+    private fun promote(jobId: String, outgoing: String, next: String?) {
+        if (next == null) {
+            setLead(jobId, null)
+            // Defensive: a job carrying the duplicated backfilled crew row the 29 July migration
+            // is cleaning up (job_technicians used to gain a row for the lead too) would otherwise
+            // have the outgoing lead reappear on the next refresh — roster() folds job_technicians
+            // back in once the lead slot is empty. The composite key (job_id, app_user_id) makes
+            // a redundant delete harmless when no such row exists.
+            _s.update { it.copy(crew = it.crew - outgoing) }
+            viewModelScope.launch { outbox.enqueueRemoveCrew(jobId, outgoing, "Remove technician") }
+            return
+        }
         _s.update { it.copy(crew = it.crew - next) }
         viewModelScope.launch {
             runCatching { api.removeJobTechnician(jobId, next) }

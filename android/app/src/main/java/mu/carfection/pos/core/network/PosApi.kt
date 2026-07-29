@@ -100,7 +100,9 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun insertCustomer(row: NewCustomerDto): CustomerDto =
         client.postgrest.from("customers")
-            .insert(row) { select(Columns.raw("id, name, phone")) }
+            // email too — a business customer typed at Intake has to carry it into the
+            // quote's send dialog, not just onto the record.
+            .insert(row) { select(Columns.raw("id, name, phone, email")) }
             .decodeSingle()
 
     suspend fun fetchVehicles(customerId: String): List<VehicleDto> =
@@ -311,6 +313,10 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         payload: JsonObject,
         id: String? = null,
         createdAt: String? = null,
+        // What the event is ABOUT — e.g. ("invoice", documentId). receiptPrintCount reads this
+        // back to count "Duplicata N"; an event with no ref_id is invisible to that count.
+        refType: String? = null,
+        refId: String? = null,
     ) {
         client.postgrest.from("audit_events").insert(buildJsonObject {
             if (id != null) put("id", id)
@@ -319,6 +325,8 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             if (deviceId != null) put("device_id", deviceId) else put("device_id", JsonNull)
             put("payload", payload)
             if (createdAt != null) put("created_at", createdAt)
+            if (refType != null) put("ref_type", refType) else put("ref_type", JsonNull)
+            if (refId != null) put("ref_id", refId) else put("ref_id", JsonNull)
         })
     }
 

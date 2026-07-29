@@ -572,6 +572,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     // and has now come back. Raise the job from the quote they actually signed,
                     // rather than re-keying it as a new one.
                     s.status == "accepted" && s.jobId == null -> {
+                        // The moment the crew CAN be kept — accepting for later had nowhere to
+                        // put them, so this is where the promise made on the accept panel comes
+                        // due. Same chips, so picking a crew works the same wherever you are.
+                        CrewChips(s, vm)
                         Box(
                             Modifier.fillMaxWidth().height(52.dp)
                                 .background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
@@ -708,21 +712,18 @@ private fun AcceptBody(
             }
         }
 
-        MiniLabel(if (s.crew.size > 1) "CREW — TAP TO ADD OR REMOVE" else "ASSIGN TECHNICIAN — TAP MORE THAN ONE FOR A CREW")
-        if (s.technicians.isEmpty()) Text("No active technicians — assign later from the job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
-        Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            s.technicians.forEach { u ->
-                val on = u.id in s.crew
-                val isLead = s.crew.firstOrNull() == u.id && s.crew.size > 1
-                Row(Modifier.height(42.dp).background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(21.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(21.dp)).clickable { vm.pickTech(u.id) }.padding(start = 6.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    // Grey when off the job — with several chips selectable, colour alone has
-                    // to say who is actually on it.
-                    Box(Modifier.size(30.dp).background(if (on) Accent else Color(0xFFBAC4CE), CircleShape), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccentInk) }
-                    Text(u.displayName.replace(Regex("\\s*\\(.*\\)$"), ""), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
-                    // Worth saying only once there is a crew for someone to lead.
-                    if (isLead) Text("LEAD", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, letterSpacing = 0.6.sp, color = Accent)
-                }
-            }
+        // The picker only means something when a job is actually being raised — a quote
+        // accepted "for later" has no job row for a crew to be saved onto yet (accept_quote
+        // takes no technician), so offering the chips here would let the operator pick a crew
+        // that silently vanishes. Ask again on "Create job", when it can actually be kept.
+        if (s.startJobNow) {
+            CrewChips(s, vm)
+        } else {
+            MiniLabel("TECHNICIAN")
+            Text(
+                "Picked when the car actually comes in — press \"Create job\" on this quote then.",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted,
+            )
         }
         MiniLabel("BOOKED IN FOR")
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1376,6 +1377,31 @@ private fun DiscardDraftDialog(s: QuoteState, vm: QuoteViewModel) {
                         .clickable(enabled = !s.busy) { if (isDraft) vm.deleteDraft() else vm.voidThisQuote() },
                     contentAlignment = Alignment.Center,
                 ) { Text(if (s.busy) "Working…" else if (isDraft) "Discard" else "Mark void", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White) }
+            }
+        }
+    }
+}
+
+/**
+ * Who is on the car. Tap to add or remove, first one on is the lead — the same rule and the
+ * same chips as the jobs board, and shared between the accept panel and the "Create job"
+ * step so a crew picked in either place behaves identically.
+ */
+@Composable
+private fun CrewChips(s: QuoteState, vm: QuoteViewModel) {
+    MiniLabel(if (s.crew.size > 1) "CREW — TAP TO ADD OR REMOVE" else "ASSIGN TECHNICIAN — TAP MORE THAN ONE FOR A CREW")
+    if (s.technicians.isEmpty()) Text("No active technicians — assign later from the job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+    Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+        s.technicians.forEach { u ->
+            val on = u.id in s.crew
+            val isLead = s.crew.firstOrNull() == u.id && s.crew.size > 1
+            Row(Modifier.height(42.dp).background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(21.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(21.dp)).clickable { vm.pickTech(u.id) }.padding(start = 6.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Grey when off the job — with several chips selectable, colour alone has
+                // to say who is actually on it.
+                Box(Modifier.size(30.dp).background(if (on) Accent else Color(0xFFBAC4CE), CircleShape), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccentInk) }
+                Text(u.displayName.replace(Regex("\\s*\\(.*\\)$"), ""), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
+                // Worth saying only once there is a crew for someone to lead.
+                if (isLead) Text("LEAD", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, letterSpacing = 0.6.sp, color = Accent)
             }
         }
     }

@@ -19,7 +19,9 @@ export async function getIntakeData(): Promise<{ tenantId: string; customers: In
   const sb = await createClient();
   const [custData, vehData] = await Promise.all([
     fetchAllRows(() => sb.from("customers").select("id, name, phone").order("name")),
-    fetchAllRows(() => sb.from("vehicles").select("id, customer_id, plate, make, model")),
+    // Picker for a NEW intake — a retired car has no plate to hand back, so it drops out here.
+    // (A job/quote that already points at one still resolves it through its own lookup.)
+    fetchAllRows(() => sb.from("vehicles").select("id, customer_id, plate, make, model").eq("is_active", true)),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

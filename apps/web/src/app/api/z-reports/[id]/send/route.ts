@@ -57,11 +57,16 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     return json({ ok: false, error: `Could not render the PDF: ${(e as Error).message}` }, 422);
   }
 
+  // A service close on a multi-service day freezes both that service's own total (top
+  // level) and the whole-day running total (totals.period) — same split the PDF and the
+  // tablet slip read. Quote the period figure so the email doesn't understate the day.
+  const periodTotals = props.totals?.period && typeof props.totals.period === "object" ? props.totals.period : props.totals;
+
   const r = await sendZReportEmail({
     to,
     number: props.number,
     scope: props.scope,
-    totalCents: Math.round(Number(props.totals?.total_incl ?? 0) * 100),
+    totalCents: Math.round(Number(periodTotals?.total_incl ?? 0) * 100),
     closedAt: props.closedAt ? props.closedAt.slice(0, 16).replace("T", " ") : "",
     pdfBase64: Buffer.from(pdf).toString("base64"),
     studioName: props.from.tradingName,

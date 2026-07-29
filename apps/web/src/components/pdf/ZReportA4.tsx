@@ -33,14 +33,22 @@ const enVat = (label: unknown) =>
   String(label ?? "").replace("TAUX NORMAL", "STANDARD").replace(/EXON[ÉE]RE/g, "EXEMPT").replace(/^TAUX /, "RATE ");
 
 export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZReportA4Props) {
-  const methods: Totals[] = Array.isArray(t.methods) ? t.methods : [];
-  const categories: Totals[] = Array.isArray(t.categories) ? t.categories : [];
-  const cashiers: Totals[] = Array.isArray(t.cashiers) ? t.cashiers : [];
-  const vat: Totals[] = Array.isArray(t.vat) ? t.vat : [];
+  // A service close on a multi-service day freezes BOTH the closed service's own figures
+  // (top level) and the whole-day running aggregate (totals.period). Everything that belongs
+  // to the period roll-up must read through it — mirrors the tablet slip (ZSlip.kt), which
+  // falls back to the top level only for a single-service day, where there is no "period".
+  const p: Totals = t.period && typeof t.period === "object" ? t.period : t;
+  const methods: Totals[] = Array.isArray(p.methods) ? p.methods : [];
+  const categories: Totals[] = Array.isArray(p.categories) ? p.categories : [];
+  const cashiers: Totals[] = Array.isArray(p.cashiers) ? p.cashiers : [];
+  const vat: Totals[] = Array.isArray(p.vat) ? p.vat : [];
+  // Float accumulation is per drawer, not per period — always the closed service's own.
   const accumulation: Totals[] = Array.isArray(t.accumulation) ? t.accumulation : [];
   const services: Totals[] = Array.isArray(t.services) ? t.services : [];
-  const credit = t.customer_credit as Totals | undefined;
-  const movements = t.movements as Totals | undefined;
+  const credit = p.customer_credit as Totals | undefined;
+  const movements = p.movements as Totals | undefined;
+  // "Closed by" names whoever rang THIS service close, same as the tablet — not the day's roll-up.
+  const closedByCashiers: Totals[] = Array.isArray(t.cashiers) ? t.cashiers : [];
 
   const sec: React.CSSProperties = { marginTop: 18, fontSize: 12, fontWeight: 800, borderBottom: `1px solid ${LINE}`, paddingBottom: 4 };
   const row: React.CSSProperties = { display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: INK };
@@ -81,10 +89,10 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
 
       {/* period */}
       <div style={sec}>Period</div>
-      <Kv l="Total incl. tax" r={money(t.total_incl)} />
-      <Kv l={`${int(t.tickets)} tickets`} r={`Avg. ${money(t.avg_basket)}`} />
-      {int(t.reversals) > 0 && <Kv l={`${int(t.reversals)} reversal${int(t.reversals) === 1 ? "" : "s"}`} />}
-      {int(t.voided_bills) > 0 && <Kv l={`${int(t.voided_bills)} deleted bill${int(t.voided_bills) === 1 ? "" : "s"}`} />}
+      <Kv l="Total incl. tax" r={money(p.total_incl)} />
+      <Kv l={`${int(p.tickets)} tickets`} r={`Avg. ${money(p.avg_basket)}`} />
+      {int(p.reversals) > 0 && <Kv l={`${int(p.reversals)} reversal${int(p.reversals) === 1 ? "" : "s"}`} />}
+      {int(p.voided_bills) > 0 && <Kv l={`${int(p.voided_bills)} deleted bill${int(p.voided_bills) === 1 ? "" : "s"}`} />}
 
       {/* means of payment */}
       <div style={sec}>Means of payment</div>
@@ -157,10 +165,10 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
 
       {/* sale modes */}
       <div style={sec}>Sale modes</div>
-      <Kv l={`SALES [${from.tradingName.toUpperCase()}]`} r={money(t.total_incl)} indent />
+      <Kv l={`SALES [${from.tradingName.toUpperCase()}]`} r={money(p.total_incl)} indent />
 
       {note && <div style={{ marginTop: 16, fontSize: 10, color: MUTED }}>Note: {note}</div>}
-      <div style={{ marginTop: 10, fontSize: 10, color: MUTED }}>Closed by {cashiers[0]?.name ?? "—"}</div>
+      <div style={{ marginTop: 10, fontSize: 10, color: MUTED }}>Closed by {closedByCashiers[0]?.name ?? "—"}</div>
     </div>
   );
 }

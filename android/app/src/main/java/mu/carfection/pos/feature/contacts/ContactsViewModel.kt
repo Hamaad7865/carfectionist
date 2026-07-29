@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.network.ContactDto
 import mu.carfection.pos.core.network.ContactVehicleDto
 import mu.carfection.pos.core.network.PosApi
@@ -55,6 +56,7 @@ data class ContactsState(
 class ContactsViewModel @Inject constructor(
     private val api: PosApi,
     private val catalog: mu.carfection.pos.core.data.CatalogRepository,
+    private val openJobBus: OpenJobBus,
 ) : ViewModel() {
     private val _s = MutableStateFlow(ContactsState())
     val state = _s.asStateFlow()
@@ -233,6 +235,12 @@ class ContactsViewModel @Inject constructor(
     /**
      * Start a job straight from the contact card - a returning customer whose car and history
      * are already known should not have to be walked through reception again.
+     *
+     * [startedJobId] is the hand-off ContactsScreen watches to actually MOVE to the board —
+     * Intake/Quote/Jobs all chain into each other this way; Contacts used to set the field and
+     * stop, so the toast said "Job started" and the operator was still looking at the customer
+     * card. openJobBus is the same request Quote's "View job" makes — the same tap on Jobs opens
+     * this exact job instead of just landing on the tab.
      */
     fun startJob(v: ContactVehicleDto) {
         val cust = _s.value.open ?: return
@@ -240,6 +248,7 @@ class ContactsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { api.createJob(cust.id, v.id, service = null) }
                 .onSuccess { id ->
+                    openJobBus.request(id)
                     _s.update { it.copy(startingJob = false, startedJobId = id, toast = "Job started for ${v.plate}") }
                 }
                 .onFailure { e -> _s.update { it.copy(startingJob = false, error = e.uiMessage()) } }

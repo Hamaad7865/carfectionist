@@ -198,8 +198,31 @@ export const deliverOnAccount = (sb: Client, invoiceId: string) =>
 export const undoOnAccount = (sb: Client, invoiceId: string) =>
   callRpc<boolean>(sb, "undo_on_account", { p_invoice_id: invoiceId });
 
-export const voidDocument = (sb: Client, id: string, reason: string) =>
-  callRpc<DocumentRow>(sb, "void_document", { p_id: id, p_reason: reason });
+export const voidQuote = (sb: Client, id: string, reason: string) =>
+  callRpc<DocumentRow>(sb, "void_quote", { p_quote_id: id, p_reason: reason });
+
+/** void_document() refuses anything that isn't an invoice — an accepted quote
+ *  voids through its sibling void_quote instead (same "no live job / no live
+ *  invoice" refusals). Routing on doc_type here means the ONE void button on
+ *  the sales page works for either document type without knowing which RPC to call. */
+export const voidDocument = async (sb: Client, id: string, reason: string) => {
+  const { data } = await sb.from("documents").select("doc_type").eq("id", id).maybeSingle();
+  if (data?.doc_type === "quote") return voidQuote(sb, id, reason);
+  return callRpc<DocumentRow>(sb, "void_document", { p_id: id, p_reason: reason });
+};
+
+/** The only correction path for a mis-recorded amount or method: a negative
+ *  mirror payment + audit entry, never an edit-in-place (owner/manager only,
+ *  same RPC the tablet uses). A credit note is NOT a substitute — it is
+ *  one-shot, full-invoice and auto-restocking. */
+export const reversePayment = (sb: Client, paymentId: string, reason: string | null = null) =>
+  callRpc<PaymentRow>(sb, "reverse_payment", { p_payment_id: paymentId, p_reason: reason });
+
+/** Sign off the price WITHOUT putting a car on the board — same accept_quote
+ *  RPC as the tablet's "signed, come back later" choice. Use convertQuoteToJob
+ *  when the work starts today. */
+export const acceptQuote = (sb: Client, quoteId: string) =>
+  callRpc<DocumentRow>(sb, "accept_quote", { p_quote_id: quoteId, p_signature: null });
 
 export const createCreditNote = (sb: Client, invoiceId: string, restock: boolean, location: string | null = null, sessionId: string | null = null) =>
   // sessionId = the till the refund is booked to: a paid invoice's credit note writes

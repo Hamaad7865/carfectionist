@@ -63,8 +63,15 @@ import mu.carfection.pos.ui.theme.TextSecondary
  * studio actually asks — whether that car has been coated, with anything worth remembering.
  */
 @Composable
-fun ContactsScreen(viewModel: ContactsViewModel = hiltViewModel()) {
+fun ContactsScreen(onJobStarted: () -> Unit = {}, viewModel: ContactsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
+
+    // Chain into Jobs the same way Intake/Quote hand off — "Start job" put the car straight on
+    // the board, so the operator should land there too, not stay on the customer card reading a
+    // toast. The job itself opens via OpenJobBus, requested the moment the job was created.
+    s.startedJobId?.let {
+        LaunchedEffect(it) { onJobStarted(); viewModel.consumeStartedJob() }
+    }
 
     Column(
         Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp),

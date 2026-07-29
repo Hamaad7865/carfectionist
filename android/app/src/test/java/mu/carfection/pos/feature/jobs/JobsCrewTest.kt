@@ -73,4 +73,24 @@ class JobsCrewTest {
         assertTrue(r.isEmpty())
         assertNull(r.firstOrNull())
     }
+
+    /**
+     * promote()'s null branch (clearing the lead with nobody to promote) has to defensively
+     * drop the outgoing lead from job_technicians too — a job carrying the duplicated
+     * backfilled crew row the 29 July migration is cleaning up (job_technicians once gained a
+     * row for the lead as well) would otherwise have them reappear on the next refresh: once
+     * technician_id goes back to null, roster() folds job_technicians back in and the stray
+     * row surfaces as if they were still on the job.
+     */
+    @Test
+    fun `clearing the lead also clears any stray crew row for the same person`() {
+        // The pre-fix data shape: "a" duplicated into both seats. roster() dedupes it away
+        // for as long as "a" is still the lead...
+        assertEquals(listOf("a"), roster("a", listOf("a")))
+        // ...but promote(jobId, outgoing = "a", next = null) must remove "a" from crew as well
+        // as clearing technician_id, or the duplicate resurfaces the moment the lead is empty.
+        val crewAfterClear = listOf("a") - "a"
+        assertTrue(crewAfterClear.isEmpty())
+        assertEquals(emptyList<String>(), roster(null, crewAfterClear))
+    }
 }

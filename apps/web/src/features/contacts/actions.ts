@@ -92,13 +92,22 @@ export async function saveVehicleAction(input: z.input<typeof vehicleSchema>): P
   return { ok: true, data: { id: (data as any).id } };
 }
 
-export async function deleteVehicleAction(id: string): Promise<Result> {
+// Retire, never delete: jobs, quotes and invoices reference vehicles, so a raw DELETE
+// either throws (a car with history) or destroys the row (a new one) — same rule the
+// tablet's setVehicleActive follows. Retiring also releases the plate for reuse, since
+// vehicles_active_plate_key only constrains ACTIVE rows.
+export async function setVehicleActiveAction(id: string, active: boolean): Promise<Result> {
   await requireRole(...CONTACT_ROLES);
   const sb = await createClient();
-  const { error } = await sb.from("vehicles").delete().eq("id", id);
-  if (error) return { ok: false, error: error.message };
+  const { error } = await sb.from("vehicles").update({ is_active: active }).eq("id", id);
+  if (error) return { ok: false, error: friendlyPlate(error.message) };
   revalidatePath("/contacts");
   return { ok: true };
+}
+
+/** @deprecated kept for the existing "Trash2" button wiring — it now retires, not deletes. */
+export async function deleteVehicleAction(id: string): Promise<Result> {
+  return setVehicleActiveAction(id, false);
 }
 
 function friendlyPlate(msg: string): string {

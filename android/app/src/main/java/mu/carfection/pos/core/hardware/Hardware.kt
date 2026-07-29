@@ -262,25 +262,29 @@ object ReceiptText {
 
         // ── tenders ───────────────────────────────────────────────────────────────
         // The leading digit is the COUNT of tenders of that kind, as on the reference slip —
-        // two cash legs of a split read "2   CASH", not "1" twice.
-        if (d.onAccount) {
-            appendLine(bold("1   ON ACCOUNT : " + rs(d.totalCents)))
-        } else if (d.payments.size > 1) {
-            d.payments
-                .filterNot { it.isReversal }
-                .groupBy { it.method.uppercase() }
-                .forEach { (method, ps) -> appendLine(bold("${ps.size}   $method : " + rs(ps.sumOf { it.amountCents }))) }
-            // A reversed leg is money that came back — state it rather than quietly netting it.
-            d.payments.filter { it.isReversal }.forEach { p ->
-                appendLine(bold("1   ${p.method.uppercase()} REVERSED : " + rs(p.amountCents)))
+        // two cash legs of a split read "2   CASH", not "1" twice. A voided invoice never
+        // shows money as owed or collected — same rule as the web card's showTenders
+        // (ReceiptCard.tsx: !r.voided && r.isInvoice), since every doc built here is an invoice.
+        if (!d.voided) {
+            if (d.onAccount) {
+                appendLine(bold("1   ON ACCOUNT : " + rs(d.totalCents)))
+            } else if (d.payments.size > 1) {
+                d.payments
+                    .filterNot { it.isReversal }
+                    .groupBy { it.method.uppercase() }
+                    .forEach { (method, ps) -> appendLine(bold("${ps.size}   $method : " + rs(ps.sumOf { it.amountCents }))) }
+                // A reversed leg is money that came back — state it rather than quietly netting it.
+                d.payments.filter { it.isReversal }.forEach { p ->
+                    appendLine(bold("1   ${p.method.uppercase()} REVERSED : " + rs(p.amountCents)))
+                }
+            } else {
+                appendLine(bold("1   ${(d.payLabel ?: "PAID").uppercase()} : " + rs(d.paidCents)))
+                if (d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
             }
-        } else {
-            appendLine(bold("1   ${(d.payLabel ?: "PAID").uppercase()} : " + rs(d.paidCents)))
-            if (d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
+            // The one number a customer leaving a deposit needs to see on the paper.
+            if (d.balanceDueCents > 0) appendLine(kv("    BALANCE DUE :", plain(d.balanceDueCents), w))
+            appendLine(rule(w))
         }
-        // The one number a customer leaving a deposit needs to see on the paper.
-        if (d.balanceDueCents > 0) appendLine(kv("    BALANCE DUE :", plain(d.balanceDueCents), w))
-        appendLine(rule(w))
 
         // ── tax breakdown ─────────────────────────────────────────────────────────
         if (d.lines.isNotEmpty()) {

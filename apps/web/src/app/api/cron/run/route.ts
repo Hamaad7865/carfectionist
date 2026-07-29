@@ -57,17 +57,27 @@ export async function POST(req: Request) {
 
   for (const row of claimed) {
     try {
+      // A row can sit claimed ('sending') for a moment before we get here — long
+      // enough for the desk to void the document out from under it. Check every
+      // claimed row (not just reminders): a plain "send" claimed just before the
+      // void must not go out looking like a live payable invoice.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: doc } = await (admin as any)
+        .from("documents")
+        .select("status, amount_paid, total_incl")
+        .eq("id", row.document_id)
+        .maybeSingle();
+      if (!doc || doc.status === "void") {
+        await finish(row.id, "skipped", doc ? "document voided" : "document gone");
+        skipped++;
+        continue;
+      }
+
       // Reminder that's no longer owed → skip.
       if (row.only_if_unpaid) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const { data: doc } = await (admin as any)
-          .from("documents")
-          .select("status, amount_paid, total_incl")
-          .eq("id", row.document_id)
-          .maybeSingle();
-        const paid = doc && (["paid", "void"].includes(doc.status) || Number(doc.amount_paid) >= Number(doc.total_incl));
-        if (!doc || paid) {
-          await finish(row.id, "skipped", doc ? "already settled" : "document gone");
+        const paid = doc.status === "paid" || Number(doc.amount_paid) >= Number(doc.total_incl);
+        if (paid) {
+          await finish(row.id, "skipped", "already settled");
           skipped++;
           continue;
         }

@@ -425,7 +425,9 @@ export async function getIntakeRef(): Promise<IntakeRef> {
   const sb = await createClient();
   const [custRes, vehRes, usersRes] = await Promise.all([
     sb.from("customers").select("id, name").order("name"),
-    sb.from("vehicles").select("id, customer_id, make, model, plate"),
+    // Picker for a NEW job/quote — a retired car stays readable on whatever already
+    // references it, it just can't be picked again here.
+    sb.from("vehicles").select("id, customer_id, make, model, plate").eq("is_active", true),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
   ]);
   return {

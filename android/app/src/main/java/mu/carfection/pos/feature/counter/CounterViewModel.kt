@@ -716,7 +716,7 @@ class CounterViewModel @Inject constructor(
                 launch {
                     val printed = receipt != null && runCatching { printer.printDoc(receipt) }.isSuccess
                     if (anyCash) runCatching { drawer.kick() }
-                    logReceiptOutcome(result.number, printed)
+                    logReceiptOutcome(result.number, printed, result.invoiceId)
                 }
                 local.value = local.value.copy(
                     busy = false, padOpen = false, collect = null, pendingSettle = null,
@@ -764,7 +764,7 @@ class CounterViewModel @Inject constructor(
                     }.getOrNull()
                     launch {
                         val printed = creditSlip != null && runCatching { printer.printDoc(creditSlip) }.isSuccess
-                        logReceiptOutcome(bill.number, printed)
+                        logReceiptOutcome(bill.number, printed, bill.id)
                     }
                     local.value = local.value.copy(
                         busy = false, padOpen = false, collect = null, pendingSettle = null,
@@ -816,7 +816,7 @@ class CounterViewModel @Inject constructor(
                         printer.printDoc(receipt) // instant payment slip
                     }.isSuccess
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
-                    logReceiptOutcome(bill.number, printed)
+                    logReceiptOutcome(bill.number, printed, bill.id)
                 }
                 local.value = local.value.copy(
                     busy = false, padOpen = false, collect = null, pendingSettle = null,
@@ -1213,7 +1213,7 @@ class CounterViewModel @Inject constructor(
                         printer.printDoc(stamped) // prints the moment the sale completes
                     }.isSuccess
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
-                    logReceiptOutcome(result.number, printed)
+                    logReceiptOutcome(result.number, printed, result.invoiceId)
                 }
                 local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt, pendingSettle = null)
             } catch (e: Exception) {
@@ -1244,7 +1244,9 @@ class CounterViewModel @Inject constructor(
      * this history as fact. The enqueue is a local Room write (fast, offline-safe);
      * the outbox retries delivery until it lands.
      */
-    private fun logReceiptOutcome(number: String?, printed: Boolean) {
+    // [documentId] is what receiptPrintCount later counts BY (ref_id) to print "Duplicata N" —
+    // without it every reprint of this sale looks like the original.
+    private fun logReceiptOutcome(number: String?, printed: Boolean, documentId: String?) {
         viewModelScope.launch {
             runCatching {
                 val tenant = catalog.tenantId() ?: return@launch
@@ -1254,6 +1256,8 @@ class CounterViewModel @Inject constructor(
                     deviceId = session.deviceId(),
                     payload = buildJsonObject { if (number != null) put("number", number) },
                     label = "Receipt trace · ${number ?: "sale"}",
+                    refType = if (documentId != null) "invoice" else null,
+                    refId = documentId,
                 )
             }
         }

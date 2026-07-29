@@ -147,6 +147,9 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
     number: d.number,
     issueDate: d.issue_date,
     createdBy,
+    // Stamps the page VOID. A killed document that still renders as a live one is the whole
+    // reason a customer can be chased for money the shop already wrote off.
+    voided: d.status === "void",
     from: {
       tradingName: b.trading_name ?? "Carfectionist",
       legalName: d.issued_legal_name ?? b.legal_name ?? "",

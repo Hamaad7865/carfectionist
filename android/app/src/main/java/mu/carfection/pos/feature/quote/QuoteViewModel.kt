@@ -587,7 +587,10 @@ class QuoteViewModel @Inject constructor(
         orderKind = docDiscountKind(s), orderPct = basketPct(s).toDouble(), orderAmtInclCents = basketAmtCents(s),
     )
 
-    fun setStartJobNow(v: Boolean) = _s.update { it.copy(startJobNow = v) }
+    // Turning it off drops any crew already picked — accept_quote has nowhere to put them,
+    // and the picker itself is hidden while this is off, so a stale pick could only survive
+    // by the operator flipping it back on, which would make it look kept when it never was.
+    fun setStartJobNow(v: Boolean) = _s.update { it.copy(startJobNow = v, crew = if (v) it.crew else emptyList()) }
 
     fun toggleNewVeh(open: Boolean) = _s.update {
         it.copy(newVehOpen = open, newVehPlate = "", newVehMake = "", newVehModel = "", error = null)
@@ -694,10 +697,17 @@ class QuoteViewModel @Inject constructor(
     fun createJobFromQuote() {
         val id = _s.value.quoteId ?: return
         if (_s.value.busy) return
+        val crew = _s.value.crew
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.convertQuoteToJob(id, _s.value.crew.firstOrNull()) }
+            runCatching { api.convertQuoteToJob(id, crew.firstOrNull()) }
                 .onSuccess { jobId ->
+                    // convertQuoteToJob only sets the LEAD; the rest of the crew rides in
+                    // job_technicians the same way the accept-and-start-now path attaches them —
+                    // otherwise picking a crew here silently drops everyone but the first.
+                    catalog.tenantId()?.let { tenant ->
+                        crew.drop(1).forEach { uid -> runCatching { api.addJobTechnician(tenant, jobId, uid) } }
+                    }
                     _s.update { it.copy(busy = false, jobId = jobId, createdJobId = jobId) }
                     loadQuotes()
                 }

@@ -276,6 +276,24 @@ class ReceiptTextTest {
         assertTrue(ReceiptText.render(referenceDoc().copy(voided = true), 48).contains("*** VOID ***"))
     }
 
+    /** Matches the web card's showTenders = !r.voided && r.isInvoice — a voided invoice must
+     *  never tell the customer money is owed or was collected, on account or otherwise. */
+    @Test
+    fun `a voided on-account invoice prints no tender or balance lines`() {
+        val out = ReceiptText.render(referenceDoc().copy(voided = true, onAccount = true, balanceDueCents = 155045), 48)
+        assertFalse("no ON ACCOUNT", out.contains("ON ACCOUNT"))
+        assertFalse("no BALANCE DUE", out.contains("BALANCE DUE"))
+        assertFalse("no tender line", out.contains("BANK CARD"))
+    }
+
+    @Test
+    fun `a voided paid invoice prints no tender or change lines either`() {
+        val out = ReceiptText.render(referenceDoc().copy(voided = true, changeCents = 500), 48)
+        assertFalse("no tender line", out.contains("BANK CARD"))
+        assertFalse("no change line", out.contains("Change"))
+        assertFalse("no balance line", out.contains("BALANCE DUE"))
+    }
+
     // ── the paper it has to physically fit on ───────────────────────────────────
 
     @Test

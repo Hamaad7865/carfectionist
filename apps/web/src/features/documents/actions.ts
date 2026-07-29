@@ -181,6 +181,26 @@ export async function voidDocumentAction(id: string, reason: string): Promise<Ac
     const doc = await rpc.voidDocument(sb, id, clean);
     revalidatePath("/sales");
     revalidatePath(`/sales/${id}`);
+    // The void succeeded — the document itself is now safe. A send that's still
+    // pending for it is not: left alone, the customer gets a payable-looking PDF
+    // for a sale we just cancelled. Best-effort: the void already landed, so a
+    // failure here shouldn't be reported back as the void having failed. Routed
+    // through cancel_scheduled_send (not a table write) because scheduled_sends
+    // has no authenticated update policy — only that definer RPC can flip status.
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { data: pending } = await (sb as any)
+        .from("scheduled_sends")
+        .select("id")
+        .eq("document_id", id)
+        .eq("status", "pending");
+      for (const row of (pending ?? []) as { id: string }[]) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (sb as any).rpc("cancel_scheduled_send", { p_id: row.id });
+      }
+    } catch {
+      /* the void stands regardless — the cron's own void check is the backstop */
+    }
     return { ok: true, data: doc };
   } catch (e) {
     return { ok: false, error: (e as Error).message };

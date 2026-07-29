@@ -13,7 +13,9 @@ const schema = z.object({
   productId: z.string().min(1),
   locationId: z.string().min(1),
   qty: z.number().refine((n) => n !== 0, "Quantity change can’t be zero"),
-  note: z.string().trim().optional(),
+  // Required — this is the only record of why stock moved outside a sale/job/PO,
+  // and the owner reads it straight off the ledger. Mirror the tablet's own gate.
+  note: z.string().trim().min(1, "A reason is required for a manual stock adjustment."),
 });
 
 export async function recordAdjustmentAction(input: z.input<typeof schema>): Promise<Result> {

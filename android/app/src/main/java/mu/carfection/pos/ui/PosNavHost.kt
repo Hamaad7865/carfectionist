@@ -240,7 +240,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                         PosTab.JOBS -> JobsScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) })
                         PosTab.STOCK -> StockScreen()
                         PosTab.CERT -> CertScreen()
-                        PosTab.CONTACTS -> mu.carfection.pos.feature.contacts.ContactsScreen()
+                        PosTab.CONTACTS -> mu.carfection.pos.feature.contacts.ContactsScreen(onJobStarted = { rootViewModel.navigate(PosTab.JOBS) })
                         PosTab.DASH -> DashScreen()
                         PosTab.SETTINGS -> SettingsScreen()
                     }

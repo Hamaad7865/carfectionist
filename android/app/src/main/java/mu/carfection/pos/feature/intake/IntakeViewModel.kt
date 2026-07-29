@@ -175,9 +175,10 @@ class IntakeViewModel @Inject constructor(
             }.onSuccess { c ->
                 _s.update { it.copy(newCustOpen = false, nName = "", nPhone = "", nIsCompany = false, nEmail = "", nAddress = "", nBrn = "", nVat = "") }
                 // Into the cache NOW — otherwise the next search for this very customer finds
-                // nothing and whoever is standing there creates them a second time.
-                runCatching { catalog.cacheCustomer(CustomerEntity(c.id, c.name, c.phone)) }
-                pickCustomer(CustomerEntity(c.id, c.name, c.phone))
+                // nothing and whoever is standing there creates them a second time. Email rides
+                // along so it reaches the quote's send dialog without a retype off the card.
+                runCatching { catalog.cacheCustomer(CustomerEntity(c.id, c.name, c.phone, c.email)) }
+                pickCustomer(CustomerEntity(c.id, c.name, c.phone, c.email))
             }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
         }
     }
@@ -253,9 +254,9 @@ class IntakeViewModel @Inject constructor(
         handoff.publish(
             IntakeHandoff(
                 customerId = c.id, customerName = c.name,
-                // The number captured at reception, so the quote's WhatsApp field is
-                // prefilled instead of staff retyping it off the customer's card.
-                customerPhone = c.phone,
+                // The number and email captured at reception, so the quote's WhatsApp/email
+                // fields are prefilled instead of staff retyping them off the customer's card.
+                customerPhone = c.phone, customerEmail = c.email,
                 vehicleId = v.id, plate = v.plate,
                 vehLabel = listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" },
                 markers = markersJson, markerCount = st.markers.size, photoPaths = st.photoPaths,

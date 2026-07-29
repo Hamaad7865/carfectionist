@@ -195,18 +195,36 @@ export async function assignTechnicianAction(jobId: string, technicianId: string
   return { ok: true };
 }
 
-export async function setJobStatusAction(jobId: string, status: "scheduled" | "in_progress" | "ready" | "delivered"): Promise<Result> {
+export async function setJobStatusAction(jobId: string, status: "scheduled" | "in_progress" | "ready"): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const sb = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const patch: Record<string, any> = { status };
   if (status === "in_progress") patch.started_at = new Date().toISOString();
   if (status === "ready") patch.ready_at = new Date().toISOString(); // else jobClock keeps counting to now
-  if (status === "delivered") patch.delivered_at = new Date().toISOString();
   const { error } = await sb.from("jobs").update(patch).eq("id", jobId);
   if (error) return { ok: false, error: error.message };
   if (status === "in_progress") await jobAudit(sb, ctx, "job_started", jobId);
-  else if (status === "delivered") await jobAudit(sb, ctx, "job_delivered", jobId);
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/jobs");
+  return { ok: true };
+}
+
+/**
+ * Car collected, bill already settled — record_payment only auto-delivers at the moment
+ * of payment, so a job paid in full before it was ready had no ready→delivered path at
+ * all. deliver_paid_job is that path (same RPC the tablet's "Car collected — mark
+ * delivered" uses): it re-checks the invoice is actually paid instead of trusting the
+ * button click, and writes its own audit crumb.
+ *
+ * A balance still owed does NOT come through here — see HandOverButton's on-account
+ * handover below, a deliberate choice rather than a silent status flip.
+ */
+export async function deliverPaidJobAction(jobId: string): Promise<Result> {
+  await requireRole("owner", "manager", "cashier");
+  const sb = await createClient();
+  const { error } = await sb.rpc("deliver_paid_job", { p_job_id: jobId });
+  if (error) return { ok: false, error: error.message };
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/jobs");
   return { ok: true };

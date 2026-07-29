@@ -11,6 +11,8 @@ export interface ContactVehicle {
   category: string | null;
   vin: string | null;
   notes: string | null;
+  isActive: boolean;
+  isCoated: boolean;
 }
 export interface ContactDoc {
   id: string;
@@ -60,7 +62,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
   const sb = await createClient();
   const [custRes, vehRes, docRes, supRes] = await Promise.all([
     sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, is_company, wa_opt_out").order("name"),
-    sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes"),
+    sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes, is_active, is_coated"),
     sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at"),
     sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
   ]);
@@ -111,7 +113,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
       waOptOut: optOutById.get(selId) ?? false,
       vehicles: vehicles
         .filter((v) => v.customer_id === selId)
-        .map((v) => ({ id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, color: v.color, category: v.category, vin: v.vin, notes: v.notes })),
+        .map((v) => ({ id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, color: v.color, category: v.category, vin: v.vin, notes: v.notes, isActive: v.is_active ?? true, isCoated: v.is_coated ?? false })),
       history: docs
         .filter((d) => d.customer_id === selId)
         .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))

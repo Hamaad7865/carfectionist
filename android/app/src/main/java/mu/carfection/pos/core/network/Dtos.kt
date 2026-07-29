@@ -30,6 +30,7 @@ data class CustomerDto(
     val id: String,
     val name: String,
     val phone: String? = null,
+    val email: String? = null,
 )
 
 @Serializable

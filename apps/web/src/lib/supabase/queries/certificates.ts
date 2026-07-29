@@ -15,15 +15,22 @@ export interface CertificateRow {
   jobRef: string | null;
   jobId: string | null; // → /jobs/[id], where the full flow stepper lives
   expired: boolean;
+  voidedAt: string | null;
+  voidReason: string | null;
 }
-export interface CertRefCustomer {
+/** A delivered job with a settled invoice — the only jobs a certificate can be
+ *  issued against. Selecting one pins customer/vehicle/invoice server-side;
+ *  the create form never lets the caller pick those independently. */
+export interface CertEligibleJob {
   id: string;
-  name: string;
-  vehicles: { id: string; label: string }[];
+  customerName: string;
+  vehicle: string;
+  plate: string | null;
+  invoiceNumber: string | null;
 }
 export interface CertificatesData {
   certificates: CertificateRow[];
-  customers: CertRefCustomer[];
+  jobs: CertEligibleJob[];
   products: { id: string; name: string }[];
   nextNumber: string;
   studioName: string;
@@ -31,14 +38,23 @@ export interface CertificatesData {
 
 export async function getCertificates(todayISO: string): Promise<CertificatesData> {
   const sb = await createClient();
-  const [certRes, custRes, vehRes, prodRes, bsRes, usersRes] = await Promise.all([
+  const [certRes, jobsRes, invRes, prodRes, bsRes, usersRes] = await Promise.all([
     sb
       .from("certificates")
-      .select("id, number, applied_at, expires_at, warranty_months, created_by, job_id, customers(name), vehicles(plate, make, model, color), products(name)")
+      .select(
+        "id, number, applied_at, expires_at, warranty_months, created_by, job_id, voided_at, void_reason, customers(name), vehicles(plate, make, model, color), products(name)",
+      )
       .order("applied_at", { ascending: false })
       .limit(100),
-    sb.from("customers").select("id, name").order("name"),
-    sb.from("vehicles").select("id, customer_id, plate, make, model").order("plate"),
+    // Only a DELIVERED job is "work done"; only a PAID invoice on that job is
+    // "work paid for" — the pair a certificate is allowed to reference.
+    sb
+      .from("jobs")
+      .select("id, customer_id, vehicle_id, delivered_at, customers(name), vehicles(plate, make, model)")
+      .eq("status", "delivered")
+      .order("delivered_at", { ascending: false })
+      .limit(200),
+    sb.from("documents").select("id, number, job_id").eq("doc_type", "invoice").eq("status", "paid").not("job_id", "is", null),
     sb.from("products").select("id, name").eq("kind", "service").eq("is_active", true).order("name"),
     sb.from("business_settings").select("trading_name").limit(1).maybeSingle(),
     sb.from("app_users").select("id, display_name"),
@@ -64,20 +80,25 @@ export async function getCertificates(todayISO: string): Promise<CertificatesDat
     jobRef: c.job_id ? `JOB-${String(c.job_id).slice(0, 4).toUpperCase()}` : null,
     jobId: c.job_id ?? null,
     expired: c.expires_at < todayISO,
+    voidedAt: c.voided_at ?? null,
+    voidReason: c.void_reason ?? null,
   }));
 
-  const vehByCust = new Map<string, { id: string; label: string }[]>();
-  for (const v of (vehRes.data ?? []) as any[]) {
-    const label = [v.plate, [v.make, v.model].filter(Boolean).join(" ")].filter(Boolean).join(" · ");
-    const list = vehByCust.get(v.customer_id) ?? [];
-    list.push({ id: v.id, label });
-    vehByCust.set(v.customer_id, list);
+  // First paid invoice found per job (a job that was re-invoiced after a void
+  // keeps only its currently-paid one eligible).
+  const invoiceByJob = new Map<string, { number: string | null }>();
+  for (const inv of (invRes.data ?? []) as any[]) {
+    if (inv.job_id && !invoiceByJob.has(inv.job_id)) invoiceByJob.set(inv.job_id, { number: inv.number ?? null });
   }
-  const customers: CertRefCustomer[] = ((custRes.data ?? []) as any[]).map((c) => ({
-    id: c.id,
-    name: c.name,
-    vehicles: vehByCust.get(c.id) ?? [],
-  }));
+  const jobs: CertEligibleJob[] = ((jobsRes.data ?? []) as any[])
+    .filter((j) => invoiceByJob.has(j.id))
+    .map((j) => ({
+      id: j.id,
+      customerName: j.customers?.name ?? "—",
+      vehicle: [j.vehicles?.make, j.vehicles?.model].filter(Boolean).join(" ") || "Vehicle",
+      plate: j.vehicles?.plate ?? null,
+      invoiceNumber: invoiceByJob.get(j.id)!.number,
+    }));
   const products = ((prodRes.data ?? []) as any[]).map((p) => ({ id: p.id, name: p.name }));
   const studioName = (bsRes.data as any)?.trading_name ?? "Carfectionist";
   /* eslint-enable @typescript-eslint/no-explicit-any */
@@ -90,14 +111,16 @@ export async function getCertificates(todayISO: string): Promise<CertificatesDat
   }
   const nextNumber = `CERT-${String(maxN + 1).padStart(4, "0")}`;
 
-  return { certificates, customers, products, nextNumber, studioName };
+  return { certificates, jobs, products, nextNumber, studioName };
 }
 
 export async function getCertificate(id: string, todayISO: string): Promise<{ cert: CertificateRow; studioName: string } | null> {
   const sb = await createClient();
   const { data: c } = await sb
     .from("certificates")
-    .select("id, number, applied_at, expires_at, warranty_months, created_by, job_id, customers(name), vehicles(plate, make, model, color), products(name)")
+    .select(
+      "id, number, applied_at, expires_at, warranty_months, created_by, job_id, voided_at, void_reason, customers(name), vehicles(plate, make, model, color), products(name)",
+    )
     .eq("id", id)
     .maybeSingle();
   if (!c) return null;
@@ -123,6 +146,8 @@ export async function getCertificate(id: string, todayISO: string): Promise<{ ce
     jobRef: cc.job_id ? `JOB-${String(cc.job_id).slice(0, 4).toUpperCase()}` : null,
     jobId: cc.job_id ?? null,
     expired: cc.expires_at < todayISO,
+    voidedAt: cc.voided_at ?? null,
+    voidReason: cc.void_reason ?? null,
   };
   const studioName = (bsRes.data as any)?.trading_name ?? "Carfectionist";
   /* eslint-enable @typescript-eslint/no-explicit-any */

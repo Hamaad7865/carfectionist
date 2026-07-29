@@ -52,4 +52,17 @@ class QuoteCrewTest {
         assertEquals("a", crew.firstOrNull())
         assertTrue("a single technician needs no job_technicians rows", crew.drop(1).isEmpty())
     }
+
+    /**
+     * createJobFromQuote (an already-accepted quote's "Create job" button) has to split the
+     * crew the same way create()'s accept-and-start-now branch does: convertQuoteToJob only
+     * takes ONE technician id (the lead), so everyone else must be looped into job_technicians
+     * separately or they are silently dropped — see QuoteViewModel.createJobFromQuote.
+     */
+    @Test
+    fun `create-job-from-quote splits the crew the same way accept-and-start-now does`() {
+        val crew = tap(tap(tap(emptyList(), "a"), "b"), "c")
+        assertEquals("convertQuoteToJob's one technician param", "a", crew.firstOrNull())
+        assertEquals("looped into addJobTechnician, one call per id", listOf("b", "c"), crew.drop(1))
+    }
 }

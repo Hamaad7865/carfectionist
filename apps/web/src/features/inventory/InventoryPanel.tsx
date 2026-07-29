@@ -47,6 +47,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
     const mag = parseFloat(qtyStr);
     if (!(mag > 0)) return setError("Enter a quantity greater than zero.");
     if (!productId || !locationId) return setError("Pick a product and a location.");
+    if (!note.trim()) return setError("A reason is required — the owner reads it straight off the stock ledger.");
     setBusy(true);
     const r = await recordAdjustmentAction({ productId, locationId, qty: dir * mag, note });
     setBusy(false);
@@ -116,8 +117,16 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
           <Field label={`Qty${unit ? ` (${unit})` : ""}`}>
             <input className={`${inputCls} text-right`} value={qtyStr} onChange={(e) => setQtyStr(e.target.value)} inputMode="decimal" placeholder="0" />
           </Field>
-          <Field label="Reason / note">
-            <input className={inputCls} value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. stock count correction" list="stock-reasons" />
+          <Field label="Reason / note *" hint="Required — explains this movement on the shared stock ledger.">
+            <input
+              className={inputCls}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="e.g. stock count correction"
+              list="stock-reasons"
+              required
+              aria-required="true"
+            />
             {/* The same quick reasons the tablet offers as chips (STOCK_REASONS), so the
                 two apps file movements under matching wording instead of free-text drift.
                 Still a plain input — anything else can be typed. */}

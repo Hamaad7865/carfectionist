@@ -1,7 +1,9 @@
 package mu.carfection.pos.core.data
 
 import kotlinx.serialization.json.JsonArray
+import mu.carfection.pos.core.database.CustomerEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
@@ -39,5 +41,27 @@ class IntakeHandoffTest {
     @Test
     fun `the email rides along too when reception captured one`() {
         assertEquals("lucas@example.mu", handoff(email = "lucas@example.mu").customerEmail)
+    }
+
+    /**
+     * The email's whole trip: PosApi.insertCustomer's response → the Room read-cache
+     * (CustomerEntity, picked as "the" customer) → this handoff. Before CustomerEntity carried
+     * an email field, a business customer typed fresh at Intake had their email accepted by the
+     * server and then dropped on the floor for the rest of the session — IntakeViewModel had
+     * nowhere to put it between "just created" and "handed to the quote builder".
+     */
+    @Test
+    fun `a freshly created customer's email survives the Room round-trip into the handoff`() {
+        val created = CustomerEntity(id = "c9", name = "Vertex Motors Ltd", phone = "5800 1122", email = "accounts@vertex.mu")
+        val h = handoff(phone = created.phone, email = created.email)
+        assertEquals("accounts@vertex.mu", h.customerEmail)
+    }
+
+    @Test
+    fun `an existing CustomerEntity call site with no email argument still compiles and defaults to null`() {
+        // Guards the default param: search results and other read-cache paths that only ever
+        // had id, name, phone must keep working unchanged.
+        val c = CustomerEntity("c1", "Walk-in", "59856161")
+        assertNull(c.email)
     }
 }
