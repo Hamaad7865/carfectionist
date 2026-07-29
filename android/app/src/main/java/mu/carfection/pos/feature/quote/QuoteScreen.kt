@@ -708,14 +708,19 @@ private fun AcceptBody(
             }
         }
 
-        MiniLabel("ASSIGN TECHNICIAN")
+        MiniLabel(if (s.crew.size > 1) "CREW — TAP TO ADD OR REMOVE" else "ASSIGN TECHNICIAN — TAP MORE THAN ONE FOR A CREW")
         if (s.technicians.isEmpty()) Text("No active technicians — assign later from the job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
         Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             s.technicians.forEach { u ->
-                val on = u.id == s.techId
+                val on = u.id in s.crew
+                val isLead = s.crew.firstOrNull() == u.id && s.crew.size > 1
                 Row(Modifier.height(42.dp).background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(21.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(21.dp)).clickable { vm.pickTech(u.id) }.padding(start = 6.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.size(30.dp).background(Accent, CircleShape), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccentInk) }
+                    // Grey when off the job — with several chips selectable, colour alone has
+                    // to say who is actually on it.
+                    Box(Modifier.size(30.dp).background(if (on) Accent else Color(0xFFBAC4CE), CircleShape), contentAlignment = Alignment.Center) { Text(u.displayName.take(1).uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = AccentInk) }
                     Text(u.displayName.replace(Regex("\\s*\\(.*\\)$"), ""), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary)
+                    // Worth saying only once there is a crew for someone to lead.
+                    if (isLead) Text("LEAD", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, letterSpacing = 0.6.sp, color = Accent)
                 }
             }
         }
@@ -831,7 +836,11 @@ private fun SignStep(
     signed: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val techName = s.technicians.firstOrNull { it.id == s.techId }?.displayName?.replace(Regex("\\s*\\(.*\\)$"), "")
+    // Everyone on the job, lead first — the customer is signing off on who is doing the work,
+    // so naming only the lead would understate it.
+    val crewNames = s.crew.mapNotNull { id ->
+        s.technicians.firstOrNull { it.id == id }?.displayName?.replace(Regex("\\s*\\(.*\\)$"), "")
+    }
     Column(
         modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -841,7 +850,10 @@ private fun SignStep(
             Modifier.fillMaxWidth().background(InsetAlt, RoundedCornerShape(12.dp)).padding(horizontal = 13.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            RecapRow("Technician", techName ?: "Assign later")
+            RecapRow(
+                if (crewNames.size > 1) "Crew" else "Technician",
+                crewNames.joinToString(", ").ifEmpty { "Assign later" },
+            )
             RecapRow("Booked in", vm.startDateLabel(s) + " · " + vm.startTimeLabel(s))
             if (s.estimateMinutes != null) RecapRow("Ready in about", QuoteViewModel.estimateLabel(s.estimateMinutes!!))
             if (s.depositCents > 0) RecapRow("Deposit on signing", formatMUR(s.depositCents))

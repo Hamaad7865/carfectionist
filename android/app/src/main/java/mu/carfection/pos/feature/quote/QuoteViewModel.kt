@@ -122,7 +122,10 @@ data class QuoteState(
     val acceptOpen: Boolean = false,
     /** Ticked = the car is here and the work starts now. Unticked = signed, come back later. */
     val startJobNow: Boolean = true,
-    val techId: String? = null,
+    // The crew, in the order they were picked. The FIRST is the lead — jobs.technician_id,
+    // which the Z-report and the web both read — and the rest ride in job_technicians.
+    val crew: List<String> = emptyList(),
+    /** The lead — first of the crew. Kept as a property so every existing read still works. */
     // When the car is booked in for. null = start now; otherwise the picked date+time.
     val startAt: Long? = null,
     // How long the work should take. Null = nobody said; the board then shows no ETA
@@ -239,7 +242,7 @@ class QuoteViewModel @Inject constructor(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
             who = h.customerName, vehPlate = h.plate, veh = h.vehLabel,
             customerId = h.customerId, vehicleId = h.vehicleId,
-            lines = emptyList(), acceptOpen = false, techId = null, startAt = null,
+            lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null,
             // A deposit % or time estimate picked on the PREVIOUS quote's accept panel must
             // not ride into this fresh one — it would raise a deposit invoice and stamp a job
             // ETA this customer never agreed to (audit #7).
@@ -336,7 +339,7 @@ class QuoteViewModel @Inject constructor(
         it.copy(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
             who = "", vehPlate = null, veh = "", customerId = null, vehicleId = null,
-            lines = emptyList(), acceptOpen = false, techId = null, startAt = null,
+            lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null,
             estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT,
             depositAmtText = "", depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", query = "",
@@ -426,7 +429,7 @@ class QuoteViewModel @Inject constructor(
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
-                lines = emptyList(), acceptOpen = false, techId = null, startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
+                lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
                 // Don't inherit the last quote's deposit/estimate into this one (audit #7).
                 estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
                 sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
@@ -693,7 +696,7 @@ class QuoteViewModel @Inject constructor(
         if (_s.value.busy) return
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.convertQuoteToJob(id, _s.value.techId) }
+            runCatching { api.convertQuoteToJob(id, _s.value.crew.firstOrNull()) }
                 .onSuccess { jobId ->
                     _s.update { it.copy(busy = false, jobId = jobId, createdJobId = jobId) }
                     loadQuotes()
@@ -704,7 +707,14 @@ class QuoteViewModel @Inject constructor(
 
     fun openAccept() = _s.update { it.copy(acceptOpen = true) }
     fun closeAccept() = _s.update { it.copy(acceptOpen = false) }
-    fun pickTech(id: String) = _s.update { it.copy(techId = id) }
+    /**
+     * Tap a technician to put them on the job, tap again to take them off. The first one
+     * picked is the lead; picking that one off promotes whoever is next, so the job always
+     * has a lead as long as anyone is on it.
+     */
+    fun pickTech(id: String) = _s.update {
+        it.copy(crew = if (id in it.crew) it.crew - id else it.crew + id)
+    }
 
     // ── when the car is booked in for ────────────────────────────────────────────
     // startAt == null means "start now". Picking a date keeps the time already chosen
@@ -929,10 +939,19 @@ class QuoteViewModel @Inject constructor(
                     loadQuotes()
                     return@runCatching Triple(quoteId, null, null)
                 }
-                val jobId = api.convertQuoteToJob(quoteId, s.techId, signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
+                val jobId = api.convertQuoteToJob(quoteId, s.crew.firstOrNull(), signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
                 // Book the car in, with how long it should take. Safe to retry: the conversion
                 // is idempotent, so a failed schedule write simply re-runs against the same job.
                 api.setJobSchedule(jobId, scheduledIso(s), s.estimateMinutes)
+
+                // convert_quote_to_job set the LEAD; everyone else picked on the accept panel
+                // goes into job_technicians. Best-effort per person: a crew member failing to
+                // attach must not fail an accepted quote that already has its job.
+                catalog.tenantId()?.let { tenant ->
+                    s.crew.drop(1).forEach { uid ->
+                        runCatching { api.addJobTechnician(tenant, jobId, uid) }
+                    }
+                }
 
                 // A deposit is money against a bill, and the bill is this quote. Raise it now so
                 // there is something to pay into; the customer then settles the balance when they
