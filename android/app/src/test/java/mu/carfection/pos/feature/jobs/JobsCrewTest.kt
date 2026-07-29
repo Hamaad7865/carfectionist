@@ -75,6 +75,37 @@ class JobsCrewTest {
     }
 
     /**
+     * A crew change made on a dropped connection sits in the outbox. Re-opening the job re-reads
+     * the server, which is behind that queue — so the queued change has to be folded back in or
+     * the person the tech just added appears to fall straight off the job.
+     */
+    private fun overlay(server: List<String>, added: Set<String>, removed: Set<String>) =
+        (server + added).distinct() - removed
+
+    @Test
+    fun `a queued add still shows after re-opening the job`() {
+        assertEquals(listOf("a", "b"), overlay(listOf("a"), setOf("b"), emptySet()))
+    }
+
+    @Test
+    fun `a queued removal does not come back after re-opening`() {
+        assertEquals(listOf("a"), overlay(listOf("a", "b"), emptySet(), setOf("b")))
+    }
+
+    /** Add then remove the same person offline: the last tap is what the screen must show. */
+    @Test
+    fun `the last queued tap wins`() {
+        assertEquals(listOf("a"), overlay(listOf("a"), emptySet(), setOf("b")))
+        assertEquals(listOf("a", "b"), overlay(listOf("a"), setOf("b"), emptySet()))
+    }
+
+    /** Once the queue has flushed, the server is the truth and nothing is duplicated. */
+    @Test
+    fun `an add the server already has is not listed twice`() {
+        assertEquals(listOf("a", "b"), overlay(listOf("a", "b"), setOf("b"), emptySet()))
+    }
+
+    /**
      * promote()'s null branch (clearing the lead with nobody to promote) has to defensively
      * drop the outgoing lead from job_technicians too — a job carrying the duplicated
      * backfilled crew row the 29 July migration is cleaning up (job_technicians once gained a

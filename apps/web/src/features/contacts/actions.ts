@@ -105,10 +105,6 @@ export async function setVehicleActiveAction(id: string, active: boolean): Promi
   return { ok: true };
 }
 
-/** @deprecated kept for the existing "Trash2" button wiring — it now retires, not deletes. */
-export async function deleteVehicleAction(id: string): Promise<Result> {
-  return setVehicleActiveAction(id, false);
-}
 
 function friendlyPlate(msg: string): string {
   return /duplicate key|unique/i.test(msg) ? "A vehicle with that plate already exists." : msg;

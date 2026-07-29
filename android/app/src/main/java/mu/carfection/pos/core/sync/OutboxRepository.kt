@@ -86,6 +86,8 @@ class OutboxRepository @Inject constructor(
         val checklist: JsonArray? = null,
         val technicianId: String? = null,
         val technicianQueued: Boolean = false,
+        val crewAdded: Set<String> = emptySet(),
+        val crewRemoved: Set<String> = emptySet(),
     )
 
     /**
@@ -104,9 +106,26 @@ class OutboxRepository @Inject constructor(
                     out[it.jobId] = (out[it.jobId] ?: JobOverlay())
                         .copy(technicianId = it.technicianId, technicianQueued = true)
                 }
+                // Crew queued offline has to overlay too, or re-opening the job shows the
+                // server's older answer and the person the tech just added appears to fall
+                // back off — the write is safe in the queue, but the screen says otherwise.
+                OP_ADD_CREW -> json.decodeFromString<CrewAdd>(op.payload).let {
+                    val o = out[it.jobId] ?: JobOverlay()
+                    out[it.jobId] = o.copy(crewAdded = o.crewAdded + it.appUserId, crewRemoved = o.crewRemoved - it.appUserId)
+                }
+                OP_REMOVE_CREW -> json.decodeFromString<CrewRemove>(op.payload).let {
+                    val o = out[it.jobId] ?: JobOverlay()
+                    out[it.jobId] = o.copy(crewRemoved = o.crewRemoved + it.appUserId, crewAdded = o.crewAdded - it.appUserId)
+                }
             }
         }
         return out
+    }
+
+    /** The server's crew for a job, with anything still queued on this device folded in. */
+    suspend fun overlayCrew(jobId: String, serverCrew: List<String>): List<String> {
+        val o = pendingJobOverlays()[jobId] ?: return serverCrew
+        return (serverCrew + o.crewAdded).distinct() - o.crewRemoved
     }
 
     /** Reassign a job's technician, or null to leave it unassigned. Safe to replay. */

@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Car, Plus, Pencil, Trash2 } from "lucide-react";
+import { Car, Plus, Pencil, CircleSlash, RotateCcw } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Field, inputCls, FormError } from "@/components/ui/form";
-import { saveVehicleAction, deleteVehicleAction } from "./actions";
+import { saveVehicleAction, setVehicleActiveAction } from "./actions";
 import type { ContactVehicle } from "@/lib/supabase/queries/contacts";
 import { VEHICLE_CATEGORIES, VEHICLE_MAKES, VEHICLE_COLORS } from "@/lib/vehicle-presets";
 import { btn } from "@/components/ui/button";
@@ -49,10 +49,13 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
     } else setError(r.error);
   }
 
-  async function remove(id: string) {
+  // Retire, never delete — jobs and invoices point at the car. It stays on the list, greyed
+  // and labelled, because "the car is gone from the screen" is indistinguishable from "the
+  // button did nothing", and because retiring is reversible.
+  async function setActive(id: string, active: boolean) {
     setListError(null);
     setBusy(true);
-    const r = await deleteVehicleAction(id);
+    const r = await setVehicleActiveAction(id, active);
     setBusy(false);
     if (r.ok) router.refresh();
     else setListError(r.error);
@@ -70,13 +73,21 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
       <div className="flex flex-col gap-2">
         {vehicles.length === 0 && <div className="rounded-[11px] border border-dashed border-line-2 p-4 text-center text-[12px] text-faint">No vehicles on file.</div>}
         {vehicles.map((v) => (
-          <div key={v.id} className="flex items-center gap-3 rounded-[11px] border border-line px-3.5 py-2.5">
-            <Car size={20} className="text-link" strokeWidth={1.8} />
+          <div key={v.id} className={`flex items-center gap-3 rounded-[11px] border border-line px-3.5 py-2.5${v.isActive ? "" : " opacity-55"}`}>
+            <Car size={20} className={v.isActive ? "text-link" : "text-faint"} strokeWidth={1.8} />
             <span className="flex-1 text-[13px] font-bold text-body">{[v.make, v.model].filter(Boolean).join(" ") || "Vehicle"}</span>
+            {/* The reason the field exists: whether this car has been ceramic-coated is the
+                first thing anyone asks when it comes back in. */}
+            {v.isCoated && <span className="rounded-full bg-[rgba(45,156,219,0.14)] px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-link">Coated</span>}
+            {!v.isActive && <span className="rounded-full bg-sub px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-faint">Retired</span>}
             <span className="num text-[12px] text-muted">{v.plate}</span>
             {v.color && <span className="text-[12px] text-muted">{v.color}</span>}
             <button onClick={() => launch(v)} className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-body"><Pencil size={14} /></button>
-            <button onClick={() => remove(v.id)} disabled={busy} className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-rose disabled:opacity-50"><Trash2 size={14} /></button>
+            {v.isActive ? (
+              <button onClick={() => setActive(v.id, false)} disabled={busy} title="Retire this car — it stops appearing on new work and frees its plate" className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-rose disabled:opacity-50"><CircleSlash size={14} /></button>
+            ) : (
+              <button onClick={() => setActive(v.id, true)} disabled={busy} title="Put this car back in use" className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-link disabled:opacity-50"><RotateCcw size={14} /></button>
+            )}
           </div>
         ))}
       </div>

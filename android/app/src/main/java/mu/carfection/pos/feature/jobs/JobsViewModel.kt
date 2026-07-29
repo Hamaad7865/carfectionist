@@ -484,7 +484,10 @@ class JobsViewModel @Inject constructor(
     /** Load both when a job is opened — they are what the detail sheet shows. */
     fun loadJobDetail(jobId: String) {
         viewModelScope.launch {
-            val crew = runCatching { api.fetchJobCrew(jobId) }.getOrDefault(emptyList()).map { it.appUserId }
+            val fetched = runCatching { api.fetchJobCrew(jobId) }.getOrDefault(emptyList()).map { it.appUserId }
+            // Fold in anything still queued on this device — the server snapshot is behind the
+            // outbox, so without this a crew change made on a dropped connection reads as lost.
+            val crew = runCatching { outbox.overlayCrew(jobId, fetched) }.getOrDefault(fetched)
             val comments = runCatching { api.fetchJobComments(jobId) }.getOrDefault(emptyList())
             _s.update { it.copy(crew = crew, comments = comments) }
         }
