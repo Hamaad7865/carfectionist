@@ -568,6 +568,27 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             Text("This quote has been accepted — JOB-${s.jobId.take(4).uppercase()} is on the board.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
                         }
                     }
+                    // Signed, but the work never started — the customer took the price away
+                    // and has now come back. Raise the job from the quote they actually signed,
+                    // rather than re-keying it as a new one.
+                    s.status == "accepted" && s.jobId == null -> {
+                        Box(
+                            Modifier.fillMaxWidth().height(52.dp)
+                                .background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                                .clickable(enabled = !s.busy) { vm.createJobFromQuote() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (s.busy) "Creating…" else "Create job →",
+                                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                                color = if (s.busy) TextMuted else AccentInk,
+                            )
+                        }
+                        Text(
+                            "Signed and agreed. Put the car on the board whenever they bring it in.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+                        )
+                    }
                     s.billed -> {
                         Box(Modifier.fillMaxWidth().height(52.dp).background(InsetAlt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
                             Text("Billed — collect it in Checkout", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary)
@@ -578,7 +599,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                             OutlineBtn(if (s.busy) "Saving…" else if (s.savedRef != null) "Saved ✓" else "Save draft", Modifier.weight(1f), 52) { if (!s.busy) vm.saveDraft() }
                             Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
-                                Text("Accept → create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
+                                Text(if (s.startJobNow) "Accept → create job" else "Accept — save for later", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
                             }
                         }
                         Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
@@ -652,6 +673,32 @@ private fun AcceptBody(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+        // The first decision, because it governs everything under it: is the car here?
+        // A quote signed today for work booked next month must not put a card on the board.
+        Row(
+            Modifier.fillMaxWidth().height(58.dp)
+                .background(if (s.startJobNow) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(14.dp))
+                .border(if (s.startJobNow) 1.5.dp else 1.dp, if (s.startJobNow) AccentLine else Hairline, RoundedCornerShape(14.dp))
+                .clickable { vm.setStartJobNow(!s.startJobNow) }
+                .padding(horizontal = 15.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(13.dp),
+        ) {
+            Box(
+                Modifier.size(26.dp)
+                    .background(if (s.startJobNow) Accent else Color.Transparent, RoundedCornerShape(7.dp))
+                    .border(2.dp, if (s.startJobNow) Accent else Hairline, RoundedCornerShape(7.dp)),
+                contentAlignment = Alignment.Center,
+            ) { if (s.startJobNow) Text("✓", color = AccentInk, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            Column(Modifier.weight(1f)) {
+                Text("Start the work now", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary)
+                Text(
+                    if (s.startJobNow) "The car goes on the jobs board"
+                    else "Signed only — open it and press Create job when they bring the car in",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+                )
+            }
+        }
+
         MiniLabel("ASSIGN TECHNICIAN")
         if (s.technicians.isEmpty()) Text("No active technicians — assign later from the job.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
         Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -1109,9 +1156,43 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                 if (s.pickSearching) Text("Searching…", fontFamily = Barlow, fontSize = 12.sp, color = TextMuted)
                 if (s.pickQuery.isNotBlank() && s.pickResults.isEmpty() && !s.pickSearching) {
                     Text(
-                        "Nobody found. Add them at Intake first.",
+                        "Nobody found.",
                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted,
                     )
+                }
+                // Quoting over the phone is exactly when the customer is NOT on file yet, so
+                // sending staff to Intake to create one and come back is the wrong answer.
+                if (s.newCustOpen) {
+                    Column(
+                        Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(12.dp))
+                            .border(1.dp, Hairline, RoundedCornerShape(12.dp)).padding(13.dp),
+                        verticalArrangement = Arrangement.spacedBy(9.dp),
+                    ) {
+                        Text("NEW CUSTOMER", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, color = TextMuted)
+                        FilledInput(s.newCustName, vm::setNewCustName, "Full name", Modifier.fillMaxWidth(), height = 46.dp, bg = CardBg)
+                        FilledInput(s.newCustPhone, vm::setNewCustPhone, "Phone — prefills the WhatsApp quote", Modifier.fillMaxWidth(), height = 46.dp, bg = CardBg)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Box(
+                                Modifier.weight(1f).height(44.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                                    .clickable { vm.toggleNewCust(false) },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary) }
+                            val canSave = s.newCustName.isNotBlank() && !s.busy
+                            Box(
+                                Modifier.weight(1.4f).height(44.dp)
+                                    .background(if (canSave) Accent else InsetAlt, RoundedCornerShape(11.dp))
+                                    .clickable(enabled = canSave) { vm.saveNewCustomer() },
+                                contentAlignment = Alignment.Center,
+                            ) { Text(if (s.busy) "Saving…" else "Add customer", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = if (canSave) AccentInk else TextMuted) }
+                        }
+                        s.error?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Danger) }
+                    }
+                } else {
+                    Box(
+                        Modifier.fillMaxWidth().height(46.dp).border(1.5.dp, AccentLine, RoundedCornerShape(12.dp))
+                            .clickable { vm.toggleNewCust(true) },
+                        contentAlignment = Alignment.Center,
+                    ) { Text("+ New customer", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent) }
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(s.pickResults, key = { it.id }) { c ->

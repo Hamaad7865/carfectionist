@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSalesJournal, allocate, facetsOf, BACK_OFFICE, UNCATEGORISED, type JournalInput } from "./sales-journal";
+import { buildSalesJournal, allocate, facetsOf, saleMethodLabelFor, BACK_OFFICE, UNCATEGORISED, type JournalInput } from "./sales-journal";
 
 // The property this report lives or dies by: EVERY section foots to the same
 // pair of totals. If taxes, categories or users ever disagree with sale methods,
@@ -38,6 +38,7 @@ const input = (over: Partial<JournalInput> = {}): JournalInput => ({
   sessionDevice: new Map([["s1", "TAB-1"]]),
   deviceName: new Map([["TAB-1", "Caisse 1"]]),
   sellerName: new Map([["u1", "Anshika"], ["u2", "Nicolas"]]),
+  saleMethodLabel: saleMethodLabelFor("Carfectionist"),
   ...over,
 });
 
@@ -98,11 +99,25 @@ describe("sales journal — the reference period", () => {
     expect(J().clientAvgInclCents).toBe(0); // and never divides by zero
   });
 
-  it("splits sale methods by till, calling a session-less sale Back office", () => {
+  it("reports ONE sale method — the shop, not a row per till", () => {
+    // Cashmag prints a single "SALES [CAFECTIONIST]" line, and so do we: the
+    // owner reads a job invoiced at the desk and a wash rung on a tablet as the
+    // same thing. Per-till figures live in Daily Summary, for cash-up.
     const j = J();
-    expect(j.saleMethods.map((m) => m.label)).toEqual(["Caisse 1", BACK_OFFICE]);
-    expect(j.saleMethods[0]).toMatchObject({ tickets: 2, exclCents: 623_974, inclCents: 717_570 });
-    expect(j.saleMethods[1]).toMatchObject({ tickets: 1, exclCents: 95_652, inclCents: 110_000 });
+    expect(j.saleMethods).toHaveLength(1);
+    expect(j.saleMethods[0]).toEqual({ label: "SALES [CARFECTIONIST]", tickets: 3, exclCents: 719_626, inclCents: 827_570 });
+  });
+
+  it("the sale-method row restates the period totals exactly", () => {
+    const j = J();
+    expect(j.saleMethods[0].tickets).toBe(j.tickets);
+    expect(j.saleMethods[0].exclCents).toBe(j.totalExclCents);
+    expect(j.saleMethods[0].inclCents).toBe(j.totalInclCents);
+  });
+
+  it("falls back to a plain label when no trading name is supplied", () => {
+    const j = buildSalesJournal(FROM, TO, { ...input(), saleMethodLabel: undefined });
+    expect(j.saleMethods[0].label).toBe("SALES");
   });
 
   it("reports the tax band with its discount", () => {
@@ -227,10 +242,20 @@ describe("sales journal — payments vs credit sales", () => {
 
 describe("sales journal — filters", () => {
   it("narrows to one till, and the narrowed period still foots", () => {
+    // The till is a FILTER, not a row: the section still shows the one shop
+    // method, now carrying only what that till rang.
     const j = J({ filters: { device: "Caisse 1" } });
     expect(j.tickets).toBe(2);
     expect(j.totalInclCents).toBe(717_570); // d1 + d3
-    expect(j.saleMethods.map((m) => m.label)).toEqual(["Caisse 1"]);
+    expect(j.saleMethods).toHaveLength(1);
+    expect(j.saleMethods[0]).toMatchObject({ label: "SALES [CARFECTIONIST]", tickets: 2, inclCents: 717_570 });
+    expectFooting(j);
+  });
+
+  it("still offers Back office as a device to filter to", () => {
+    const j = J({ filters: { device: BACK_OFFICE } });
+    expect(j.tickets).toBe(1);
+    expect(j.totalInclCents).toBe(110_000); // d2, invoiced off the till
     expectFooting(j);
   });
 

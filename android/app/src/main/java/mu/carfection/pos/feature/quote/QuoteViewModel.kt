@@ -99,6 +99,11 @@ data class QuoteState(
     val pickResults: List<mu.carfection.pos.core.database.CustomerEntity> = emptyList(),
     val pickSearching: Boolean = false,
     val pickVehicles: List<mu.carfection.pos.core.network.VehicleDto> = emptyList(),
+    // Adding a customer without leaving the quote — quoting over the phone is exactly when
+    // they are not on file yet, and sending staff to Intake and back loses the quote.
+    val newCustOpen: Boolean = false,
+    val newCustName: String = "",
+    val newCustPhone: String = "",
     val tab: String = "All", // the selected CATEGORY (same rail as Checkout)
     val kindFilter: KindFilter = KindFilter.ALL, // Products / Services toggle (mirrors the web builder)
     val query: String = "", // product search (name or scanned barcode)
@@ -569,6 +574,66 @@ class QuoteViewModel @Inject constructor(
         },
         orderKind = docDiscountKind(s), orderPct = basketPct(s).toDouble(), orderAmtInclCents = basketAmtCents(s),
     )
+
+    fun setStartJobNow(v: Boolean) = _s.update { it.copy(startJobNow = v) }
+
+    fun toggleNewCust(open: Boolean) = _s.update {
+        // Seed the name from whatever they already typed in the search box — they have just
+        // told us who they are looking for.
+        it.copy(newCustOpen = open, newCustName = if (open) it.pickQuery.trim() else "", newCustPhone = "", error = null)
+    }
+    fun setNewCustName(v: String) = _s.update { it.copy(newCustName = v) }
+    fun setNewCustPhone(v: String) = _s.update { it.copy(newCustPhone = v) }
+
+    /**
+     * Create the customer and carry straight on to their car — the point is to not leave the
+     * quote. The phone is captured here so the WhatsApp field is prefilled when it is sent.
+     */
+    fun saveNewCustomer() {
+        val st = _s.value
+        val name = st.newCustName.trim()
+        if (name.isBlank()) { _s.update { it.copy(error = "Enter a name") }; return }
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val tenant = catalog.tenantId() ?: error("Not synced — pull the catalogue first")
+                api.insertCustomer(
+                    mu.carfection.pos.core.network.NewCustomerDto(
+                        tenantId = tenant, name = name,
+                        phone = st.newCustPhone.trim().ifBlank { null },
+                    ),
+                )
+            }.onSuccess { c ->
+                val entity = mu.carfection.pos.core.database.CustomerEntity(c.id, c.name, c.phone)
+                // Into the local cache too, so the very next search finds them instead of
+                // inviting whoever is standing there to create them a second time.
+                runCatching { catalog.cacheCustomer(entity) }
+                _s.update { it.copy(busy = false, newCustOpen = false, newCustName = "", newCustPhone = "") }
+                pickQuoteCustomer(entity)
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
+    /**
+     * The customer signed a while back and has now brought the car in.
+     *
+     * Converts the SAME quote they agreed to, so the price, the lines and the signature are the
+     * ones on record. The RPC is idempotent — a second tap returns the same job rather than
+     * putting the car on the board twice.
+     */
+    fun createJobFromQuote() {
+        val id = _s.value.quoteId ?: return
+        if (_s.value.busy) return
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching { api.convertQuoteToJob(id, _s.value.techId) }
+                .onSuccess { jobId ->
+                    _s.update { it.copy(busy = false, jobId = jobId, createdJobId = jobId) }
+                    loadQuotes()
+                }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
 
     fun openAccept() = _s.update { it.copy(acceptOpen = true) }
     fun closeAccept() = _s.update { it.copy(acceptOpen = false) }

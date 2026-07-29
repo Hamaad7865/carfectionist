@@ -12,10 +12,10 @@ import type { JournalFacets } from "@/lib/supabase/queries/sales-journal";
  * Cashmag's "More filters" modal. Its five dropdowns collapse to three here:
  *   • Point of sale — the shop. Carfectionist is single-shop, so it would only
  *     ever offer one choice; dropped rather than shipped as decoration.
- *   • Device and Sale method are ONE axis in our data — a sale's method is the
- *     till that rang it ("Back office" when there is no till), the same mapping
- *     the Daily Summary report uses. Two dropdowns would have been two names for
- *     one filter.
+ *   • Sale method — the journal reports ONE sale method (the shop), so filtering
+ *     by it would be a no-op. What is actually worth narrowing to is the
+ *     terminal, which is this Device dropdown: each till by name, plus
+ *     "Back office" for anything invoiced at the desk off a job or a quote.
  * The time window and the remaining dropdowns map straight across.
  *
  * Unlike the period controls this does apply on Validate: several fields change
@@ -119,8 +119,8 @@ export function MoreFiltersDialog({ facets, current }: { facets: JournalFacets; 
       >
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
           <Picker
-            label="Sale method / device"
-            allLabel="All sale methods"
+            label="Device / till"
+            allLabel="All devices"
             value={draft.device}
             options={facets.devices}
             onChange={(device) => setDraft((d) => ({ ...d, device }))}

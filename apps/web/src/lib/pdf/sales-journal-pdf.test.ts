@@ -30,6 +30,7 @@ const input: JournalInput = {
   sessionDevice: new Map([["s1", "TAB-1"]]),
   deviceName: new Map([["TAB-1", "Caisse 1"]]),
   sellerName: new Map([["u1", "Anshika"], ["u2", "Nicolas"]]),
+  saleMethodLabel: "SALES [CARFECTIONIST]",
 };
 
 const journal = buildSalesJournal(FROM, TO, input);
@@ -52,9 +53,11 @@ describe("sales journal PDF — structure", () => {
 });
 
 describe("sales journal PDF — the figures match the screen", () => {
-  it("sale methods", () => {
+  it("sale methods — one row for the shop, as Cashmag prints it", () => {
     const t = table("Sale methods");
-    expect(t.rows.map((r) => r.label)).toEqual(["Caisse 1", "Back office"]);
+    expect(t.rows.map((r) => [r.label, ...r.cells])).toEqual([
+      ["SALES [CARFECTIONIST]", "3", "Rs 7,196.26", "Rs 8,275.70"],
+    ]);
     expect(t.total.cells).toEqual(["3", "Rs 7,196.26", "Rs 8,275.70"]);
   });
 

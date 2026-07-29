@@ -25,7 +25,12 @@ import { MU_OFFSET_MS } from "@/lib/mu-date";
 // subtotal_excl — the figure AFTER a whole-sale discount — rather than from raw
 // line totals, which only carry the per-line discount. See allocate() below.
 
+/** A sale with no till session — invoiced at the desk from a job or a quote.
+ *  Not a sale-method row any more (the journal shows one method, the shop); it
+ *  survives only as an option in the device filter. */
 export const BACK_OFFICE = "Back office";
+/** Used when no trading name is available — the DB half always supplies one. */
+export const DEFAULT_SALE_METHOD = "SALES";
 export const UNCATEGORISED = "(uncategorised)";
 /** Fixed display order — Cashmag lists payment methods by kind, not by value. */
 export const METHOD_ORDER = ["cash", "card", "juice", "bank_transfer"] as const;
@@ -139,8 +144,13 @@ export interface JournalInput {
   sessionDevice: Map<string, string>; // cash_session_id → device_code
   deviceName: Map<string, string>; // device_code → friendly name
   sellerName: Map<string, string>; // app_user id → display name
+  /** The shop's one sale method, e.g. "SALES [CARFECTIONIST]". See below. */
+  saleMethodLabel?: string;
   filters?: SalesJournalFilters;
 }
+
+/** Cashmag's sale-method label: the sale kind, then the shop in brackets. */
+export const saleMethodLabelFor = (tradingName: string) => `SALES [${tradingName.toUpperCase()}]`;
 
 /**
  * Split `total` across `weights` so the parts are proportional AND sum to exactly
@@ -260,7 +270,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   // 2. Document-level figures — the totals every section must foot to.
   let tickets = 0, totalIncl = 0, totalExcl = 0, vat = 0, clientIncl = 0;
   const clientIds = new Set<string>();
-  const byMethod = new Map<string, SaleMethodRow>();
+  const saleMethod: SaleMethodRow = { label: input.saleMethodLabel ?? DEFAULT_SALE_METHOD, tickets: 0, exclCents: 0, inclCents: 0 };
   const byUser = new Map<string, UserRow>();
 
   for (const d of docs) {
@@ -277,13 +287,14 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
       clientIncl += incl;
     }
 
-    const code = d.cash_session_id ? sessionDevice.get(d.cash_session_id) : null;
-    const device = code ? (deviceName.get(code) ?? code) : BACK_OFFICE;
-    const m = byMethod.get(device) ?? { label: device, tickets: 0, exclCents: 0, inclCents: 0 };
-    m.tickets += d.doc_type === "invoice" ? 1 : 0;
-    m.exclCents += excl;
-    m.inclCents += incl;
-    byMethod.set(device, m);
+    // Sale method is the SHOP, one row — Cashmag's "SALES [CAFECTIONIST]". The
+    // owner does not split takings by terminal here: a job invoiced at the desk
+    // and a wash rung on a tablet are both just a sale. Which till rang it is
+    // still available as a filter (see `filters.device`), and Daily Summary
+    // still breaks it out per till for cash-up.
+    saleMethod.tickets += d.doc_type === "invoice" ? 1 : 0;
+    saleMethod.exclCents += excl;
+    saleMethod.inclCents += incl;
 
     const seller = d.issued_by ? (sellerName.get(d.issued_by) ?? "—") : "—";
     const u = byUser.get(seller) ?? { label: seller, tickets: 0, exclCents: 0, inclCents: 0 };
@@ -368,7 +379,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     clients: clientIds.size,
     clientInclCents: clientIncl,
     clientAvgInclCents: clientIds.size ? Math.round(clientIncl / clientIds.size) : 0,
-    saleMethods: [...byMethod.values()].sort((a, b) => b.inclCents - a.inclCents),
+    saleMethods: [saleMethod],
     taxes: [...byTax.values()].sort((a, b) => a.ratePct - b.ratePct),
     payments: paymentRows,
     paymentsSubtotalCents,
@@ -411,7 +422,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
   const sessionIds = [...new Set(docs.map((d) => d.cash_session_id).filter(Boolean))] as string[];
   const sellerIds = [...new Set(docs.map((d) => d.issued_by).filter(Boolean))] as string[];
 
-  const [payments, lines, sessions, sellers, devices] = await Promise.all([
+  const [payments, lines, sessions, sellers, devices, settings] = await Promise.all([
     fetchAllRows<any>(() => sb.from("payments").select("id, document_id, method, amount").in("document_id", docIds)),
     fetchAllRows<any>(() =>
       sb
@@ -422,6 +433,8 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     sessionIds.length ? fetchAllRows<any>(() => sb.from("cash_sessions").select("id, device_id").in("id", sessionIds)) : Promise.resolve([] as any[]),
     sellerIds.length ? fetchAllRows<any>(() => sb.from("app_users").select("id, display_name").in("id", sellerIds)) : Promise.resolve([] as any[]),
     fetchAllRows<any>(() => sb.from("devices").select("device_code, display_name")),
+    // Rides along in the same round-trip — it names the single sale-method row.
+    sb.from("business_settings").select("trading_name").limit(1).maybeSingle(),
   ]);
 
   return {
@@ -431,6 +444,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     sessionDevice: new Map(sessions.map((s) => [s.id, s.device_id])),
     deviceName: new Map(devices.map((d) => [d.device_code, d.display_name || d.device_code])),
     sellerName: new Map(sellers.map((u) => [u.id, u.display_name || "—"])),
+    saleMethodLabel: saleMethodLabelFor(settings.data?.trading_name || "Carfectionist"),
   };
   /* eslint-enable @typescript-eslint/no-explicit-any */
 }
