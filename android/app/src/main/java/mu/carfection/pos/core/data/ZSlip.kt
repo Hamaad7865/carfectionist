@@ -134,6 +134,12 @@ object ZSlip {
         if (reversals > 0) line("$reversals reversal${if (reversals == 1) "" else "s"}", "")
         val voided = t.int("voided_bills")
         if (voided > 0) line("$voided voided bill${if (voided == 1) "" else "s"}", "")
+        // Says WHY the total is lower than the tickets suggest. The figure above is already
+        // net of refunds, so without this line the reader has to guess at the difference.
+        t["refunds"]?.jsonObject?.let { r ->
+            val n = r.int("count")
+            if (n > 0) line("$n refund${if (n == 1) "" else "s"}", "-" + money(r.num("amount")))
+        }
         rule()
 
         header("Means of payment")

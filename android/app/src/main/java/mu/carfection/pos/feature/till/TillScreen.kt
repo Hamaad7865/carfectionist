@@ -801,6 +801,13 @@ private fun PeriodCard(t: JsonObject, mny: (Double) -> String) = ZCard {
     ZRow("Total incl. tax", mny(t.zn("total_incl")), strong = true)
     ZRow("${t.zi("tickets")} tickets", "Avg. ${mny(t.zn("avg_basket"))}", TextMuted)
     if (t.zi("reversals") > 0) ZRow("${t.zi("reversals")} reversals", "", TextMuted)
+    // The total above is already net of refunds; this is what accounts for the difference.
+    // Mirrors the printed slip's line (ZSlip.kt) so screen and paper read the same.
+    (t["refunds"] as? JsonObject)?.let { r ->
+        if (r.zi("count") > 0) {
+            ZRow("${r.zi("count")} refund${if (r.zi("count") == 1) "" else "s"}", "-${mny(r.zn("amount"))}", TextMuted)
+        }
+    }
     MeansOfPayment(t, mny)
 }
 

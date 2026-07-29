@@ -93,6 +93,14 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
       <Kv l={`${int(p.tickets)} tickets`} r={`Avg. ${money(p.avg_basket)}`} />
       {int(p.reversals) > 0 && <Kv l={`${int(p.reversals)} reversal${int(p.reversals) === 1 ? "" : "s"}`} />}
       {int(p.voided_bills) > 0 && <Kv l={`${int(p.voided_bills)} deleted bill${int(p.voided_bills) === 1 ? "" : "s"}`} />}
+      {/* Says WHY the total is lower than the tickets suggest — it is already net of refunds.
+          Same line, same wording as the printed slip (ZSlip.kt), so the two can be compared. */}
+      {int((p.refunds as Totals | undefined)?.count) > 0 && (
+        <Kv
+          l={`${int((p.refunds as Totals).count)} refund${int((p.refunds as Totals).count) === 1 ? "" : "s"}`}
+          r={`-${money((p.refunds as Totals).amount)}`}
+        />
+      )}
 
       {/* means of payment */}
       <div style={sec}>Means of payment</div>
