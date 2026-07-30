@@ -12,7 +12,7 @@ type Kind = "customers" | "products";
 
 const btn = btnCls();
 
-export function ImportExport({ kind }: { kind: Kind }) {
+export function ImportExport({ kind, pricesInclVat = false }: { kind: Kind; pricesInclVat?: boolean }) {
   const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
   const [rows, setRows] = useState<Record<string, string>[] | null>(null);
@@ -98,7 +98,15 @@ export function ImportExport({ kind }: { kind: Kind }) {
                   <Stat n={preview.skipped} l="Skipped" tone={preview.skipped ? "text-amber-ink" : undefined} />
                 </div>
                 {kind === "products" && (
-                  <p className="mt-2.5 text-[11.5px] text-muted">Prices, costs &amp; details will update by SKU; any <span className="num">stock_…</span> columns set on-hand at that location.</p>
+                  <p className="mt-2.5 text-[11.5px] text-muted">
+                    Prices, costs &amp; details will update by SKU; any <span className="num">stock_…</span> columns set on-hand at that location.
+                    {/* The import guard (migration 0040): a gross-quoting shop's sheet carries
+                        shelf prices, and the server stores them net — say so, or a careful owner
+                        comparing the catalogue to their file concludes the import corrupted it. */}
+                    {pricesInclVat && (
+                      <> Sell prices in your file are read as <span className="font-semibold">VAT-inclusive</span> (what the customer pays) and stored net — the shelf price stays exactly what the sheet says.</>
+                    )}
+                  </p>
                 )}
                 <div className="mt-5 flex gap-2">
                   <button onClick={reset} className="h-10 flex-1 rounded-[11px] border border-line-2 bg-sub text-[13px] font-bold text-body">Cancel</button>

@@ -22,7 +22,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
     sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : sp.tab === "inventory" ? "inventory" : sp.tab === "categories" ? "categories" : "catalogue";
   const showArchived = sp.archived === "1";
   const inventory = tab === "catalogue" ? await getInventory(showArchived) : null;
-  const profile = tab === "catalogue" ? await getBusinessProfile() : null;
+  // catalogue OR inventory: the Import/Export buttons render on both, and the import
+  // dialog's price hint needs to know how this shop quotes.
+  const profile = tab === "catalogue" || tab === "inventory" ? await getBusinessProfile() : null;
   const session = tab === "catalogue" ? await getSessionContext() : null;
   const vatDefault = profile?.vatRate ?? 15;
   const pricesInclVat = profile?.pricesVatInclusive ?? false;
@@ -40,7 +42,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         <Link href="/products?tab=transfers" className={tabCls(tab === "transfers")}>Transfers</Link>
         <Link href="/products?tab=recipes" className={tabCls(tab === "recipes")}>Recipes</Link>
         <div className="flex-1" />
-        {(tab === "catalogue" || tab === "inventory") && <ImportExport kind="products" />}
+        {(tab === "catalogue" || tab === "inventory") && <ImportExport kind="products" pricesInclVat={pricesInclVat} />}
       </div>
 
       {tab === "catalogue" && inventory && session && (

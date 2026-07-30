@@ -2,6 +2,7 @@ import { getSessionContext } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { toCsv, type CsvColumn } from "@/lib/csv";
+import { grossCents } from "@/lib/money";
 
 const slug = (s: string) => "stock_" + s.trim().toLowerCase().replace(/\s+/g, "_");
 
@@ -10,11 +11,23 @@ export async function GET() {
   if (!ctx) return new Response("Unauthorized", { status: 401 });
 
   const sb = await createClient();
-  const [prodData, ohData, locRes] = await Promise.all([
+  const [prodData, ohData, locRes, bsRes] = await Promise.all([
     fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, cost_price, vat_rate, low_stock_threshold, is_active").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     sb.from("stock_locations").select("id, name, is_default").order("is_default", { ascending: false }),
+    sb.from("business_settings").select("vat_rate, prices_vat_exclusive").limit(1),
   ]);
+
+  // A gross-quoting shop reads and writes SHELF prices everywhere — the sheet included.
+  // import_products divides the same figure back to net (migration 0040), so
+  // export → edit → import round-trips losslessly. A net-quoting shop exports net, as before.
+  const bs = (bsRes.data ?? [])[0] as { vat_rate: number | null; prices_vat_exclusive: boolean } | undefined;
+  const grossQuoting = bs?.prices_vat_exclusive === false;
+  const vatDefault = Number(bs?.vat_rate ?? 15);
+  const sheetPrice = (net: unknown, rate: unknown): string | unknown =>
+    net == null || !grossQuoting
+      ? net ?? ""
+      : (grossCents(Math.round(Number(net) * 100), Number(rate ?? vatDefault)) / 100).toFixed(2);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const locs = ((locRes.data ?? []) as any[]).map((l) => ({ id: l.id, col: slug(l.name) }));
@@ -52,7 +65,7 @@ export async function GET() {
       category: p.category ?? "",
       barcode: p.barcode ?? "",
       unit: p.unit ?? "",
-      selling_price: p.selling_price ?? "",
+      selling_price: sheetPrice(p.selling_price, p.vat_rate),
       cost_price: p.cost_price ?? "",
       vat_rate: p.vat_rate ?? "",
       low_stock_threshold: p.low_stock_threshold ?? "",
