@@ -26,6 +26,8 @@ import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.sync.ConnectivityObserver
 import mu.carfection.pos.core.sync.OutboxRepository
+import mu.carfection.pos.core.sync.catalogSyncActive
+import mu.carfection.pos.core.sync.runCatalogSync
 import mu.carfection.pos.feature.counter.CounterScreen
 import mu.carfection.pos.feature.cert.CertScreen
 import mu.carfection.pos.feature.dash.DashScreen
@@ -177,7 +179,23 @@ class RootViewModel @Inject constructor(
         }
     }
 
-    private companion object { const val HEARTBEAT_MS = 4 * 60_000L }
+    init {
+        // Catalogue freshness: a price corrected in the back office must reach an open,
+        // online tablet without anyone tapping Sync (the counter once kept ringing up a
+        // shelf price the web had fixed hours earlier). Pulls immediately on login and on
+        // the connectivity edge, then every CATALOG_SYNC_MS; offline or signed out, it
+        // attempts nothing. Loop semantics live (tested) in core/sync/CatalogSync.kt.
+        viewModelScope.launch {
+            runCatalogSync(catalogSyncActive(session.isLoggedIn, connectivity.online), CATALOG_SYNC_MS) {
+                catalog.refresh()
+            }
+        }
+    }
+
+    private companion object {
+        const val HEARTBEAT_MS = 4 * 60_000L
+        const val CATALOG_SYNC_MS = 5 * 60_000L
+    }
 
     fun signOut() { viewModelScope.launch { session.signOut() } }
 }
