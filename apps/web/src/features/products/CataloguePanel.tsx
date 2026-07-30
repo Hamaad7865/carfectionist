@@ -3,9 +3,10 @@
 import { grossCents } from "@/lib/money";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Plus, Barcode, Search, TriangleAlert } from "lucide-react";
+import { Plus, Barcode, Search, TriangleAlert, ChevronRight } from "lucide-react";
 import { formatMUR } from "@/lib/money";
 import { ProductFormModal } from "./ProductFormModal";
+import { ProductActivity } from "./ProductActivity";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 import type { StockLocation } from "@/lib/supabase/locations";
 import { btn } from "@/components/ui/button";
@@ -15,8 +16,10 @@ const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] t
 
 // One stock column per location, so a third location has somewhere to land.
 // Tailwind can't build a class name at runtime, so the track list is a style.
+// The last track is empty: it reserves the space the history chevron sits over,
+// so the money columns don't shift under it.
 const gridCols = (locationCount: number) => ({
-  gridTemplateColumns: `minmax(0,1fr) 160px 90px 90px 70px ${"100px ".repeat(locationCount).trim()}`,
+  gridTemplateColumns: `minmax(0,1fr) 160px 90px 90px 70px ${"100px ".repeat(locationCount).trim()} 26px`,
 });
 
 // Services and goods share one catalogue — a job is billed from the same list a
@@ -120,6 +123,16 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
   function newProduct() { setEditing(null); setOpen(true); }
   function edit(p: InventoryRow) { setEditing(p); setOpen(true); }
 
+  // Rows open independently — two items can be compared side by side, and closing
+  // one doesn't collapse the one you were reading.
+  const [openIds, setOpenIds] = useState<ReadonlySet<string>>(() => new Set());
+  const toggleHistory = (id: string) =>
+    setOpenIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+
   const KINDS: { key: KindFilter; label: string; n: number }[] = [
     { key: "all", label: "All", n: counts.all },
     { key: "service", label: "Services", n: counts.service },
@@ -187,6 +200,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
               {l.name}
             </span>
           ))}
+          <span />
         </div>
         {filtered.length === 0 ? (
           <div className="px-5 py-14 text-center text-[13px] text-faint">
@@ -196,9 +210,11 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
           </div>
         ) : (
           shown.map((r) => (
-            <button key={r.id} onClick={() => edit(r)} className={`block w-full border-b border-line text-left hover:bg-sub ${r.isActive ? "" : "opacity-55"}`}>
+            <div key={r.id} className={`border-b border-line ${r.isActive ? "" : "opacity-55"}`}>
+            <div className="relative">
+            <button onClick={() => edit(r)} className="block w-full text-left hover:bg-sub">
               {/* Mobile card */}
-              <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
+              <div className="flex items-start justify-between gap-3 py-3 pl-4 pr-10 md:hidden">
                 <Thumb url={r.photoUrl} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
@@ -254,8 +270,27 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                     </span>
                   );
                 })}
+                <span />
               </div>
             </button>
+            {/* A sibling of the row, not a child: the row is a <button>, and the
+                history it opens is full of links. */}
+            <button
+              onClick={() => toggleHistory(r.id)}
+              aria-expanded={openIds.has(r.id)}
+              aria-label={`${openIds.has(r.id) ? "Hide" : "Show"} recent history for ${r.name}`}
+              title="Recent history"
+              className="absolute right-2 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-[7px] text-faint hover:bg-sub hover:text-body"
+            >
+              <ChevronRight
+                size={15}
+                strokeWidth={2.4}
+                className={`transition-transform duration-200 motion-reduce:transition-none ${openIds.has(r.id) ? "rotate-90" : ""}`}
+              />
+            </button>
+            </div>
+            <ProductActivity productId={r.id} open={openIds.has(r.id)} />
+            </div>
           ))
         )}
 

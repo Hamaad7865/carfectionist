@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
-import { requireRole, type SessionContext } from "@/lib/auth/session";
+import { getSessionContext, requireRole, type SessionContext } from "@/lib/auth/session";
 import { logAudit } from "@/lib/supabase/audit";
+import type { ActivityRow } from "./activity";
 
 const ROLES = ["owner", "manager"] as const;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -136,6 +137,42 @@ export async function setProductPriceAction(input: z.input<typeof priceSchema>):
   revalidatePath("/products");
   revalidatePath("/sales/counter");
   return { ok: true, data: { priceCents: Math.round(price * 100) } };
+}
+
+/**
+ * The last few things that happened to one catalogue item, for the history line
+ * that opens under its row. Fetched on expand rather than with the page: 397
+ * products' worth of ledger is not worth loading for a list you mostly open to
+ * check a price.
+ *
+ * Read-only, so it is gated on being signed in rather than on a role — RLS
+ * decides what the ledger will show, exactly as it does for the row above it.
+ */
+export async function getProductActivityAction(productId: string): Promise<Result<ActivityRow[]>> {
+  const ctx = await getSessionContext();
+  if (!ctx) return { ok: false, error: "Your session has expired — sign in again." };
+  if (!z.string().uuid().safeParse(productId).success) return { ok: false, error: "Unknown product." };
+
+  const sb = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (sb as any).rpc("product_recent_activity", { p_product_id: productId, p_limit: 8 });
+  if (error) return { ok: false, error: error.message };
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: ActivityRow[] = ((data ?? []) as any[]).map((r) => ({
+    eventId: String(r.event_id),
+    happenedAt: r.happened_at,
+    source: r.source === "line" ? "line" : "movement",
+    kind: String(r.kind),
+    qty: Number(r.qty),
+    refId: r.ref_id ?? null,
+    locationName: r.location_name ?? null,
+    docNumber: r.doc_number ?? null,
+    partyName: r.party_name ?? null,
+    note: r.note ?? null,
+    actorName: r.actor_name ?? null,
+  }));
+  return { ok: true, data: rows };
 }
 
 // Categories are a text column, so renaming = bulk-updating every product that
