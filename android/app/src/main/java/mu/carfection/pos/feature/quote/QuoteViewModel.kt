@@ -650,10 +650,28 @@ class QuoteViewModel @Inject constructor(
      * Create the customer and carry straight on to their car — the point is to not leave the
      * quote. The phone is captured here so the WhatsApp field is prefilled when it is sent.
      */
-    fun saveNewCustomer() {
+    fun saveNewCustomer(force: Boolean = false) {
         val st = _s.value
         val name = st.newCustName.trim()
         if (name.isBlank()) { _s.update { it.copy(error = "Enter a name") }; return }
+        // Same guard Intake has: nothing in the schema stops a second copy of a person, and a
+        // duplicate here is how a quote ends up on a record that holds none of the history.
+        if (!force) {
+            _s.update { it.copy(busy = true, error = null) }
+            viewModelScope.launch {
+                val hit = api.findExistingCustomer(name, st.newCustPhone.trim().ifBlank { null })
+                if (hit != null) {
+                    val entity = mu.carfection.pos.core.database.CustomerEntity(hit.id, hit.name, hit.phone)
+                    runCatching { catalog.cacheCustomer(entity) }
+                    _s.update { it.copy(busy = false, newCustOpen = false, newCustName = "", newCustPhone = "") }
+                    pickQuoteCustomer(entity)
+                } else {
+                    _s.update { it.copy(busy = false) }
+                    saveNewCustomer(force = true)
+                }
+            }
+            return
+        }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {

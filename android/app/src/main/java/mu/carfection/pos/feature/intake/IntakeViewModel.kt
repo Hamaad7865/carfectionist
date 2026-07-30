@@ -63,6 +63,12 @@ data class IntakeState(
     val photoUploading: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
+    // Someone already on file who looks like the one being typed, or the person already holding
+    // the plate being added. Both exist so the app can OFFER the record instead of telling
+    // whoever is standing at the counter to go and find it — which is what produced two
+    // "Yan Toinette" and four "Lucas Lutchmoodoo", each with a made-up plate.
+    val existingCustomer: CustomerEntity? = null,
+    val plateTaken: mu.carfection.pos.core.network.PlateHolder? = null,
 )
 
 @HiltViewModel
@@ -153,10 +159,32 @@ class IntakeViewModel @Inject constructor(
     fun setNBrn(v: String) = _s.update { it.copy(nBrn = v) }
     fun setNVat(v: String) = _s.update { it.copy(nVat = v) }
 
-    fun saveNewCustomer() {
+    /**
+     * Create the customer — unless they are already on file.
+     *
+     * The schema's unique index is on the PLATE, not the person, so making the same customer
+     * twice has always just worked, and only their car got refused. Staff then got past the
+     * refusal with a plate that was not real and the job landed on the duplicate. So ask first,
+     * and if they exist, offer them ([useExistingCustomer]) rather than creating a second.
+     */
+    fun saveNewCustomer(force: Boolean = false) {
         val st = _s.value
         val name = st.nName.trim()
         if (name.isBlank()) { _s.update { it.copy(error = "Enter a name") }; return }
+        if (!force) {
+            _s.update { it.copy(busy = true, error = null, existingCustomer = null) }
+            viewModelScope.launch {
+                val hit = api.findExistingCustomer(name, st.nPhone.trim().ifBlank { null })
+                if (hit != null) {
+                    _s.update { it.copy(busy = false, existingCustomer = CustomerEntity(hit.id, hit.name, hit.phone)) }
+                } else {
+                    _s.update { it.copy(busy = false) }
+                    saveNewCustomer(force = true)
+                }
+            }
+            return
+        }
+        _s.update { it.copy(busy = true, error = null, existingCustomer = null) }
         viewModelScope.launch {
             runCatching {
                 val tenant = catalog.tenantId() ?: error("no tenant")
@@ -173,15 +201,56 @@ class IntakeViewModel @Inject constructor(
                     ),
                 )
             }.onSuccess { c ->
-                _s.update { it.copy(newCustOpen = false, nName = "", nPhone = "", nIsCompany = false, nEmail = "", nAddress = "", nBrn = "", nVat = "") }
+                _s.update { it.copy(busy = false, newCustOpen = false, nName = "", nPhone = "", nIsCompany = false, nEmail = "", nAddress = "", nBrn = "", nVat = "") }
                 // Into the cache NOW — otherwise the next search for this very customer finds
                 // nothing and whoever is standing there creates them a second time. Email rides
                 // along so it reaches the quote's send dialog without a retype off the card.
                 runCatching { catalog.cacheCustomer(CustomerEntity(c.id, c.name, c.phone, c.email)) }
                 pickCustomer(CustomerEntity(c.id, c.name, c.phone, c.email))
-            }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
+
+    /** Take the record we found instead of making a second one. */
+    fun useExistingCustomer() {
+        val c = _s.value.existingCustomer ?: return
+        _s.update {
+            it.copy(
+                existingCustomer = null, newCustOpen = false, error = null,
+                nName = "", nPhone = "", nIsCompany = false, nEmail = "", nAddress = "", nBrn = "", nVat = "",
+            )
+        }
+        pickCustomer(c)
+    }
+
+    /** They really are a different person with the same name — carry on and create them. */
+    fun createAnyway() {
+        _s.update { it.copy(existingCustomer = null) }
+        saveNewCustomer(force = true)
+    }
+
+    fun dismissExisting() = _s.update { it.copy(existingCustomer = null) }
+
+    /**
+     * The plate belongs to someone else — go to them, and to that car.
+     *
+     * This is the whole point: the old message named the owner and left staff to find them,
+     * so the quicker path was to alter the plate until it was accepted.
+     */
+    fun usePlateHolder() {
+        val h = _s.value.plateTaken ?: return
+        _s.update {
+            it.copy(
+                plateTaken = null, addVehOpen = false, error = null,
+                nvPlate = "", nvMake = "", nvModel = "", nvColour = "", nvCategory = "",
+            )
+        }
+        pickCustomer(CustomerEntity(h.customer.id, h.customer.name, h.customer.phone))
+        // pickCustomer refetches the cars; select the one they were trying to type.
+        _s.update { it.copy(vehicle = h.vehicle) }
+    }
+
+    fun dismissPlateTaken() = _s.update { it.copy(plateTaken = null) }
 
     fun pickCustomer(c: CustomerEntity) {
         _s.update { it.copy(customer = c, query = "", results = emptyList(), vehicles = emptyList(), vehicle = null) }
@@ -211,13 +280,11 @@ class IntakeViewModel @Inject constructor(
             }.onFailure { e ->
                 val dup = (e.message ?: "").contains("duplicate", true) || (e.message ?: "").contains("plate_normalized", true)
                 if (dup) {
-                    // Name the owner. "That plate already exists" is a dead end — it is what led
-                    // staff to invent a placeholder plate and strand a job on the wrong record.
-                    val owner = api.vehicleOwnerByPlate(plate)
-                    _s.update {
-                        it.copy(error = if (owner != null) "$plate is already registered to $owner — search for them instead of adding it again."
-                        else "$plate is already registered to another customer — search for them by name or phone.")
-                    }
+                    // Offer the record, don't describe it. Naming the owner and leaving staff to
+                    // go and search is what made altering the plate the faster way out.
+                    val holder = api.plateHolder(plate)
+                    if (holder != null) _s.update { it.copy(plateTaken = holder, error = null) }
+                    else _s.update { it.copy(error = "$plate is already registered to another customer — search for them by name or phone.") }
                 } else _s.update { it.copy(error = e.uiMessage()) }
             }
         }

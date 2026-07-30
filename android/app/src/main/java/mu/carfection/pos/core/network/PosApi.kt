@@ -79,6 +79,37 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .mapNotNull { it.customers }
     }.getOrDefault(emptyList())
 
+    /**
+     * The customer already on file under this name or this phone, if there is one.
+     *
+     * Nothing in the schema stops the same person being created twice — the unique index is on
+     * the PLATE, not the person — so the second attempt succeeds and only the car is refused.
+     * That is what has produced every duplicate so far: staff get past the plate rejection by
+     * typing one that is not real, and the job ends up on the wrong record. Asking first is what
+     * stops it.
+     *
+     * Phone is the stronger signal and is matched exactly; the name is matched case- and
+     * spacing-insensitively, because "Yan  Toinette" and "yan toinette" are one person.
+     */
+    suspend fun findExistingCustomer(name: String, phone: String?): CustomerDto? = runCatching {
+        val n = name.trim()
+        val p = phone?.trim()?.takeIf { it.isNotBlank() }
+        if (n.isBlank() && p == null) return@runCatching null
+        val hits = client.postgrest.from("customers")
+            .select(Columns.raw("id, name, phone")) {
+                filter {
+                    or {
+                        if (p != null) eq("phone", p)
+                        ilike("name", n)
+                    }
+                }
+                limit(5)
+            }
+            .decodeList<CustomerDto>()
+        val squash = { s: String -> s.trim().lowercase().replace(Regex("\\s+"), " ") }
+        hits.firstOrNull { it.phone?.trim() == p && p != null } ?: hits.firstOrNull { squash(it.name) == squash(n) }
+    }.getOrNull()
+
     /** Who already holds this plate — so a duplicate-plate error can name them. */
     suspend fun vehicleOwnerByPlate(plate: String): String? = runCatching {
         client.postgrest.from("vehicles")
@@ -87,6 +118,28 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                 limit(1)
             }
             .decodeList<PlateOwnerDto>().firstOrNull()?.customers?.name
+    }.getOrNull()
+
+    /**
+     * The whole record behind a taken plate — the customer AND the car.
+     *
+     * Naming the owner in an error message was still a dead end: staff standing in front of a
+     * customer are not going to back out of the form and search, they are going to type a plate
+     * that gets accepted. Returning the ids lets the app just take them there.
+     */
+    suspend fun plateHolder(plate: String): PlateHolder? = runCatching {
+        client.postgrest.from("vehicles")
+            .select(Columns.raw("id, plate, make, model, color, category, customers(id, name, phone)")) {
+                filter { ilike("plate", plate.trim()); eq("is_active", true) }
+                limit(1)
+            }
+            .decodeList<PlateHolderDto>().firstOrNull()?.let { row ->
+                val cust = row.customers ?: return@let null
+                PlateHolder(
+                    customer = cust,
+                    vehicle = VehicleDto(row.id, row.plate ?: "", row.make, row.model, row.color, row.category),
+                )
+            }
     }.getOrNull()
 
     suspend fun findCustomerByName(name: String): CustomerDto? =

@@ -157,9 +157,32 @@ private fun CustomerCard(s: IntakeState, vm: IntakeViewModel) {
                             FormInput(s.nVat, vm::setNVat, "VAT no.", Modifier.weight(1f))
                         }
                     }
+                    // Already on file. Nothing in the schema stops a second copy of a person, so
+                    // this is the only thing standing between a busy counter and a duplicate.
+                    s.existingCustomer?.let { hit ->
+                        Column(
+                            Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp))
+                                .border(1.5.dp, AccentLine, RoundedCornerShape(12.dp)).padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            Text("ALREADY ON FILE", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, color = Accent)
+                            Text(
+                                hit.name + (hit.phone?.let { " · $it" } ?: ""),
+                                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary,
+                            )
+                            Text(
+                                "Use this record and their cars come with it. Making a second one is how a job ends up on the wrong customer.",
+                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 16.sp, color = TextSecondary,
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlineBtn("Different person", Modifier.weight(1f), 44.dp) { vm.createAnyway() }
+                                FillBtn("Use ${hit.name.split(" ").first()}", Modifier.weight(1.4f)) { vm.useExistingCustomer() }
+                            }
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlineBtn("Cancel", Modifier.weight(1f), 46.dp) { vm.toggleNewCust() }
-                        FillBtn("Save customer", Modifier.weight(2f)) { vm.saveNewCustomer() }
+                        FillBtn(if (s.busy) "Checking…" else "Save customer", Modifier.weight(2f)) { if (!s.busy) vm.saveNewCustomer() }
                     }
                 }
             }
@@ -203,6 +226,30 @@ private fun VehicleCard(s: IntakeState, vm: IntakeViewModel) {
                     PresetField(s.nvColour, vm::setNvColour, "Colour", VEHICLE_COLORS, Modifier.weight(1f))
                 }
                 PresetField(s.nvCategory, vm::setNvCategory, "Body type — SUV, Sedan…", VEHICLE_CATEGORIES)
+                // The plate is taken. Offer the record rather than describing it — being told to
+                // "search for them instead" is what made altering the plate the quicker way out,
+                // and that is how a job lands on the wrong car.
+                s.plateTaken?.let { h ->
+                    Column(
+                        Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp))
+                            .border(1.5.dp, AccentLine, RoundedCornerShape(12.dp)).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text("THIS CAR IS ALREADY ON FILE", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, color = Accent)
+                        Text(
+                            h.vehicle.plate + " · " + listOfNotNull(h.vehicle.make, h.vehicle.model).joinToString(" ").ifBlank { "vehicle" },
+                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary,
+                        )
+                        Text(
+                            "Registered to ${h.customer.name}. Don't change the plate to get past this — take the car that is already there.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 16.sp, color = TextSecondary,
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlineBtn("Cancel", Modifier.weight(1f), 44.dp) { vm.dismissPlateTaken() }
+                            FillBtn("Use ${h.customer.name.split(" ").first()}'s ${h.vehicle.plate}", Modifier.weight(1.6f)) { vm.usePlateHolder() }
+                        }
+                    }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlineBtn("Cancel", Modifier.weight(1f), 46.dp) { vm.toggleAddVeh() }
                     FillBtn("Save vehicle", Modifier.weight(2f)) { vm.saveVehicle() }

@@ -1,0 +1,65 @@
+{
+  "keeper": {
+    "id": "0d5bd64e-2225-477f-8e1a-431b70487333",
+    "name": "Yan Toinette",
+    "phone": "52609090"
+  },
+  "dropped": {
+    "id": "c22bee4d-565a-4f6e-a6b5-17fcba338d46",
+    "name": "Yan Toinette",
+    "phone": "52609090"
+  },
+  "keeperCars": [
+    {
+      "id": "a6700024-ec2a-4574-9d4f-ac0cf1464b02",
+      "tenant_id": "11111111-1111-4111-8111-000000000001",
+      "customer_id": "0d5bd64e-2225-477f-8e1a-431b70487333",
+      "plate": "Y58 *",
+      "plate_normalized": "Y58*",
+      "make": "BMW",
+      "model": "530e",
+      "year": null,
+      "color": "SUV",
+      "vin": null,
+      "notes": null,
+      "created_at": "2026-07-30T07:47:14.513Z",
+      "updated_at": "2026-07-30T07:47:14.513Z",
+      "category": "SEDAN",
+      "is_coated": false,
+      "coated_at": null,
+      "is_active": true
+    }
+  ],
+  "dropCars": [
+    {
+      "id": "9e2635af-9ec4-4df3-aeb5-64087c18af5a",
+      "tenant_id": "11111111-1111-4111-8111-000000000001",
+      "customer_id": "c22bee4d-565a-4f6e-a6b5-17fcba338d46",
+      "plate": "Y58",
+      "plate_normalized": "Y58",
+      "make": "BMW",
+      "model": "530e",
+      "year": null,
+      "color": "WHITE",
+      "vin": null,
+      "notes": null,
+      "created_at": "2026-07-30T07:44:32.567Z",
+      "updated_at": "2026-07-30T07:44:32.567Z",
+      "category": "SEDAN",
+      "is_coated": false,
+      "coated_at": null,
+      "is_active": true
+    }
+  ],
+  "droppedWork": {
+    "jobs": 0,
+    "documents": 0,
+    "certificates": 0,
+    "maintenance_reminders": 0,
+    "enquiries": 0,
+    "appointments": 0,
+    "campaign_recipients": 0,
+    "wa_conversations": 0
+  },
+  "plate": "Y58"
+}

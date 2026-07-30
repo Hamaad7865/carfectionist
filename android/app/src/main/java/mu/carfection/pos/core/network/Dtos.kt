@@ -477,6 +477,19 @@ data class StockAdjustmentDto(
 @Serializable data class PlateCustomerDto(val plate: String? = null, val customers: CustomerDto? = null)
 @Serializable data class PlateOwnerDto(val plate: String? = null, val customers: CustomerNameDto? = null)
 
+/** A taken plate with everything needed to jump straight to it — see PosApi.plateHolder. */
+@Serializable
+data class PlateHolderDto(
+    val id: String,
+    val plate: String? = null,
+    val make: String? = null,
+    val model: String? = null,
+    @SerialName("color") val color: String? = null,
+    val category: String? = null,
+    val customers: CustomerDto? = null,
+)
+data class PlateHolder(val customer: CustomerDto, val vehicle: VehicleDto)
+
 @Serializable
 data class BusinessSettingsDto(
     val id: String, // tenant id
