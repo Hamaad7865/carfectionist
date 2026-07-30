@@ -204,6 +204,7 @@ class SaleIssueUncertain(cause: Throwable) : SettleUncertain(cause)
 private val DETERMINISTIC_ISSUE_REJECTIONS = listOf(
     "the day is closed",                    // app.assert_day_open
     "closed — reopen it",                   // day gate, dated variant
+    "still on the day of",                  // app.assert_till_day_current — till left open since yesterday
     "unknown or closed cash session",       // the till went stale mid-sale
     "must be taken on an open till",        // till gate
     "no stock location",
@@ -478,6 +479,9 @@ class SaleRepository @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                // A definitive refusal (stale till, day closed, …) committed nothing —
+                // surface it plainly; only a LOST response earns the uncertain-retry flow.
+                if (isDeterministicRejection(e)) throw e
                 throw SalePaymentUncertain(invoiceId, number, e)
             }
             if (t.method == PayMethod.CASH && t.tenderedCents != null) change += (t.tenderedCents - t.amountCents).coerceAtLeast(0)

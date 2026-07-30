@@ -5,6 +5,7 @@ import {
   EMPTY_BASKET,
   SETTLE_LOCK_NOTICE,
   addProduct,
+  isDeterministicRejection,
   patchLine,
   pickCustomer,
   setCustomerName,
@@ -269,5 +270,22 @@ describe("the cashier is steered to retry, not to abandon", () => {
 
   it("tells the cashier not to change the basket when the issue is unconfirmed", () => {
     expect(settleMessage({ phase: "uncertain", invoiceNo: null })).toContain("don't change the basket");
+  });
+});
+
+describe("definitive server refusals never freeze the basket", () => {
+  it.each([
+    "the day is closed — no more entries or transactions are possible",
+    "the day of 2026-07-29 is closed — reopen it before taking any more money",
+    "this till is still on the day of 2026-07-29 — close that service on the till, then open a new one, before taking today's money",
+    "unknown or closed cash session",
+    "an invoice requires a customer",
+  ])("recognises %s", (msg) => {
+    expect(isDeterministicRejection(msg)).toBe(true);
+  });
+
+  it("treats a genuine network loss as NOT deterministic (the freeze stays)", () => {
+    expect(isDeterministicRejection("fetch failed")).toBe(false);
+    expect(isDeterministicRejection("TypeError: NetworkError when attempting to fetch resource")).toBe(false);
   });
 });

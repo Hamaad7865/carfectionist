@@ -9,7 +9,7 @@ import { resolveShopLocationId } from "@/lib/supabase/locations";
 import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
 import { computeTotals } from "@/lib/money";
-import type { SettlePhase } from "./settle";
+import { isDeterministicRejection, type SettlePhase } from "./settle";
 
 const ROLES = ["owner", "manager", "cashier"] as const;
 
@@ -175,6 +175,10 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       // on the cash-up.
       issued = await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null, cashSessionId);
     } catch (e) {
+      // A definitive refusal (day closed, stale till, …) commits nothing costing money —
+      // no `settle`, so the basket stays live instead of freezing behind a false
+      // "couldn't confirm the sale reached the server".
+      if (isDeterministicRejection((e as Error).message)) return { ok: false, error: (e as Error).message };
       return { ok: false, error: (e as Error).message, settle: "uncertain" };
     }
 

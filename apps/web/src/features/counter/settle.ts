@@ -32,6 +32,29 @@ export interface PendingSettle {
 export const SETTLE_LOCK_NOTICE = "Finish or abandon this sale before changing the basket.";
 
 /**
+ * Rejections that are DEFINITIVE: the server refused before anything costing money
+ * committed. These surface as plain errors — the basket stays live — instead of the
+ * false "couldn't confirm the sale reached the server" freeze.
+ * Mirrors DETERMINISTIC_ISSUE_REJECTIONS in the Android SaleRepository — keep in step.
+ */
+const DETERMINISTIC_ISSUE_REJECTIONS = [
+  "the day is closed", // app.assert_day_open
+  "closed — reopen it", // day gate, dated variant
+  "still on the day of", // app.assert_till_day_current — till left open since yesterday
+  "unknown or closed cash session",
+  "must be taken on an open till",
+  "no stock location",
+  "cannot issue a document with no lines",
+  "an invoice requires a customer",
+  "insufficient privileges",
+];
+
+export function isDeterministicRejection(message: string): boolean {
+  const m = message.toLowerCase();
+  return DETERMINISTIC_ISSUE_REJECTIONS.some((s) => m.includes(s));
+}
+
+/**
  * Retrying is the safe act — re-sending the same request replays it, so it can never charge
  * twice. Abandoning is not: if the payment did commit, the invoice is `paid`, which keeps it
  * out of TO COLLECT and out of reach of `void_document`.
