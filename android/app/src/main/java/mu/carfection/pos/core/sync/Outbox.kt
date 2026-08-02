@@ -53,8 +53,10 @@ interface OutboxDao {
  *
  * v2 adds [OfflineSaleRow] — sales rung during an outage. Same rule, with money behind it:
  * dropping this table would destroy the only record that a customer paid.
+ * v3 adds the operator to that row: with offline sign-in, the person who rang the sale is
+ * no longer necessarily the account the replay runs under.
  */
-@Database(entities = [OutboxOp::class, OfflineSaleRow::class], version = 2, exportSchema = false)
+@Database(entities = [OutboxOp::class, OfflineSaleRow::class], version = 3, exportSchema = false)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
     abstract fun offlineSaleDao(): OfflineSaleDao
@@ -94,5 +96,13 @@ val OUTBOX_MIGRATION_1_2 = object : Migration(1, 2) {
             )
             """.trimIndent(),
         )
+    }
+}
+
+/** v2 → v3: who rang each offline sale. Additive — nullable columns, nothing rewritten. */
+val OUTBOX_MIGRATION_2_3 = object : Migration(2, 3) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `offline_sales` ADD COLUMN `operatorId` TEXT")
+        db.execSQL("ALTER TABLE `offline_sales` ADD COLUMN `operatorName` TEXT")
     }
 }

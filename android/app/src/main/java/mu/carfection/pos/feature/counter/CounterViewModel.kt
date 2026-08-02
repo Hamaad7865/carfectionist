@@ -1384,6 +1384,10 @@ class CounterViewModel @Inject constructor(
                             (t.tenderedCents - t.amountCents).coerceAtLeast(0) else 0L
                     },
                     comment = s.comment.trim().takeUnless { it.isEmpty() },
+                    // The replay may run under a different account (offline sign-in never
+                    // mints tokens) — record who actually rang it.
+                    operatorId = session.operatorId,
+                    operatorName = session.userName,
                 )
 
                 val result = SaleResult(

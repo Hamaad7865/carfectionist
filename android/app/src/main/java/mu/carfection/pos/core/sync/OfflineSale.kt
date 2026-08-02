@@ -48,6 +48,13 @@ data class OfflineSaleRow(
     val newCustomerName: String? = null,
     /** What the slip prints for "Client". */
     val customerLabel: String,
+    /**
+     * Who was at the till when the money changed hands. The replay's server-side actor is
+     * whoever the DEVICE is signed in as by then — possibly someone else entirely — so the
+     * true ringer is written here and travels into the invoice's note.
+     */
+    val operatorId: String? = null,
+    val operatorName: String? = null,
     val linesJson: String,
     val orderDiscountKind: String? = null,
     val orderDiscountValue: Double = 0.0,

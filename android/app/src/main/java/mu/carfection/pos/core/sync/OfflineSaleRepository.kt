@@ -121,6 +121,8 @@ class OfflineSaleRepository @Inject constructor(
         totalCents: Long,
         changeCents: Long,
         comment: String?,
+        operatorId: String? = null,
+        operatorName: String? = null,
         capturedAt: Long = System.currentTimeMillis(),
     ): OfflineSaleRow {
         // A re-tap of Record payment on a sale already captured must not create a second
@@ -147,6 +149,8 @@ class OfflineSaleRepository @Inject constructor(
             totalCents = totalCents,
             changeCents = changeCents,
             comment = comment,
+            operatorId = operatorId,
+            operatorName = operatorName,
         )
         dao.insert(row)
         drainAsync() // best-effort: the network may have returned between the tap and now
@@ -177,6 +181,14 @@ class OfflineSaleRepository @Inject constructor(
                     Log.i(TAG, "offline sale ${row.localRef} landed as ${sale.number ?: sale.invoiceId}")
                 }.onFailure { e ->
                     val attempts = row.attempts + 1
+                    if (isPrivilegeRefusal(e)) {
+                        // About WHO is signed in right now, not about the sale: with offline
+                        // sign-in the device may be riding a technician's session, and the
+                        // next manager login changes the answer. Stay pending, stop the pass
+                        // — hammering the same refusal five times a minute helps nobody.
+                        dao.markAttempt(row.saleKey, OfflineSaleRow.STATUS_PENDING, attempts, e.message)
+                        return
+                    }
                     if (isDeterministicRejection(e)) {
                         Log.w(TAG, "offline sale ${row.localRef} blocked: ${e.message}")
                         dao.markAttempt(row.saleKey, OfflineSaleRow.STATUS_BLOCKED, attempts, e.message)
@@ -214,6 +226,10 @@ class OfflineSaleRepository @Inject constructor(
 
     suspend fun find(saleKey: String): OfflineSaleRow? = dao.find(saleKey)
 
+    /** A role refusal — the session lacks the right, not the sale. Changes with the next login. */
+    private fun isPrivilegeRefusal(e: Throwable): Boolean =
+        e.message?.contains("insufficient privileges", ignoreCase = true) == true
+
     companion object {
         private const val RETRY_INTERVAL_MS = 15_000L
         private const val SYNCED_RETENTION_MS = 30L * 24 * 60 * 60 * 1000 // 30 days
@@ -223,12 +239,15 @@ class OfflineSaleRepository @Inject constructor(
         fun localRef(deviceId: String, seq: Int): String =
             "OFF-${deviceId.substringAfterLast('-').ifBlank { "TAB" }}-${seq.toString().padStart(3, '0')}"
 
-        /** "Rung offline 02-08-2026 14:23 on TAB-66D2 · OFF-66D2-014". */
+        /** "Rung offline 02-08-2026 14:23 on TAB-66D2 by Anshika · OFF-66D2-014". */
         fun capturedTrace(row: OfflineSaleRow): String {
             val at = DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm")
                 .withZone(ZoneId.systemDefault())
                 .format(Instant.ofEpochMilli(row.capturedAt))
-            return "Rung offline $at on ${row.deviceId} · ${row.localRef}"
+            // The ringer by name: the replay's server-side actor is whoever the device is
+            // signed in as by then, so the note is where the truth survives.
+            val by = row.operatorName?.takeIf { it.isNotBlank() }?.let { " by $it" } ?: ""
+            return "Rung offline $at on ${row.deviceId}$by · ${row.localRef}"
         }
     }
 }
