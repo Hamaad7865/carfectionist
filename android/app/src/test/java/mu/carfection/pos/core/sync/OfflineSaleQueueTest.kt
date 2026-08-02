@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.SerializationException
 import mu.carfection.pos.core.data.PayMethod
@@ -86,7 +87,14 @@ class OfflineSaleQueueTest {
     private val dao = FakeDao()
     private val online = FakeOnline()
     private val replayer = FakeReplayer()
-    private fun repo() = OfflineSaleRepository(dao, replayer, online)
+
+    /**
+     * Built on the test's own scope, so the drain [OfflineSaleRepository.capture] fires in
+     * the background is scheduled by the test rather than by a real IO thread. On a live
+     * Dispatchers.IO scope that background drain races the one the test calls: whichever
+     * loses simply returns, and the assertions fail about one run in six.
+     */
+    private fun TestScope.repo() = OfflineSaleRepository(dao, replayer, online, backgroundScope)
 
     private val brakePad = SaleLineSpec(
         productId = "p1", title = "Brake pad", qty = 1.0, unitCents = 1_000_00,

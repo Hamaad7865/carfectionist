@@ -56,12 +56,28 @@ interface CapturedSaleReplayer {
  * loses money.
  */
 @Singleton
-class OfflineSaleRepository @Inject constructor(
+class OfflineSaleRepository(
     private val dao: OfflineSaleDao,
     private val replayer: CapturedSaleReplayer,
     private val connectivity: OnlineSignal,
+    /**
+     * Where the self-driving work runs — the reconnect watcher, the retry tick, and the
+     * best-effort drain [capture] fires.
+     *
+     * Injectable because otherwise it is a live Dispatchers.IO scope no test can see: a
+     * background drain then races the drain the test called, one of them loses the
+     * [draining] flag and silently does nothing, and the suite fails about once in six runs.
+     * A flaky test guarding money is worse than no test — it teaches people to re-run
+     * until green, which is exactly how a real regression gets waved through.
+     */
+    private val scope: CoroutineScope,
 ) {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Inject constructor(
+        dao: OfflineSaleDao,
+        replayer: CapturedSaleReplayer,
+        connectivity: OnlineSignal,
+    ) : this(dao, replayer, connectivity, CoroutineScope(SupervisorJob() + Dispatchers.IO))
+
     private val draining = AtomicBoolean(false)
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
