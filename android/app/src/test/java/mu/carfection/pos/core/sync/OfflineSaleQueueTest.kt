@@ -61,8 +61,12 @@ class OfflineSaleQueueTest {
             touch()
         }
         override suspend fun pruneSyncedBefore(before: Long) {
-            rows.values.filter { it.status == OfflineSaleRow.STATUS_SYNCED && (it.syncedAt ?: 0) < before }
-                .forEach { rows.remove(it.saleKey) }
+            // Mirrors the DAO's SQL: the highest seq is kept whatever its age, so maxSeq()
+            // — the high-water mark behind every localRef — can never fall back.
+            val high = rows.values.maxOfOrNull { it.seq } ?: 0
+            rows.values.filter {
+                it.status == OfflineSaleRow.STATUS_SYNCED && (it.syncedAt ?: 0) < before && it.seq < high
+            }.forEach { rows.remove(it.saleKey) }
             touch()
         }
     }
@@ -313,6 +317,30 @@ class OfflineSaleQueueTest {
             "the sale behind it still reaches the books",
             OfflineSaleRow.STATUS_SYNCED,
             dao.rows.getValue("sale-b").status,
+        )
+    }
+
+    /**
+     * A slip reference is what a customer holds in place of an invoice number, so it may
+     * never name two different sales. seq is read as MAX(seq) of the offline_sales table
+     * and housekeeping deletes old synced rows from it — clear the table and the counter
+     * restarts at 1, reprinting a reference that is already in someone's hands.
+     */
+    @Test
+    fun `housekeeping never lets a slip reference be issued twice`() = runTest {
+        val r = repo()
+        val first = r.captureOne("sale-a", at = 1)
+        replayer.answer = { issued("inv-1", "INV-0061") }
+        r.drain()
+        dao.markSynced("sale-a", "inv-1", "INV-0061", at = 1_000L)
+
+        // 30 days on, the landed sale is forgotten
+        r.pruneOldSynced()
+
+        val next = r.captureOne("sale-b", at = 2)
+        assertTrue(
+            "a reference must never be reused: ${first.localRef} then ${next.localRef}",
+            next.localRef != first.localRef,
         )
     }
 

@@ -151,7 +151,24 @@ interface OfflineSaleDao {
     @Query("UPDATE offline_sales SET cashSessionId = :sessionId, status = 'pending', attempts = 0, lastError = NULL, comment = :comment WHERE saleKey = :saleKey")
     suspend fun refileOnSession(saleKey: String, sessionId: String, comment: String?)
 
-    /** Housekeeping only — a SYNCED row may be forgotten once it is old enough to be uninteresting. */
-    @Query("DELETE FROM offline_sales WHERE status = 'synced' AND syncedAt IS NOT NULL AND syncedAt < :before")
+    /**
+     * Housekeeping only — a SYNCED row may be forgotten once it is old enough to be
+     * uninteresting.
+     *
+     * The highest [seq] is never deleted, however old it gets. [maxSeq] is the high-water
+     * mark behind every [localRef], and it is read from THIS table: prune the last row and
+     * the counter falls back to 0, so the next sale rung offline prints "OFF-66D2-001" —
+     * a reference already in a customer's hands. One tombstone row is a cheap price for a
+     * reference that is never issued twice.
+     */
+    @Query(
+        """
+        DELETE FROM offline_sales
+        WHERE status = 'synced'
+          AND syncedAt IS NOT NULL
+          AND syncedAt < :before
+          AND seq < (SELECT MAX(seq) FROM offline_sales)
+        """,
+    )
     suspend fun pruneSyncedBefore(before: Long)
 }
