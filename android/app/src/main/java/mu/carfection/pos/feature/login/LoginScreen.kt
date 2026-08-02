@@ -202,8 +202,10 @@ class LoginViewModel @Inject constructor(
                     _state.update {
                         it.copy(
                             busy = false, pin = "",
-                            error = "Offline — this tablet can only verify staff who have signed in on it before. " +
-                                "Sign in once with internet and offline sign-in works from then on.",
+                            // The roster sync distributes verifiers, so this is now rare: a PIN
+                            // newer than this tablet's last moment online.
+                            error = "Offline — this tablet doesn't have your sign-in details yet. " +
+                                "They arrive when it's next online; try another staff member for now.",
                         )
                     }
             }
@@ -285,8 +287,10 @@ private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel)
         Spacer(Modifier.weight(1f))
         if (s.offlineRoster) {
             // Say it plainly BEFORE a PIN is typed: the gate still works, and for whom.
+            // "Already knows" = has a verifier, from the server's roster or a past
+            // sign-in here — not "has used this tablet", which server seeding outgrew.
             Text(
-                "Offline — sign-in still works for staff who have used this tablet before.",
+                "Offline — sign-in still works for staff the tablet already knows.",
                 color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 16.sp,
             )
             Spacer(Modifier.height(4.dp))

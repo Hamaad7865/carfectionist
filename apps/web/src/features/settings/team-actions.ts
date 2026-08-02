@@ -1,11 +1,26 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { pbkdf2Sync, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole, type SessionContext } from "@/lib/auth/session";
 import { logAudit } from "@/lib/supabase/audit";
+
+/**
+ * The tills' offline sign-in verifier, minted here because this server action is one of
+ * the two places the plaintext PIN legitimately exists (the other is the pos-auth edge
+ * function at a successful sign-in). PBKDF2-HMAC-SHA256 — parameters and format are
+ * mirrored by the Android PinHasher and pos-auth; the three must stay in lockstep. The
+ * bcrypt pin_hash the server verifies against never leaves the server.
+ */
+function mintDeviceVerifier(pin: string): string {
+  const iterations = 310_000;
+  const salt = randomBytes(16);
+  const dk = pbkdf2Sync(pin, salt, iterations, 32, "sha256");
+  return `pbkdf2:sha256:${iterations}:${salt.toString("base64")}:${dk.toString("base64")}`;
+}
 
 type Result = { ok: true } | { ok: false; error: string };
 const ROLES = ["owner", "manager", "cashier", "technician", "accountant"] as const;
@@ -79,7 +94,11 @@ export async function createStaffAction(input: z.input<typeof createSchema>): Pr
   if (p.data.pin) {
     const sb = await createClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error: pinErr } = await (sb as any).rpc("set_staff_pin", { p_app_user_id: (row as { id: string }).id, p_pin: p.data.pin });
+    const { error: pinErr } = await (sb as any).rpc("set_staff_pin", {
+      p_app_user_id: (row as { id: string }).id,
+      p_pin: p.data.pin,
+      p_device_verifier: mintDeviceVerifier(p.data.pin),
+    });
     if (pinErr) return { ok: false, error: `Login created, but the PIN failed: ${pinErr.message}` };
   }
 
@@ -95,7 +114,11 @@ export async function setStaffPinAction(input: z.input<typeof pinSchema>): Promi
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid PIN" };
   const sb = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (sb as any).rpc("set_staff_pin", { p_app_user_id: p.data.id, p_pin: p.data.pin });
+  const { error } = await (sb as any).rpc("set_staff_pin", {
+    p_app_user_id: p.data.id,
+    p_pin: p.data.pin,
+    p_device_verifier: mintDeviceVerifier(p.data.pin),
+  });
   if (error) return { ok: false, error: error.message };
   await auditAdmin(sb, ctx, "staff_pin_set", p.data.id, { name: await nameOf(sb, p.data.id) });
   revalidatePath("/settings/team");

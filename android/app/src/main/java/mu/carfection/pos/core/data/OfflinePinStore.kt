@@ -39,7 +39,7 @@ class OfflinePinStore @Inject constructor(
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     @Serializable
-    private data class Verifier(
+    data class Verifier(
         val appUserId: String,
         val displayName: String,
         val role: String,
@@ -59,10 +59,20 @@ class OfflinePinStore @Inject constructor(
         data object Unknown : Result
     }
 
-    /** Remember a roster the server actually served — the offline sign-in tiles. */
+    /**
+     * Remember a roster the server actually served — the offline sign-in tiles, and now the
+     * verifiers riding on them, reconciled by [reconcileVerifiers]. After one sync, every
+     * staff member the server can vouch for offline can be admitted by this tablet, whether
+     * or not they have ever touched it.
+     */
     suspend fun rememberRoster(roster: List<RosterEntry>) {
         if (roster.isEmpty()) return // an empty answer is a failure, not a staff purge
-        prefs.edit { it[rosterKey] = json.encodeToString(roster) }
+        val now = System.currentTimeMillis()
+        prefs.edit { p ->
+            // The tiles store no verifiers — those live in one place, the verifier map.
+            p[rosterKey] = json.encodeToString(roster.map { it.copy(verifier = null) })
+            p[verifiersKey] = json.encodeToString(reconcileVerifiers(loadVerifiers(p), roster, now))
+        }
     }
 
     suspend fun cachedRoster(): List<RosterEntry> =
@@ -130,4 +140,30 @@ class OfflinePinStore @Inject constructor(
 
     private fun loadFails(p: Preferences): Map<String, FailState> =
         p[failsKey]?.let { runCatching { json.decodeFromString<Map<String, FailState>>(it) }.getOrNull() } ?: emptyMap()
+
+    companion object {
+        /**
+         * Fold a server roster into the held verifiers. The server is the authority:
+         *
+         *  - an entry CARRYING a verifier replaces whatever is held — it reflects the PIN
+         *    as the server currently knows it;
+         *  - an entry WITHOUT one changes nothing — the server has nothing to say yet, and
+         *    a verifier this tablet minted at an online sign-in is still the freshest truth;
+         *  - someone absent from the roster loses their verifier — deactivated staff and
+         *    cleared PINs must stop unlocking tills the moment a till hears about it.
+         */
+        fun reconcileVerifiers(held: List<Verifier>, roster: List<RosterEntry>, now: Long): List<Verifier> {
+            val byId = roster.associateBy { it.appUserId }
+            val kept = held.filter { it.appUserId in byId }
+            val replaced = kept.map { h ->
+                val server = byId.getValue(h.appUserId)
+                val v = server.verifier
+                if (v != null) Verifier(server.appUserId, server.displayName, server.role, v, now) else h
+            }
+            val newlySeeded = roster.filter { r ->
+                r.verifier != null && replaced.none { it.appUserId == r.appUserId }
+            }.map { Verifier(it.appUserId, it.displayName, it.role, it.verifier!!, now) }
+            return replaced + newlySeeded
+        }
+    }
 }

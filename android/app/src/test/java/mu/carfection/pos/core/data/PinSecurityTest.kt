@@ -48,6 +48,20 @@ class PinSecurityTest {
         }
     }
 
+    /**
+     * A verifier minted by the SERVER (pos-auth edge function / the web team action, both
+     * PBKDF2-HMAC-SHA256) must verify here byte-for-byte. This vector was produced by
+     * Node's crypto.pbkdf2Sync — the same primitive both of them use. If this test breaks,
+     * the three implementations have drifted and offline sign-in silently dies.
+     */
+    @Test
+    fun `a server-minted verifier verifies on the tablet`() {
+        val serverMinted = "pbkdf2:sha256:310000:QzRSRjNDVDEwTjFTVFBJTg==:HiynsG7zaar5MKKyDsoWBc9cgXNF9RLDeOFMhNcqnO4="
+
+        assertTrue(PinHasher.verify("4271", serverMinted))
+        assertFalse(PinHasher.verify("4272", serverMinted))
+    }
+
     // ── the throttle ──────────────────────────────────────────────────────────
 
     @Test
