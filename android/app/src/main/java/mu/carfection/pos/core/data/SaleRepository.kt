@@ -25,6 +25,13 @@ import kotlin.coroutines.cancellation.CancellationException
 
 enum class DiscountMode { PCT, AMT }
 
+/**
+ * The customer an unnamed counter sale is billed to. One spelling, shared: the offline
+ * path resolves it against the cached customer list, and a mismatch there would mint a
+ * duplicate "Walk-in" customer on every outage instead of reusing the real one.
+ */
+const val WALK_IN_CUSTOMER = "Walk-in customer"
+
 data class CartLine(
     val product: ProductEntity,
     val qty: Double,
@@ -166,6 +173,11 @@ data class SaleResult(
     // A SPLIT records several payments — their ids, so the done panel's undo reverses each
     // one (a collect) rather than trying to reverse a single fake "split" id.
     val paymentIds: List<String> = emptyList(),
+    // Set when the sale was rung with NO network: the device reference the customer's slip
+    // carries until the sale reaches the server and is given a real number. While this is
+    // set there is nothing on the server to void, reverse or credit-note — the sale exists
+    // only on this tablet.
+    val offlineRef: String? = null,
 )
 
 /**
@@ -264,7 +276,10 @@ class SaleRepository @Inject constructor(
         }
         if (method == PayMethod.CREDIT) requireNotNull(customerId) { "Pick a customer for a credit sale." }
 
-        val issued = issueWalkInInvoice(cart, customerId, walkInName, cashSessionId, saleKey, basketMode, basketPct, basketAmtCents, comment)
+        val issued = issueWalkInInvoice(
+            expandSaleLines(cart, basketMode, basketPct, basketAmtCents),
+            customerId, null, walkInName, cashSessionId, saleKey, comment,
+        )
         val totalCents = issued.totalCents
 
         // Payment (skipped for on-account credit).
@@ -295,27 +310,47 @@ class SaleRepository @Inject constructor(
     private data class IssuedInvoice(val id: String, val number: String?, val totalCents: Long)
 
     /**
-     * Draft → issue a walk-in invoice from the cart (no payment yet). Extracted so the single
-     * and split payment paths share ONE issue path — same deterministic draft id, same issue
-     * idempotency, same "cannot edit an issued document" replay. The server total is
-     * authoritative (its rounding wins).
+     * A customer the cashier typed while the tablet was offline, so the cache could not be
+     * asked and the server could not be told. The id is minted on the tablet: inserting it
+     * at replay is replay-safe, because a second attempt collides with the row the first
+     * one wrote (primary key) rather than creating a twin.
+     */
+    data class NewOfflineCustomer(val id: String, val name: String)
+
+    /**
+     * Draft → issue a walk-in invoice from an already-expanded draft (no payment yet).
+     * Extracted so single, split and OFFLINE-REPLAY settle paths share ONE issue path —
+     * same deterministic draft id, same issue idempotency, same "cannot edit an issued
+     * document" replay. The server total is authoritative (its rounding wins).
+     *
+     * It takes the [SaleDraft] rather than the cart because a replayed sale no longer has
+     * a cart: it has the prices the customer actually paid, frozen when they paid them.
      */
     private suspend fun issueWalkInInvoice(
-        cart: List<CartLine>,
+        draft: SaleDraft,
         customerId: String?,
+        newCustomer: NewOfflineCustomer?,
         walkInName: String?,
         cashSessionId: String?,
         saleKey: String,
-        basketMode: DiscountMode,
-        basketPct: Int,
-        basketAmtCents: Long,
         comment: String?,
     ): IssuedInvoice {
-        require(cart.isNotEmpty()) { "Add at least one product." }
+        require(draft.specs.isNotEmpty()) { "Add at least one product." }
 
         // 1) Resolve the customer (invoices require one — same rule as the web).
-        val custId = customerId ?: run {
-            val name = walkInName?.trim().takeUnless { it.isNullOrEmpty() } ?: "Walk-in customer"
+        val custId = newCustomer?.let { pending ->
+            val tenant = requireNotNull(catalog.tenantId()) { "Not synced yet — pull the catalogue first." }
+            try {
+                api.insertCustomerWithId(pending.id, tenant, pending.name)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Its own id can only collide with ITSELF — a previous replay that landed.
+                if (!isDuplicateKey(e)) throw e
+            }
+            pending.id
+        } ?: customerId ?: run {
+            val name = walkInName?.trim().takeUnless { it.isNullOrEmpty() } ?: WALK_IN_CUSTOMER
             api.findCustomerByName(name)?.id ?: run {
                 val tenant = requireNotNull(catalog.tenantId()) { "Not synced yet — pull the catalogue first." }
                 api.insertCustomer(NewCustomerDto(tenantId = tenant, name = name)).id
@@ -327,7 +362,7 @@ class SaleRepository @Inject constructor(
         // (save_draft upserts by id), so failed attempts litter no orphan drafts and the
         // issue replay's same-document check lines up instead of refusing forever.
         val draftId = UUID.nameUUIDFromBytes("carfection:draft:$saleKey".toByteArray()).toString()
-        val draftSale = expandSaleLines(cart, basketMode, basketPct, basketAmtCents)
+        val draftSale = draft
         val draftDiscountKind = draftSale.orderDiscountKind
         val draftDiscountValue = draftSale.orderDiscountValue
         val doc = buildJsonObject {
@@ -415,9 +450,46 @@ class SaleRepository @Inject constructor(
                 ?: throw SalePaymentUncertain(knownInvoiceId, null, IllegalStateException("invoice not found"))
             IssuedInvoice(inv.id, inv.number, rupeesToCents(inv.totalIncl))
         } else {
-            issueWalkInInvoice(cart, customerId, walkInName, cashSessionId, saleKey, basketMode, basketPct, basketAmtCents, comment)
+            issueWalkInInvoice(
+                expandSaleLines(cart, basketMode, basketPct, basketAmtCents),
+                customerId, null, walkInName, cashSessionId, saleKey, comment,
+            )
         }
         return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey)
+    }
+
+    /**
+     * Settle a sale that was rung OFFLINE and is only now reaching the server.
+     *
+     * Deliberately the same road as a live split sale: same draft id derived from the same
+     * [saleKey], same `$saleKey:issue` and `$saleKey:pay:i` keys. That is what makes a
+     * replay safe to attempt any number of times — the server either applies it once or
+     * hands back what it already applied. The only difference from a live sale is WHEN the
+     * fiscal number is minted: now, rather than at the counter.
+     *
+     * [targetCents] is the total the tablet computed and PRINTED for the customer. It is
+     * passed so the last tender absorbs any cent of drift against the server's own
+     * arithmetic — the customer already paid the printed figure, so the invoice must land
+     * exactly settled rather than a cent short and stuck in `partly_paid`.
+     */
+    suspend fun settleCapturedSale(
+        draft: SaleDraft,
+        tenders: List<Tender>,
+        customerId: String?,
+        newCustomer: NewOfflineCustomer?,
+        walkInName: String?,
+        cashSessionId: String?,
+        saleKey: String,
+        comment: String?,
+    ): SaleResult {
+        val issued = issueWalkInInvoice(draft, customerId, newCustomer, walkInName, cashSessionId, saleKey, comment)
+        return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey)
+    }
+
+    /** A replayed insert of a client-minted id collides with itself: that is success, not failure. */
+    private fun isDuplicateKey(e: Throwable): Boolean {
+        val m = e.message ?: return false
+        return m.contains("23505") || m.contains("duplicate key", ignoreCase = true)
     }
 
     /**

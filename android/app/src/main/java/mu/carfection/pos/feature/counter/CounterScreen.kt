@@ -416,7 +416,9 @@ fun CounterScreen(
     s.done?.let {
         SaleDone(
             result = it, receipt = s.receipt,
-            methodLabel = s.method.label,
+            // The slip already knows how it was settled — "Split" for an allocation across
+            // methods, where s.method only holds whichever row the numpad last touched.
+            methodLabel = s.receipt?.payLabel ?: s.method.label,
             customerLabel = s.customerText.trim().ifBlank { "Walk-in" },
             canVoid = viewModel.canManage,
             onPrint = viewModel::reprint, onVoid = viewModel::voidCompletedSale,
@@ -427,6 +429,7 @@ fun CounterScreen(
         PaymentActionDialog(p, s.paidToday.mapNotNull { it.reversesPaymentId }.toSet(), viewModel)
     }
     if (s.historyOpen) HistoryDialog(s, viewModel)
+    if (s.heldOpen) HeldSalesDialog(s, viewModel)
     s.viewDoc?.let { doc -> ViewReceiptDialog(doc, onPrint = viewModel::printViewDoc, onClose = viewModel::closeViewDoc) }
     s.notice?.let { Notice(it, onGone = viewModel::clearNotice) }
 }
@@ -570,6 +573,13 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                     .clickable { vm.startWalkIn() },
                 contentAlignment = Alignment.Center,
             ) { Text("＋  New counter sale — walk-in", color = Accent, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+            // Money taken on this tablet that the books have not seen. Above TO COLLECT
+            // because it is more urgent than anything on that list — and because this is
+            // the screen staff are on at closing time.
+            if (s.heldSales.isNotEmpty()) {
+                Spacer(Modifier.height(10.dp))
+                HeldSalesStrip(s, vm)
+            }
             Spacer(Modifier.height(12.dp))
             Text("TO COLLECT", color = TextMuted, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
             Spacer(Modifier.height(8.dp))
@@ -1292,6 +1302,129 @@ private fun QuickChip(label: String, onClick: () -> Unit) {
     ) { Text(label, color = TextSecondary, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
 }
 
+// ─── Sales held on this tablet (rung offline) ────────────────────────────────
+
+/**
+ * The strip that appears whenever this tablet is holding money the books have not seen.
+ * It is deliberately loud: a held sale that nobody notices before closing time is the one
+ * way this feature could cost the studio a sale.
+ */
+@Composable
+private fun HeldSalesStrip(s: CounterUiState, vm: CounterViewModel) {
+    val held = s.heldSales
+    if (held.isEmpty()) return
+    val blocked = s.blockedSales.size
+    Row(
+        Modifier.fillMaxWidth()
+            .background(Color(0x1FF0A020), RoundedCornerShape(14.dp))
+            .border(1.dp, Color(0x59F0A020), RoundedCornerShape(14.dp))
+            .clickable { vm.openHeldSales() }
+            .padding(horizontal = 14.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.size(9.dp).background(Warning, CircleShape))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                if (blocked > 0) "$blocked of ${held.size} held sales need attention"
+                else "${held.size} sale${if (held.size == 1) "" else "s"} waiting to reach the server",
+                color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
+            )
+            Text(
+                "${formatMUR(s.heldTotalCents)} taken on this tablet · don't close the till until these are filed",
+                color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+            )
+        }
+        Text("View →", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+    }
+}
+
+@Composable
+private fun HeldSalesDialog(s: CounterUiState, vm: CounterViewModel) {
+    Dialog(onDismissRequest = vm::closeHeldSales, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.widthIn(max = 760.dp).fillMaxWidth(0.96f).heightIn(max = 620.dp)
+                .background(CardBg, RoundedCornerShape(20.dp)).padding(20.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("SALES ON THIS TABLET", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.5.sp, color = TextPrimary)
+                Text(
+                    "rung offline · they file themselves once the tablet is back online",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted, modifier = Modifier.weight(1f),
+                )
+                Box(
+                    Modifier.height(38.dp).background(Accent, RoundedCornerShape(11.dp))
+                        .clickable { vm.syncHeldNow() }.padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Try now", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+                Box(
+                    Modifier.size(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { vm.closeHeldSales() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
+            }
+            Spacer(Modifier.height(14.dp))
+            if (s.offlineSales.isEmpty()) {
+                Text(
+                    "Nothing held. Sales rung while the tablet is offline appear here until they reach the server.",
+                    color = TextMuted, fontFamily = Barlow, fontSize = 13.sp, modifier = Modifier.padding(vertical = 24.dp),
+                )
+            } else LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(s.offlineSales, key = { it.saleKey }) { row -> HeldSaleRow(row, vm) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeldSaleRow(row: mu.carfection.pos.core.sync.OfflineSaleRow, vm: CounterViewModel) {
+    val synced = row.status == mu.carfection.pos.core.sync.OfflineSaleRow.STATUS_SYNCED
+    val blocked = row.status == mu.carfection.pos.core.sync.OfflineSaleRow.STATUS_BLOCKED
+    val at = remember(row.capturedAt) {
+        java.time.format.DateTimeFormatter.ofPattern("dd MMM HH:mm")
+            .withZone(java.time.ZoneId.systemDefault())
+            .format(java.time.Instant.ofEpochMilli(row.capturedAt))
+    }
+    Column(
+        Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(13.dp))
+            .border(1.dp, if (blocked) Color(0x59D63A3A) else Hairline, RoundedCornerShape(13.dp))
+            .padding(13.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Box(Modifier.size(8.dp).background(if (synced) Success else if (blocked) Danger else Warning, CircleShape))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    // Once filed, the number the customer's real invoice carries is the
+                    // useful identity — the device reference stops mattering.
+                    if (synced) "${row.invoiceNumber ?: "Filed"} · was ${row.localRef}" else row.localRef,
+                    color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
+                )
+                Text(
+                    "$at · ${row.customerLabel}",
+                    color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                )
+            }
+            Text(formatMUR(row.totalCents), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+        Text(
+            when {
+                synced -> "Filed — this sale is in the books, and reprints from Sales history."
+                blocked -> "The till this was rung on has closed, so it can't be filed there. " +
+                    "An owner or manager can file it on the open till instead."
+                else -> "Waiting for the network. It files itself the moment the tablet is back online."
+            },
+            color = if (blocked) Danger else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp,
+        )
+        if (blocked && vm.canManage) {
+            Box(
+                Modifier.height(40.dp).background(Accent, RoundedCornerShape(11.dp))
+                    .clickable { vm.refileHeldSale(row.saleKey) }.padding(horizontal = 16.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("File on this till", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
+        }
+    }
+}
+
 // ─── Sales history: past sales + reprint ─────────────────────────────────────
 
 @Composable
@@ -1420,7 +1553,11 @@ private fun SaleDone(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("Sale complete", color = TextPrimary, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                         Text(
-                            "Invoice ${result.number ?: "—"} · ${if (result.onAccount) "on account" else "paid in ${methodLabel.lowercase()}"}",
+                            // Rung offline: name the reference the customer is holding, and be
+                            // straight that the invoice does not exist yet.
+                            if (result.offlineRef != null)
+                                "${result.offlineRef} · paid in ${methodLabel.lowercase()} · invoice follows when back online"
+                            else "Invoice ${result.number ?: "—"} · ${if (result.onAccount) "on account" else "paid in ${methodLabel.lowercase()}"}",
                             color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
                         )
                     }
@@ -1431,10 +1568,20 @@ private fun SaleDone(
                 }
                 Spacer(Modifier.height(24.dp))
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                    Box(Modifier.size(8.dp).background(if (result.onAccount) Warning else Success, CircleShape))
+                    val statusColor = when {
+                        result.offlineRef != null -> Warning
+                        result.onAccount -> Warning
+                        else -> Success
+                    }
+                    Box(Modifier.size(8.dp).background(statusColor, CircleShape))
                     Text(
-                        if (result.onAccount) "RECORDED ON ACCOUNT" else "PAYMENT CONFIRMED",
-                        color = if (result.onAccount) Warning else Success, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp,
+                        when {
+                            // The money is in the drawer; what is outstanding is the paperwork.
+                            result.offlineRef != null -> "PAID · HELD ON THIS TABLET"
+                            result.onAccount -> "RECORDED ON ACCOUNT"
+                            else -> "PAYMENT CONFIRMED"
+                        },
+                        color = statusColor, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp,
                     )
                 }
                 Spacer(Modifier.height(6.dp))
@@ -1461,7 +1608,10 @@ private fun SaleDone(
                         Modifier.height(48.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = onPrint).padding(horizontal = 20.dp),
                         contentAlignment = Alignment.Center,
                     ) { Text("Print again", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp) }
-                    if (canVoid) Box(
+                    // Nothing to void until the sale is in the books: an offline sale lives
+                    // only on this tablet, so there is no document, payment or credit note
+                    // for the button to act on.
+                    if (canVoid && result.offlineRef == null) Box(
                         Modifier.height(48.dp).border(1.dp, Color(0x59D63A3A), RoundedCornerShape(12.dp))
                             .clickable { if (voidNeedsReason) voidPromptOpen = !voidPromptOpen else onVoid(null) }
                             .padding(horizontal = 18.dp),
@@ -1576,7 +1726,16 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         d.ticketNo?.let {
             Text("No. $it", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, textAlign = TextAlign.Center)
         }
-        Text("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        // Mirrors ReceiptText.render: a sale rung offline claims no fiscal number, it
+        // states what it is. The screen slip and the paper slip must never disagree.
+        if (d.offlineRef != null) {
+            Text("PROVISIONAL SALE SLIP", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+            Text("Ref ${d.offlineRef}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+            Text("Not a VAT invoice.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
+            Text("Your VAT invoice is issued when this till is back online.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center)
+        } else {
+            Text("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        }
         d.billNo?.let { Text("Bill $it", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center) }
         Text(d.saleModeLabel, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
         Text(d.dateTime, color = PaperFaint, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center)

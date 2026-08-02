@@ -7,6 +7,8 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -48,8 +50,49 @@ interface OutboxDao {
  * Durable, on purpose: unlike [mu.carfection.pos.core.database.PosDatabase] (a disposable
  * read-cache), a queued write can't be thrown away on a schema bump. Any future schema
  * change here MUST ship a real Room migration rather than a destructive fallback.
+ *
+ * v2 adds [OfflineSaleRow] — sales rung during an outage. Same rule, with money behind it:
+ * dropping this table would destroy the only record that a customer paid.
  */
-@Database(entities = [OutboxOp::class], version = 1, exportSchema = false)
+@Database(entities = [OutboxOp::class, OfflineSaleRow::class], version = 2, exportSchema = false)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
+    abstract fun offlineSaleDao(): OfflineSaleDao
+}
+
+/** v1 → v2: the offline sales table. Additive — no existing queued write is touched. */
+val OUTBOX_MIGRATION_1_2 = object : Migration(1, 2) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS `offline_sales` (
+                `saleKey` TEXT NOT NULL,
+                `seq` INTEGER NOT NULL,
+                `localRef` TEXT NOT NULL,
+                `capturedAt` INTEGER NOT NULL,
+                `tenantId` TEXT NOT NULL,
+                `deviceId` TEXT NOT NULL,
+                `cashSessionId` TEXT,
+                `customerId` TEXT,
+                `newCustomerId` TEXT,
+                `newCustomerName` TEXT,
+                `customerLabel` TEXT NOT NULL,
+                `linesJson` TEXT NOT NULL,
+                `orderDiscountKind` TEXT,
+                `orderDiscountValue` REAL NOT NULL,
+                `tendersJson` TEXT NOT NULL,
+                `totalCents` INTEGER NOT NULL,
+                `changeCents` INTEGER NOT NULL,
+                `comment` TEXT,
+                `status` TEXT NOT NULL,
+                `attempts` INTEGER NOT NULL,
+                `lastError` TEXT,
+                `invoiceId` TEXT,
+                `invoiceNumber` TEXT,
+                `syncedAt` INTEGER,
+                PRIMARY KEY(`saleKey`)
+            )
+            """.trimIndent(),
+        )
+    }
 }

@@ -49,6 +49,7 @@ class RootViewModel @Inject constructor(
     private val session: SessionRepository,
     connectivity: ConnectivityObserver,
     private val outbox: OutboxRepository,
+    private val offlineSales: mu.carfection.pos.core.sync.OfflineSaleRepository,
     private val catalog: CatalogRepository,
     private val captures: CaptureBus,
     private val api: PosApi,
@@ -59,6 +60,18 @@ class RootViewModel @Inject constructor(
     val staffRole: String get() = session.userRole
     val online = connectivity.online
     val pendingSync = outbox.pending
+
+    /** Sales taken on this tablet that the server has not seen yet — money, not metadata. */
+    val unsyncedSales = offlineSales.unsynced
+
+    init {
+        // Start filing held sales as soon as the app has a UI at all — not from
+        // Application.onCreate, where building this graph (Supabase, Room, DataStore)
+        // would sit on the main thread ahead of the first frame. This ViewModel is the
+        // root of the shell and already holds that graph, so starting here costs nothing
+        // and still runs long before anyone reaches the counter.
+        offlineSales.start()
+    }
 
     // ── manual sync (the header button) ───────────────────────────────────────
     // Everything else here is either push-on-write (outbox) or read-on-navigate (screens
@@ -74,6 +87,7 @@ class RootViewModel @Inject constructor(
             _syncing.value = true
             try {
                 outbox.drain()
+                offlineSales.drain() // money first — a held sale is what a tap is usually chasing
                 catalog.refresh()
             } catch (_: Exception) {
                 // Silent: the sync pill already shows offline/pending state on failure.
@@ -233,6 +247,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 }
                 val online by rootViewModel.online.collectAsState()
                 val pendingSync by rootViewModel.pendingSync.collectAsState(initial = 0)
+                val heldSales by rootViewModel.unsyncedSales.collectAsState(initial = 0)
                 val syncing by rootViewModel.syncing.collectAsState()
                 PosShell(
                     active = tab,
@@ -242,6 +257,7 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                     staffRole = rootViewModel.staffRole,
                     online = online,
                     pendingSync = pendingSync,
+                    heldSales = heldSales,
                     syncing = syncing,
                     // A tap pulls the catalogue fresh, drains anything queued, and checks the
                     // manifest for a newer build — the button covers "sync" and "update" in one

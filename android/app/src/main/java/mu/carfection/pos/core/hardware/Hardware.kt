@@ -115,6 +115,14 @@ data class ReceiptDoc(
     val duplicataAt: String? = null,
     /** Per-VAT-rate tax breakdown ("TAUX NORMAL 15.0% : 202.23Rs"). */
     val vatGroups: List<ReceiptVatGroup> = emptyList(),
+    /**
+     * Set when this sale was rung with no network: the device reference standing in for a
+     * fiscal number that does not exist yet ("OFF-66D2-014"). A slip carrying this is proof
+     * the customer paid, and says plainly that it is NOT a VAT invoice — only the server may
+     * mint one of those, and it does so when the sale reaches it. Never set together with
+     * [invoiceNo]: the moment a real number exists, the real invoice is what reprints.
+     */
+    val offlineRef: String? = null,
 ) {
     val footer: String get() = biz.footer
 
@@ -208,7 +216,17 @@ object ReceiptText {
 
         // ── the numbered sale block ───────────────────────────────────────────────
         d.ticketNo?.let { appendLine(center(bold("No. $it"), w)) }
-        appendLine(center(bold("NUM VAT INVOICE ${d.invoiceNo ?: "—"}"), w))
+        // A sale rung offline has no fiscal number and must not pretend otherwise. It says
+        // what it is instead: proof of payment, with the VAT invoice still to come.
+        if (d.offlineRef != null) {
+            appendLine(center(bold("PROVISIONAL SALE SLIP"), w))
+            appendLine(center(bold("Ref ${d.offlineRef}"), w))
+            appendLine(center("Not a VAT invoice.", w))
+            wrap("Your VAT invoice is issued when this till is back online.", w)
+                .forEach { appendLine(center(it, w)) }
+        } else {
+            appendLine(center(bold("NUM VAT INVOICE ${d.invoiceNo ?: "—"}"), w))
+        }
         d.billNo?.let { appendLine(center(bold("Bill $it"), w)) }
         appendLine(center(d.saleModeLabel, w))
         appendLine(center(d.dateTime, w))

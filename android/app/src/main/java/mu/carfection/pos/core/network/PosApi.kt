@@ -151,6 +151,19 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList<CustomerDto>()
             .firstOrNull()
 
+    /**
+     * Create a customer under an id the TABLET minted — the offline path, where the server
+     * could not be asked for one. Explicit DTO rather than an optional id on [NewCustomerDto]
+     * so the id is always on the wire and never depends on how defaults get encoded.
+     * A replay collides with its own row on the primary key; the caller reads that as landed.
+     */
+    suspend fun insertCustomerWithId(id: String, tenantId: String, name: String): CustomerDto =
+        client.postgrest.from("customers")
+            .insert(NewCustomerWithIdDto(id = id, tenantId = tenantId, name = name)) {
+                select(Columns.raw("id, name, phone, email"))
+            }
+            .decodeSingle()
+
     suspend fun insertCustomer(row: NewCustomerDto): CustomerDto =
         client.postgrest.from("customers")
             // email too — a business customer typed at Intake has to carry it into the

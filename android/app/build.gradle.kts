@@ -85,6 +85,14 @@ android {
         compose = true
         buildConfig = true
     }
+    testOptions {
+        unitTests {
+            // android.util.Log is a stub in unit tests and THROWS by default. Logic worth
+            // testing (the offline-sale queue) logs as it works, and a logging call must
+            // never be what decides whether a test passes.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 hilt {

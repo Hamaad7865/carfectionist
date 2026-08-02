@@ -54,6 +54,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.TillRepository
 import mu.carfection.pos.core.money.formatMUR
@@ -117,6 +118,7 @@ class TillViewModel @Inject constructor(
     private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
     private val session: mu.carfection.pos.core.data.SessionRepository,
     private val catalog: mu.carfection.pos.core.data.CatalogRepository,
+    private val offlineSales: mu.carfection.pos.core.sync.OfflineSaleRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(TillUiState())
     val state = _s.asStateFlow()
@@ -201,6 +203,23 @@ class TillViewModel @Inject constructor(
         val remit = _s.value.preClose.orEmpty().filter { it.remit }.map { it.method }
         _s.value = _s.value.copy(busy = true, error = null, closeChoiceOpen = false, confirmDay = false)
         viewModelScope.launch {
+            // A sale rung offline is filed against THIS service. Close it first and that
+            // sale can never be filed where it belongs — its till is gone, and the Z it
+            // was part of is already frozen without it. So the close waits.
+            val held = offlineSales.unsynced.first()
+            if (held > 0) {
+                offlineSales.drain() // it may only need the network back
+                val still = offlineSales.unsynced.first()
+                if (still > 0) {
+                    _s.value = _s.value.copy(
+                        busy = false,
+                        error = "$still sale${if (still == 1) "" else "s"} rung on this till " +
+                            "haven't reached the server yet. Get the tablet back online and let " +
+                            "them file before closing — closing now would leave them out of the Z.",
+                    )
+                    return@launch
+                }
+            }
             runCatching {
                 val z = till.closeService(sess.id, counted, remit, note)
                 if (alsoDay && sess.tradingDayId != null) till.closeDay(sess.tradingDayId) else z

@@ -578,6 +578,18 @@ data class ZReportDto(
     @SerialName("closed_at") val closedAt: String? = null,
 )
 
+/**
+ * Insert payload for a customer created OFFLINE, under an id the tablet minted so the
+ * write is replay-safe. Separate from [NewCustomerDto] because here the id must always
+ * be serialized, never dropped as an unset default.
+ */
+@Serializable
+data class NewCustomerWithIdDto(
+    val id: String,
+    @SerialName("tenant_id") val tenantId: String,
+    val name: String,
+)
+
 /** Insert payload for a new customer (RLS scopes the tenant). */
 @Serializable
 data class NewCustomerDto(

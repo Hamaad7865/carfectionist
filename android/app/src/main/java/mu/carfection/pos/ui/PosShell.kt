@@ -83,6 +83,9 @@ enum class PosTab(val label: String, val icon: ImageVector, val title: String, v
 
 private val Tracked2 = 2.sp
 
+/** "1 sale held" / "3 sales held" — the pill is read at a glance, so it has to read right. */
+private fun salesWord(n: Int) = if (n == 1) "sale" else "sales"
+
 @Composable
 fun PosShell(
     active: PosTab,
@@ -92,6 +95,7 @@ fun PosShell(
     staffRole: String,
     online: Boolean,
     pendingSync: Int,
+    heldSales: Int,
     syncing: Boolean,
     onSyncNow: () -> Unit,
     onStaffClick: () -> Unit,
@@ -101,7 +105,7 @@ fun PosShell(
     // clock/battery never overlap the header, and the navigation bar so Samsung's One UI
     // taskbar (a full-height bottom bar on the real tablet) never covers footer buttons.
     Column(Modifier.fillMaxSize().background(ScreenBg).windowInsetsPadding(WindowInsets.systemBars)) {
-        Header(studioName, staffName, staffRole, online, pendingSync, syncing, onSyncNow, onStaffClick)
+        Header(studioName, staffName, staffRole, online, pendingSync, heldSales, syncing, onSyncNow, onStaffClick)
         Row(Modifier.fillMaxSize()) {
             NavRail(active, onSelect)
             Box(Modifier.weight(1f).fillMaxHeight().background(ScreenBg)) { content() }
@@ -116,6 +120,7 @@ private fun Header(
     staffRole: String,
     online: Boolean,
     pendingSync: Int,
+    heldSales: Int,
     syncing: Boolean,
     onSyncNow: () -> Unit,
     onStaffClick: () -> Unit,
@@ -167,9 +172,18 @@ private fun Header(
             Text(timeStr, fontFamily = Condensed, fontWeight = FontWeight.SemiBold, fontSize = 19.sp, letterSpacing = 1.sp, color = TextPrimary)
             Text(dateStr, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted)
         }
-        // sync pill — reflects real connectivity and any writes still queued in the outbox
-        val dotColor = when { !online -> Danger; pendingSync > 0 -> Warning; else -> Success }
+        // sync pill — connectivity, queued writes, and any sale still held on this tablet.
+        // A held sale outranks everything else it could say: that is money the books have
+        // not seen, and it is the one thing staff must not walk away from at closing time.
+        val dotColor = when {
+            heldSales > 0 -> Warning
+            !online -> Danger
+            pendingSync > 0 -> Warning
+            else -> Success
+        }
         val syncLabel = when {
+            heldSales > 0 && !online -> "Offline · $heldSales ${salesWord(heldSales)} held"
+            heldSales > 0 -> "Filing $heldSales ${salesWord(heldSales)}"
             !online && pendingSync > 0 -> "Offline · $pendingSync"
             !online -> "Offline"
             pendingSync > 0 -> "Syncing $pendingSync"

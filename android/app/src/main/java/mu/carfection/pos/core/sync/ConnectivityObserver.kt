@@ -18,10 +18,10 @@ import javax.inject.Singleton
  * the outbox reflect whether writes can actually reach Supabase.
  */
 @Singleton
-class ConnectivityObserver @Inject constructor(@ApplicationContext ctx: Context) {
+class ConnectivityObserver @Inject constructor(@ApplicationContext ctx: Context) : OnlineSignal {
     private val cm = ctx.getSystemService(ConnectivityManager::class.java)
     private val _online = MutableStateFlow(snapshot())
-    val online: StateFlow<Boolean> = _online.asStateFlow()
+    override val online: StateFlow<Boolean> = _online.asStateFlow()
 
     private fun snapshot(): Boolean {
         val caps = cm.getNetworkCapabilities(cm.activeNetwork ?: return false) ?: return false

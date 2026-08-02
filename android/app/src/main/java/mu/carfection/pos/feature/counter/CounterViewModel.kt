@@ -21,6 +21,8 @@ import mu.carfection.pos.core.data.SalePaymentUncertain
 import mu.carfection.pos.core.data.SERVICES_TAB
 import mu.carfection.pos.core.data.SaleRepository
 import mu.carfection.pos.core.data.SaleResult
+import mu.carfection.pos.core.data.Tender
+import mu.carfection.pos.core.data.WALK_IN_CUSTOMER
 import mu.carfection.pos.core.data.expandSaleLines
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.data.TillRepository
@@ -131,7 +133,21 @@ data class CounterUiState(
     val collectLines: List<SaleHistoryLineDto> = emptyList(),
     val collectJob: JobServiceDetailDto? = null,
     val collectDetailFailed: Boolean = false, // the item fetch errored — offer a retry, not a forever "loading"
+    // Sales rung on this tablet during an outage. They stay listed after they land so the
+    // cashier can see the invoice number each one was finally given.
+    val offlineSales: List<mu.carfection.pos.core.sync.OfflineSaleRow> = emptyList(),
+    val heldOpen: Boolean = false,
 ) {
+    /** Sales the server has not seen — money the books are still missing. */
+    val heldSales: List<mu.carfection.pos.core.sync.OfflineSaleRow>
+        get() = offlineSales.filter { it.status != mu.carfection.pos.core.sync.OfflineSaleRow.STATUS_SYNCED }
+
+    /** Held sales whose till or day closed under them — these need a person, not a retry. */
+    val blockedSales: List<mu.carfection.pos.core.sync.OfflineSaleRow>
+        get() = offlineSales.filter { it.status == mu.carfection.pos.core.sync.OfflineSaleRow.STATUS_BLOCKED }
+
+    val heldTotalCents: Long get() = heldSales.sumOf { it.totalCents }
+
     /** The whole balance the pad COULD settle: an invoice's outstanding, or the cart total. */
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
 
@@ -330,6 +346,30 @@ internal fun CounterUiState.withSettleFailure(e: Throwable): CounterUiState = wh
     else -> copy(busy = false, error = e.uiMessage("Sale failed — try again."))
 }
 
+/**
+ * Should this settle be CAPTURED on the tablet instead of sent to the server?
+ *
+ * With no network the customer has still paid, and refusing the sale is the one outcome
+ * that actually loses the studio money — so a walk-in is captured and given a provisional
+ * slip. Everything excluded here is excluded because capturing it would be WRONG, not
+ * merely inconvenient:
+ *
+ *  - a COLLECT settles an invoice that lives on the server, whose outstanding balance
+ *    cannot be read while offline; guessing at it could overpay a bill.
+ *  - a sale with a PENDING SETTLE may already exist on the server under this sale key.
+ *    That one must be retried, never re-rung as a second sale.
+ *  - CREDIT takes no money at all, so there is nothing to lose by waiting for the network.
+ *  - with no TILL there is no service to file the money against, and `record_payment`
+ *    requires one for every method — a captured sale would only block later.
+ */
+internal fun canCaptureOffline(s: CounterUiState, online: Boolean): Boolean =
+    !online &&
+        s.collect == null &&
+        s.pendingSettle == null &&
+        s.method != PayMethod.CREDIT &&
+        s.till != null &&
+        s.cart.isNotEmpty()
+
 @HiltViewModel
 class CounterViewModel @Inject constructor(
     private val catalog: CatalogRepository,
@@ -341,6 +381,8 @@ class CounterViewModel @Inject constructor(
     private val api: PosApi,
     private val outbox: mu.carfection.pos.core.sync.OutboxRepository,
     private val collectBus: mu.carfection.pos.core.data.CollectBus,
+    private val offlineSales: mu.carfection.pos.core.sync.OfflineSaleRepository,
+    private val connectivity: mu.carfection.pos.core.sync.ConnectivityObserver,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(CounterUiState())
@@ -374,12 +416,19 @@ class CounterViewModel @Inject constructor(
     // the visible grid is filtered down by category tab or a half-typed search.
     private var allProducts: List<ProductEntity> = emptyList()
 
+    // The cached customer list, for resolving a walk-in with no network to ask.
+    private var allCustomers: List<CustomerEntity> = emptyList()
+
     init {
         refreshTill()
         loadLists()
         refreshStock()
         watchCollectRequests() // a deposit agreed at signing lands the pad on its bill
         viewModelScope.launch { catalog.products.collect { allProducts = it } }
+        viewModelScope.launch { catalog.customers.collect { allCustomers = it } }
+        // Sales held on this tablet — the cashier has to be able to see them, and see the
+        // invoice number each one is finally given.
+        viewModelScope.launch { offlineSales.all.collect { local.value = local.value.copy(offlineSales = it) } }
         // Studio identity for the payment screen's bill panel (Cashmag-style header).
         viewModelScope.launch {
             runCatching { catalog.receiptBiz() }.getOrNull()?.let { biz ->
@@ -484,6 +533,39 @@ class CounterViewModel @Inject constructor(
     // ── corrections (void / reverse / refund) — RLS enforces owner/manager ─────
     val canManage: Boolean get() = session.userRole.lowercase().let { it.contains("owner") || it.contains("manager") }
 
+    // ── sales held on this tablet ─────────────────────────────────────────────
+    fun openHeldSales() { local.value = local.value.copy(heldOpen = true); syncHeldNow() }
+    fun closeHeldSales() { local.value = local.value.copy(heldOpen = false) }
+
+    /** Try the queue again now — what the cashier reaches for the moment the Wi-Fi is back. */
+    fun syncHeldNow() = viewModelScope.launch { runCatching { offlineSales.drain() } }
+
+    /**
+     * File a blocked sale against the till that is open NOW.
+     *
+     * Only reached when the original till (or its day) has closed, so the sale can no longer
+     * go where it was rung. The money is unchanged and the sale keeps its key — if the
+     * blocked attempt had in fact landed, the server hands back that invoice rather than
+     * raising a second one. The true time of sale is written into the invoice's note,
+     * because its fiscal date can now only be today.
+     */
+    fun refileHeldSale(saleKey: String) {
+        if (!canManage) {
+            local.value = local.value.copy(notice = "An owner or manager has to file this one.")
+            return
+        }
+        val session = local.value.till?.id
+        if (session == null) {
+            local.value = local.value.copy(notice = "Open a till first — the sale has to be filed against one.")
+            return
+        }
+        viewModelScope.launch {
+            runCatching { offlineSales.refileOnTill(saleKey, session) }
+                .onSuccess { local.value = local.value.copy(notice = "Filing it on this till…") }
+                .onFailure { local.value = local.value.copy(notice = it.uiMessage("Couldn't file it — try again.")) }
+        }
+    }
+
     fun openPaymentAction(p: TodayPaymentDto) { local.value = local.value.copy(paymentAction = p) }
     fun closePaymentAction() { local.value = local.value.copy(paymentAction = null) }
     fun clearNotice() { local.value = local.value.copy(notice = null) }
@@ -561,6 +643,15 @@ class CounterViewModel @Inject constructor(
     fun voidCompletedSale(reason: String?) {
         val r = local.value.done ?: return
         val why = reason?.trim().takeUnless { it.isNullOrEmpty() }
+        // A sale rung offline exists only on this tablet — there is no document to void, no
+        // payment to reverse and no credit note to raise, and r.invoiceId is empty. Undoing
+        // it has to wait until it has actually reached the books.
+        if (r.offlineRef != null) {
+            local.value = local.value.copy(
+                notice = "${r.offlineRef} hasn't reached the server yet — it can't be voided until it syncs.",
+            )
+            return
+        }
         newSale() // clear the finished cart first; the sale itself is already committed
         when {
             // A SPLIT COLLECT: reverse each of THIS transaction's payments (not a credit note
@@ -693,6 +784,7 @@ class CounterViewModel @Inject constructor(
             }
         }
         if (allTenders.isEmpty()) return
+        if (canCaptureOffline(s)) { captureOffline(s, allTenders); return }
         val anyCash = allTenders.any { it.method == PayMethod.CASH }
         local.value = local.value.copy(busy = true, error = null)
         viewModelScope.launch {
@@ -832,7 +924,15 @@ class CounterViewModel @Inject constructor(
     }
 
     /** Re-reads the device's session; the `till.current` collector in `init` applies it. */
-    fun refreshTill() = viewModelScope.launch { runCatching { till.openSession() } }
+    /**
+     * Which till is open. Asks the server, and falls back to the one this device last knew
+     * was open — offline that question has no other answer, and a counter that doesn't know
+     * its till refuses every payment, which is precisely when offline selling is needed.
+     */
+    fun refreshTill() = viewModelScope.launch {
+        runCatching { till.restoreCached() }
+        runCatching { till.openSession() }
+    }
 
     // ── cart ──────────────────────────────────────────────────────────────────
     /**
@@ -1133,9 +1233,26 @@ class CounterViewModel @Inject constructor(
     // ── settle ───────────────────────────────────────────────────────────────
     private var saleKey = UUID.randomUUID().toString() // stable per sale; rotates on reset
 
+    private fun canCaptureOffline(s: CounterUiState): Boolean =
+        canCaptureOffline(s, connectivity.online.value)
+
     fun record() {
         val s = state.value
         if (!s.canRecord || s.busy) return
+        if (canCaptureOffline(s)) {
+            captureOffline(
+                s,
+                listOf(
+                    Tender(
+                        method = s.method,
+                        amountCents = s.payCents,
+                        tenderedCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
+                        ref = s.refText.trim().takeUnless { it.isEmpty() },
+                    ),
+                ),
+            )
+            return
+        }
         local.value = local.value.copy(busy = true, error = null)
         viewModelScope.launch {
             try {
@@ -1220,6 +1337,120 @@ class CounterViewModel @Inject constructor(
                 local.value = local.value.withSettleFailure(e)
             }
         }
+    }
+
+    /**
+     * Take a sale with no network: freeze it whole, print a provisional slip, and let the
+     * replay give it its invoice when the tablet can reach the server again.
+     *
+     * The prices, the discounts and the tenders are frozen HERE, at the moment the customer
+     * paid them — the catalogue will have re-synced by the time this lands, and the customer
+     * does not owe tomorrow's price. Nothing here is optimistic: the slip prints only after
+     * the sale is durably on disk, so a tablet that dies between the two has either a record
+     * of the sale or no slip, never a slip with no record.
+     */
+    private fun captureOffline(s: CounterUiState, tenders: List<mu.carfection.pos.core.data.Tender>) {
+        local.value = local.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            try {
+                val tenant = catalog.tenantId()
+                    ?: throw IllegalStateException("This tablet hasn't synced yet — it can't ring a sale offline.")
+                val typed = s.customerText.trim()
+                val label = typed.ifBlank { "Walk-in" }
+                // Resolve against the CACHE, since the server can't be asked. An unknown name
+                // gets an id minted here; inserting it at replay is safe because a second
+                // attempt collides with the row the first one wrote.
+                val cachedId = s.customerId
+                    ?: allCustomers.firstOrNull { it.name.equals(typed.ifBlank { WALK_IN_CUSTOMER }, ignoreCase = true) }?.id
+                val mintedId = if (cachedId == null) UUID.randomUUID().toString() else null
+                val draft = expandSaleLines(s.cart, s.basketMode, s.basketPct, s.basketAmtCents)
+
+                val row = offlineSales.capture(
+                    saleKey = saleKey,
+                    tenantId = tenant,
+                    deviceId = session.deviceId(),
+                    cashSessionId = s.till?.id,
+                    customerId = cachedId,
+                    newCustomerId = mintedId,
+                    newCustomerName = if (mintedId != null) typed.ifBlank { WALK_IN_CUSTOMER } else null,
+                    customerLabel = label,
+                    lines = draft.specs,
+                    orderDiscountKind = draft.orderDiscountKind,
+                    orderDiscountValue = draft.orderDiscountValue,
+                    tenders = tenders,
+                    totalCents = s.totals.totalCents,
+                    changeCents = tenders.sumOf { t ->
+                        if (t.method == PayMethod.CASH && t.tenderedCents != null)
+                            (t.tenderedCents - t.amountCents).coerceAtLeast(0) else 0L
+                    },
+                    comment = s.comment.trim().takeUnless { it.isEmpty() },
+                )
+
+                val result = SaleResult(
+                    invoiceId = "", // there is nothing on the server yet to point at
+                    number = null,
+                    totalCents = row.totalCents,
+                    changeCents = row.changeCents,
+                    onAccount = false,
+                    offlineRef = row.localRef,
+                )
+                val receipt = offlineReceipt(s, row.localRef, row.totalCents, row.changeCents, tenders)
+                // The record is on disk; paper and drawer are fire-and-forget from here.
+                launch {
+                    val printed = runCatching { printer.printDoc(receipt) }.isSuccess
+                    if (tenders.any { it.method == PayMethod.CASH }) runCatching { drawer.kick() }
+                    logReceiptOutcome(row.localRef, printed, null)
+                }
+                local.value = local.value.copy(
+                    busy = false, padOpen = false, splitMode = false, splitText = emptyMap(),
+                    done = result, receipt = receipt, pendingSettle = null,
+                )
+            } catch (e: Exception) {
+                local.value = local.value.copy(busy = false, error = e.uiMessage("Couldn't save the sale on this tablet — don't take the money."))
+            }
+        }
+    }
+
+    /** The provisional slip: the sale exactly as it was rung, with no fiscal number claimed. */
+    private suspend fun offlineReceipt(
+        s: CounterUiState,
+        localRef: String,
+        totalCents: Long,
+        changeCents: Long,
+        tenders: List<mu.carfection.pos.core.data.Tender>,
+    ): ReceiptDoc {
+        val itemLines = s.cart.mapIndexed { i, l ->
+            val charged = s.rowGrossCents(i)
+            val discounted = l.discountPct > 0 || (l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0)
+            ReceiptLine(
+                title = l.product.name,
+                qty = l.qty,
+                inclCents = charged,
+                unitInclCents = grossCents(l.product.sellingPriceCents, l.product.vatRatePct),
+                grossInclCents = if (discounted) l.lineGrossCents else charged,
+                discountPct = if (l.discountMode == DiscountMode.PCT) l.discountPct.toDouble() else 0.0,
+            )
+        }
+        val subtotalIncl = itemLines.sumOf { it.grossInclCents }
+        return ReceiptDoc(
+            biz = catalog.receiptBiz(),
+            invoiceNo = null, // there is no fiscal number yet, and none may be invented
+            offlineRef = localRef,
+            dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd-MM-yyyy HH:mm:ss")),
+            cashier = session.userName,
+            customer = s.customerText.trim().ifBlank { "Walk-in" },
+            lines = itemLines,
+            subtotalCents = subtotalIncl,
+            vatRatePct = catalog.vatDefault().toInt(),
+            vatCents = s.totals.vatCents,
+            discountCents = (subtotalIncl - totalCents).coerceAtLeast(0),
+            totalCents = totalCents,
+            payLabel = tenders.singleOrNull()?.method?.label ?: "Split",
+            paidCents = totalCents + changeCents,
+            changeCents = changeCents,
+            onAccount = false,
+            vatGroups = s.docTotals.let { listOf(ReceiptVatGroup(catalog.vatDefault(), it.subtotalCents, it.vatCents)) },
+        )
     }
 
     fun newSale() {
