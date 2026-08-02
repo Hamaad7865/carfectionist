@@ -38,7 +38,12 @@ class RearmAlarmsWorker @AssistedInject constructor(
         // Retry here, unlike JobAlertWorker: the constraint says the network is up, so a
         // failure is the server being briefly unreachable, and a re-arm is just as useful
         // a minute later as it is now.
-        val jobs = runCatching { api.fetchAlertableJobs() }.getOrNull() ?: return Result.retry()
+        //
+        // Bounded, though. Result.retry() has no attempt cap of its own — WorkManager would
+        // back off toward its five-hour ceiling and keep going for ever. Give up after a
+        // handful and leave it to JobWatcher, which re-arms when the app is next opened.
+        val jobs = runCatching { api.fetchAlertableJobs() }.getOrNull()
+            ?: return if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.success()
         alarms.armAll(jobs)
         return Result.success()
     }
@@ -46,10 +51,14 @@ class RearmAlarmsWorker @AssistedInject constructor(
     companion object {
         /** BOOT_COMPLETED and QUICKBOOT_POWERON can both arrive; one re-arm is enough. */
         private const val WORK_NAME = "rearm-job-alarms"
+        private const val MAX_ATTEMPTS = 5
 
         fun enqueue(context: Context) {
+            // REPLACE, not KEEP: an attempt that failed is still "pending" while it waits
+            // out its backoff, so KEEP would make a fresh power-on a no-op and leave the
+            // board unarmed until that timer expired. A new boot deserves a new try now.
             WorkManager.getInstance(context)
-                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.KEEP, request())
+                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request())
         }
 
         private fun request(): OneTimeWorkRequest =
