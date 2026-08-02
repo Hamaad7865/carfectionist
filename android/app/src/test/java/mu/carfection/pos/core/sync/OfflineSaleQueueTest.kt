@@ -5,6 +5,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.SerializationException
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.data.SaleLineSpec
 import mu.carfection.pos.core.data.SaleResult
@@ -271,6 +272,65 @@ class OfflineSaleQueueTest {
 
         assertTrue("nothing should be re-sent", replayer.seen.isEmpty())
         assertEquals(OfflineSaleRow.STATUS_BLOCKED, dao.rows.getValue("sale-a").status)
+    }
+
+    /**
+     * A sale this build can no longer rebuild from what the device stored — a tender method
+     * retired from PayMethod by a later release, or JSON the current code cannot parse.
+     * outbox.db survives app upgrades on purpose (dropping it would destroy the only record
+     * that a customer paid), so a captured row CAN outlive the code that wrote it.
+     *
+     * The failure is in this device's own code, not in the server's answer, so no retry can
+     * ever change it. Treating it as transient stops the pass for ever — and every sale
+     * queued behind it is money the books never see.
+     */
+    @Test
+    fun `a sale this build can no longer decode is set aside without starving the queue`() = runTest {
+        online.set(false)
+        val r = repo()
+        r.captureOne("sale-a", at = 1)
+        r.captureOne("sale-b", at = 2)
+        replayer.answer = { row ->
+            if (row.saleKey == "sale-a") {
+                throw IllegalArgumentException("No enum constant mu.carfection.pos.core.data.PayMethod.JUICE_MCB")
+            }
+            issued("inv-2", "INV-0062")
+        }
+
+        online.set(true)
+        r.drain()
+
+        assertEquals(OfflineSaleRow.STATUS_BLOCKED, dao.rows.getValue("sale-a").status)
+        assertEquals(
+            "the sale behind it still reaches the books",
+            OfflineSaleRow.STATUS_SYNCED,
+            dao.rows.getValue("sale-b").status,
+        )
+    }
+
+    /** Same for a capture the JSON reader chokes on — set aside for a person, not retried blindly. */
+    @Test
+    fun `an undecodable capture stops being retried and waits for a person`() = runTest {
+        online.set(false)
+        val r = repo()
+        r.captureOne("sale-a", at = 1)
+        r.captureOne("sale-b", at = 2)
+        replayer.answer = { row ->
+            if (row.saleKey == "sale-a") {
+                throw SerializationException("Unexpected JSON token at offset 42")
+            }
+            issued("inv-3", "INV-0063")
+        }
+
+        online.set(true)
+        r.drain()
+        assertEquals(OfflineSaleRow.STATUS_BLOCKED, dao.rows.getValue("sale-a").status)
+        assertEquals(OfflineSaleRow.STATUS_SYNCED, dao.rows.getValue("sale-b").status)
+
+        // and it is not hammered on every later pass — it is waiting on a decision
+        replayer.seen.clear()
+        r.drain()
+        assertTrue("a set-aside sale is left alone", replayer.seen.isEmpty())
     }
 
     /**

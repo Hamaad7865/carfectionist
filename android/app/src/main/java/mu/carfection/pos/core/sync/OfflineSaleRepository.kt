@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import mu.carfection.pos.core.data.PayMethod
@@ -189,7 +190,7 @@ class OfflineSaleRepository @Inject constructor(
                         dao.markAttempt(row.saleKey, OfflineSaleRow.STATUS_PENDING, attempts, e.message)
                         return
                     }
-                    if (isDeterministicRejection(e)) {
+                    if (isDeterministicRejection(e) || isUnreplayable(e)) {
                         Log.w(TAG, "offline sale ${row.localRef} blocked: ${e.message}")
                         dao.markAttempt(row.saleKey, OfflineSaleRow.STATUS_BLOCKED, attempts, e.message)
                     } else {
@@ -229,6 +230,20 @@ class OfflineSaleRepository @Inject constructor(
     /** A role refusal — the session lacks the right, not the sale. Changes with the next login. */
     private fun isPrivilegeRefusal(e: Throwable): Boolean =
         e.message?.contains("insufficient privileges", ignoreCase = true) == true
+
+    /**
+     * The sale cannot be rebuilt from what this device stored, so the request never reaches
+     * the server at all — a tender method retired from [PayMethod] by a later release, JSON
+     * this build no longer parses, a capture with no lines or no tenders left to record.
+     *
+     * outbox.db deliberately survives app upgrades, which means a captured row can outlive
+     * the code that wrote it. Retrying cannot change any of these answers, and the queue
+     * drains oldest-first: left as PENDING, one such row stops the pass on every pass for
+     * ever, and every sale behind it — money the books have never seen — is starved with
+     * it. Set it aside for a person instead, exactly as a closed till is.
+     */
+    private fun isUnreplayable(e: Throwable): Boolean =
+        e is SerializationException || e is IllegalArgumentException
 
     companion object {
         private const val RETRY_INTERVAL_MS = 15_000L
