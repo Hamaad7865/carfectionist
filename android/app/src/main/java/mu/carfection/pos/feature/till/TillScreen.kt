@@ -111,6 +111,15 @@ data class TillUiState(
     val emailResult: String? = null,         // "Sent" or an error
 )
 
+/**
+ * Which trading day "also seal the day" closes: the day of the Z that `close_service` just
+ * cut — server truth — never the session cached at screen entry. That cache can be a day
+ * stale, and `close_day` replays an already-closed day's old Z instead of erroring, so a
+ * stale id silently "closed" the wrong day.
+ */
+internal fun dayToSeal(justCutZ: mu.carfection.pos.core.network.ZReportDto, alsoDay: Boolean): String? =
+    if (alsoDay) justCutZ.tradingDayId else null
+
 @HiltViewModel
 class TillViewModel @Inject constructor(
     private val till: TillRepository,
@@ -222,7 +231,11 @@ class TillViewModel @Inject constructor(
             }
             runCatching {
                 val z = till.closeService(sess.id, counted, remit, note)
-                if (alsoDay && sess.tradingDayId != null) till.closeDay(sess.tradingDayId) else z
+                // The day to seal comes off the Z just cut, NOT off `sess` — that snapshot was
+                // taken at screen entry and can point at yesterday. Paired with the server-side
+                // guard (a stale day id now raises instead of replaying the old day-Z).
+                val dayId = dayToSeal(z, alsoDay)
+                if (dayId != null) till.closeDay(dayId) else z
             }
                 .onSuccess { z ->
                     val biz = runCatching { catalog.receiptBiz().name }.getOrNull() ?: "Carfectionist"
