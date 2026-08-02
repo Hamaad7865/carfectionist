@@ -40,6 +40,20 @@
             </intent-filter>
         </activity>
 
+        <!-- PosApplication supplies WorkManager's configuration itself (it needs the Hilt
+             worker factory), so the automatic initializer has to go or the two would race
+             to start it. -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
+
         <!-- Hands the camera a content:// URI to write the captured before/after photo to. -->
         <provider
             android:name="androidx.core.content.FileProvider"
@@ -71,20 +85,5 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
-
-        <!-- On-demand WorkManager init: PosApplication supplies the Hilt worker factory,
-             so the automatic initialiser must go. Remove only WorkManager's entry, not the
-             whole InitializationProvider — that node is shared with any other androidx
-             library that uses App Startup. -->
-        <provider
-            android:name="androidx.startup.InitializationProvider"
-            android:authorities="${applicationId}.androidx-startup"
-            android:exported="false"
-            tools:node="merge">
-            <meta-data
-                android:name="androidx.work.WorkManagerInitializer"
-                android:value="androidx.startup"
-                tools:node="remove" />
-        </provider>
     </application>
 </manifest>

@@ -6,7 +6,6 @@ import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
-import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
@@ -15,59 +14,60 @@ import dagger.assisted.AssistedInject
 import mu.carfection.pos.core.network.PosApi
 
 /**
- * Alarms do not survive a reboot — Android drops every one of them — so they are re-armed
- * from the server once the tablet is back.
+ * Reads the board back from the server after a reboot or a reinstall and re-arms the
+ * alarms Android threw away.
  *
- * A worker rather than the boot broadcast itself: BootReceiver used to hold the broadcast
- * open for the round trip, which is the same ANR risk JobAlarmReceiver had, and a boot
- * broadcast is a bad place to be waiting on a shop's internet.
+ * This used to run inside BootReceiver, which is what hung the tablet on power-on: a
+ * receiver gets ten seconds for the whole of onReceive, and the fetch alone was allowed
+ * fifteen — before counting the Supabase client that field injection had to build first.
+ * A boot broadcast is the worst possible moment to ask for either; the entire device is
+ * still coming up. Out here the wait costs nobody anything.
  *
- * Not expedited — a re-arm is not minute-critical, and expedited slots are contended at
- * boot. It IS network-constrained, which is a small improvement on the old behaviour: a
- * tablet that boots offline used to lose the re-arm until somebody opened the app.
+ * Moving it also answers the case the old code could only shrug at. A tablet that boots
+ * before the shop's Wi-Fi does had nothing to re-arm from and gave up until someone
+ * opened the app; WorkManager just waits for the line and runs then.
  */
 @HiltWorker
 class RearmAlarmsWorker @AssistedInject constructor(
-    @Assisted appContext: Context,
+    @Assisted context: Context,
     @Assisted params: WorkerParameters,
     private val api: PosApi,
     private val alarms: JobAlarms,
-) : CoroutineWorker(appContext, params) {
+) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
-        // Retry here, unlike JobAlertWorker: the constraint says the network is up, so a
-        // failure is the server being briefly unreachable, and a re-arm is just as useful
-        // a minute later as it is now.
-        //
-        // Bounded, though. Result.retry() has no attempt cap of its own — WorkManager would
-        // back off toward its five-hour ceiling and keep going for ever. Give up after a
-        // handful and leave it to JobWatcher, which re-arms when the app is next opened.
         val jobs = runCatching { api.fetchAlertableJobs() }.getOrNull()
+            // Nobody signed in yet, or the server is having a moment. Back off and try a
+            // few more times, then let it go: JobWatcher re-arms everything the instant
+            // the app is opened, so the alerts are delayed rather than lost.
             ?: return if (runAttemptCount < MAX_ATTEMPTS) Result.retry() else Result.success()
+
         alarms.armAll(jobs)
         return Result.success()
     }
 
     companion object {
-        /** BOOT_COMPLETED and QUICKBOOT_POWERON can both arrive; one re-arm is enough. */
-        private const val WORK_NAME = "rearm-job-alarms"
         private const val MAX_ATTEMPTS = 5
+        private const val WORK_NAME = "rearm-job-alarms"
 
+        /**
+         * Hands the work off and returns — which is the receiver's entire job now.
+         *
+         * Unique, because one power-on can arrive as more than one trigger (some OEMs send
+         * QUICKBOOT_POWERON alongside BOOT_COMPLETED) and re-arming the same board twice is
+         * work for nothing. REPLACE rather than KEEP so a reinstall on top of a boot still
+         * reads the current board.
+         */
         fun enqueue(context: Context) {
-            // REPLACE, not KEEP: an attempt that failed is still "pending" while it waits
-            // out its backoff, so KEEP would make a fresh power-on a no-op and leave the
-            // board unarmed until that timer expired. A new boot deserves a new try now.
-            WorkManager.getInstance(context)
-                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request())
-        }
-
-        private fun request(): OneTimeWorkRequest =
-            OneTimeWorkRequestBuilder<RearmAlarmsWorker>()
+            val request = OneTimeWorkRequestBuilder<RearmAlarmsWorker>()
+                // No network, no board to read. Waiting is free out here; inside the
+                // receiver it was the whole problem.
                 .setConstraints(
-                    Constraints.Builder()
-                        .setRequiredNetworkType(NetworkType.CONNECTED)
-                        .build(),
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build(),
                 )
                 .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(WORK_NAME, ExistingWorkPolicy.REPLACE, request)
+        }
     }
 }

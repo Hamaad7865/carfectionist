@@ -12,8 +12,9 @@ import mu.carfection.pos.MainActivity
  *
  * Also fires on MY_PACKAGE_REPLACED: installing a new APK clears alarms just as thoroughly.
  *
- * The re-arm itself is RearmAlarmsWorker's job; holding the boot broadcast open for a
- * network round trip is the ANR risk this receiver used to carry.
+ * Nothing slow happens in here. onReceive has ten seconds for everything, a booting tablet
+ * has none of them to spare, and the server round-trip that used to run here is what hung
+ * the app on power-on. It belongs to RearmAlarmsWorker now; this returns immediately.
  */
 class BootReceiver : BroadcastReceiver() {
 
@@ -27,9 +28,6 @@ class BootReceiver : BroadcastReceiver() {
         // nobody has to hunt for the icon. Android 10+ may refuse a background activity
         // start, so this is best-effort — setting the app as the tablet's Home app is the
         // guaranteed route. Re-arming the alarms below happens either way.
-        //
-        // This stays in the receiver: it is a background activity start riding the boot
-        // broadcast, and would simply be blocked from a worker.
         if (intent.action != Intent.ACTION_MY_PACKAGE_REPLACED) {
             runCatching {
                 context.startActivity(
