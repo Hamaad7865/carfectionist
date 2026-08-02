@@ -29,13 +29,29 @@ fun Throwable.uiMessage(fallback: String = "Something went wrong — try again")
     // cache), so the first server write is where it surfaces — as a row-level-security or
     // JWT rejection. That text means nothing at the till and reads like a data bug; what
     // actually happened is the sign-in died. Say that, and say the way out.
-    val authDead = raw.contains("row-level security", ignoreCase = true) ||
-        raw.contains("JWT", ignoreCase = true) ||
-        raw.contains("invalid_grant", ignoreCase = true) ||
-        raw.contains("refresh_token", ignoreCase = true)
-    return if (authDead) {
+    return if (isAuthFailureMessage(raw)) {
         "Your sign-in looks expired — go to Settings, sign out and sign back in. If it keeps happening after that, tell the office."
     } else raw
+}
+
+/** The marks of a session that can no longer write, whatever the call was trying to do. */
+internal fun isAuthFailureMessage(m: String): Boolean =
+    m.contains("row-level security", ignoreCase = true) ||
+        m.contains("JWT", ignoreCase = true) ||
+        m.contains("invalid_grant", ignoreCase = true) ||
+        m.contains("refresh_token", ignoreCase = true)
+
+/**
+ * Did this fail because of WHO is signed in, rather than because of the request?
+ *
+ * A session that cannot refresh keeps looking signed in — reads come off the local cache —
+ * while every write is refused. That answer changes at the next sign-in and at no other
+ * moment, so a queue must not spend its retry budget on it: doing so throws away good
+ * writes for a reason that had nothing to do with them.
+ */
+fun Throwable.isSessionRefusal(): Boolean {
+    val m = message ?: return false
+    return isAuthFailureMessage(m) || m.contains("insufficient privileges", ignoreCase = true)
 }
 
 /**

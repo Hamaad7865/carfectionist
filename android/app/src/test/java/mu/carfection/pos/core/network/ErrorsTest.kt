@@ -80,6 +80,29 @@ class ErrorsTest {
         assertTrue(wrapped.uiMessage().contains("offline", ignoreCase = true))
     }
 
+    /**
+     * The outbox spends a retry budget and DELETES an op that exhausts it. A dead session
+     * refuses every write while the tablet still looks signed in, so without this the whole
+     * queue burns down five passes later — audit events included, whose contract is that
+     * they survive. The answer changes at the next sign-in and nowhere else.
+     */
+    @Test
+    fun `a dead session is a refusal about the sign-in, not about the write`() {
+        assertTrue(RuntimeException("JWT expired").isSessionRefusal())
+        assertTrue(RuntimeException("""new row violates row-level security policy""").isSessionRefusal())
+        assertTrue(RuntimeException("invalid_grant: refresh_token has been revoked").isSessionRefusal())
+        assertTrue(RuntimeException("insufficient privileges for this action").isSessionRefusal())
+    }
+
+    @Test
+    fun `an ordinary failure is not mistaken for a dead session`() {
+        // These must keep spending the retry budget — they are about the op, not the sign-in.
+        assertTrue(!RuntimeException("duplicate key value violates unique constraint").isSessionRefusal())
+        assertTrue(!RuntimeException("the day is closed").isSessionRefusal())
+        assertTrue(!java.net.UnknownHostException("Unable to resolve host").isSessionRefusal())
+        assertTrue(!RuntimeException(null as String?).isSessionRefusal())
+    }
+
     @Test
     fun `a server refusal is never mistaken for an outage`() {
         // A real answer from the server must survive untouched, even mid-outage-looking wording.
