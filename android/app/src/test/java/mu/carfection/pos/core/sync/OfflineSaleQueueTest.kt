@@ -233,6 +233,29 @@ class OfflineSaleQueueTest {
         assertTrue(row.lastError!!.contains("day is closed"))
     }
 
+    /**
+     * "Insufficient privileges" means the wrong PERSON is signed in, not the wrong sale —
+     * with offline sign-in the device may be riding a technician's session when the network
+     * returns. The sale must wait as PENDING (the next manager login resolves it), never be
+     * set aside as if no retry could ever succeed.
+     */
+    @Test
+    fun `a privilege refusal keeps the sale pending for the next sign-in`() = runTest {
+        online.set(false)
+        val r = repo()
+        r.captureOne("sale-a")
+        replayer.answer = { throw IllegalStateException("insufficient privileges") }
+        online.set(true)
+        r.drain()
+
+        assertEquals(OfflineSaleRow.STATUS_PENDING, dao.rows.getValue("sale-a").status)
+
+        // a manager signs in — the same queue now lands with no human intervention
+        replayer.answer = { issued("inv-9", "INV-0069") }
+        r.drain()
+        assertEquals(OfflineSaleRow.STATUS_SYNCED, dao.rows.getValue("sale-a").status)
+    }
+
     /** A set-aside sale must not be retried forever in the background — it waits for a decision. */
     @Test
     fun `a set-aside sale is not retried on later passes`() = runTest {

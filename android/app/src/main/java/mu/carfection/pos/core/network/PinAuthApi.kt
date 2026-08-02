@@ -14,7 +14,17 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Serializable
-data class RosterEntry(val appUserId: String, val displayName: String, val role: String)
+data class RosterEntry(
+    val appUserId: String,
+    val displayName: String,
+    val role: String,
+    /**
+     * The server-minted offline sign-in verifier ([mu.carfection.pos.core.data.PinHasher]
+     * format), when the server has one. Never the server's bcrypt hash. Null from servers
+     * predating verifiers and for staff whose PIN hasn't been set or used since.
+     */
+    val verifier: String? = null,
+)
 
 @Serializable
 private data class RosterResponse(val roster: List<RosterEntry> = emptyList())

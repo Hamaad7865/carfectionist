@@ -43,8 +43,10 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import mu.carfection.pos.R
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.OfflinePinStore
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.network.PinAuthApi
+import mu.carfection.pos.core.sync.ConnectivityObserver
 import mu.carfection.pos.core.network.PinLoginException
 import mu.carfection.pos.core.network.RosterEntry
 import mu.carfection.pos.ui.theme.Accent
@@ -73,6 +75,9 @@ data class LoginUiState(
     val pin: String = "",
     val busy: Boolean = false,
     val error: String? = null,
+    // The roster on screen came from this tablet's cache, not the server — the outage
+    // sign-in. PINs verify locally, and only for staff who have signed in here before.
+    val offlineRoster: Boolean = false,
 )
 
 @HiltViewModel
@@ -80,6 +85,8 @@ class LoginViewModel @Inject constructor(
     private val session: SessionRepository,
     private val catalog: CatalogRepository,
     private val pinApi: PinAuthApi,
+    private val offlinePins: OfflinePinStore,
+    private val connectivity: ConnectivityObserver,
 ) : ViewModel() {
     private val _state = MutableStateFlow(LoginUiState(configured = pinApi.configured, loadingRoster = pinApi.configured))
     val state = _state.asStateFlow()
@@ -91,8 +98,22 @@ class LoginViewModel @Inject constructor(
         _state.update { it.copy(loadingRoster = it.roster.isEmpty(), rosterError = null) }
         viewModelScope.launch {
             runCatching { pinApi.roster() }
-                .onSuccess { r -> _state.update { it.copy(loadingRoster = false, roster = r) } }
-                .onFailure { _state.update { it.copy(loadingRoster = false, rosterError = if (it.roster.isEmpty()) "Can't reach the login server. Check the connection and try again." else null) } }
+                .onSuccess { r ->
+                    offlinePins.rememberRoster(r) // the tiles the NEXT outage will show
+                    _state.update { it.copy(loadingRoster = false, roster = r, offlineRoster = false) }
+                }
+                .onFailure {
+                    // The server is out of reach. The last roster it served still names the
+                    // staff — show it, and let the local verifiers decide who gets in.
+                    val cached = offlinePins.cachedRoster()
+                    _state.update {
+                        if (cached.isNotEmpty()) it.copy(loadingRoster = false, roster = cached, offlineRoster = true, rosterError = null)
+                        else it.copy(
+                            loadingRoster = false,
+                            rosterError = if (it.roster.isEmpty()) "Can't reach the login server. Check the connection and try again." else null,
+                        )
+                    }
+                }
         }
     }
 
@@ -122,22 +143,71 @@ class LoginViewModel @Inject constructor(
     private fun submit(appUserId: String, pin: String) {
         _state.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching {
-                val sess = pinApi.pinLogin(appUserId, pin, session.deviceId())
-                session.signInWithPin(sess) // flips isLoggedIn -> the shell replaces this screen
-                catalog.refresh() // warm the offline cache for the new operator's tenant
-            }.onSuccess {
-                // Reset for the NEXT operator: this activity-scoped ViewModel survives the
-                // logout, and a lingering busy=true would freeze the keypad on re-login.
-                _state.update { it.copy(busy = false, pin = "", selectedId = null, error = null) }
-            }.onFailure { e ->
-                val msg = when {
-                    e is PinLoginException && (e.reason.contains("lock", true) || e.lockedUntil != null) ->
-                        "Too many tries — locked for a moment. Ask an owner if this persists."
-                    e is PinLoginException -> "Wrong PIN — try again"
-                    else -> "Couldn't sign in — check the connection and try again"
+            // ── the server first, whenever it might answer ────────────────────────
+            // Its verdict is authoritative in BOTH directions: a success mints the real
+            // session (and refreshes this tablet's local verifier for the next outage);
+            // a refusal is final and never falls through to the local check — the local
+            // verifier must never overrule the server while the server is reachable.
+            if (connectivity.online.value) {
+                runCatching {
+                    val sess = pinApi.pinLogin(appUserId, pin, session.deviceId())
+                    session.signInWithPin(sess) // flips isLoggedIn -> the shell replaces this screen
+                    offlinePins.rememberSuccessfulLogin(
+                        RosterEntry(sess.operator.appUserId, sess.operator.displayName, sess.operator.role),
+                        pin,
+                    )
+                    // Warm the offline cache — best-effort. The sign-in has already succeeded;
+                    // a failed refresh must not read as a failed login (the fall-through below
+                    // would run the offline check over a session that is already live).
+                    runCatching { catalog.refresh() }
+                }.onSuccess {
+                    // Reset for the NEXT operator: this activity-scoped ViewModel survives the
+                    // logout, and a lingering busy=true would freeze the keypad on re-login.
+                    _state.update { it.copy(busy = false, pin = "", selectedId = null, error = null) }
+                    return@launch
+                }.onFailure { e ->
+                    if (e is PinLoginException) {
+                        // The server SAW the PIN and said no. If the local verifier would
+                        // have said yes, the PIN was changed from the web — drop the stale
+                        // verifier so the old PIN stops unlocking this tablet offline.
+                        offlinePins.noteServerRefusal(appUserId, pin)
+                        val msg =
+                            if (e.reason.contains("lock", true) || e.lockedUntil != null)
+                                "Too many tries — locked for a moment. Ask an owner if this persists."
+                            else "Wrong PIN — try again"
+                        _state.update { it.copy(busy = false, pin = "", error = msg) }
+                        return@launch
+                    }
+                    // The request never got an answer (mid-transition network) — the offline
+                    // path below is exactly for that.
                 }
-                _state.update { it.copy(busy = false, pin = "", error = msg) }
+            }
+
+            // ── no server in reach: the tablet's own verifier decides ─────────────
+            when (val r = offlinePins.verifyOffline(appUserId, pin)) {
+                is OfflinePinStore.Result.Ok -> {
+                    session.signInOffline(r.operator) // no tokens minted — see SessionRepository
+                    _state.update { it.copy(busy = false, pin = "", selectedId = null, error = null) }
+                }
+                OfflinePinStore.Result.WrongPin ->
+                    _state.update { it.copy(busy = false, pin = "", error = "Wrong PIN — try again") }
+                is OfflinePinStore.Result.Locked ->
+                    _state.update {
+                        it.copy(
+                            busy = false, pin = "",
+                            error = "Too many tries — locked for ${(r.remainingMs / 1000).coerceAtLeast(1)}s.",
+                        )
+                    }
+                OfflinePinStore.Result.Unknown ->
+                    _state.update {
+                        it.copy(
+                            busy = false, pin = "",
+                            // The roster sync distributes verifiers, so this is now rare: a PIN
+                            // newer than this tablet's last moment online.
+                            error = "Offline — this tablet doesn't have your sign-in details yet. " +
+                                "They arrive when it's next online; try another staff member for now.",
+                        )
+                    }
             }
         }
     }
@@ -215,6 +285,16 @@ private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel)
             }
         }
         Spacer(Modifier.weight(1f))
+        if (s.offlineRoster) {
+            // Say it plainly BEFORE a PIN is typed: the gate still works, and for whom.
+            // "Already knows" = has a verifier, from the server's roster or a past
+            // sign-in here — not "has used this tablet", which server seeding outgrew.
+            Text(
+                "Offline — sign-in still works for staff the tablet already knows.",
+                color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 16.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+        }
         Text("Tap your name, then enter your 4-digit PIN.", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp)
     }
 }
