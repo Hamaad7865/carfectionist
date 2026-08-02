@@ -74,10 +74,7 @@ class JobNotifications @Inject constructor(
     }
 
     /** False when the user has not granted notifications — post() would be swallowed silently. */
-    fun canPost(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
-            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-            PackageManager.PERMISSION_GRANTED
+    fun canPost(): Boolean = canPost(context)
 
     /** Say it once. A repeat of the same job+kind is swallowed — see AlertLog. */
     suspend fun post(job: JobBoardDto, alert: JobAlert) {
@@ -138,5 +135,14 @@ class JobNotifications @Inject constructor(
     companion object {
         const val CHANNEL_ID = "job_schedule"
         private const val CHECK_CHANNEL_ID = "job_schedule_check"
+
+        /**
+         * The same question, askable without the injected instance: JobAlarmReceiver checks
+         * it before enqueuing, and a receiver that only hands work off has no Hilt graph.
+         */
+        fun canPost(context: Context): Boolean =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
     }
 }
