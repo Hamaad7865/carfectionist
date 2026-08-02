@@ -220,11 +220,23 @@ class TillViewModel @Inject constructor(
                 offlineSales.drain() // it may only need the network back
                 val still = offlineSales.unsynced.first()
                 if (still > 0) {
+                    // A set-aside sale never drains on its own: its till or its day closed
+                    // under it, or this build can no longer read it, and no amount of network
+                    // changes that answer. Sending the owner off to "get back online" would be
+                    // a dead end — it has to be re-filed from the Counter's held sales. Say
+                    // which of the two is actually holding the close up.
+                    val stuck = offlineSales.blocked.first()
                     _s.value = _s.value.copy(
                         busy = false,
-                        error = "$still sale${if (still == 1) "" else "s"} rung on this till " +
-                            "haven't reached the server yet. Get the tablet back online and let " +
-                            "them file before closing — closing now would leave them out of the Z.",
+                        error = if (stuck > 0) {
+                            "$stuck of $still held sale${if (still == 1) "" else "s"} on this till " +
+                                "can't file themselves. Open held sales on the Counter and re-file " +
+                                "them onto a live till — closing now would leave them out of the Z."
+                        } else {
+                            "$still sale${if (still == 1) "" else "s"} rung on this till " +
+                                "haven't reached the server yet. Get the tablet back online and let " +
+                                "them file before closing — closing now would leave them out of the Z."
+                        },
                     )
                     return@launch
                 }
