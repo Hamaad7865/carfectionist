@@ -50,4 +50,40 @@ class ErrorsTest {
     fun `no message still falls back`() {
         assertEquals("try again", RuntimeException(null as String?).uiMessage("try again"))
     }
+
+    /**
+     * The one failure staff will actually meet. Opening a till, cutting a Z and banking a
+     * float all need the server, so during an outage they fail — and the raw text is a DNS
+     * error naming the Supabase host, which reads like the app is broken at exactly the
+     * moment the shop needs to start trading. Say it is the line, and say what still works.
+     */
+    @Test
+    fun `an unreachable server reads as being offline, not as a broken app`() {
+        val hostFail = java.net.UnknownHostException(
+            """Unable to resolve host "qecydemyqxdxwhkiyjtp.supabase.co": No address associated with hostname""",
+        )
+        val msg = hostFail.uiMessage()
+        assertTrue("must name the connection, not DNS: $msg", msg.contains("offline", ignoreCase = true))
+        assertTrue("must not leak the backend host: $msg", !msg.contains("supabase", ignoreCase = true))
+    }
+
+    @Test
+    fun `a dropped connection also reads as being offline`() {
+        val dropped = java.net.ConnectException("Failed to connect to /142.250.184.1:443")
+        assertTrue(dropped.uiMessage().contains("offline", ignoreCase = true))
+    }
+
+    /** Ktor wraps the socket failure, so the real cause can be a couple of levels down. */
+    @Test
+    fun `a wrapped connection failure is still recognised`() {
+        val wrapped = RuntimeException("request failed", java.net.SocketTimeoutException("timeout"))
+        assertTrue(wrapped.uiMessage().contains("offline", ignoreCase = true))
+    }
+
+    @Test
+    fun `a server refusal is never mistaken for an outage`() {
+        // A real answer from the server must survive untouched, even mid-outage-looking wording.
+        val e = RuntimeException("the day is closed — reopen it before taking more money")
+        assertEquals("the day is closed — reopen it before taking more money", e.uiMessage())
+    }
 }
