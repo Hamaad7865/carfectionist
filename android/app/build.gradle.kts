@@ -125,6 +125,13 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
 
+    // A broadcast receiver has ~10s before Android calls it an ANR; the alert fetch runs
+    // as a worker instead. hilt-work's processor is androidx.hilt:hilt-compiler — a
+    // different artefact from hilt-android-compiler above, and they coexist under KSP.
+    implementation(libs.work.runtime.ktx)
+    implementation(libs.hilt.work)
+    ksp(libs.hilt.work.compiler)
+
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
