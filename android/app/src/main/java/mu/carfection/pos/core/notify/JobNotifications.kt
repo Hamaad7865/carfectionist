@@ -1,6 +1,7 @@
 package mu.carfection.pos.core.notify
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -47,6 +48,29 @@ class JobNotifications @Inject constructor(
             description = "When a job is due to start, running late, or ready for the customer."
         }
         manager.createNotificationChannel(channel)
+    }
+
+    /**
+     * The placeholder API 26–30 shows while an expedited check runs — those versions have
+     * no expedited job, so WorkManager fronts the work with a foreground service and needs
+     * a notification for it. Its own low channel, so a one-second lookup never buzzes.
+     */
+    fun checkingNotice(): Notification {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    CHECK_CHANNEL_ID,
+                    "Checking the schedule",
+                    NotificationManager.IMPORTANCE_MIN,
+                ),
+            )
+        }
+        return NotificationCompat.Builder(context, CHECK_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("Checking the job schedule")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setOngoing(true)
+            .build()
     }
 
     /** False when the user has not granted notifications — post() would be swallowed silently. */
@@ -113,5 +137,6 @@ class JobNotifications @Inject constructor(
 
     companion object {
         const val CHANNEL_ID = "job_schedule"
+        private const val CHECK_CHANNEL_ID = "job_schedule_check"
     }
 }
