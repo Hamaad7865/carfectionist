@@ -5,19 +5,18 @@ import { DB_URL, requireEnv } from "./_env.mjs";
 
 requireEnv("SUPABASE_DB_URL", DB_URL);
 
-const OWNER = "a0000000-0000-4000-a000-000000000001";
-const CUSTOMER = "0c000000-0000-4000-8000-000000000001";
-const P = {
-  decon: "0e000000-0000-4000-8000-000000000001",
-  wheel: "0e000000-0000-4000-8000-000000000002",
-  db3yr: "0e000000-0000-4000-8000-000000000003",
-};
-
-const lines = [
-  { product_id: P.decon, title: "Full Decontamination & Body Polish", qty: 1, unit_price: 32000, vat_rate: 15 },
-  { product_id: P.wheel, title: "Remove Wheel, Decontamination & Polish", qty: 4, unit_price: 3800, vat_rate: 15 },
-  { product_id: P.db3yr, title: "Diamondbrite 3-Year Protection (Exterior Only)", qty: 1, unit_price: 30000, vat_rate: 15 },
+// Go-live replaced every seed row this script was written against, so the owner,
+// the customer and the three service lines are all probed live below. Only the
+// PRICES are fixed — they are the DoD figures the totals are asserted from, and
+// save_draft honours the unit_price it is handed rather than the product's own.
+const PRICES = [
+  { title: "Full Decontamination & Body Polish", qty: 1, unit_price: 32000, vat_rate: 15 },
+  { title: "Remove Wheel, Decontamination & Polish", qty: 4, unit_price: 3800, vat_rate: 15 },
+  { title: "Diamondbrite 3-Year Protection (Exterior Only)", qty: 1, unit_price: 30000, vat_rate: 15 },
 ];
+
+/** The number issue_document will mint next: prefix + zero-padded counter. */
+const nextNumber = (prefix, n, pad) => prefix + String(n).padStart(pad, "0");
 
 let failures = 0;
 const check = (label, got, want) => {
@@ -30,6 +29,37 @@ const client = new pg.Client({ connectionString: DB_URL });
 try {
   await client.connect();
   await client.query("begin");
+
+  // Probed before the claims go in, so these run as the connection role and see
+  // the whole tenant regardless of RLS.
+  const { rows: [owner] } = await client.query(
+    `select auth_user_id, tenant_id from public.app_users
+      where role = 'owner' and is_active and auth_user_id is not null
+      order by created_at limit 1`);
+  if (!owner) throw new Error("no active owner with an auth user in app_users — cannot impersonate anyone");
+  const OWNER = owner.auth_user_id;
+
+  const { rows: [customer] } = await client.query(
+    "select id from public.customers where tenant_id = $1 order by created_at, id limit 1", [owner.tenant_id]);
+  if (!customer) throw new Error("this tenant has no customers — create one before running this probe");
+
+  // Services, not stocked goods: issuing the invoice must not depend on what
+  // happens to be on the shelf today.
+  const { rows: services } = await client.query(
+    `select id from public.products
+      where tenant_id = $1 and is_active and not is_stocked
+      order by created_at, id limit 3`, [owner.tenant_id]);
+  if (services.length < 3) throw new Error(`need 3 active service products, this tenant has ${services.length}`);
+  const lines = PRICES.map((line, i) => ({ product_id: services[i].id, ...line }));
+
+  // The series counters move as documents are issued, so read them now and
+  // expect the very next number rather than one frozen at seed time.
+  const { rows: [bs] } = await client.query(
+    `select quote_prefix, quote_next_number, quote_number_padding,
+            invoice_prefix, invoice_next_number, invoice_number_padding
+       from public.business_settings where id = $1`, [owner.tenant_id]);
+  if (!bs) throw new Error("no business_settings row for this tenant — nothing mints document numbers");
+
   await client.query("select set_config('request.jwt.claims', $1, true)", [
     JSON.stringify({ sub: OWNER, role: "authenticated" }),
   ]);
@@ -37,7 +67,7 @@ try {
   console.log("▸ save_draft (Diamondbrite quote)");
   const draft = await client.query(
     "select id, subtotal_excl, vat_total, total_incl from public.save_draft($1::jsonb, $2::jsonb, null)",
-    [JSON.stringify({ doc_type: "quote", customer_id: CUSTOMER }), JSON.stringify(lines)],
+    [JSON.stringify({ doc_type: "quote", customer_id: customer.id }), JSON.stringify(lines)],
   );
   const q = draft.rows[0];
   check("subtotal_excl", q.subtotal_excl, "77200.00");
@@ -46,7 +76,8 @@ try {
 
   console.log("▸ issue_document (quote)");
   const issuedQuote = await client.query("select number, status from public.issue_document($1::uuid, null, null)", [q.id]);
-  check("quote number", issuedQuote.rows[0].number, "A00116");
+  check("quote number", issuedQuote.rows[0].number,
+    nextNumber(bs.quote_prefix, bs.quote_next_number, bs.quote_number_padding));
   check("quote status", issuedQuote.rows[0].status, "issued");
 
   console.log("▸ convert_quote_to_invoice");
@@ -58,20 +89,25 @@ try {
 
   console.log("▸ issue_document (invoice)");
   const issuedInv = await client.query("select number, status from public.issue_document($1::uuid, null, null)", [inv.id]);
-  check("invoice number", issuedInv.rows[0].number, "INV-0001");
+  check("invoice number", issuedInv.rows[0].number,
+    nextNumber(bs.invoice_prefix, bs.invoice_next_number, bs.invoice_number_padding));
+
+  // Money only moves through an open till now, so both payments below are booked
+  // to one. Rolled back with everything else — no drawer is really opened.
+  const { rows: [till] } = await client.query("select id from public.open_cash_session('TAB-VERIFY', 0)");
 
   console.log("▸ record_payment (card 50,000)");
   await client.query(
-    "select method, amount from public.record_payment($1::uuid, 'card'::payment_method, 50000, null, 'CARD-TERMINAL-8842', null, null, null)",
-    [inv.id],
+    "select method, amount from public.record_payment($1::uuid, 'card'::payment_method, 50000, null, 'CARD-TERMINAL-8842', $2::uuid, null, null)",
+    [inv.id, till.id],
   );
   const afterFirst = await client.query("select status, amount_paid from documents where id=$1", [inv.id]);
   check("status after 1st payment", afterFirst.rows[0].status, "partly_paid");
 
   console.log("▸ record_payment (cash 38,780, tendered 40,000)");
   const cash = await client.query(
-    "select change_given from public.record_payment($1::uuid, 'cash'::payment_method, 38780, 40000, null, null, null, null)",
-    [inv.id],
+    "select change_given from public.record_payment($1::uuid, 'cash'::payment_method, 38780, 40000, null, $2::uuid, null, null)",
+    [inv.id, till.id],
   );
   check("cash change_given", cash.rows[0].change_given, "1220.00");
   const paid = await client.query("select status, amount_paid, total_incl from documents where id=$1", [inv.id]);
