@@ -342,8 +342,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * audits "terminal started" (+ "version changed" when the APK was updated);
      * the periodic foreground ping passes heartbeat=true and only touches
      * last_seen — that freshness drives the module's online dot.
-     */
-    /**
+     *
      * Returns the device row so the caller can read its role (takes_payments). Decoding is
      * tolerant on purpose: registration is an observation and the row is written server-side
      * either way, so a shape we cannot parse must not read as a failed registration.
