@@ -256,6 +256,7 @@ export interface DeviceRow {
   model: string | null;
   app_version: string | null;
   is_active: boolean;
+  takes_payments: boolean;
   first_seen: string;
   last_seen: string;
 }
@@ -265,6 +266,9 @@ export const renameDevice = (sb: Client, deviceId: string, name: string) =>
 
 export const setDeviceActive = (sb: Client, deviceId: string, active: boolean) =>
   callRpc<DeviceRow>(sb, "set_device_active", { p_device_id: deviceId, p_active: active });
+
+export const setDeviceTakesPayments = (sb: Client, deviceId: string, takes: boolean) =>
+  callRpc<DeviceRow>(sb, "set_device_takes_payments", { p_device_id: deviceId, p_takes: takes });
 
 export const closePeriod = (sb: Client, period: string) =>
   callRpc<{ id: string; period: string; totals: unknown }>(sb, "close_period", { p_period: period });

@@ -55,6 +55,24 @@ export async function setDeviceActiveAction(input: z.infer<typeof activeSchema>)
   return { ok: true };
 }
 
+// Quotation-only terminals (reception's tablet): the RPC refuses the switch while
+// the device still holds an open session, and its message is the useful one —
+// surface it rather than a generic failure.
+const takesPaymentsSchema = z.object({ deviceId: z.string(), takesPayments: z.boolean() });
+export async function setDeviceTakesPaymentsAction(input: z.infer<typeof takesPaymentsSchema>): Promise<Result> {
+  await requireRole("owner", "manager");
+  const p = takesPaymentsSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Invalid input" };
+  const sb = await createClient();
+  try {
+    await rpc.setDeviceTakesPayments(sb, p.data.deviceId, p.data.takesPayments);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  revalidatePath("/point-of-sale");
+  return { ok: true };
+}
+
 // Petty cash out of an open till (Cashmag's "Autre" outflow rows). The RPC
 // enforces the real rules: open session, positive amount, reason, ≤ drawer.
 const cashOutSchema = z.object({

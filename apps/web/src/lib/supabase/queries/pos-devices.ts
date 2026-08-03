@@ -27,6 +27,7 @@ export interface PosDevice {
   model: string | null;
   appVersion: string | null;
   isActive: boolean;
+  takesPayments: boolean; // false = quotation-only terminal; never opens a till
   isBackOffice: boolean;
   online: boolean;
   firstSeen: string | null;
@@ -137,6 +138,7 @@ export async function getPosOverview(): Promise<PosOverview> {
     model: d.model ?? null,
     appVersion: d.app_version ?? null,
     isActive: !!d.is_active,
+    takesPayments: d.takes_payments !== false,
     isBackOffice: false,
     online: now - Date.parse(d.last_seen) < ONLINE_WINDOW_MS,
     firstSeen: d.first_seen,
@@ -152,6 +154,7 @@ export async function getPosOverview(): Promise<PosOverview> {
     model: null,
     appVersion: null,
     isActive: true,
+    takesPayments: true,
     isBackOffice: true,
     online: true,
     firstSeen: null,
@@ -166,7 +169,7 @@ export async function getPosOverview(): Promise<PosOverview> {
     if (!known.has(code)) {
       devices.push({
         id: null, code, name: code, model: null, appVersion: null,
-        isActive: true, isBackOffice: false, online: false,
+        isActive: true, isBackOffice: false, online: false, takesPayments: true,
         firstSeen: null, lastSeen: null, till,
       });
     }
