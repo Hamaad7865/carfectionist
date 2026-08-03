@@ -62,6 +62,27 @@ try {
   const unreg = (await c.query("select id from public.open_cash_session('TAB-QO-UNREG', 100)")).rows[0].id;
   check("unregistered device still opens", unreg != null, "true");
 
+  // The web opens its tills as the literal code 'back-office'. register_device will
+  // accept that string from anyone, so a devices row could exist under it — and if it
+  // were ever flagged quotation-only, an unqualified guard would refuse every web till
+  // in the tenant, not one tablet. The guard excludes the name; prove it.
+  console.log("▸ a device row named 'back-office' cannot lock the web out");
+  const bo = (await c.query("select * from public.register_device('back-office', null, null, true)")).rows[0];
+  await c.query("select public.set_device_takes_payments($1::uuid, false)", [bo.id]);
+  const boSess = (await c.query("select id from public.open_cash_session('back-office', 0)")).rows[0].id;
+  check("the web back office still opens its till", boSess != null, "true");
+
+  console.log("▸ the switch fails closed on a device that is not ours");
+  try {
+    await c.query("savepoint sp2");
+    await c.query("select public.set_device_takes_payments('00000000-0000-0000-0000-000000000000'::uuid, false)");
+    check("unknown device refused", "allowed", "refused");
+  } catch (e) {
+    await c.query("rollback to savepoint sp2");
+    check("unknown device refused", "refused", "refused");
+    check("message says device not found", /device not found/.test(e.message), "true");
+  }
+
   // This migration rebuilds open_cash_session wholesale, so it can silently drop
   // anything an earlier migration added to it. It already did once: the first draft
   // was copied from 20260714000006 and lost the per-day advisory lock that

@@ -34,7 +34,13 @@ declare
 begin
   if v_tenant is null then raise exception 'no tenant context'; end if;
   perform app.require_role('owner','manager');
+  if p_takes is null then raise exception 'say whether this device takes payments'; end if;
 
+  -- for update, and open_cash_session reads the same row for share: the two
+  -- serialize. Without that pairing a till could be opened in the instant between
+  -- this check and this commit, landing the device in the one state the whole
+  -- feature exists to prevent — quotation-only, yet holding an open session, with
+  -- no till screen left to close it from.
   select * into v_dev from public.devices
    where id = p_device_id and tenant_id = v_tenant for update;
   if not found then raise exception 'device not found'; end if;
@@ -67,10 +73,18 @@ grant  execute on function public.set_device_takes_payments(uuid, boolean) to au
 -- service_no. Rebuilding this function from the older copy would silently drop
 -- that lock, so the advisory-lock line below is load-bearing, not decoration.
 --
--- The guard is scoped to REGISTERED devices by construction: 'back-office' and
--- any pre-registry device code have no devices row, match nothing, and are
--- unaffected. It sits before app.open_trading_day so a refused device cannot
--- open today's trading day on its way out.
+-- The guard reads the device row FOR SHARE, which is what makes the flip in
+-- set_device_takes_payments safe: that function holds FOR UPDATE on the same row,
+-- so the two cannot interleave into "quotation-only, yet holding an open session".
+--
+-- Pre-registry device codes have no devices row, so they match nothing and are
+-- unaffected. The back office is excluded by name rather than by trusting that
+-- nothing ever registers under that code: register_device accepts any string, and
+-- a devices row called 'back-office' flagged quotation-only would otherwise refuse
+-- every web till in the tenant. Nulls and empty strings land on it too (see v_dev).
+--
+-- The guard sits before app.open_trading_day so a refused device cannot open
+-- today's trading day on its way out.
 create or replace function public.open_cash_session(p_device_id text, p_opening_float numeric)
 returns cash_sessions language plpgsql security definer set search_path to 'public','pg_temp' as $function$
 declare
@@ -79,6 +93,7 @@ declare
   v_dev    text := coalesce(nullif(p_device_id, ''), 'back-office');
   v_no     int;
   v_sess   public.cash_sessions;
+  v_takes  boolean;
 begin
   if v_tenant is null then raise exception 'no tenant context'; end if;
   perform app.require_role('owner','manager','cashier');
@@ -86,10 +101,13 @@ begin
     raise exception 'count the opening float before opening the till';
   end if;
 
-  if exists (select 1 from public.devices
-              where tenant_id = v_tenant and device_code = v_dev
-                and takes_payments = false) then
-    raise exception 'this device does not take payments — open the till on the paying terminal';
+  if v_dev <> 'back-office' then
+    select takes_payments into v_takes from public.devices
+     where tenant_id = v_tenant and device_code = v_dev for share;
+    -- Null when the device has no row at all: unregistered codes keep working.
+    if v_takes = false then
+      raise exception 'this device does not take payments — open the till on the paying terminal';
+    end if;
   end if;
 
   -- Opens today's day if the shop has not opened yet; refuses if the day was closed.
@@ -101,8 +119,8 @@ begin
   end if;
 
   -- Two devices opening a till at the same instant would both read the same max and
-  -- mint the same service_no; serialize per day (audit #9). The unique index below is
-  -- the hard backstop.
+  -- mint the same service_no; serialize per day (audit #9). cash_sessions_day_service_uq,
+  -- created in 20260715000010, is the hard backstop behind it.
   perform pg_advisory_xact_lock(hashtextextended(v_day.id::text, 0));
   select coalesce(max(service_no), 0) + 1 into v_no
     from public.cash_sessions where trading_day_id = v_day.id;
