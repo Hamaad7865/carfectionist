@@ -137,6 +137,8 @@ data class QuoteState(
     val depositMode: DiscountMode = DiscountMode.PCT, // % chips, or a typed Rs amount
     val depositAmtText: String = "",                  // the typed Rs deposit (AMT mode)
     val depositPending: Boolean = false, // accepted with a deposit → the pad is waiting in Checkout
+    /** False on reception's tablet — the deposit is collected at a paying terminal. */
+    val takesPayments: Boolean = true,
     val datePickerOpen: Boolean = false,
     val timePickerOpen: Boolean = false,
     val busy: Boolean = false,
@@ -204,10 +206,15 @@ class QuoteViewModel @Inject constructor(
     private val session: SessionRepository,
     private val openJobBus: OpenJobBus,
     private val collectBus: mu.carfection.pos.core.data.CollectBus,
+    private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
     private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
     val state = _s.asStateFlow()
+
+    init {
+        viewModelScope.launch { deviceRole.takesPayments.collect { t -> _s.update { it.copy(takesPayments = t) } } }
+    }
 
     init {
         viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
@@ -1014,7 +1021,9 @@ class QuoteViewModel @Inject constructor(
                 }
                 // Hand the bill to Checkout with the deposit already dialled in. The cashier
                 // still presses the button — the customer's money is theirs to take, not ours.
-                depositInvoice?.let { collectBus.request(it, _s.value.depositCents) }
+                // On a quotation tablet there is no Checkout: the invoice is raised all the
+                // same and waits in TO COLLECT on the paying till.
+                if (_s.value.takesPayments) depositInvoice?.let { collectBus.request(it, _s.value.depositCents) }
 
                 // signed = true: the tablet's accept flow requires the client's signature.
                 _s.update {

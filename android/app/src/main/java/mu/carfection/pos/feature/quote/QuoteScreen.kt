@@ -117,7 +117,7 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     // the operator on the quote (or making them find a button) is the illogical flow the owner
     // hit. The signed quotation can still be sent later from the quote list.
     LaunchedEffect(s.createdJobId, s.depositPending) {
-        if (s.createdJobId != null && s.depositPending) { viewModel.clearToast(); onGoCheckout() }
+        if (s.createdJobId != null && s.depositPending && s.takesPayments) { viewModel.clearToast(); onGoCheckout() }
     }
     // Shown right after accepting (createdJobId) AND on demand for any saved quote (sendOpen),
     // so a lost WhatsApp or an "email it too" does not require re-accepting the quote.
@@ -551,13 +551,21 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         // The customer is standing there with their wallet out — take them to the
                         // money before anything else. The pad is already waiting on their bill.
                         if (s.depositPending) {
-                            Box(Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { onGoCheckout() }, contentAlignment = Alignment.Center) {
-                                Text("Collect the deposit →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
+                            if (s.takesPayments) {
+                                Box(Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { onGoCheckout() }, contentAlignment = Alignment.Center) {
+                                    Text("Collect the deposit →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
+                                }
+                                Text(
+                                    "The bill is waiting in Checkout with ${formatMUR(s.depositCents)} dialled in. Nothing has been taken yet.",
+                                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
+                                )
+                            } else {
+                                // This tablet takes no money. The bill exists; say where it is paid.
+                                Text(
+                                    "Deposit invoice raised. Collect ${formatMUR(s.depositCents)} at the till — the bill is waiting in TO COLLECT. Nothing has been taken yet.",
+                                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 17.sp, color = TextSecondary,
+                                )
                             }
-                            Text(
-                                "The bill is waiting in Checkout with ${formatMUR(s.depositCents)} dialled in. Nothing has been taken yet.",
-                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
-                            )
                             Box(Modifier.fillMaxWidth().height(46.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.viewJob(); onViewJob() }, contentAlignment = Alignment.Center) {
                                 Text("View job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent)
                             }

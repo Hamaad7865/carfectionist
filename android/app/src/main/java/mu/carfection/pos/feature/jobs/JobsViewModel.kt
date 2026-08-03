@@ -73,6 +73,8 @@ data class JobsState(
     val pricesInclVat: Boolean = false,
     val busy: Boolean = false,
     val toast: String? = null,
+    /** False on reception's tablet — a ready job's invoice is raised here, collected there. */
+    val takesPayments: Boolean = true,
     val error: String? = null,
     // certificate issuing (from a finished ceramic job)
     val products: List<ProductEntity> = emptyList(),
@@ -122,6 +124,7 @@ class JobsViewModel @Inject constructor(
     private val openJobBus: OpenJobBus,
     private val printer: ReceiptPrinter,
     private val sendApi: DocumentSendApi,
+    private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
 ) : ViewModel() {
     private var appUserId: String? = null
     private val _s = MutableStateFlow(JobsState())
@@ -130,6 +133,10 @@ class JobsViewModel @Inject constructor(
 
     /** The camera round-trip is coordinated by [CaptureBus] — see its docs. */
     fun beginCapture(phase: String, file: File) = captures.begin("jobs:$phase", file)
+
+    init {
+        viewModelScope.launch { deviceRole.takesPayments.collect { t -> _s.update { it.copy(takesPayments = t) } } }
+    }
 
     init {
         load()
@@ -755,19 +762,28 @@ class JobsViewModel @Inject constructor(
     }
 
     /**
-     * READY job → make sure its bill is waiting at checkout, then navigate.
-     * Covers jobs marked ready before auto-invoicing existed, and retries a
-     * mark-ready whose invoice step failed — all idempotent, never a duplicate.
+     * The ready job's bill. On a till this ensures the invoice exists and then walks the
+     * operator to Checkout. On a quotation tablet the invoice is raised exactly the same —
+     * that is reception's step, and it is what puts the bill in TO COLLECT — but there is
+     * nowhere to walk to, so it says where the money is taken instead.
      */
     fun goToCheckout(onGo: () -> Unit) {
-        val job = active(_s.value) ?: run { onGo(); return }
+        val quotationOnly = !_s.value.takesPayments
+        // On a till: close the sheet and walk to Checkout, exactly as before. On a quotation
+        // tablet: stay put and say where the money is taken — closing the sheet would hide
+        // the confirmation the operator needs to read.
+        fun finish(closeSheet: Boolean) {
+            if (quotationOnly) _s.update { it.copy(toast = "Invoice raised — collect it at the till.") }
+            else { if (closeSheet) close(); onGo() }
+        }
+        val job = active(_s.value) ?: run { finish(closeSheet = false); return }
         val quoteId = job.sourceQuoteId
         val hasLiveInvoice = job.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
-        if (quoteId == null || hasLiveInvoice) { close(); onGo(); return }
+        if (quoteId == null || hasLiveInvoice) { finish(closeSheet = true); return }
         _s.update { it.copy(busy = true) }
         viewModelScope.launch {
             runCatching { ensureQuoteInvoice(quoteId) }
-                .onSuccess { _s.update { it.copy(busy = false) }; close(); onGo() }
+                .onSuccess { _s.update { it.copy(busy = false) }; finish(closeSheet = true) }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage("Couldn't create the invoice — check the connection and try again")) } }
         }
     }

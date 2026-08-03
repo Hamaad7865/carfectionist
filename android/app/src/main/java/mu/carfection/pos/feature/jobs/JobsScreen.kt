@@ -586,7 +586,7 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                     // the handover is recorded here — the only ready→delivered path for prepaid.
                     j.status == "ready" && liveInv?.status == "paid" -> "Car collected — mark delivered" to { vm.deliverPaidJob() }
                     // Ensures the quote's priced invoice is waiting in TO COLLECT first.
-                    j.status == "ready" -> "Go to checkout →" to { vm.goToCheckout(onGoCheckout) }
+                    j.status == "ready" -> (if (s.takesPayments) "Go to checkout →" else "Raise the invoice →") to { vm.goToCheckout(onGoCheckout) }
                     // A car can leave OWING (on account): its bill stays in TO COLLECT until it
                     // is paid — say so, instead of pretending delivered means settled.
                     liveInv != null && liveInv.status != "paid" -> "Balance owed — view invoice" to { vm.openInvoiceView() }
