@@ -72,6 +72,17 @@ try {
   const boSess = (await c.query("select id from public.open_cash_session('back-office', 0)")).rows[0].id;
   check("the web back office still opens its till", boSess != null, "true");
 
+  console.log("▸ a null answer is a sentence, not a constraint error");
+  try {
+    await c.query("savepoint sp3");
+    await c.query("select public.set_device_takes_payments($1::uuid, null)", [dev.id]);
+    check("null p_takes refused", "allowed", "refused");
+  } catch (e) {
+    await c.query("rollback to savepoint sp3");
+    check("null p_takes refused", "refused", "refused");
+    check("message is readable, not a constraint violation", /say whether this device takes payments/.test(e.message), "true");
+  }
+
   console.log("▸ the switch fails closed on a device that is not ours");
   try {
     await c.query("savepoint sp2");

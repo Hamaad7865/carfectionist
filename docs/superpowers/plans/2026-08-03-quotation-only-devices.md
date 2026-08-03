@@ -489,7 +489,7 @@ reporting till state:
 Run:
 
 ```bash
-cd apps/web && npx tsc --noEmit && npx next lint --dir src/features/pos
+cd apps/web && npx tsc --noEmit && npx eslint src/features/pos
 ```
 
 Expected: no errors.
