@@ -55,12 +55,22 @@ try {
   } catch (e) {
     await c.query("rollback to savepoint sp1");
     check("till refused on a quotation device", "refused", "refused");
-    check("message names the paying terminal", /does not take payments/.test(e.message), "true");
+    check("message names the paying terminal", /open the till on the paying terminal/.test(e.message), "true");
   }
 
   console.log("▸ unregistered device codes are unaffected");
   const unreg = (await c.query("select id from public.open_cash_session('TAB-QO-UNREG', 100)")).rows[0].id;
   check("unregistered device still opens", unreg != null, "true");
+
+  // This migration rebuilds open_cash_session wholesale, so it can silently drop
+  // anything an earlier migration added to it. It already did once: the first draft
+  // was copied from 20260714000006 and lost the per-day advisory lock that
+  // 20260715000010 (#9) added to stop two devices minting the same service_no.
+  // Assert on the DEPLOYED body so the next rebuild cannot lose it again.
+  console.log("▸ the service_no advisory lock survived the rebuild");
+  const def = (await c.query(
+    "select pg_get_functiondef('public.open_cash_session(text,numeric)'::regprocedure) d")).rows[0].d;
+  check("advisory lock still in open_cash_session", /pg_advisory_xact_lock/.test(def), "true");
 
   console.log("▸ switching back restores the till");
   const on = (await c.query("select takes_payments from public.set_device_takes_payments($1::uuid, true)", [dev.id])).rows[0];

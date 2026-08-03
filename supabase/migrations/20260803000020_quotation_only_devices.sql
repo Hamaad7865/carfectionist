@@ -61,9 +61,16 @@ revoke execute on function public.set_device_takes_payments(uuid, boolean) from 
 grant  execute on function public.set_device_takes_payments(uuid, boolean) to authenticated;
 
 -- ── open_cash_session: the refusal ─────────────────────────────────────────
--- Unchanged from 20260714000006 except the takes_payments block. Scoped to
--- REGISTERED devices by construction: 'back-office' and any pre-registry
--- device code have no devices row, match nothing, and are unaffected.
+-- Unchanged from 20260715000010_audit_fixes.sql (#9) except the takes_payments
+-- block — that file, NOT the earlier 20260714000006, holds the live body: it
+-- added the per-day advisory lock that stops two devices minting the same
+-- service_no. Rebuilding this function from the older copy would silently drop
+-- that lock, so the advisory-lock line below is load-bearing, not decoration.
+--
+-- The guard is scoped to REGISTERED devices by construction: 'back-office' and
+-- any pre-registry device code have no devices row, match nothing, and are
+-- unaffected. It sits before app.open_trading_day so a refused device cannot
+-- open today's trading day on its way out.
 create or replace function public.open_cash_session(p_device_id text, p_opening_float numeric)
 returns cash_sessions language plpgsql security definer set search_path to 'public','pg_temp' as $function$
 declare
@@ -93,6 +100,10 @@ begin
     raise exception 'this till is already open';
   end if;
 
+  -- Two devices opening a till at the same instant would both read the same max and
+  -- mint the same service_no; serialize per day (audit #9). The unique index below is
+  -- the hard backstop.
+  perform pg_advisory_xact_lock(hashtextextended(v_day.id::text, 0));
   select coalesce(max(service_no), 0) + 1 into v_no
     from public.cash_sessions where trading_day_id = v_day.id;
 
