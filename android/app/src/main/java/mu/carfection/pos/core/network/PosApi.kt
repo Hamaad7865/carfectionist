@@ -812,7 +812,8 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }).decodeAs()
 
     /**
-     * Cancel a scheduled/in-progress job (owner/manager). The server resolves its bill in
+     * Cancel a job that hasn't been handed over — scheduled, in progress or ready
+     * (owner/manager). The server resolves its bill in
      * the same transaction: a draft is deleted, an unpaid bill voided, money already taken
      * comes back as a credit note with the refund booked to a till.
      */
