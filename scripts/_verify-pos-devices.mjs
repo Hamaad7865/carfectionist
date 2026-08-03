@@ -5,7 +5,6 @@ import pg from "pg";
 import { DB_URL } from "./_env.mjs";
 
 const AUTH = "0eb870dc-ef5b-400a-8744-859c999a1b1b"; // Anesh (owner auth uid)
-const CUSTOMER = "9f22f6b7-48e2-4a20-97e6-89b18d119aa4";
 
 let failures = 0;
 const check = (label, got, want) => {
@@ -21,6 +20,12 @@ try {
   await c.query("begin");
   await c.query("set local role authenticated");
   await c.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: AUTH, role: "authenticated" })]);
+
+  // Go-live replaced the seed rows, so no customer id survives being hardcoded.
+  // Probed under the owner's claims, so RLS keeps it inside their tenant.
+  const cust = await c.query("select id from customers order by created_at, id limit 1");
+  if (!cust.rows.length) throw new Error("this tenant has no customers — create one before running this probe");
+  const CUSTOMER = cust.rows[0].id;
 
   console.log("▸ register_device — first launch");
   const d1 = await c.query("select * from public.register_device('TAB-TEST', 'NEOSTRA D2', '1.4.0', false)");
