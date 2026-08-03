@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FormError } from "@/components/ui/form";
 import { muDateTime } from "@/lib/mu-date";
-import { renameDeviceAction, setDeviceActiveAction } from "./actions";
+import { renameDeviceAction, setDeviceActiveAction, setDeviceTakesPaymentsAction } from "./actions";
 import type { PosDevice } from "@/lib/supabase/queries/pos-devices";
 
 const field = "h-10 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[14px] text-ink outline-none focus:border-brand";
@@ -34,6 +34,15 @@ export function DeviceSettings({ device }: { device: PosDevice }) {
     if (r.ok) router.refresh(); else setError(r.error);
   }
 
+  async function toggleTakesPayments() {
+    if (!device.id) return;
+    setError(null);
+    setBusy(true);
+    const r = await setDeviceTakesPaymentsAction({ deviceId: device.id, takesPayments: !device.takesPayments });
+    setBusy(false);
+    if (r.ok) router.refresh(); else setError(r.error);
+  }
+
   return (
     <div className="flex max-w-xl flex-col gap-4">
       <FormError error={error} />
@@ -47,6 +56,28 @@ export function DeviceSettings({ device }: { device: PosDevice }) {
               <input className={`${field} flex-1`} value={name} onChange={(e) => setName(e.target.value)} placeholder={`e.g. Caisse 1 (currently ${device.code})`} />
               <button onClick={saveName} disabled={busy} className="grad-brand shadow-brand h-10 shrink-0 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
                 {saved ? "Saved ✓" : busy ? "Saving…" : "Save"}
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-[15px] border border-line bg-card p-5">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <div className="text-[13px] font-bold text-ink">
+                  {device.takesPayments ? "This device takes payments" : "Quotation only"}
+                </div>
+                <p className="mt-0.5 text-[12px] text-muted">
+                  {device.takesPayments
+                    ? "Opens a till and collects money. Checkout is on the tablet."
+                    : "Never opens a till. Reception, quotations and jobs only — money is taken at a paying terminal."}
+                </p>
+              </div>
+              <button
+                onClick={toggleTakesPayments}
+                disabled={busy}
+                className="h-9 shrink-0 rounded-[10px] border border-line-2 px-3.5 text-[12.5px] font-bold text-body hover:border-brand disabled:opacity-60"
+              >
+                {device.takesPayments ? "Make quotation only" : "Let it take payments"}
               </button>
             </div>
           </div>

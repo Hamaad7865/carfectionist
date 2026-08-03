@@ -137,6 +137,7 @@ export function DeviceCard({ device }: { device: PosDevice }) {
               />
             )}
             {!device.isActive && <span className="rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Inactive</span>}
+            {!device.takesPayments && <span className="rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Quotation only</span>}
           </div>
           <div className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[11.5px] text-muted">
             {device.model && <span>{device.model}</span>}
@@ -171,6 +172,10 @@ export function DeviceCard({ device }: { device: PosDevice }) {
               {device.till.cashOutCents !== 0 ? ` · ${formatMUR(device.till.cashOutCents)} paid out` : ""}
             </div>
           </div>
+        </div>
+      ) : !device.takesPayments ? (
+        <div className="mt-3 border-t border-line pt-3 text-[12.5px] text-muted">
+          Quotation only — this device never opens a till. Money for its quotes and jobs is taken at a paying terminal.
         </div>
       ) : device.isBackOffice ? (
         <OpenTillInline />
