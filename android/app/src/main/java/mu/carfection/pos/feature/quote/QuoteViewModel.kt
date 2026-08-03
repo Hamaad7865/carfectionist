@@ -237,7 +237,19 @@ class QuoteViewModel @Inject constructor(
         // when they sign out, so the next operator can't issue against a stranger's draft.
         viewModelScope.launch {
             session.isLoggedIn.collect {
-                if (it == false) _s.value = QuoteState(products = _s.value.products, technicians = _s.value.technicians)
+                // Rebuilt, not copied — the point is to drop the builder wholesale. So anything
+                // that describes the DEVICE rather than the operator has to be carried across by
+                // hand, or it silently reverts to a default and stays wrong until whatever feeds
+                // it happens to emit again. takesPayments is fed by a DataStore collector that
+                // only re-emits when the role actually changes (the next heartbeat, up to four
+                // minutes away): lose it here and a quotation tablet spends that window believing
+                // it has a Checkout, which swallows the accept-with-deposit confirmation entirely.
+                if (it == false) _s.value = QuoteState(
+                    products = _s.value.products,
+                    technicians = _s.value.technicians,
+                    takesPayments = _s.value.takesPayments,
+                    pricesInclVat = _s.value.pricesInclVat,
+                )
             }
         }
     }

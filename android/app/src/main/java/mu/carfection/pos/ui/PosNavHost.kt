@@ -140,7 +140,13 @@ class RootViewModel @Inject constructor(
     fun setShowTill(v: Boolean) { _showTill.value = v }
     fun back() {
         if (_showTill.value) { _showTill.value = false; return }
-        if (backStack.isNotEmpty()) { _tab.value = backStack.removeLast(); _backDepth.value = backStack.size }
+        if (backStack.isEmpty()) return
+        val prev = backStack.removeLast()
+        _backDepth.value = backStack.size
+        // Every other route to SALE re-checks the role where it is used; this one did not.
+        // SALE can only be in the stack from the startup window before the cached role loads,
+        // and the correcting collector clears the stack — so this is belt to that braces.
+        _tab.value = mu.carfection.pos.core.data.tabAfterRoleChange(prev, takesPayments.value)
     }
     private fun resetNav() {
         backStack.clear(); _backDepth.value = 0

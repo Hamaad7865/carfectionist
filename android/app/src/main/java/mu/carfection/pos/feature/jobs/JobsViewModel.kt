@@ -773,7 +773,10 @@ class JobsViewModel @Inject constructor(
         // tablet: stay put and say where the money is taken — closing the sheet would hide
         // the confirmation the operator needs to read.
         fun finish(closeSheet: Boolean) {
-            if (quotationOnly) _s.update { it.copy(toast = "Invoice raised — collect it at the till.") }
+            // "The bill is at the till", not "invoice raised": two of the three paths here reach
+            // this with an invoice that already existed, and the common one (a job marked ready
+            // already auto-invoices) never raises anything. Both are true of the bill's location.
+            if (quotationOnly) _s.update { it.copy(toast = "The bill is at the till — collect it there.") }
             else { if (closeSheet) close(); onGo() }
         }
         val job = active(_s.value) ?: run { finish(closeSheet = false); return }
