@@ -343,13 +343,24 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * the periodic foreground ping passes heartbeat=true and only touches
      * last_seen — that freshness drives the module's online dot.
      */
-    suspend fun registerDevice(code: String, model: String?, version: String?, heartbeat: Boolean) {
-        client.postgrest.rpc("register_device", buildJsonObject {
+    /**
+     * Returns the device row so the caller can read its role (takes_payments). Decoding is
+     * tolerant on purpose: registration is an observation and the row is written server-side
+     * either way, so a shape we cannot parse must not read as a failed registration.
+     */
+    suspend fun registerDevice(
+        code: String,
+        model: String?,
+        version: String?,
+        heartbeat: Boolean,
+    ): JsonObject? {
+        val res = client.postgrest.rpc("register_device", buildJsonObject {
             put("p_code", code)
             if (model != null) put("p_model", model) else put("p_model", JsonNull)
             if (version != null) put("p_version", version) else put("p_version", JsonNull)
             put("p_heartbeat", heartbeat)
         })
+        return runCatching { res.decodeAs<JsonObject>() }.getOrNull()
     }
 
     /**
