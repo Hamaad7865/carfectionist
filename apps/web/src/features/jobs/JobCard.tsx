@@ -700,8 +700,11 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
       })()}
 
       {/* a booking that won't happen — cancelling resolves the bill in the same stroke:
-          a draft goes, an unpaid bill voids, money already taken is refunded by credit note */}
-      {(job.status === "scheduled" || job.status === "in_progress") && (
+          a draft goes, an unpaid bill voids, money already taken is refunded by credit note.
+          READY is here too: the car has not been handed over, so a job marked ready by
+          mistake can still be called off. Without it the job was trapped — its bill was
+          re-minted on every trip to checkout, so voiding never stuck (20260803000030). */}
+      {(job.status === "scheduled" || job.status === "in_progress" || job.status === "ready") && (
         <div className="mt-5">
           {!cancelOpen ? (
             <button onClick={() => setCancelOpen(true)} className="w-full text-center text-[13px] font-bold text-pink">
