@@ -80,6 +80,7 @@ export default async function DeviceDashboardPage({
                 </span>
               )}
               {!device.isActive && <span className="rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Inactive</span>}
+              {!device.takesPayments && <span className="rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Quotation only</span>}
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-2 text-[12px] text-muted">
               {device.model && <span>{device.model}</span>}
