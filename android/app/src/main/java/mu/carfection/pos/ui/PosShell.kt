@@ -90,6 +90,7 @@ private fun salesWord(n: Int) = if (n == 1) "sale" else "sales"
 fun PosShell(
     active: PosTab,
     onSelect: (PosTab) -> Unit,
+    tabs: List<PosTab>,
     studioName: String,
     staffName: String,
     staffRole: String,
@@ -107,7 +108,7 @@ fun PosShell(
     Column(Modifier.fillMaxSize().background(ScreenBg).windowInsetsPadding(WindowInsets.systemBars)) {
         Header(studioName, staffName, staffRole, online, pendingSync, heldSales, syncing, onSyncNow, onStaffClick)
         Row(Modifier.fillMaxSize()) {
-            NavRail(active, onSelect)
+            NavRail(active, tabs, onSelect)
             Box(Modifier.weight(1f).fillMaxHeight().background(ScreenBg)) { content() }
         }
     }
@@ -223,7 +224,7 @@ private fun Pill(content: @Composable androidx.compose.foundation.layout.RowScop
 const val COMPACT_BREAKPOINT_DP = 1100
 
 @Composable
-private fun NavRail(active: PosTab, onSelect: (PosTab) -> Unit) {
+private fun NavRail(active: PosTab, tabs: List<PosTab>, onSelect: (PosTab) -> Unit) {
     // The owner's second tablet (drawer + scanner, lives on Checkout) is SMALL. Below
     // the breakpoint the rail goes icon-only — labels cost ~30dp of width the content
     // needs, and the premium look of the Tab S11 layout comes from the content having
@@ -251,7 +252,7 @@ private fun NavRail(active: PosTab, onSelect: (PosTab) -> Unit) {
             .padding(horizontal = if (compact) 5.dp else 7.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        PosTab.entries.forEach { tab ->
+        tabs.forEach { tab ->
             val sel = tab == active
             Column(
                 Modifier.fillMaxWidth().height(if (compact) 48.dp else 68.dp)

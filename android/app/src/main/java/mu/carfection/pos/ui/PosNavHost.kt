@@ -18,6 +18,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import mu.carfection.pos.BuildConfig
 import mu.carfection.pos.core.data.CatalogRepository
@@ -54,6 +55,7 @@ class RootViewModel @Inject constructor(
     private val captures: CaptureBus,
     private val api: PosApi,
     private val tillRepo: mu.carfection.pos.core.data.TillRepository,
+    private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
 ) : ViewModel() {
     val isLoggedIn = session.isLoggedIn
     val staffName: String get() = session.userName
@@ -63,6 +65,9 @@ class RootViewModel @Inject constructor(
 
     /** Sales taken on this tablet that the server has not seen yet — money, not metadata. */
     val unsyncedSales = offlineSales.unsynced
+
+    /** False on reception's tablet: no Checkout, no till, money is taken elsewhere. */
+    val takesPayments = deviceRole.takesPayments.stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.Eagerly, true)
 
     init {
         // Start filing held sales as soon as the app has a UI at all — not from
@@ -123,6 +128,7 @@ class RootViewModel @Inject constructor(
     val backDepth = _backDepth.asStateFlow()
 
     fun navigate(next: PosTab) {
+        if (next == PosTab.SALE && !takesPayments.value) return // the tab does not exist here
         if (next != _tab.value) {
             backStack.addLast(_tab.value)
             if (backStack.size > 24) backStack.removeFirst()
@@ -136,7 +142,11 @@ class RootViewModel @Inject constructor(
         if (_showTill.value) { _showTill.value = false; return }
         if (backStack.isNotEmpty()) { _tab.value = backStack.removeLast(); _backDepth.value = backStack.size }
     }
-    private fun resetNav() { backStack.clear(); _backDepth.value = 0; _tab.value = PosTab.SALE; _showTill.value = false }
+    private fun resetNav() {
+        backStack.clear(); _backDepth.value = 0
+        _tab.value = mu.carfection.pos.core.data.landingTab(takesPayments.value)
+        _showTill.value = false
+    }
 
     // ── till discipline (owner requirement) ──────────────────────────────────
     // A non-owner can't reach the app until the till is open, and a till left
@@ -160,12 +170,13 @@ class RootViewModel @Inject constructor(
         // Start the next operator at a clean Checkout, not the previous one's tab/history.
         viewModelScope.launch { session.isLoggedIn.collect { if (it == false) resetNav() } }
 
-        // Load this device's open till on sign-in — the state that drives tillGate.
+        // Load this device's open till on sign-in — the state that drives the checkout chip.
+        // A quotation device has none and never will, so it does not ask.
         viewModelScope.launch {
             session.isLoggedIn.collect { logged ->
                 _tillLoaded.value = false
                 if (logged == true) {
-                    runCatching { tillRepo.openSession() }
+                    if (takesPayments.value) runCatching { tillRepo.openSession() }
                     _tillLoaded.value = true
                 }
             }
@@ -182,12 +193,29 @@ class RootViewModel @Inject constructor(
                 if (logged == true) {
                     runCatching {
                         api.registerDevice(session.deviceId(), Build.MODEL, BuildConfig.VERSION_NAME, heartbeat = announced)
-                    }
+                    }.getOrNull()?.let { deviceRole.remember(mu.carfection.pos.core.data.takesPaymentsOf(it)) }
                     announced = true
                     while (true) {
                         delay(HEARTBEAT_MS)
                         runCatching { api.registerDevice(session.deviceId(), null, null, heartbeat = true) }
+                            .getOrNull()?.let { deviceRole.remember(mu.carfection.pos.core.data.takesPaymentsOf(it)) }
                     }
+                }
+            }
+        }
+    }
+
+    init {
+        // The role arrives from disk (and then the server) after this ViewModel is built, so
+        // the shell starts on SALE and is corrected here. Also covers a live switch: the
+        // owner flips it on the web and the heartbeat brings it back within four minutes.
+        viewModelScope.launch {
+            takesPayments.collect { takes ->
+                val next = mu.carfection.pos.core.data.tabAfterRoleChange(_tab.value, takes)
+                if (next != _tab.value) {
+                    _tab.value = next
+                    backStack.clear(); _backDepth.value = 0
+                    _showTill.value = false
                 }
             }
         }
@@ -249,9 +277,11 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 val pendingSync by rootViewModel.pendingSync.collectAsState(initial = 0)
                 val heldSales by rootViewModel.unsyncedSales.collectAsState(initial = 0)
                 val syncing by rootViewModel.syncing.collectAsState()
+                val takesPayments by rootViewModel.takesPayments.collectAsState()
                 PosShell(
                     active = tab,
                     onSelect = rootViewModel::navigate,
+                    tabs = mu.carfection.pos.core.data.visibleTabs(takesPayments),
                     studioName = "Carfectionist",
                     staffName = rootViewModel.staffName,
                     staffRole = rootViewModel.staffRole,
