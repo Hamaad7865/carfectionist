@@ -230,7 +230,8 @@ export async function deliverPaidJobAction(jobId: string): Promise<Result> {
   return { ok: true };
 }
 
-/** Cancel a scheduled/in-progress job. The RPC (owner/manager) resolves its bill in the
+/** Cancel a job that hasn't been handed over — scheduled, in progress or ready. The RPC
+ *  (owner/manager) resolves its bill in the
  *  same transaction: a draft is deleted, an unpaid bill voided, money already taken comes
  *  back as a credit note with the refund booked to a till. */
 export async function cancelJobAction(jobId: string, reason: string): Promise<Result> {

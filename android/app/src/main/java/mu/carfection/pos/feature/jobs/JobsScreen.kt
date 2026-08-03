@@ -599,7 +599,10 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 // A booking that won't happen can be cancelled (owner/manager) — the server
                 // resolves the bill in the same stroke: drafts go, unpaid bills void, money
                 // already taken is refunded through a booked credit note.
-                if (j.status == "scheduled" || j.status == "in_progress") {
+                // READY counts: the car is still here, so a mis-tapped "Mark ready" can be
+                // taken back. Without it the job was trapped — checkout re-minted its bill
+                // after every void, so the correction never held (20260803000030).
+                if (j.status == "scheduled" || j.status == "in_progress" || j.status == "ready") {
                     var cancelOpen by remember(j.id) { mutableStateOf(false) }
                     var cancelWhy by remember(j.id) { mutableStateOf("") }
                     Box(Modifier.fillMaxWidth().clickable { cancelOpen = !cancelOpen }.padding(top = 4.dp), contentAlignment = Alignment.Center) {
