@@ -144,7 +144,7 @@ fun RichDescription(doc: RichDoc?, modifier: Modifier = Modifier) {
  * told why rather than left wondering where the editor went.
  */
 @Composable
-fun LineDescription(line: QuoteLine, index: Int, vm: QuoteViewModel) {
+fun LineDescription(line: QuoteLine, index: Int, onBullets: (List<String>) -> Unit) {
     val doc = parseRichDoc(line.richJson)
     val editable = isBulletsOnly(doc)
 
@@ -163,7 +163,7 @@ fun LineDescription(line: QuoteLine, index: Int, vm: QuoteViewModel) {
     var rows by remember(index) { mutableStateOf(richDocToBullets(doc).ifEmpty { listOf("") }) }
     fun apply(next: List<String>) {
         rows = next.ifEmpty { listOf("") }
-        vm.setLineBullets(index, next)
+        onBullets(next)
     }
     val bullets = rows
 

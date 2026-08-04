@@ -305,45 +305,21 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
             s.billLines.forEachIndexed { i, l ->
                 val lineTotal = (t.lineExclCents.getOrNull(i) ?: 0L)
                     .let { net -> if (s.pricesInclVat) grossCents(net, l.vatRate) else net }
+                // Only what was added here can be changed. The quoted lines are the price
+                // the customer agreed — this screen does not get to re-open that.
                 val quoted = i < s.billQuotedCount
-                Column(
-                    Modifier.fillMaxWidth().background(Color(0xFFF1F4F7), RoundedCornerShape(12.dp))
-                        .border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))
-                        .padding(horizontal = 13.dp, vertical = 11.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp),
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(
-                                if (quoted) "×${l.qty}  ·  quoted" else "×${l.qty}  ·  added now",
-                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
-                                color = if (quoted) TextMuted else Accent,
-                            )
-                        }
-                        Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
-                    }
-                    // Only what was added here can be changed. The quoted lines are the price
-                    // the customer agreed — this screen does not get to re-open that.
-                    if (!quoted) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StepBtn("−") { vm.setBillQty(i, l.qty - 1) }
-                        Text(l.qty.toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1)
-                        StepBtn("+") { vm.setBillQty(i, l.qty + 1) }
-                        Spacer(Modifier.weight(1f))
-                        Box(
-                            Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp))
-                                .clickable { vm.removeBillLine(i) },
-                            contentAlignment = Alignment.Center,
-                        ) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
-                    }
-                }
+                LineCard(
+                    l, i, lineTotal, editable = !quoted, ops = billLineOps(vm),
+                    note = if (quoted) "quoted" else "added now",
+                    noteColor = if (quoted) TextMuted else Accent,
+                )
             }
         }
 
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(
-                "Anything else they are taking today goes on here — tap it on the left.",
+                "Anything else they are taking today goes on here — tap it on the left, then tap the line to price it.",
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -357,18 +333,38 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                 Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
             }
             s.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontSize = 12.sp) }
+            // Issuing is not collecting. The car is usually still in the workshop when the
+            // extras go on, and the money is taken when the job is done — so the bill is
+            // raised and left to be paid. The customer who wants to settle now still can,
+            // but the counter has to say so.
+            val ready = !s.busy && s.billLines.isNotEmpty()
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeBill() }
                 Box(
                     Modifier.weight(1.6f).height(52.dp)
-                        .background(if (s.busy || s.billLines.isEmpty()) InsetAlt else Accent, RoundedCornerShape(13.dp))
-                        .clickable(enabled = !s.busy && s.billLines.isNotEmpty()) { vm.issueTheBill() },
+                        .background(if (ready) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                        .clickable(enabled = ready) { vm.issueTheBill() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (s.busy) "Issuing…" else if (s.takesPayments) "Issue bill → take payment" else "Issue bill",
+                        if (s.busy) "Issuing…" else "Issue bill",
                         fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                        color = if (s.busy || s.billLines.isEmpty()) TextMuted else AccentInk,
+                        color = if (ready) AccentInk else TextMuted,
+                    )
+                }
+            }
+            if (s.takesPayments) {
+                Box(
+                    Modifier.fillMaxWidth().height(46.dp)
+                        .background(if (ready) AccentSoft else InsetAlt, RoundedCornerShape(13.dp))
+                        .border(1.dp, if (ready) AccentLine else Color(0x17101A24), RoundedCornerShape(13.dp))
+                        .clickable(enabled = ready) { vm.issueTheBill(takePayment = true) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Issue & take payment now",
+                        fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
+                        color = if (ready) Accent else TextMuted,
                     )
                 }
             }
@@ -421,79 +417,7 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
                     // The line at shelf price when the shop quotes gross (its own VAT rate).
                     val lineTotal = (vm.totals(s).lineExclCents.getOrNull(i) ?: 0L)
                         .let { net -> if (s.pricesInclVat) grossCents(net, l.vatRate) else net }
-                    val discNote = when {
-                        l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
-                        l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
-                        else -> ""
-                    }
-                    Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Color(0xFFF1F4F7), RoundedCornerShape(12.dp)).border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))) {
-                        Row(Modifier.fillMaxWidth().clickable(enabled = vm.editable(s)) { vm.toggleLine(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("×${l.qty}${if (l.unitLabel.isNotBlank()) " ${l.unitLabel}" else ""}$discNote", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
-                                // Collapsed, the description is one muted line — enough to know it
-                                // is there. Expanded, it renders properly underneath.
-                                if (!l.expanded) {
-                                    val flat = richToPlainText(parseRichDoc(l.richJson)).ifBlank { l.description.orEmpty() }
-                                    if (flat.isNotBlank()) {
-                                        Text(
-                                            flat.replace("\n", " · "),
-                                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp,
-                                            color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        )
-                                    }
-                                }
-                            }
-                            Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
-                        }
-                        if (l.expanded) Column(Modifier.fillMaxWidth().padding(start = 13.dp, end = 13.dp, bottom = 11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            // qty · unit price · remove
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StepBtn("−") { vm.setQty(i, l.qty - 1) }
-                                Text(l.qty.toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1)
-                                StepBtn("+") { vm.setQty(i, l.qty + 1) }
-                                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
-                                Text("Rs", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextMuted)
-                                FilledInput(
-                                    value = l.priceText, onValueChange = { vm.setPrice(i, it) },
-                                    placeholder = "0.00", modifier = Modifier.weight(1f), height = 40.dp,
-                                    radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
-                                )
-                                FilledInput(
-                                    value = l.unitLabel, onValueChange = { vm.setUnitLabel(i, it) },
-                                    placeholder = "unit", modifier = Modifier.width(88.dp), height = 40.dp,
-                                    radius = 10.dp, bg = CardBg, fontFamily = Barlow, fontSize = 13.sp,
-                                )
-                                Box(Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp)).clickable { vm.removeLine(i) }, contentAlignment = Alignment.Center) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
-                            }
-                            LineDescription(l, i, vm)
-                            // discount: % presets or a typed Rs amount (VAT-inclusive, like the DB)
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
-                                    val on = l.discountMode == m
-                                    Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { vm.setLineDiscMode(i, m) }.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
-                                        Text(lb, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
-                                    }
-                                }
-                                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
-                                if (l.discountMode == DiscountMode.PCT) {
-                                    listOf(0, 5, 10, 15, 20).forEach { d ->
-                                        val on = l.discountPct == d
-                                        Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { vm.setDiscount(i, d) }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-                                            Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
-                                        }
-                                    }
-                                    Spacer(Modifier.weight(1f))
-                                } else {
-                                    FilledInput(
-                                        value = l.discountAmtText, onValueChange = { vm.setLineDiscAmt(i, it) },
-                                        placeholder = "Rs off (incl. VAT)", modifier = Modifier.weight(1f), height = 40.dp,
-                                        radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    LineCard(l, i, lineTotal, editable = vm.editable(s), ops = quoteLineOps(vm))
                 }
             }
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
@@ -503,6 +427,133 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
                         .clickable(onClick = vm::closeLines),
                     contentAlignment = Alignment.Center,
                 ) { Text("Done", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk) }
+            }
+        }
+    }
+}
+
+/**
+ * Everything you can do to one line, handed in rather than reached for.
+ *
+ * The quotation and the bill hold two different lists of the same thing, so the card that
+ * draws a line takes its verbs as an argument. Nothing else differs between them — a line
+ * added at the counter deserves the price, the unit, the discount and the "what this
+ * includes" that a quoted line gets.
+ */
+private class LineOps(
+    val toggle: (Int) -> Unit,
+    val setQty: (Int, Int) -> Unit,
+    val setPrice: (Int, String) -> Unit,
+    val setUnit: (Int, String) -> Unit,
+    val setBullets: (Int, List<String>) -> Unit,
+    val setDiscMode: (Int, DiscountMode) -> Unit,
+    val setDiscPct: (Int, Int) -> Unit,
+    val setDiscAmt: (Int, String) -> Unit,
+    val remove: (Int) -> Unit,
+)
+
+private fun quoteLineOps(vm: QuoteViewModel) = LineOps(
+    toggle = vm::toggleLine, setQty = vm::setQty, setPrice = vm::setPrice, setUnit = vm::setUnitLabel,
+    setBullets = vm::setLineBullets, setDiscMode = vm::setLineDiscMode, setDiscPct = vm::setDiscount,
+    setDiscAmt = vm::setLineDiscAmt, remove = vm::removeLine,
+)
+
+private fun billLineOps(vm: QuoteViewModel) = LineOps(
+    toggle = vm::toggleBillLine, setQty = vm::setBillQty, setPrice = vm::setBillPrice, setUnit = vm::setBillUnitLabel,
+    setBullets = vm::setBillLineBullets, setDiscMode = vm::setBillLineDiscMode, setDiscPct = vm::setBillDiscount,
+    setDiscAmt = vm::setBillLineDiscAmt, remove = vm::removeBillLine,
+)
+
+/**
+ * One line, collapsed to its title and its money, opened to be worked on.
+ *
+ * A line the counter may not touch — one that came across from a quote the customer has
+ * already agreed — is passed `editable = false`, and then it simply does not open. [note]
+ * is the one word that says which kind it is on the bill: "quoted", or "added now".
+ */
+@Composable
+private fun LineCard(
+    l: QuoteLine,
+    i: Int,
+    lineTotal: Long,
+    editable: Boolean,
+    ops: LineOps,
+    note: String? = null,
+    noteColor: Color = TextMuted,
+) {
+    val discNote = when {
+        l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
+        l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
+        else -> ""
+    }
+    Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Color(0xFFF1F4F7), RoundedCornerShape(12.dp)).border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))) {
+        Row(Modifier.fillMaxWidth().clickable(enabled = editable) { ops.toggle(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("×${l.qty}${if (l.unitLabel.isNotBlank()) " ${l.unitLabel}" else ""}$discNote", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                    if (note != null) Text("·  $note", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = noteColor)
+                }
+                // Collapsed, the description is one muted line — enough to know it
+                // is there. Expanded, it renders properly underneath.
+                if (!l.expanded) {
+                    val flat = richToPlainText(parseRichDoc(l.richJson)).ifBlank { l.description.orEmpty() }
+                    if (flat.isNotBlank()) {
+                        Text(
+                            flat.replace("\n", " · "),
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp,
+                            color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+            }
+            Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
+        }
+        if (l.expanded) Column(Modifier.fillMaxWidth().padding(start = 13.dp, end = 13.dp, bottom = 11.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // qty · unit price · remove
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StepBtn("−") { ops.setQty(i, l.qty - 1) }
+                Text(l.qty.toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1)
+                StepBtn("+") { ops.setQty(i, l.qty + 1) }
+                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
+                Text("Rs", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextMuted)
+                FilledInput(
+                    value = l.priceText, onValueChange = { ops.setPrice(i, it) },
+                    placeholder = "0.00", modifier = Modifier.weight(1f), height = 40.dp,
+                    radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
+                )
+                FilledInput(
+                    value = l.unitLabel, onValueChange = { ops.setUnit(i, it) },
+                    placeholder = "unit", modifier = Modifier.width(88.dp), height = 40.dp,
+                    radius = 10.dp, bg = CardBg, fontFamily = Barlow, fontSize = 13.sp,
+                )
+                Box(Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp)).clickable { ops.remove(i) }, contentAlignment = Alignment.Center) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
+            }
+            LineDescription(l, i) { rows -> ops.setBullets(i, rows) }
+            // discount: % presets or a typed Rs amount (VAT-inclusive, like the DB)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
+                    val on = l.discountMode == m
+                    Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { ops.setDiscMode(i, m) }.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
+                        Text(lb, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
+                    }
+                }
+                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
+                if (l.discountMode == DiscountMode.PCT) {
+                    listOf(0, 5, 10, 15, 20).forEach { d ->
+                        val on = l.discountPct == d
+                        Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { ops.setDiscPct(i, d) }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+                            Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
+                        }
+                    }
+                    Spacer(Modifier.weight(1f))
+                } else {
+                    FilledInput(
+                        value = l.discountAmtText, onValueChange = { ops.setDiscAmt(i, it) },
+                        placeholder = "Rs off (incl. VAT)", modifier = Modifier.weight(1f), height = 40.dp,
+                        radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
+                    )
+                }
             }
         }
     }
@@ -625,6 +676,19 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     .clickable(enabled = !s.busy) { vm.reviseQuote() }.padding(horizontal = 13.dp),
                 contentAlignment = Alignment.Center,
             ) { Text(if (s.busy) "…" else "Revise", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
+            // The customer walks the shop while their car is in and asks for something else.
+            // That goes on the BILL, not on the quotation: the quotation is the price they
+            // signed, and reopening it for a bottle of wax would mean a revision and a fresh
+            // signature for something nobody is negotiating. The bill is what they pay, and it
+            // is still a draft until they do — so this just adds, with no ceremony at all.
+            if (!s.billed) {
+                Box(
+                    Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
+                        .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
+                        .clickable(enabled = !s.busy) { vm.convertToInvoice() }.padding(horizontal = 13.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (s.busy) "…" else "+ Add to bill", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
+            }
         }
         Spacer(Modifier.weight(1f))
         Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)

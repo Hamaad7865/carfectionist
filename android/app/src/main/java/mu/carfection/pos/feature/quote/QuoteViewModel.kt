@@ -118,6 +118,17 @@ fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
     if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
 }
 
+/**
+ * Which lines on a bill the counter may still work on.
+ *
+ * Pulled out of the view model so the rule can be tested without one, and so there is a
+ * single place that says it. The first [quotedCount] lines came across from the quotation —
+ * that is the price the customer agreed, and no amount of tapping here re-opens it.
+ * Everything after them was added at the counter and is a line like any other.
+ */
+fun billLineEditable(index: Int, quotedCount: Int, lineCount: Int) =
+    index >= quotedCount && index >= 0 && index < lineCount
+
 /** A line at a given price in cents — keeps the constructor call sites readable. */
 fun quoteLine(productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1, gross: Boolean = false): QuoteLine =
     QuoteLine(
@@ -1296,11 +1307,13 @@ class QuoteViewModel @Inject constructor(
                 // re-bill a draft the server no longer has.
             }.onSuccess { (draft, lines) ->
                 if (lines.isEmpty() && draft.status != null && draft.status != "draft") {
-                    _s.update { it.copy(busy = false, acceptOpen = false, status = "accepted", billed = true, createdInvoiceRef = draft.number ?: "Invoice issued") }
+                    _s.update { it.copy(busy = false, acceptOpen = false, linesOpen = false, status = "accepted", billed = true, createdInvoiceRef = draft.number ?: "Invoice issued") }
                 } else {
                     _s.update {
                         it.copy(
-                            busy = false, acceptOpen = false, status = "accepted",
+                            // The quote's own lines panel gets out of the way: the bill is what
+                            // is being worked on now, and it wants the same side of the screen.
+                            busy = false, acceptOpen = false, linesOpen = false, status = "accepted",
                             billOpen = true, billDocId = draft.id, billLines = lines, billQuotedCount = lines.size,
                         )
                     }
@@ -1328,12 +1341,53 @@ class QuoteViewModel @Inject constructor(
         )
     }
 
+    /**
+     * A line added at the counter is a full line, worked on exactly as a quote line is —
+     * its price, its unit, its discount, what it includes.
+     *
+     * The lines that came across from the quote are not: that is the price the customer
+     * agreed, and this screen does not get to re-open it. The guard lives here and not
+     * only in the UI, because this is the function that would change an agreed price.
+     */
+    private fun billEditable(st: QuoteState, i: Int) = billLineEditable(i, st.billQuotedCount, st.billLines.size)
+
+    private fun mapBillLine(i: Int, f: (QuoteLine) -> QuoteLine) = _s.update { st ->
+        if (!billEditable(st, i)) st
+        else st.copy(billLines = st.billLines.mapIndexed { j, l -> if (j == i) f(l) else l })
+    }
+
+    fun toggleBillLine(i: Int) = _s.update { st ->
+        if (!billEditable(st, i)) st
+        else st.copy(billLines = st.billLines.mapIndexed { j, l -> l.copy(expanded = j == i && !l.expanded) })
+    }
+
     fun setBillQty(i: Int, q: Int) = _s.update { st ->
-        if (q <= 0) st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i })
+        if (!billEditable(st, i)) st
+        else if (q <= 0) st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i })
         else st.copy(billLines = st.billLines.mapIndexed { j, l -> if (j == i) l.copy(qty = q) else l })
     }
 
-    fun removeBillLine(i: Int) = _s.update { st -> st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i }) }
+    fun setBillPrice(i: Int, t: String) = mapBillLine(i) { it.copy(priceText = moneyText(t)) }
+    fun setBillUnitLabel(i: Int, t: String) = mapBillLine(i) { it.copy(unitLabel = t.take(24)) }
+    fun setBillLineDiscMode(i: Int, m: DiscountMode) = mapBillLine(i) { it.copy(discountMode = m) }
+    fun setBillDiscount(i: Int, d: Int) = mapBillLine(i) { it.copy(discountPct = d) }
+    fun setBillLineDiscAmt(i: Int, t: String) = mapBillLine(i) { it.copy(discountAmtText = moneyText(t)) }
+
+    /** Same rule as [setLineBullets]: bullets only, and never over something richer. */
+    fun setBillLineBullets(i: Int, bullets: List<String>) = _s.update { st ->
+        val line = st.billLines.getOrNull(i) ?: return@update st
+        if (!billEditable(st, i) || !isBulletsOnly(parseRichDoc(line.richJson))) return@update st
+        val doc = bulletsToRichDoc(bullets)
+        st.copy(
+            billLines = st.billLines.mapIndexed { j, l ->
+                if (j != i) l else l.copy(richJson = doc?.let { richDocToJson(it) }, description = doc?.let { richToPlainText(it) })
+            },
+        )
+    }
+
+    fun removeBillLine(i: Int) = _s.update { st ->
+        if (!billEditable(st, i)) st else st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i })
+    }
 
     fun billTotals(s: QuoteState): DocDiscountTotals = computeDocTotals(
         s.billLines.map {
@@ -1354,8 +1408,15 @@ class QuoteViewModel @Inject constructor(
      *  convert_quote_to_invoice is idempotent, so billing again returns the same one. */
     fun closeBill() = _s.update { it.copy(billOpen = false, billLines = emptyList(), billDocId = null) }
 
-    /** Everything the customer is taking today, priced and issued as one bill. */
-    fun issueTheBill() {
+    /**
+     * Everything the customer is taking today, priced and issued as one bill.
+     *
+     * Issuing is not collecting. The car is usually still in the workshop when the extras
+     * go on, and the money is taken when the job is done — so the bill is raised, left to
+     * be paid, and the screen stays put. [takePayment] is the counter saying otherwise,
+     * for the customer who wants to settle there and then.
+     */
+    fun issueTheBill(takePayment: Boolean = false) {
         val s = _s.value
         val id = s.billDocId ?: return
         val cid = s.customerId ?: return
@@ -1380,28 +1441,17 @@ class QuoteViewModel @Inject constructor(
                         billed = true, createdInvoiceRef = n ?: "Invoice issued",
                     )
                 }
-                if (_s.value.takesPayments) collectBus.request(id, null)
+                if (takePayment && _s.value.takesPayments) collectBus.request(id, null)
                 loadQuotes()
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 
+    /** The same payload a quote line sends. It used to be a second, thinner copy that
+     *  hard-coded `description` to null and never sent `unit_label` — so a line written
+     *  at the counter reached the invoice stripped of what it said it included. */
     private fun billLinesJson(s: QuoteState): JsonArray = buildJsonArray {
-        s.billLines.forEachIndexed { i, l ->
-            add(buildJsonObject {
-                if (l.productId != null) put("product_id", l.productId) else put("product_id", JsonNull)
-                put("title", l.title)
-                put("description", JsonNull)
-                put("qty", l.qty)
-                put("unit_price", centsToRupees(l.unitCents))
-                put("discount_pct", if (l.discountMode == DiscountMode.PCT) l.discountPct else 0)
-                put("discount_kind", if (l.discountMode == DiscountMode.AMT) "amount" else "percent")
-                put("discount_amount", if (l.discountMode == DiscountMode.AMT) centsToRupees(l.discountAmtCents) else 0.0)
-                put("vat_rate", l.vatRate)
-                put("sort_order", i)
-                if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
-            })
-        }
+        s.billLines.forEachIndexed { i, l -> add(quoteLineJson(l, i)) }
     }
 
     fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null, createdInvoiceRef = null, sendDone = null, sendError = null, sendBusy = false) }
