@@ -191,8 +191,16 @@ data class QuoteState(
 private fun QuoteRowDto.isRetired(): Boolean {
     if (status == "void") return true
     if (job?.status == "delivered" || job?.status == "cancelled") return true
+    // Retired once the money question is closed, which happens two ways:
+    //  • every bill it ever had was voided — nothing owed, nothing booked (A00023);
+    //  • or a bill has been PAID — the work is agreed, billed and settled, and the
+    //    receipt lives in Sales. A00053 was signed with INV-0063 paid in full and still
+    //    sat in the working list reading as something to chase.
+    // An issued-but-unpaid bill deliberately stays live: that is money still to collect,
+    // and this list is how the shop finds it. Same for partly paid.
     val bills = invoices.filter { it.docType == "invoice" }
-    return bills.isNotEmpty() && bills.all { it.status == "void" }
+    if (bills.isEmpty()) return false
+    return bills.all { it.status == "void" } || bills.any { it.status == "paid" }
 }
 
 private fun QuoteRowDto.matches(q: String): Boolean {

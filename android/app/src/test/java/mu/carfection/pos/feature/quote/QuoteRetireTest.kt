@@ -30,7 +30,8 @@ class QuoteRetireTest {
         if (q.status == "void") return true
         if (q.job?.status == "delivered" || q.job?.status == "cancelled") return true
         val bills = q.invoices.filter { it.docType == "invoice" }
-        return bills.isNotEmpty() && bills.all { it.status == "void" }
+        if (bills.isEmpty()) return false
+        return bills.all { it.status == "void" } || bills.any { it.status == "paid" }
     }
 
     @Test
@@ -44,6 +45,26 @@ class QuoteRetireTest {
             "money is still outstanding here",
             !retired(quote(invoices = listOf("INV-0040" to "void", "INV-0041" to "issued"))),
         )
+    }
+
+    /**
+     * The owner's case: A00053, signed, with INV-0063 paid in full — and still sitting in
+     * the working list offering to create a job. Agreed, billed and settled is finished
+     * business; the receipt is found in Sales, not here.
+     */
+    @Test
+    fun `a paid bill retires the quote`() {
+        assertTrue(retired(quote(invoices = listOf("INV-0063" to "paid"))))
+        assertTrue(
+            "a re-bill that got paid counts, whatever was voided before it",
+            retired(quote(invoices = listOf("INV-0062" to "void", "INV-0063" to "paid"))),
+        )
+    }
+
+    /** Part-paid is not paid: there is still a balance to chase. */
+    @Test
+    fun `a partly paid bill keeps the quote live`() {
+        assertFalse(retired(quote(invoices = listOf("INV-0063" to "partly_paid"))))
     }
 
     /**

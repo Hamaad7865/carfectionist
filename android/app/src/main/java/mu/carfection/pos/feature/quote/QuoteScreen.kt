@@ -273,7 +273,8 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
         )
         if (s.listQuery.isBlank() && retired > 0) {
             Text(
-                "$retired delivered — search to find them",
+                // "Delivered" no longer covers it: billed and voided quotes retire here too.
+                "$retired settled — search to find them",
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
             )
         }
@@ -300,7 +301,7 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(
                 if (s.listQuery.isNotBlank()) "No quote matches “${s.listQuery}”."
-                else if (s.quotes.isNotEmpty()) "Every quote is delivered — search to find one."
+                else if (s.quotes.isNotEmpty()) "Every quote is settled — search to find one."
                 else "No quotes yet — start one from Intake, or tap New quote.",
                 color = TextMuted, fontFamily = Barlow, fontSize = 14.sp,
             )
