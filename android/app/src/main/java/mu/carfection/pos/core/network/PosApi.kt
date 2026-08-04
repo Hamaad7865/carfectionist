@@ -199,9 +199,18 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    /**
+     * Every column QuoteLineDto declares — and it must stay that way.
+     *
+     * PostgREST returns only what is asked for, so a field missing here decodes as
+     * null, and save_draft then writes that null back over a real value. That is
+     * exactly how description_richtext and unit_label were erased on the first
+     * end-to-end run: the DTO knew about them, the payload carried them, and this
+     * list did not mention them. QuoteLineColumnsTest pins the two together.
+     */
     suspend fun fetchQuoteLines(quoteId: String): List<QuoteLineDto> =
         client.postgrest.from("document_lines")
-            .select(Columns.raw("product_id, title, description, qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate, line_kind")) {
+            .select(Columns.raw(QUOTE_LINE_COLUMNS)) {
                 filter { eq("document_id", quoteId) }
                 order("sort_order", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }

@@ -4,6 +4,8 @@ import { getSessionContext } from "@/lib/auth/session";
 import { resolveDocAssets, type DocAssets } from "@/lib/pdf/assets";
 import { productPhotoUrl } from "@/lib/supabase/storage";
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
+import { parseRichDoc } from "@/lib/rich/schema";
+import type { RichDoc } from "@/lib/rich/types";
 import type { BuilderBusiness } from "@/features/documents/builder/toDocumentProps";
 
 export interface CatalogueProduct {
@@ -120,6 +122,8 @@ export interface LoadedDraft {
     productId: string | null;
     title: string;
     description: string;
+    rich: RichDoc | null;
+    unitLabel: string;
     qty: number;
     unitCents: number;
     discountPct: number;
@@ -162,6 +166,8 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
       productId: l.product_id,
       title: l.title,
       description: l.description ?? "",
+      rich: parseRichDoc(l.description_richtext),
+      unitLabel: l.unit_label ?? "",
       qty: Number(l.qty),
       unitCents: rupeesToCents(Number(l.unit_price)),
       discountPct: Number(l.discount_pct),

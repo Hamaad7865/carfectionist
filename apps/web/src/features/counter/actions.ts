@@ -88,7 +88,11 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     return {
       product_id: l.productId,
       title: prod.name as string,
+      // A counter sale is a product off the shelf rung up at the till — there is no
+      // authoring surface here and never will be, so both stay null deliberately.
       description: null,
+      description_richtext: null,
+      unit_label: null,
       qty: l.qty,
       unit_price: Number(prod.selling_price),
       discount_pct: l.discountPct ?? 0,

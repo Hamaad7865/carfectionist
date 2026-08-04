@@ -8,7 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -21,6 +23,11 @@ import mu.carfection.pos.core.data.IntakeHandoffBus
 import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.rich.bulletsToRichDoc
+import mu.carfection.pos.core.rich.isBulletsOnly
+import mu.carfection.pos.core.rich.parseRichDoc
+import mu.carfection.pos.core.rich.richDocToJson
+import mu.carfection.pos.core.rich.richToPlainText
 import mu.carfection.pos.core.money.DocDiscountTotals
 import mu.carfection.pos.core.money.DocLineIn
 import mu.carfection.pos.core.money.centsToPlainText
@@ -55,6 +62,20 @@ data class QuoteLine(
     val discountPct: Int = 0,
     val discountAmtText: String = "", // Rs off, VAT-inclusive (matches the DB's semantics)
     val expanded: Boolean = false,
+    /** Flat text mirror of [richJson]. Printed by anything that cannot read a tree. */
+    val description: String? = null,
+    /**
+     * The line's rich description, carried opaquely.
+     *
+     * The tablet renders this and can author bullets into it, but it deliberately
+     * does NOT reshape it: a quote drafted at the desk may hold marks and a table
+     * this screen has no editor for, and save_draft replaces every line on every
+     * save. Carrying the tree untouched is what stops a tablet save erasing work
+     * done in the back office.
+     */
+    val richJson: JsonElement? = null,
+    /** Free word beside the quantity — "panels", "hrs". "" = none. */
+    val unitLabel: String = "",
     // priceText is what staff SEE and TYPE. When the shop quotes gross that is the shelf
     // price, and unitCents converts it back to the net the ledger stores — one direction
     // only, so nothing drifts while the field is being edited.
@@ -69,6 +90,32 @@ data class QuoteLine(
         return if (priceIsGross) netFromGrossCents(typed, vatRate) else typed
     }
     val discountAmtCents: Long get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceAtLeast(0)
+}
+
+/**
+ * One line, as save_draft wants it.
+ *
+ * Pulled out of the view model so it can be tested without one. It is the single
+ * place the tablet decides what a line sends, and the place a hard-coded null once
+ * cost every description on the document.
+ */
+fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
+    if (l.productId != null) put("product_id", l.productId) else put("product_id", JsonNull)
+    put("title", l.title)
+    // Carried, never invented. save_draft deletes and re-inserts every line, so
+    // anything this payload omits is deleted from the document.
+    if (l.description.isNullOrBlank()) put("description", JsonNull) else put("description", l.description)
+    put("description_richtext", l.richJson ?: JsonNull)
+    if (l.unitLabel.isBlank()) put("unit_label", JsonNull) else put("unit_label", l.unitLabel.trim())
+    put("qty", l.qty)
+    put("unit_price", centsToRupees(l.unitCents))
+    put("discount_pct", if (l.discountMode == DiscountMode.PCT) l.discountPct else 0)
+    put("discount_kind", if (l.discountMode == DiscountMode.AMT) "amount" else "percent")
+    put("discount_amount", if (l.discountMode == DiscountMode.AMT) centsToRupees(l.discountAmtCents) else 0.0)
+    put("vat_rate", l.vatRate)
+    put("sort_order", sortOrder)
+    // Only a typed-in line states one; a catalogue line leaves it to the product.
+    if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
 }
 
 /** A line at a given price in cents — keeps the constructor call sites readable. */
@@ -487,6 +534,9 @@ class QuoteViewModel @Inject constructor(
                                 discountPct = it.discountPct.toInt(),
                                 discountAmtText = if (it.discountKind == "amount" && it.discountAmount > 0) centsToPlainText(rupeesToCents(it.discountAmount)) else "",
                                 lineKind = it.lineKind,
+                                description = it.description,
+                                richJson = it.descriptionRichtext,
+                                unitLabel = it.unitLabel.orEmpty(),
                             )
                         })
                     }
@@ -594,6 +644,36 @@ class QuoteViewModel @Inject constructor(
     fun setPrice(i: Int, t: String) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(priceText = moneyText(t)) else l }) }
     fun setLineDiscMode(i: Int, m: DiscountMode) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountMode = m) else l }) }
     fun setLineDiscAmt(i: Int, t: String) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountAmtText = moneyText(t)) else l }) }
+
+    fun setUnitLabel(i: Int, t: String) = _s.update { st ->
+        if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(unitLabel = t.take(24)) else l })
+    }
+
+    /**
+     * Replace a line's description with these bullet rows.
+     *
+     * Refuses when the line holds something the tablet cannot author — a table, a
+     * numbered list, bold text. The screen does not offer the editor in that case
+     * either, but the guard lives here too: this is the function that would destroy
+     * the back office's work, so this is where it says no.
+     */
+    fun setLineBullets(i: Int, bullets: List<String>) = _s.update { st ->
+        if (!editable(st)) return@update st
+        val line = st.lines.getOrNull(i) ?: return@update st
+        if (!isBulletsOnly(parseRichDoc(line.richJson))) return@update st
+        val doc = bulletsToRichDoc(bullets)
+        st.copy(
+            lines = st.lines.mapIndexed { j, l ->
+                if (j != i) l
+                else l.copy(
+                    richJson = doc?.let { richDocToJson(it) },
+                    // The flat mirror is derived here exactly as it is on the web, so
+                    // the two platforms can never write different text for one tree.
+                    description = doc?.let { richToPlainText(it) },
+                )
+            },
+        )
+    }
 
     // ── basket (order-level) discount ────────────────────────────────────────────
     fun setBasketMode(m: DiscountMode) = _s.update { if (!editable(it)) it else it.copy(basketMode = m, basketText = "") }
@@ -913,22 +993,7 @@ class QuoteViewModel @Inject constructor(
     fun viewJob() { _s.value.jobId?.let { openJobBus.request(it) } }
 
     private fun linesJson(s: QuoteState): JsonArray = buildJsonArray {
-        s.lines.forEachIndexed { i, l ->
-            add(buildJsonObject {
-                if (l.productId != null) put("product_id", l.productId) else put("product_id", JsonNull)
-                put("title", l.title)
-                put("description", JsonNull)
-                put("qty", l.qty)
-                put("unit_price", centsToRupees(l.unitCents))
-                put("discount_pct", if (l.discountMode == DiscountMode.PCT) l.discountPct else 0)
-                put("discount_kind", if (l.discountMode == DiscountMode.AMT) "amount" else "percent")
-                put("discount_amount", if (l.discountMode == DiscountMode.AMT) centsToRupees(l.discountAmtCents) else 0.0)
-                put("vat_rate", l.vatRate)
-                put("sort_order", i)
-                // Only a typed-in line states one; a catalogue line leaves it to the product.
-                if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
-            })
-        }
+        s.lines.forEachIndexed { i, l -> add(quoteLineJson(l, i)) }
     }
 
     fun askDelete() = _s.update { it.copy(confirmDelete = true, error = null) }

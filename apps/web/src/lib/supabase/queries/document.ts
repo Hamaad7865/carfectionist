@@ -2,6 +2,8 @@ import { createClient } from "@/lib/supabase/server";
 import { presentLine, presentLineDiscount, type PresentedDiscount } from "@/lib/money";
 import { rupeesToCents } from "@/lib/money";
 import { signVehiclePhotos } from "@/lib/supabase/storage";
+import { parseRichDoc } from "@/lib/rich/schema";
+import type { RichDoc } from "@/lib/rich/types";
 import type { Marker } from "@/features/intake/damage";
 
 export interface DocIntake {
@@ -74,6 +76,8 @@ export interface DocumentDetail {
   lines: {
     title: string;
     description: string | null;
+    rich: RichDoc | null;
+    unit: string | null;
     qty: number;
     rateCents: number;
     amountCents: number;
@@ -214,6 +218,10 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,
       description: l.description,
+      // Same parse as the PDF path, so this screen and the document it links to
+      // can never disagree about what a line says.
+      rich: parseRichDoc(l.description_richtext),
+      unit: l.unit_label ?? null,
       qty: Number(l.qty),
       // presentLine, not a third hand-rolled derivation: this screen showed NET while its own
       // PDF showed GROSS, so one invoice had two sets of Rate/Amount figures.

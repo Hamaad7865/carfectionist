@@ -4,7 +4,22 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink } from "lucide-react";
+import dynamic from "next/dynamic";
+import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink, ChevronUp, ChevronDown, Copy, AlignLeft } from "lucide-react";
+import { richToPlainText } from "@/lib/rich/plain";
+
+/**
+ * ProseMirror builds against a real DOM at construction time and the Workers
+ * runtime has no DOM, so the editor must never be part of the SSR pass — being
+ * inside a "use client" file is not enough, Next still prerenders client trees on
+ * the server. `next dev` will not catch this; the OpenNext preview will.
+ */
+const RichEditor = dynamic(() => import("./RichEditor"), {
+  ssr: false,
+  loading: () => (
+    <div className="rounded-[9px] border border-line-2 bg-sub px-3 py-4 text-[12px] text-faint">Loading editor…</div>
+  ),
+});
 import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput, grossCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -13,7 +28,7 @@ import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext } from "@/lib/supabase/queries/builder";
-import { reducer, type BuilderState } from "./state";
+import { reducer, toSaveDraftLines, type BuilderState } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
 import { btn } from "@/components/ui/button";
 
@@ -71,6 +86,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [busy, setBusy] = useState(false);
   const [showPreview, setShowPreview] = useState(true);
   const [catQuery, setCatQuery] = useState("");
+  const [openDesc, setOpenDesc] = useState<string | null>(null); // which line's description is being edited
   const [catKind, setCatKind] = useState<"all" | "service" | "product">("all");
   const [custQuery, setCustQuery] = useState("");
   const [adName, setAdName] = useState("");
@@ -103,17 +119,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       dispatch({ type: "saveStart" });
       const payload: SaveDraftInput = {
         doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, comment: s.comment, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue },
-        lines: s.lines.map((l) => ({
-          productId: l.productId,
-          title: l.title,
-          description: l.description || null,
-          qty: l.qty,
-          unitCents: l.unitCents,
-          discountPct: l.discountPct,
-          discountKind: l.discountKind,
-          discountAmountCents: l.discountAmountCents,
-          vatRatePct: l.vatRatePct,
-        })),
+        lines: toSaveDraftLines(s.lines),
         expectedRev: serverRef.current.docId ? serverRef.current.revision : null,
       };
       const res = await saveDraftAction(payload);
@@ -233,7 +239,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (!adName.trim()) return;
     // Typed as the shelf price when the shop quotes gross — store the net the ledger adds VAT to.
     const cents = ctx.pricesInclVat ? netFromGrossCents(typed, 15) : typed;
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: adKind } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -417,7 +423,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         key={p.id}
                         onClick={() => {
                           // From the catalogue: the product's own kind answers, so this stays null.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct, lineKind: null } });
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -470,13 +476,42 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
               <div className="rounded-[11px] border border-dashed border-line-2 p-6 text-center text-[12.5px] font-semibold text-faint">No lines yet — add from the catalogue or type an ad-hoc line</div>
             ) : (
               <div className="flex flex-col gap-2">
-                {state.lines.map((l) => {
+                {state.lines.map((l, li) => {
                   const net = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct }).exclCents;
+                  const descOpen = openDesc === l.key;
+                  const summary = l.rich ? richToPlainText(l.rich) : l.description;
                   return (
-                    <div key={l.key} className="flex flex-wrap items-center gap-2.5 rounded-[11px] border border-line bg-card px-3 py-2.5">
+                    <div key={l.key} className="rounded-[11px] border border-line bg-card">
+                    <div className="flex flex-wrap items-center gap-2.5 px-3 py-2.5">
+                      {!readOnly && (
+                        /* The rail sits BESIDE the row, not as icons on top of the
+                           content — Refrens hides these behind a hover on the row
+                           itself, which is unfindable on a tablet. */
+                        <div className="flex flex-col gap-px" title="Move this line">
+                          <button
+                            onClick={() => dispatch({ type: "moveLine", key: l.key, by: -1 })}
+                            disabled={li === 0}
+                            aria-label="Move line up"
+                            className="grid h-3.5 w-5 place-items-center rounded-t-[5px] border border-line-2 text-faint hover:text-ink disabled:opacity-30"
+                          >
+                            <ChevronUp size={11} />
+                          </button>
+                          <button
+                            onClick={() => dispatch({ type: "moveLine", key: l.key, by: 1 })}
+                            disabled={li === state.lines.length - 1}
+                            aria-label="Move line down"
+                            className="grid h-3.5 w-5 place-items-center rounded-b-[5px] border border-line-2 text-faint hover:text-ink disabled:opacity-30"
+                          >
+                            <ChevronDown size={11} />
+                          </button>
+                        </div>
+                      )}
                       <div className="min-w-0 flex-1 basis-full sm:basis-0">
                         <div className="truncate text-[13px] font-semibold text-ink">{l.title || "—"}</div>
                         {l.productId === null && <span className="text-[8.5px] font-bold tracking-[0.1em] text-[#6a55d6]">AD-HOC</span>}
+                        {!descOpen && summary && (
+                          <div className="truncate text-[11px] text-faint" title={summary}>{summary.replace(/\n/g, " · ")}</div>
+                        )}
                       </div>
                       <button
                         onClick={() => !readOnly && dispatch({ type: "patchLine", key: l.key, patch: { vatRatePct: l.vatRatePct > 0 ? 0 : 15 } })}
@@ -532,12 +567,53 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                           <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: Math.max(1, l.qty - 1) } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-[#e9edf3] text-[14px] font-bold text-body">−</button>
                           <span className="num min-w-4 text-center text-[13px] font-bold text-ink">{l.qty}</span>
                           <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: l.qty + 1 } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-[#e9edf3] text-[14px] font-bold text-body">+</button>
+                          <input
+                            value={l.unitLabel}
+                            onChange={(e) => dispatch({ type: "patchLine", key: l.key, patch: { unitLabel: e.target.value.slice(0, 24) } })}
+                            placeholder="unit"
+                            title={'Unit shown beside the quantity — "panels", "hrs". Leave blank for none.'}
+                            className="h-7 w-[58px] rounded-[7px] border border-line-2 bg-sub px-2 text-[11.5px] text-ink outline-none placeholder:text-faint focus:border-brand"
+                          />
                         </div>
                       )}
+                      {readOnly && l.unitLabel && <span className="text-[12px] text-muted">{l.unitLabel}</span>}
                       <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(ctx.pricesInclVat ? grossCents(net, l.vatRatePct) : net)}</span>
                       {!readOnly && (
-                        <button onClick={() => dispatch({ type: "removeLine", key: l.key })} className="grid size-[26px] place-items-center rounded-[7px] bg-[rgba(255,84,104,0.12)] text-rose"><X size={13} strokeWidth={2.6} /></button>
+                        <>
+                          <button
+                            onClick={() => setOpenDesc(descOpen ? null : l.key)}
+                            aria-expanded={descOpen}
+                            title={summary ? "Edit this line's description" : "Add a description to this line"}
+                            className={`grid size-[26px] place-items-center rounded-[7px] border ${descOpen || summary ? "border-brand bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-sub text-faint hover:text-body"}`}
+                          >
+                            <AlignLeft size={13} />
+                          </button>
+                          <button
+                            onClick={() => dispatch({ type: "duplicateLine", key: l.key })}
+                            title="Duplicate this line"
+                            aria-label="Duplicate line"
+                            className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-sub text-faint hover:text-body"
+                          >
+                            <Copy size={13} />
+                          </button>
+                          <button onClick={() => dispatch({ type: "removeLine", key: l.key })} aria-label="Remove line" className="grid size-[26px] place-items-center rounded-[7px] bg-[rgba(255,84,104,0.12)] text-rose"><X size={13} strokeWidth={2.6} /></button>
+                        </>
                       )}
+                    </div>
+                    {!readOnly && descOpen && (
+                      <div className="px-3 pb-3">
+                        <RichEditor
+                          value={l.rich}
+                          onChange={(doc) => dispatch({ type: "patchLine", key: l.key, patch: { rich: doc } })}
+                          onClose={() => setOpenDesc(null)}
+                        />
+                        {!l.rich && l.description && (
+                          <p className="mt-1.5 text-[11px] text-faint">
+                            This line has an older plain-text description: &ldquo;{l.description}&rdquo;. Typing above replaces it.
+                          </p>
+                        )}
+                      </div>
+                    )}
                     </div>
                   );
                 })}

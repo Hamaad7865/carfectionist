@@ -11,6 +11,7 @@ import { getSessionContext, requireRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import * as rpc from "@/lib/supabase/rpc";
 import { btn } from "@/components/ui/button";
+import { RichContent } from "@/lib/rich/render";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
@@ -326,7 +327,16 @@ export default async function DocumentDetailPage({
               <div key={i} className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line px-5 py-2.5">
                 <div>
                   <div className="text-[13px] font-semibold text-ink">{l.title}</div>
-                  {l.description && <div className="whitespace-pre-wrap text-[12px] text-muted">{l.description}</div>}
+                  {/* Same renderer the PDF uses. This screen once derived its own
+                      figures and disagreed with the document it links to; the
+                      description is not going to repeat that. */}
+                  {l.rich ? (
+                    <div className="text-[12px] text-muted">
+                      <RichContent doc={l.rich} />
+                    </div>
+                  ) : l.description ? (
+                    <div className="whitespace-pre-wrap text-[12px] text-muted">{l.description}</div>
+                  ) : null}
                   {/* Name the discount on the line that got it. Without this the row read
                       "Rate 660.00 / Amount 626.99" and nothing on the page said why. */}
                   {l.discount && (
@@ -335,7 +345,7 @@ export default async function DocumentDetailPage({
                     </div>
                   )}
                 </div>
-                <span className="num text-right text-[12.5px] text-muted">{l.qty}</span>
+                <span className="num text-right text-[12.5px] text-muted">{l.unit ? `${l.qty} ${l.unit}` : l.qty}</span>
                 <span className="num text-right text-[12.5px] text-body">{formatMUR(l.rateCents)}</span>
                 <span className="num text-right text-[13px] font-semibold text-ink">
                   {l.discount && (

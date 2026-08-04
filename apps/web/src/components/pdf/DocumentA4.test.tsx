@@ -98,3 +98,75 @@ describe("DocumentA4 — client acceptance stamp", () => {
     expect(html).not.toContain("Accepted by the client");
   });
 });
+
+describe("DocumentA4 — a line that explains itself", () => {
+  // The line this whole feature exists for: a Rs 30,434.78 price with the four
+  // bullets underneath that justify it.
+  const diamondbrite = {
+    schemaVersion: 1 as const,
+    blocks: [
+      {
+        type: "ul" as const,
+        items: [
+          [{ text: "Full Vehicle decontamination" }],
+          [{ text: "Paint Correction ( 1 - 5 Step polishing depending on surface damages)" }],
+          [{ text: "Ceramic Coating 3 years protection on body only" }],
+          [{ text: "Plastic treatment and restoration" }],
+        ],
+      },
+    ],
+  };
+
+  it("prints the bullets as a real list under the title", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4
+        {...base}
+        lines={[{ title: "Diamondbrite 3 YEARS PROTECTION Exterior only", qty: 1, rateCents: 3043478, amountCents: 3043478, rich: diamondbrite }]}
+      />,
+    );
+    expect(html).toContain("<ul");
+    // Inside list items, not run together in one pre-wrap blob. (Counting every
+    // <li on the page would also catch the terms list at the foot of the document.)
+    expect(html).toContain("Full Vehicle decontamination</li>");
+    expect(html).toContain("Paint Correction ( 1 - 5 Step polishing depending on surface damages)</li>");
+    expect(html).toContain("Ceramic Coating 3 years protection on body only</li>");
+    expect(html).toContain("Plastic treatment and restoration</li>");
+  });
+
+  it("still prints a plain detail for a line saved before rich content existed", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} lines={[{ title: "Wash", qty: 1, rateCents: 30000, amountCents: 30000, detail: "Exterior only" }]} />,
+    );
+    expect(html).toContain("Exterior only");
+  });
+
+  it("prefers the tree over the flat mirror when a line carries both", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4
+        {...base}
+        lines={[{ title: "X", qty: 1, rateCents: 100, amountCents: 100, detail: "flat mirror", rich: diamondbrite }]}
+      />,
+    );
+    expect(html).toContain("Full Vehicle decontamination");
+    expect(html).not.toContain("flat mirror");
+  });
+
+  it("shows the unit beside the quantity", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} lines={[{ title: "Waterspot treatment", qty: 3, unit: "panels", rateCents: 100000, amountCents: 300000 }]} />,
+    );
+    expect(html).toContain("3 panels");
+  });
+
+  it("keeps a bare quantity when the line has no unit", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} lines={[{ title: "Wash", qty: 2, rateCents: 100000, amountCents: 200000 }]} />,
+    );
+    expect(html).not.toContain("2 undefined");
+  });
+
+  it("tells the printer not to split a table inside a line across pages", () => {
+    const html = renderToStaticMarkup(<DocumentA4 {...base} />);
+    expect(html).toContain("table { page-break-inside: avoid; }");
+  });
+});

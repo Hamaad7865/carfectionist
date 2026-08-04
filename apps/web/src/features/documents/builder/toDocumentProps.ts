@@ -42,6 +42,8 @@ export function toDocumentProps(
   const lines = state.lines.map((l, i) => ({
     title: l.title || "—",
     detail: l.description || null,
+    rich: l.rich ?? null,
+    unit: l.unitLabel?.trim() || null,
     qty: l.qty,
     rateCents: opts.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents,
     amountCents: opts.pricesInclVat

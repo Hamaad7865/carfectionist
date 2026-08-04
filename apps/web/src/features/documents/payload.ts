@@ -1,5 +1,10 @@
 import { z } from "zod";
 import type { RpcDraftDoc, RpcDraftLine } from "@/lib/supabase/rpc";
+import { richDocSchema } from "@/lib/rich/schema";
+import { richToPlainText } from "@/lib/rich/plain";
+
+/** Mirrors the document_lines_unit_label_len CHECK. */
+const MAX_UNIT_LABEL = 24;
 
 /**
  * Builder → RPC boundary. The builder works in integer cents; here we validate
@@ -9,7 +14,11 @@ import type { RpcDraftDoc, RpcDraftLine } from "@/lib/supabase/rpc";
 export const draftLineSchema = z.object({
   productId: z.string().nullable(),
   title: z.string(),
+  // Legacy flat text. Kept for lines saved before rich content existed; for any
+  // line that has a tree, this is DERIVED at the seam below and never trusted.
   description: z.string().nullable().optional(),
+  rich: richDocSchema.nullable().optional(),
+  unitLabel: z.string().max(MAX_UNIT_LABEL).nullable().optional(),
   qty: z.number().positive(),
   unitCents: z.number().int().min(0), // a line can't carry a negative price (audit #10)
   discountPct: z.number().min(0).max(100).optional(),
@@ -69,18 +78,28 @@ export function toRpcDoc(doc: SaveDraftInput["doc"]): RpcDraftDoc {
 }
 
 export function toRpcLines(lines: SaveDraftInput["lines"]): RpcDraftLine[] {
-  return lines.map((l, i) => ({
-    product_id: l.productId,
-    title: l.title,
-    description: l.description ?? null,
-    qty: l.qty,
-    unit_price: l.unitCents / 100, // cents → rupees for numeric(12,2)
-    discount_pct: l.discountPct ?? 0,
-    discount_kind: l.discountKind ?? "percent",
-    discount_amount: (l.discountAmountCents ?? 0) / 100, // cents → rupees (VAT-inclusive)
-    vat_rate: l.vatRatePct,
-    sort_order: i,
-    // Only a hand-typed line states one — null hands the question to the product.
-    line_kind: l.productId ? null : l.lineKind ?? null,
-  }));
+  return lines.map((l, i) => {
+    // The flat mirror is DERIVED, never a second thing to keep in step. A tree that
+    // flattens to nothing — an editor left with one empty paragraph — is not content,
+    // so both columns go back to null rather than storing an empty shell.
+    const flat = richToPlainText(l.rich ?? null);
+    const hasRich = flat.trim().length > 0;
+
+    return {
+      product_id: l.productId,
+      title: l.title,
+      description: hasRich ? flat : (l.description ?? null),
+      description_richtext: hasRich ? (l.rich ?? null) : null,
+      unit_label: l.unitLabel?.trim() || null,
+      qty: l.qty,
+      unit_price: l.unitCents / 100, // cents → rupees for numeric(12,2)
+      discount_pct: l.discountPct ?? 0,
+      discount_kind: l.discountKind ?? "percent",
+      discount_amount: (l.discountAmountCents ?? 0) / 100, // cents → rupees (VAT-inclusive)
+      vat_rate: l.vatRatePct,
+      sort_order: i,
+      // Only a hand-typed line states one — null hands the question to the product.
+      line_kind: l.productId ? null : l.lineKind ?? null,
+    };
+  });
 }

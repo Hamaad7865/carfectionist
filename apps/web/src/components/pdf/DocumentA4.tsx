@@ -1,6 +1,8 @@
 import type { CSSProperties } from "react";
 import { amountInWordsMUR } from "@/lib/number-to-words";
 import { effectiveSections, type DocType, type SectionFlags } from "@/lib/pdf/fiscal-lock";
+import { RichContent } from "@/lib/rich/render";
+import type { RichDoc } from "@/lib/rich/types";
 
 /**
  * The Diamondbrite A4 document — one template for quotes and invoices. Pure and
@@ -16,7 +18,12 @@ import { effectiveSections, type DocType, type SectionFlags } from "@/lib/pdf/fi
 
 export interface DocLineView {
   title: string;
+  /** Flat text. Still printed for lines saved before rich content existed. */
   detail?: string | null;
+  /** The structured description. Wins over `detail` when both are present. */
+  rich?: RichDoc | null;
+  /** Free word beside the quantity — "3 panels", "4 hrs". */
+  unit?: string | null;
   qty: number;
   rateCents: number;
   amountCents: number;
@@ -192,6 +199,9 @@ const PRINT_CSS = `
 * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 thead { display: table-header-group; }
 tr { page-break-inside: avoid; }
+/* A table inside a line's rich description is a table in its own right — the rule
+   above only names tr, so without this one a two-row spec table can split. */
+table { page-break-inside: avoid; }
 `;
 
 function BoxLine({ label, value }: { label?: string; value: string }) {
@@ -282,10 +292,18 @@ export function DocumentA4(props: DocumentA4Props) {
                   <td style={{ ...s.tdNo, ...(zebra ?? {}), borderBottom: `1px solid ${HAIR}` }}>{i + 1}.</td>
                   <td style={{ ...s.td, ...(zebra ?? {}) }}>
                     <div style={s.lineTitle}>{l.title}</div>
-                    {l.detail ? <div style={s.lineDetail}>{l.detail}</div> : null}
+                    {/* The tree wins. `detail` is its flat mirror, so printing both
+                        would say the same thing twice. */}
+                    {l.rich ? (
+                      <div style={s.lineDetail}>
+                        <RichContent doc={l.rich} />
+                      </div>
+                    ) : l.detail ? (
+                      <div style={s.lineDetail}>{l.detail}</div>
+                    ) : null}
                     {l.discountNote ? <div style={s.lineDetail}>{l.discountNote}</div> : null}
                   </td>
-                  <td style={{ ...s.tdNum, ...(zebra ?? {}) }}>{l.qty}</td>
+                  <td style={{ ...s.tdNum, ...(zebra ?? {}) }}>{l.unit ? `${l.qty} ${l.unit}` : l.qty}</td>
                   <td style={{ ...s.tdNum, ...(zebra ?? {}) }}>{murRate(l.rateCents)}</td>
                   <td style={{ ...s.tdNum, ...(zebra ?? {}) }}>{mur(l.amountCents)}</td>
                 </tr>

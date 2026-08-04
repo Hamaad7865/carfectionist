@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents, formatMUR, presentLine, presentLineDiscount } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
+import { parseRichDoc } from "@/lib/rich/schema";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 import type { StatementA4Props } from "@/components/pdf/StatementA4";
 import type { ZReportA4Props } from "@/components/pdf/ZReportA4";
@@ -167,6 +168,11 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,
       detail: l.description,
+      // Parsed, not cast: the tablet writes this column too, so a row can hold a
+      // shape this build does not know. parseRichDoc returns null rather than
+      // throwing, which would take out the print page and the emailed PDF at once.
+      rich: parseRichDoc(l.description_richtext),
+      unit: l.unit_label ?? null,
       qty: Number(l.qty),
       // The Rate column states the SHELF price — what the customer was quoted and what the
       // tablet shows — via the same two-step, half-away-from-zero rounding the DB uses, so a

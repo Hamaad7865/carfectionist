@@ -1,11 +1,16 @@
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
 import type { DiscountKind } from "@/lib/money/totals";
+import type { RichDoc } from "@/lib/rich/types";
 
 export interface BuilderLine {
   key: string;
   productId: string | null; // null = ad-hoc typed line
   title: string;
+  /** Flat text from a row saved before rich content existed. Read-only now. */
   description: string;
+  /** The description proper. Its flat mirror is derived at the save seam. */
+  rich: RichDoc | null;
+  unitLabel: string; // "" = no unit shown
   qty: number;
   unitCents: number;
   discountPct: number;
@@ -41,10 +46,36 @@ export function newKey(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * A line, as the save payload wants it.
+ *
+ * One place, because the builder used to hand-list these fields inline and simply
+ * forgot `rich` and `unitLabel` — so everything typed into the description editor was
+ * dropped on the way to the server while every unit test still passed, because the
+ * tests called the conversion directly with a tree the builder never supplied.
+ * state.test.ts now asserts that every field of a BuilderLine except `key` arrives.
+ */
+export function toSaveDraftLines(lines: BuilderLine[]) {
+  return lines.map((l) => ({
+    productId: l.productId,
+    title: l.title,
+    description: l.description || null,
+    rich: l.rich,
+    unitLabel: l.unitLabel,
+    qty: l.qty,
+    unitCents: l.unitCents,
+    discountPct: l.discountPct,
+    discountKind: l.discountKind,
+    discountAmountCents: l.discountAmountCents,
+    vatRatePct: l.vatRatePct,
+    lineKind: l.lineKind,
+  }));
+}
+
 export function blankLine(): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.
-  return { key: newKey(), productId: null, title: "", description: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: "service" };
+  return { key: newKey(), productId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: "service" };
 }
 
 export type BuilderAction =
@@ -53,6 +84,8 @@ export type BuilderAction =
   | { type: "addLine"; line: BuilderLine }
   | { type: "patchLine"; key: string; patch: Partial<BuilderLine> }
   | { type: "removeLine"; key: string }
+  | { type: "moveLine"; key: string; by: -1 | 1 }
+  | { type: "duplicateLine"; key: string }
   | { type: "setDocDiscount"; kind: DiscountKind | null; value: number }
   | { type: "setSection"; key: keyof SectionFlags; value: boolean }
   | { type: "addCustomField"; field?: { label: string; value: string } }
@@ -81,6 +114,26 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
       });
     case "removeLine":
       return touched({ ...state, lines: state.lines.filter((l) => l.key !== action.key) });
+    case "moveLine": {
+      // sort_order is written from the array index and save_draft replaces every
+      // line, so reordering this array IS the persistence. No server work at all.
+      const i = state.lines.findIndex((l) => l.key === action.key);
+      const j = i + action.by;
+      if (i < 0 || j < 0 || j >= state.lines.length) return state;
+      const lines = [...state.lines];
+      [lines[i], lines[j]] = [lines[j], lines[i]];
+      return touched({ ...state, lines });
+    }
+    case "duplicateLine": {
+      const i = state.lines.findIndex((l) => l.key === action.key);
+      if (i < 0) return state;
+      // A fresh key, everything else carried — the whole point of duplicating the
+      // Diamondbrite line is not to retype its bullets.
+      const copy = { ...state.lines[i], key: newKey() };
+      const lines = [...state.lines];
+      lines.splice(i + 1, 0, copy);
+      return touched({ ...state, lines });
+    }
     case "setDocDiscount":
       return touched({ ...state, docDiscountKind: action.kind, docDiscountValue: action.value });
     case "setSection":
