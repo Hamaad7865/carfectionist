@@ -469,6 +469,10 @@ class CounterViewModel @Inject constructor(
             // payment pad that could never succeed.
             val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
                 .filter { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) > 0 }
+                // A draft only belongs at the till if it is a JOB's bill, raised at ready and
+                // waiting to be finished. A draft typed in the back office and abandoned is
+                // not a debt, and offering it here would be inventing one.
+                .filter { it.status != "draft" || it.jobId != null }
             val paidRaw = runCatching { api.fetchTodayPayments(start) }.getOrDefault(emptyList())
             // PAID TODAY = money that actually stands. A mistake + its reversal
             // cancel out and BOTH disappear (the trail stays in History and the
@@ -839,6 +843,11 @@ class CounterViewModel @Inject constructor(
                     // for a handover the server never saw is how a car leaves while its job
                     // sits at READY forever (the original bug).
                     try {
+                        // On account is still the bill leaving the counter, so it is still the
+                        // moment it becomes a real invoice. deliver_on_account refuses a draft
+                        // outright — and rightly: you cannot owe money on a document that was
+                        // never issued.
+                        if (bill.status == "draft") api.issueDocument(bill.id, "$saleKey:issue", sessionId = s.till?.id)
                         api.deliverOnAccount(bill.id)
                     } catch (e: CancellationException) {
                         throw e
@@ -876,6 +885,7 @@ class CounterViewModel @Inject constructor(
                     externalRef = s.refText,
                     cashSessionId = s.till?.id,
                     payKey = saleKey,
+                    needsIssue = bill.status == "draft",
                 )
                 // The bill's items live on the server — the counter never held them, so this
                 // slip carried a total and nothing else: the customer paid Rs 38,000 and the

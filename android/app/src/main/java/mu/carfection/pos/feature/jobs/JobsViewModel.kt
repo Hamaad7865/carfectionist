@@ -727,7 +727,7 @@ class JobsViewModel @Inject constructor(
                     // priced invoice is created + issued NOW (idempotent), so checkout's
                     // TO COLLECT already has it when the customer walks up.
                     val quoteId = job?.sourceQuoteId
-                    val invoiced = quoteId != null && runCatching { ensureQuoteInvoice(quoteId) }.isSuccess
+                    val invoiced = quoteId != null && runCatching { ensureQuoteDraftBill(quoteId) }.isSuccess
                     _s.update {
                         it.copy(
                             busy = false,
@@ -760,9 +760,20 @@ class JobsViewModel @Inject constructor(
      * counter — burned the key: the fresh invoice could never be issued under it, and the
      * job became permanently un-billable from the tablet.
      */
-    private suspend fun ensureQuoteInvoice(quoteId: String) {
-        val inv = api.convertQuoteToInvoice(quoteId)
-        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
+    /**
+     * The ready car's bill, RAISED BUT NOT ISSUED.
+     *
+     * It used to be issued here, the moment the job was marked ready, so checkout's TO COLLECT
+     * had it before the customer walked up. That was fast and it was also a closed door: an
+     * issued invoice is fiscally locked, and the customer collecting their car is exactly the
+     * one who arrives at the counter holding something they picked up while they waited.
+     *
+     * So it stays a draft until they pay. TO COLLECT lists it either way; issuing happens in
+     * collectOnInvoice, which is also where the fiscal number, the stock movement and the till
+     * stamp belong — at the till, on the day the money is actually taken.
+     */
+    private suspend fun ensureQuoteDraftBill(quoteId: String) {
+        api.convertQuoteToInvoice(quoteId)
     }
 
     /**
@@ -789,7 +800,7 @@ class JobsViewModel @Inject constructor(
         if (quoteId == null || hasLiveInvoice) { finish(closeSheet = true); return }
         _s.update { it.copy(busy = true) }
         viewModelScope.launch {
-            runCatching { ensureQuoteInvoice(quoteId) }
+            runCatching { ensureQuoteDraftBill(quoteId) }
                 .onSuccess { _s.update { it.copy(busy = false) }; finish(closeSheet = true) }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage("Couldn't create the invoice — check the connection and try again")) } }
         }

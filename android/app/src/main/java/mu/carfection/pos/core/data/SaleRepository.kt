@@ -625,9 +625,29 @@ class SaleRepository @Inject constructor(
         externalRef: String?,
         cashSessionId: String?,
         payKey: String,
+        /** The bill is still a DRAFT — raised when the car was marked ready, left open so
+         *  anything the customer picks up on their way out can go on it. Issuing is the last
+         *  thing that happens before the money: it takes the fiscal number, moves the stock,
+         *  and stamps THIS till and trading day, which is where the sale actually happened. */
+        needsIssue: Boolean = false,
     ): SaleResult {
         require(method != PayMethod.CREDIT) { "Choose a payment method." }
         val tendered = if (method == PayMethod.CASH) (tenderCents ?: amountCents) else null
+
+        // Keyed off the same saleKey as the payment, so a retry after a lost response
+        // replays the issue rather than minting a second number.
+        var issuedNumber = number
+        if (needsIssue) {
+            issuedNumber = try {
+                api.issueDocument(invoiceId, "$payKey:issue", sessionId = cashSessionId).number ?: number
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Nothing has been charged yet: the bill is still a draft and the drawer has
+                // not opened, so this is a clean refusal rather than an uncertain payment.
+                throw e
+            }
+        }
         // The invoice already exists; a lost response after record_payment lands is
         // indistinguishable from a lost request. Surface it as SalePaymentUncertain (like
         // completeSale) so the caller freezes and the retry replays under "$payKey:collect".
@@ -645,9 +665,9 @@ class SaleRepository @Inject constructor(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
-            throw SalePaymentUncertain(invoiceId, number, e)
+            throw SalePaymentUncertain(invoiceId, issuedNumber, e)
         }
         val change = if (method == PayMethod.CASH && tendered != null) (tendered - amountCents).coerceAtLeast(0) else 0
-        return SaleResult(invoiceId, number, amountCents, change, onAccount = false, paymentId = payment.id)
+        return SaleResult(invoiceId, issuedNumber, amountCents, change, onAccount = false, paymentId = payment.id)
     }
 }

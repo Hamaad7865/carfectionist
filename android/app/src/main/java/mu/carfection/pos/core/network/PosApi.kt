@@ -870,7 +870,12 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
         client.postgrest.from("documents")
             .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, issued_at, customers(name), vehicles(plate, make, model)")) {
-                filter { eq("doc_type", "invoice"); isIn("status", listOf("issued", "partly_paid")) }
+                // 'draft' belongs here now: a quoted job's bill is raised when the car is
+                // marked ready and left OPEN, so the counter can add whatever the customer
+                // picked up on their way out. It is issued as they pay. Callers drop the
+                // drafts that did not come from a job — an abandoned back-office draft is
+                // not something the till should be offering to collect.
+                filter { eq("doc_type", "invoice"); isIn("status", listOf("draft", "issued", "partly_paid")) }
                 order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 // Auto-invoicing on "ready" makes outstanding invoices longer-lived; a low
                 // cap silently hid the OLDEST (most overdue) bills once exceeded. 1000 is

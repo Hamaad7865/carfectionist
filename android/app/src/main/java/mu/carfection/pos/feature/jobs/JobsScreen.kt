@@ -573,7 +573,9 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 if (j.status == "ready" || j.status == "delivered") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                        if (j.invoices.none { it.docType == "invoice" && it.status != "void" }) Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openInvoice() }, contentAlignment = Alignment.Center) {
+                        // A DRAFT bill is not a finished one — this is the way back into it to add
+                        // whatever the customer is carrying. Only an issued bill closes the door.
+                        if (j.invoices.none { it.docType == "invoice" && it.status != "void" && it.status != "draft" }) Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openInvoice() }, contentAlignment = Alignment.Center) {
                             Text("＋  Invoice", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
                         }
                         Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openCertIssue() }, contentAlignment = Alignment.Center) {
