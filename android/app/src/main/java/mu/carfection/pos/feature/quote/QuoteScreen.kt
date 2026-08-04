@@ -816,7 +816,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             "Signed",
                             when {
                                 s.status == "declined" -> FlowState.DECLINED
-                                s.signed || s.status == "accepted" || s.jobId != null -> FlowState.DONE
+                                // A draft revision inherits job_id, not a signature. Reading the
+                                // job as proof of signing made the strip claim "accepted" over a
+                                // quote nobody had agreed to yet.
+                                s.signed || s.status == "accepted" || (s.jobId != null && s.status != "draft") -> FlowState.DONE
                                 else -> FlowState.TODO
                             },
                             if (s.signed) "client signed" else if (s.jobId != null) "accepted" else null,
@@ -829,7 +832,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 when {
                     // Already converted: a quote maps to exactly one job, so don't offer to make
                     // another — just open the one it produced.
-                    s.jobId != null -> {
+                    // NOT for a draft. revise_quote copies job_id onto the new draft, so a
+                    // revision arrives carrying the job its parent produced — and this branch
+                    // then offered "View job" INSTEAD of Save draft and Accept. A revised price
+                    // could be typed and never saved: the line was in memory, the button to
+                    // keep it did not exist, and navigating away lost it.
+                    s.jobId != null && !vm.editable(s) -> {
                         // The customer is standing there with their wallet out — take them to the
                         // money before anything else. The pad is already waiting on their bill.
                         if (s.depositPending) {
