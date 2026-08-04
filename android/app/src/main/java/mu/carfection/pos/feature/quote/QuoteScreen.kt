@@ -788,6 +788,12 @@ private fun AcceptBody(
                 .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+        // Everything from here to the deposit is about setting up a JOB — who does it, when the
+        // car comes in, how long it takes. A goods-only quote never produces one, so on that
+        // quote none of it is a question worth asking: there is no car to book in, nobody to
+        // assign, and nothing to estimate. Signing is the whole ceremony.
+        if (vm.hasService(s)) {
+
         // The first decision, because it governs everything under it: is the car here?
         // A quote signed today for work booked next month must not put a card on the board.
         Row(
@@ -856,6 +862,8 @@ private fun AcceptBody(
                 Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary, modifier = Modifier.clickable { vm.pickEstimate(null) }.padding(start = 8.dp))
             }
         }
+
+        } // ← end of the job set-up, skipped entirely on a goods-only quote
 
         // Money on signing. Raising the bill is what gives the deposit something to land in —
         // which also fixes the price, so the panel says so rather than letting the shop find
