@@ -1595,6 +1595,10 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
                     Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
                 }
             }
+            // What they picked up while the car was in. NOT on the quotation — the quote is the
+            // price they signed — but this is where the counter looks for them, so this is where
+            // they are listed, under their own heading and on their own bill.
+            if (s.billExtras.isNotEmpty()) BillExtrasSection(s)
         }
 
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
@@ -1606,6 +1610,45 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 18.sp, color = TextMuted,
         )
+    }
+}
+
+/**
+ * The things they picked up at the counter, listed under the quote's own lines.
+ *
+ * They are on the BILL, not the quotation — reopening a signed quote for a bottle of wax
+ * would mean a revision and a fresh signature for something nobody is negotiating. But
+ * "it is on the other document" is not an answer to "where did the two bottles I just
+ * added go", so they are shown here, marked for what they are.
+ */
+@Composable
+private fun ColumnScope.BillExtrasSection(s: QuoteState) {
+    Spacer(Modifier.height(4.dp))
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("ALSO ON THEIR BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp, color = Accent)
+        Box(Modifier.weight(1f).height(1.dp).background(AccentLine))
+        Text(
+            "${s.billExtras.size} item${if (s.billExtras.size == 1) "" else "s"}",
+            fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, color = TextMuted,
+        )
+    }
+    s.billExtras.forEach { l ->
+        val gross = l.qty * (if (s.pricesInclVat) l.unitCents else grossCents(l.unitCents, l.vatRate))
+        Row(
+            Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp))
+                .border(1.dp, AccentLine, RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
+                Text(
+                    "×${l.qty}${if (l.unitLabel.isNotBlank()) " ${l.unitLabel}" else ""}  ·  picked up at the counter",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+                )
+            }
+            Text(formatMUR(gross), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
+        }
     }
 }
 

@@ -38,6 +38,7 @@ import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
+import mu.carfection.pos.core.network.QuoteLineDto
 import mu.carfection.pos.core.network.QuoteRowDto
 import mu.carfection.pos.core.network.SendOutcome
 import mu.carfection.pos.core.network.TechnicianDto
@@ -99,6 +100,29 @@ data class QuoteLine(
  * place the tablet decides what a line sends, and the place a hard-coded null once
  * cost every description on the document.
  */
+/**
+ * A stored line, back into the builder's shape.
+ *
+ * One copy, because the bill reads lines too and its own hand-rolled version quietly
+ * dropped description, richtext and unit_label — which save_draft then wrote back as
+ * nulls the next time the basket was opened.
+ */
+fun storedLine(l: QuoteLineDto, gross: Boolean): QuoteLine = QuoteLine(
+    productId = l.productId,
+    title = l.title,
+    priceText = centsToPlainText(rupeesToCents(l.unitPrice).let { net -> if (gross) grossCents(net, l.vatRate) else net }),
+    priceIsGross = gross,
+    vatRate = l.vatRate,
+    qty = l.qty.toInt().coerceAtLeast(1),
+    discountMode = if (l.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
+    discountPct = l.discountPct.toInt(),
+    discountAmtText = if (l.discountKind == "amount" && l.discountAmount > 0) centsToPlainText(rupeesToCents(l.discountAmount)) else "",
+    lineKind = l.lineKind,
+    description = l.description,
+    richJson = l.descriptionRichtext,
+    unitLabel = l.unitLabel.orEmpty(),
+)
+
 fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
     if (l.productId != null) put("product_id", l.productId) else put("product_id", JsonNull)
     put("title", l.title)
@@ -253,6 +277,9 @@ data class QuoteState(
      *  customer picks up go on the bill and not on the quotation — which left the operator
      *  looking at an unchanged quote wondering where the two bottles they just added went. */
     val bills: List<BillRef> = emptyList(),
+    /** What is on that bill BEYOND the quote's own lines — the things picked up at the
+     *  counter. Listed under the quote's lines, because that is where they were looked for. */
+    val billExtras: List<QuoteLine> = emptyList(),
     // "Send to customer" (post-accept): prefill + progress
     val customerEmail: String? = null,
     val customerPhone: String? = null,
@@ -586,32 +613,21 @@ class QuoteViewModel @Inject constructor(
                 bills = q.invoices
                     .filter { it.docType == "invoice" && it.status != "void" }
                     .map { BillRef(it.id, it.number, it.status, rupeesToCents(it.totalIncl)) },
+                billExtras = emptyList(), // loaded below, once the quote's own lines are in
             )
         }
         viewModelScope.launch {
             runCatching { api.fetchQuoteLines(q.id) }
                 .onSuccess { ls ->
                     _s.update { st ->
-                        st.copy(linesLoaded = true, lines = ls.map {
-                            QuoteLine(
-                                productId = it.productId, title = it.title,
-                                priceText = centsToPlainText(
-                                    rupeesToCents(it.unitPrice).let { net -> if (st.pricesInclVat) grossCents(net, it.vatRate) else net },
-                                ),
-                                priceIsGross = st.pricesInclVat,
-                                vatRate = it.vatRate, qty = it.qty.toInt().coerceAtLeast(1),
-                                discountMode = if (it.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
-                                discountPct = it.discountPct.toInt(),
-                                discountAmtText = if (it.discountKind == "amount" && it.discountAmount > 0) centsToPlainText(rupeesToCents(it.discountAmount)) else "",
-                                lineKind = it.lineKind,
-                                description = it.description,
-                                richJson = it.descriptionRichtext,
-                                unitLabel = it.unitLabel.orEmpty(),
-                            )
-                        })
+                        st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat) })
                     }
                 }
                 .onFailure { e -> _s.update { it.copy(error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})") } }
+            // What they picked up at the counter lives on the BILL, not here — so it has to be
+            // read from there to be shown at all. Everything past the quote's own lines was
+            // added later; those first lines are the copy convert_quote_to_invoice made.
+            loadBillExtras()
             // Asked for by the board: now the lines are in, build its bill.
             if (_s.value.pendingBillOnOpen && _s.value.linesLoaded) {
                 _s.update { it.copy(pendingBillOnOpen = false) }
@@ -1310,20 +1326,7 @@ class QuoteViewModel @Inject constructor(
                 val draft = api.convertQuoteToInvoice(quoteId)
                 // Already issued (by the board, say) — nothing to add to, hand it back as it stands.
                 if (draft.status != null && draft.status != "draft") return@runCatching Pair(draft, emptyList<QuoteLine>())
-                Pair(draft, api.fetchQuoteLines(draft.id).map { l ->
-                    QuoteLine(
-                        productId = l.productId, title = l.title,
-                        priceText = centsToPlainText(
-                            rupeesToCents(l.unitPrice).let { net -> if (_s.value.pricesInclVat) grossCents(net, l.vatRate) else net },
-                        ),
-                        priceIsGross = _s.value.pricesInclVat,
-                        vatRate = l.vatRate, qty = l.qty.toInt().coerceAtLeast(1),
-                        discountMode = if (l.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
-                        discountPct = l.discountPct.toInt(),
-                        discountAmtText = if (l.discountKind == "amount" && l.discountAmount > 0) centsToPlainText(rupeesToCents(l.discountAmount)) else "",
-                        lineKind = l.lineKind,
-                    )
-                })
+                Pair(draft, api.fetchQuoteLines(draft.id).map { storedLine(it, _s.value.pricesInclVat) })
                 // Raising the bill accepts the quote on the server too (convert_quote_to_invoice,
                 // 20260804000010) — carry that here, or the screen keeps offering to re-save and
                 // re-bill a draft the server no longer has.
@@ -1361,6 +1364,19 @@ class QuoteViewModel @Inject constructor(
     }
 
     // ── the bill basket ──────────────────────────────────────────────────────
+    /** Read the live bill and keep whatever is on it beyond the quote's own lines. */
+    private suspend fun loadBillExtras() {
+        val st = _s.value
+        val bill = st.bills.firstOrNull { it.isDraft } ?: st.bills.firstOrNull()
+        if (bill == null || !st.linesLoaded) { _s.update { it.copy(billExtras = emptyList()) }; return }
+        val extras = runCatching { api.fetchQuoteLines(bill.id) }.getOrNull() ?: return
+        _s.update { cur ->
+            // Guard: the operator may have opened another quote while this was in flight.
+            if (cur.bills.none { it.id == bill.id }) cur
+            else cur.copy(billExtras = extras.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat) })
+        }
+    }
+
     fun addToBill(p: ProductEntity) = _s.update { st ->
         if (!st.billOpen) st else st.copy(
             billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat),
@@ -1496,6 +1512,7 @@ class QuoteViewModel @Inject constructor(
                         createdInvoiceRef = if (issue) doc.number ?: "Invoice issued" else null,
                         bills = it.bills.filterNot { b -> b.id == doc.id } +
                             BillRef(doc.id, doc.number, doc.status, rupeesToCents(doc.totalIncl)),
+                        billExtras = s.billLines.drop(s.billQuotedCount),
                     )
                 }
                 if (issue && takePayment && _s.value.takesPayments) collectBus.request(doc.id, null)
