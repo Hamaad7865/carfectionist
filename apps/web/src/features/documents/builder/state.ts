@@ -46,6 +46,31 @@ export function newKey(): string {
   return crypto.randomUUID();
 }
 
+/**
+ * A line, as the save payload wants it.
+ *
+ * One place, because the builder used to hand-list these fields inline and simply
+ * forgot `rich` and `unitLabel` — so everything typed into the description editor was
+ * dropped on the way to the server while every unit test still passed, because the
+ * tests called the conversion directly with a tree the builder never supplied.
+ * state.test.ts now asserts that every field of a BuilderLine except `key` arrives.
+ */
+export function toSaveDraftLines(lines: BuilderLine[]) {
+  return lines.map((l) => ({
+    productId: l.productId,
+    title: l.title,
+    description: l.description || null,
+    rich: l.rich,
+    unitLabel: l.unitLabel,
+    qty: l.qty,
+    unitCents: l.unitCents,
+    discountPct: l.discountPct,
+    discountKind: l.discountKind,
+    discountAmountCents: l.discountAmountCents,
+    vatRatePct: l.vatRatePct,
+  }));
+}
+
 export function blankLine(): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.

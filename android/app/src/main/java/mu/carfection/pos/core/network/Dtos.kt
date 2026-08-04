@@ -67,6 +67,14 @@ data class JobRow(val id: String)
     @SerialName("source_document_id") val sourceDocumentId: String? = null,
 )
 
+/**
+ * The column list fetchQuoteLines() asks PostgREST for. Lives beside the DTO so the
+ * two are read together — they must agree, and QuoteLineColumnsTest enforces it.
+ */
+const val QUOTE_LINE_COLUMNS: String =
+    "product_id, title, description, description_richtext, unit_label, " +
+        "qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate, line_kind"
+
 @Serializable
 data class QuoteLineDto(
     @SerialName("product_id") val productId: String? = null,

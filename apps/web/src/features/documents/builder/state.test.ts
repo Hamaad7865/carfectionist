@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reducer, blankLine, type BuilderState, type BuilderLine } from "./state";
+import { reducer, blankLine, toSaveDraftLines, type BuilderState, type BuilderLine } from "./state";
 
 const line = (key: string, title: string): BuilderLine => ({ ...blankLine(), key, title });
 
@@ -82,5 +82,27 @@ describe("duplicateLine", () => {
 
   it("marks the document dirty", () => {
     expect(reducer(base, { type: "duplicateLine", key: "a" }).dirty).toBe(true);
+  });
+});
+
+describe("toSaveDraftLines", () => {
+  it("carries the description and the unit into the save payload", () => {
+    // The builder used to hand-list the payload fields and simply forgot these two,
+    // so everything typed into the editor was dropped on the way to the server while
+    // every unit test still passed.
+    const rich = { schemaVersion: 1 as const, blocks: [{ type: "ul" as const, items: [[{ text: "Ceramic Coating" }]] }] };
+    const out = toSaveDraftLines([{ ...blankLine(), title: "Diamondbrite", rich, unitLabel: "panels" }]);
+    expect(out[0].rich).toEqual(rich);
+    expect(out[0].unitLabel).toBe("panels");
+  });
+
+  it("carries every editable field a line has", () => {
+    // The generic guard: add a field to BuilderLine and forget the payload, and this
+    // fails. `key` is the only client-side-only field.
+    const line = blankLine();
+    const out = toSaveDraftLines([line]);
+    const carried = new Set(Object.keys(out[0]));
+    const missing = Object.keys(line).filter((k) => k !== "key" && !carried.has(k));
+    expect(missing).toEqual([]);
   });
 });

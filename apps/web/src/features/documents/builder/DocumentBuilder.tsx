@@ -28,7 +28,7 @@ import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext } from "@/lib/supabase/queries/builder";
-import { reducer, type BuilderState } from "./state";
+import { reducer, toSaveDraftLines, type BuilderState } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
 import { btn } from "@/components/ui/button";
 
@@ -119,17 +119,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       dispatch({ type: "saveStart" });
       const payload: SaveDraftInput = {
         doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, comment: s.comment, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue },
-        lines: s.lines.map((l) => ({
-          productId: l.productId,
-          title: l.title,
-          description: l.description || null,
-          qty: l.qty,
-          unitCents: l.unitCents,
-          discountPct: l.discountPct,
-          discountKind: l.discountKind,
-          discountAmountCents: l.discountAmountCents,
-          vatRatePct: l.vatRatePct,
-        })),
+        lines: toSaveDraftLines(s.lines),
         expectedRev: serverRef.current.docId ? serverRef.current.revision : null,
       };
       const res = await saveDraftAction(payload);
