@@ -285,8 +285,11 @@ private fun AdhocDialog(s: QuoteState, vm: QuoteViewModel, inclVat: Boolean) {
 private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
     val t = vm.billTotals(s)
     Column(Modifier.weight(47f).fillMaxHeight().card()) {
+        // A second bill: the quote's own is issued and frozen, so what they picked up on the
+        // way back to the counter starts a new one, with its own number and nothing on it.
+        val second = s.billed && s.billQuotedCount == 0
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("THE BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
+            Text(if (second) "A SECOND BILL" else "THE BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
             Spacer(Modifier.weight(1f))
             Text(
                 "${s.billLines.size} line${if (s.billLines.size == 1) "" else "s"}",
@@ -299,6 +302,12 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
+            if (second) {
+                Text(
+                    "${s.createdInvoiceRef ?: "The first bill"} is already issued and cannot be changed. Anything they pick up now goes on this one.",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Accent,
+                )
+            }
             if (s.billLines.isEmpty()) {
                 Text("Nothing on this bill yet.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
             }
@@ -681,14 +690,15 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             // signed, and reopening it for a bottle of wax would mean a revision and a fresh
             // signature for something nobody is negotiating. The bill is what they pay, and it
             // is still a draft until they do — so this just adds, with no ceremony at all.
-            if (!s.billed) {
-                Box(
-                    Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
-                        .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
-                        .clickable(enabled = !s.busy) { vm.convertToInvoice() }.padding(horizontal = 13.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text(if (s.busy) "…" else "+ Add to bill", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
-            }
+            //
+            // It stays here after the bill is issued. They come back a second time, and an
+            // issued bill is frozen — so the next thing they pick up opens a new one.
+            Box(
+                Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
+                    .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
+                    .clickable(enabled = !s.busy) { vm.convertToInvoice() }.padding(horizontal = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(if (s.busy) "…" else "+ Add to bill", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
         }
         Spacer(Modifier.weight(1f))
         Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)

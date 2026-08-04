@@ -1272,11 +1272,22 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
-    /** Bill the quote now: persist it, copy into a draft invoice, then issue for gapless INV#. */
+    /**
+     * Bill the quote now: persist it, copy into a draft invoice, then issue for gapless INV#.
+     *
+     * The second time it is asked, it opens an EMPTY bill instead.
+     *
+     * convert_quote_to_invoice is idempotent per quote — it hands back the one invoice that
+     * quote has — and once that invoice is issued it is a fiscal document, frozen. So the
+     * customer who comes back to the counter with a second thing cannot be added to it. That
+     * is a new bill, with its own number, and it starts blank: the quoted work is already on
+     * the first one and must not be charged twice.
+     */
     fun convertToInvoice() {
         val s = _s.value
         if (s.busy) return // double-tap on a fresh quote = two quotes -> two invoices
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
+        if (s.billed) { openExtraBill(); return }
         if (s.lines.isEmpty()) { _s.update { it.copy(error = "Add a line before billing") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
@@ -1307,7 +1318,11 @@ class QuoteViewModel @Inject constructor(
                 // re-bill a draft the server no longer has.
             }.onSuccess { (draft, lines) ->
                 if (lines.isEmpty() && draft.status != null && draft.status != "draft") {
-                    _s.update { it.copy(busy = false, acceptOpen = false, linesOpen = false, status = "accepted", billed = true, createdInvoiceRef = draft.number ?: "Invoice issued") }
+                    // The quote's own bill was issued elsewhere — from the board, or on another
+                    // till. Nothing to add to it, so this becomes the second bill instead of a
+                    // dead end that only says "Invoice issued".
+                    _s.update { it.copy(busy = false, acceptOpen = false, status = "accepted", billed = true) }
+                    openExtraBill()
                 } else {
                     _s.update {
                         it.copy(
@@ -1324,6 +1339,21 @@ class QuoteViewModel @Inject constructor(
     }
 
     // ── the bill basket ──────────────────────────────────────────────────────
+    /**
+     * A blank bill for whatever they pick up next.
+     *
+     * No document is created here. An empty draft invoice raised every time the counter
+     * opened the basket and thought better of it would litter the ledger with numbers
+     * nobody asked for — so the bill exists on this screen only, and becomes a document
+     * at the moment it is issued. See [issueTheBill].
+     */
+    private fun openExtraBill() = _s.update {
+        it.copy(
+            busy = false, error = null, acceptOpen = false, linesOpen = false,
+            billOpen = true, billDocId = null, billLines = emptyList(), billQuotedCount = 0,
+        )
+    }
+
     fun addToBill(p: ProductEntity) = _s.update { st ->
         if (!st.billOpen) st else st.copy(
             billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat),
@@ -1404,8 +1434,9 @@ class QuoteViewModel @Inject constructor(
         null, 0.0, 0L,
     )
 
-    /** Back out of the bill without issuing it. The draft invoice stays on the server —
-     *  convert_quote_to_invoice is idempotent, so billing again returns the same one. */
+    /** Back out of the bill without issuing it. The quote's own draft invoice stays on the
+     *  server — convert_quote_to_invoice is idempotent, so billing again returns the same
+     *  one — and a second bill was never a document in the first place. */
     fun closeBill() = _s.update { it.copy(billOpen = false, billLines = emptyList(), billDocId = null) }
 
     /**
@@ -1418,7 +1449,6 @@ class QuoteViewModel @Inject constructor(
      */
     fun issueTheBill(takePayment: Boolean = false) {
         val s = _s.value
-        val id = s.billDocId ?: return
         val cid = s.customerId ?: return
         if (s.busy) return
         if (s.billLines.isEmpty()) { _s.update { it.copy(error = "Nothing on this bill") }; return }
@@ -1426,15 +1456,18 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val doc = buildJsonObject {
-                    put("id", id); put("doc_type", "invoice"); put("customer_id", cid)
+                    // A second bill has no document yet — save_draft creates one here rather
+                    // than leaving an empty invoice behind every time the basket is opened.
+                    if (s.billDocId != null) put("id", s.billDocId) else put("id", JsonNull)
+                    put("doc_type", "invoice"); put("customer_id", cid)
                     if (s.vehicleId != null) put("vehicle_id", s.vehicleId) else put("vehicle_id", JsonNull)
                     put("origin", "standalone")
                 }
-                api.saveDraft(doc, billLinesJson(s))
+                val id = api.saveDraft(doc, billLinesJson(s)).id
                 // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
                 // key spent on the void one would refuse its replacement for ever.
-                api.issueDocument(id, "inv:$id").number
-            }.onSuccess { n ->
+                Pair(id, api.issueDocument(id, "inv:$id").number)
+            }.onSuccess { (id, n) ->
                 _s.update {
                     it.copy(
                         busy = false, billOpen = false, billLines = emptyList(), billDocId = null,
