@@ -202,7 +202,7 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
             }
         }
     }
-    if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
+    if (s.adhocOpen) AdhocDialog(s, viewModel, s.pricesInclVat)
     if (s.pickerOpen) QuoteCustomerPicker(s, viewModel)
     if (s.confirmDelete) DiscardDraftDialog(s, viewModel)
     if (s.declineOpen) DeclineQuoteDialog(s, viewModel)
@@ -211,13 +211,15 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
 }
 
 @Composable
-private fun AdhocDialog(vm: QuoteViewModel, inclVat: Boolean) {
+private fun AdhocDialog(s: QuoteState, vm: QuoteViewModel, inclVat: Boolean) {
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
     // Work or goods. Nothing else can say: a typed-in line has no product behind it, and
     // the answer decides whether the accepted quote puts a car on the jobs board.
-    // Defaults to work — the overwhelming majority of hand-priced lines here are labour.
-    var isService by remember { mutableStateOf(true) }
+    // On a QUOTE it defaults to work — the overwhelming majority of hand-priced lines here
+    // are labour. On a BILL it defaults to goods: that box is open because the customer
+    // picked something off a shelf.
+    var isService by remember { mutableStateOf(!s.billOpen) }
     val cents = parseMoneyToCents(price)
     Dialog(onDismissRequest = vm::closeAdhoc) {
         Column(Modifier.width(440.dp).card().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -254,8 +256,114 @@ private fun AdhocDialog(vm: QuoteViewModel, inclVat: Boolean) {
 
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 OutlineBtn("Cancel", Modifier.weight(1f), 52) { vm.closeAdhoc() }
-                Box(Modifier.weight(1.4f).height(52.dp).background(if (name.isNotBlank() && cents != null && cents > 0) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = name.isNotBlank() && cents != null && cents > 0) { vm.addAdhoc(name, cents ?: 0, isService = isService) }, contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1.4f).height(52.dp).background(if (name.isNotBlank() && cents != null && cents > 0) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = name.isNotBlank() && cents != null && cents > 0) { if (s.billOpen) vm.addAdhocToBill(name, cents ?: 0, isService = isService) else vm.addAdhoc(name, cents ?: 0, isService = isService) }, contentAlignment = Alignment.Center) {
                     Text("Add line", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (name.isNotBlank() && cents != null && cents > 0) AccentInk else TextMuted)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The bill, before it is issued.
+ *
+ * A customer having a service walks the shop and finds something they want. It goes here,
+ * not on the quotation: the quote is the price agreed for the WORK, frozen the moment they
+ * agreed it, and reopening it for a bottle of wax would mean a revision and a fresh
+ * signature. The invoice answers a different question — what is this customer taking today.
+ *
+ * The catalogue stays on the left, so "anything else?" is the same two taps it is at the
+ * counter. Quoted lines come across already priced and are not re-priced here.
+ */
+@Composable
+private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
+    val t = vm.billTotals(s)
+    Column(Modifier.weight(47f).fillMaxHeight().card()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("THE BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${s.billLines.size} line${if (s.billLines.size == 1) "" else "s"}",
+                fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary,
+            )
+        }
+        Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
+            if (s.billLines.isEmpty()) {
+                Text("Nothing on this bill yet.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
+            }
+            s.billLines.forEachIndexed { i, l ->
+                val lineTotal = (t.lineExclCents.getOrNull(i) ?: 0L)
+                    .let { net -> if (s.pricesInclVat) grossCents(net, l.vatRate) else net }
+                val quoted = i < s.billQuotedCount
+                Column(
+                    Modifier.fillMaxWidth().background(Color(0xFFF1F4F7), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 13.dp, vertical = 11.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                if (quoted) "×${l.qty}  ·  quoted" else "×${l.qty}  ·  added now",
+                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                                color = if (quoted) TextMuted else Accent,
+                            )
+                        }
+                        Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
+                    }
+                    // Only what was added here can be changed. The quoted lines are the price
+                    // the customer agreed — this screen does not get to re-open that.
+                    if (!quoted) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StepBtn("−") { vm.setBillQty(i, l.qty - 1) }
+                        Text(l.qty.toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1)
+                        StepBtn("+") { vm.setBillQty(i, l.qty + 1) }
+                        Spacer(Modifier.weight(1f))
+                        Box(
+                            Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp))
+                                .clickable { vm.removeBillLine(i) },
+                            contentAlignment = Alignment.Center,
+                        ) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
+                    }
+                }
+            }
+        }
+
+        Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(
+                "Anything else they are taking today goes on here — tap it on the left.",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("of which VAT 15%", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary)
+                Spacer(Modifier.weight(1f))
+                Text(formatMUR(t.vatCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("TOTAL", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+                Spacer(Modifier.weight(1f))
+                Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
+            }
+            s.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontSize = 12.sp) }
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeBill() }
+                Box(
+                    Modifier.weight(1.6f).height(52.dp)
+                        .background(if (s.busy || s.billLines.isEmpty()) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                        .clickable(enabled = !s.busy && s.billLines.isNotEmpty()) { vm.issueTheBill() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (s.busy) "Issuing…" else if (s.takesPayments) "Issue bill → take payment" else "Issue bill",
+                        fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        color = if (s.busy || s.billLines.isEmpty()) TextMuted else AccentInk,
+                    )
                 }
             }
         }
@@ -406,7 +514,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         // A quote the customer has already been shown — or signed — is not a shopping
         // screen. Showing 795 tappable products that silently do nothing is worse than
         // showing none, so the picker gives way to the one thing left to do: revise it.
-        if (!vm.editable(s)) LockedQuotePanel(s, vm) else {
+        if (!vm.editable(s) && !s.billOpen) LockedQuotePanel(s, vm) else {
         CategoryRail(s, vm)
         Column(Modifier.weight(53f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // The ad-hoc tile lives at the end of the grid — past hundreds of products, so it
@@ -430,7 +538,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             LazyVerticalGrid(columns = GridCells.Fixed(2), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalArrangement = Arrangement.spacedBy(9.dp), modifier = Modifier.fillMaxSize()) {
                 items(vm.filteredProducts(s), key = { it.id }) { p ->
                     val count = s.lines.firstOrNull { it.productId == p.id }?.qty
-                    Box(Modifier.height(96.dp).background(Tile, RoundedCornerShape(13.dp)).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.addProduct(p) }.padding(horizontal = 13.dp, vertical = 10.dp)) {
+                    Box(Modifier.height(96.dp).background(Tile, RoundedCornerShape(13.dp)).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { if (s.billOpen) vm.addToBill(p) else vm.addProduct(p) }.padding(horizontal = 13.dp, vertical = 10.dp)) {
                         // fillMaxHeight so the weight actually distributes — without it a 2-line
                         // name overflowed the tile and clipped the price off the bottom.
                         Column(Modifier.fillMaxHeight()) {
@@ -461,7 +569,8 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             }
         }
         }
-        // RIGHT 47 — quote lines
+        // RIGHT 47 — the bill while one is open, otherwise the quote's own lines
+        if (s.billOpen) { BillPanel(s, vm); return@Row }
         Column(Modifier.weight(47f).fillMaxHeight().card()) {
             // Once the quote is locked its lines are read on the LEFT, in the wide half. This
             // column is then only the totals and what happens next — so it drops its header

@@ -172,6 +172,17 @@ data class QuoteState(
     val basketText: String = "",
     val technicians: List<TechnicianDto> = emptyList(),
     val acceptOpen: Boolean = false,
+    // ── the bill, before it is issued ────────────────────────────────────────
+    // A customer having a service walks the shop and picks something up. It belongs on
+    // their bill, not on the quotation — the quote is the price agreed for the WORK, and
+    // reopening it would need a fresh signature for a bottle of wax. So billing raises the
+    // invoice as a draft and stops here, with the catalogue still on the left: the counter
+    // adds whatever else they are taking, then issues.
+    val billOpen: Boolean = false,
+    val billDocId: String? = null,
+    val billLines: List<QuoteLine> = emptyList(),
+    /** Lines that came from the quote — priced and agreed, so they are not re-priced here. */
+    val billQuotedCount: Int = 0,
     /** How the customer agreed when they are NOT at the pad: "whatsapp" | "phone" | "email".
      *  Null means they are here and signing. A quote sent by WhatsApp is answered by
      *  WhatsApp — insisting on a signature would mean it could never be accepted at all. */
@@ -1230,16 +1241,132 @@ class QuoteViewModel @Inject constructor(
                     if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val draft = api.convertQuoteToInvoice(quoteId)
-                // Keyed on the document, not the quote: a voided bill must be re-issuable,
-                // and a key spent on the void one would refuse its replacement forever.
-                // One already issued (by the board, say) is handed back as it stands.
-                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}").number
-                else draft.number
+                // Already issued (by the board, say) — nothing to add to, hand it back as it stands.
+                if (draft.status != null && draft.status != "draft") return@runCatching Pair(draft, emptyList<QuoteLine>())
+                Pair(draft, api.fetchQuoteLines(draft.id).map { l ->
+                    QuoteLine(
+                        productId = l.productId, title = l.title,
+                        priceText = centsToPlainText(
+                            rupeesToCents(l.unitPrice).let { net -> if (_s.value.pricesInclVat) grossCents(net, l.vatRate) else net },
+                        ),
+                        priceIsGross = _s.value.pricesInclVat,
+                        vatRate = l.vatRate, qty = l.qty.toInt().coerceAtLeast(1),
+                        discountMode = if (l.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
+                        discountPct = l.discountPct.toInt(),
+                        discountAmtText = if (l.discountKind == "amount" && l.discountAmount > 0) centsToPlainText(rupeesToCents(l.discountAmount)) else "",
+                        lineKind = l.lineKind,
+                    )
+                })
                 // Raising the bill accepts the quote on the server too (convert_quote_to_invoice,
                 // 20260804000010) — carry that here, or the screen keeps offering to re-save and
                 // re-bill a draft the server no longer has.
-            }.onSuccess { n -> _s.update { it.copy(busy = false, acceptOpen = false, status = "accepted", billed = true, createdInvoiceRef = n ?: "Invoice issued") } }
+            }.onSuccess { (draft, lines) ->
+                if (lines.isEmpty() && draft.status != null && draft.status != "draft") {
+                    _s.update { it.copy(busy = false, acceptOpen = false, status = "accepted", billed = true, createdInvoiceRef = draft.number ?: "Invoice issued") }
+                } else {
+                    _s.update {
+                        it.copy(
+                            busy = false, acceptOpen = false, status = "accepted",
+                            billOpen = true, billDocId = draft.id, billLines = lines, billQuotedCount = lines.size,
+                        )
+                    }
+                }
+            }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
+    // ── the bill basket ──────────────────────────────────────────────────────
+    fun addToBill(p: ProductEntity) = _s.update { st ->
+        if (!st.billOpen) st else st.copy(
+            billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat),
+        )
+    }
+
+    fun addAdhocToBill(name: String, priceCents: Long, vatRate: Double = 15.0, isService: Boolean = false) = _s.update { st ->
+        if (!st.billOpen || name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
+        else st.copy(
+            adhocOpen = false,
+            billLines = st.billLines + QuoteLine(
+                null, name.trim(), centsToPlainText(priceCents), vatRate,
+                priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
+            ),
+        )
+    }
+
+    fun setBillQty(i: Int, q: Int) = _s.update { st ->
+        if (q <= 0) st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i })
+        else st.copy(billLines = st.billLines.mapIndexed { j, l -> if (j == i) l.copy(qty = q) else l })
+    }
+
+    fun removeBillLine(i: Int) = _s.update { st -> st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i }) }
+
+    fun billTotals(s: QuoteState): DocDiscountTotals = computeDocTotals(
+        s.billLines.map {
+            DocLineIn(
+                qty = it.qty.toDouble(), unitCents = it.unitCents,
+                discountKind = if (it.discountMode == DiscountMode.AMT) "amount" else "percent",
+                discountPct = it.discountPct.toDouble(),
+                discountAmtInclCents = if (it.discountMode == DiscountMode.AMT) it.discountAmtCents else 0L,
+                vatRatePct = it.vatRate,
+            )
+        },
+        // No order-level discount on the bill: the quote's own discount is already baked
+        // into the lines convert_quote_to_invoice copied across.
+        null, 0.0, 0L,
+    )
+
+    /** Back out of the bill without issuing it. The draft invoice stays on the server —
+     *  convert_quote_to_invoice is idempotent, so billing again returns the same one. */
+    fun closeBill() = _s.update { it.copy(billOpen = false, billLines = emptyList(), billDocId = null) }
+
+    /** Everything the customer is taking today, priced and issued as one bill. */
+    fun issueTheBill() {
+        val s = _s.value
+        val id = s.billDocId ?: return
+        val cid = s.customerId ?: return
+        if (s.busy) return
+        if (s.billLines.isEmpty()) { _s.update { it.copy(error = "Nothing on this bill") }; return }
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val doc = buildJsonObject {
+                    put("id", id); put("doc_type", "invoice"); put("customer_id", cid)
+                    if (s.vehicleId != null) put("vehicle_id", s.vehicleId) else put("vehicle_id", JsonNull)
+                    put("origin", "standalone")
+                }
+                api.saveDraft(doc, billLinesJson(s))
+                // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
+                // key spent on the void one would refuse its replacement for ever.
+                api.issueDocument(id, "inv:$id").number
+            }.onSuccess { n ->
+                _s.update {
+                    it.copy(
+                        busy = false, billOpen = false, billLines = emptyList(), billDocId = null,
+                        billed = true, createdInvoiceRef = n ?: "Invoice issued",
+                    )
+                }
+                if (_s.value.takesPayments) collectBus.request(id, null)
+                loadQuotes()
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
+
+    private fun billLinesJson(s: QuoteState): JsonArray = buildJsonArray {
+        s.billLines.forEachIndexed { i, l ->
+            add(buildJsonObject {
+                if (l.productId != null) put("product_id", l.productId) else put("product_id", JsonNull)
+                put("title", l.title)
+                put("description", JsonNull)
+                put("qty", l.qty)
+                put("unit_price", centsToRupees(l.unitCents))
+                put("discount_pct", if (l.discountMode == DiscountMode.PCT) l.discountPct else 0)
+                put("discount_kind", if (l.discountMode == DiscountMode.AMT) "amount" else "percent")
+                put("discount_amount", if (l.discountMode == DiscountMode.AMT) centsToRupees(l.discountAmtCents) else 0.0)
+                put("vat_rate", l.vatRate)
+                put("sort_order", i)
+                if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
+            })
         }
     }
 
