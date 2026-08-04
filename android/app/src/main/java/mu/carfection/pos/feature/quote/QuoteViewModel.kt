@@ -376,7 +376,9 @@ class QuoteViewModel @Inject constructor(
             basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
-            hasIntake = true, signed = false, billed = false,
+            // bills too: the last quote's invoice showing on a brand-new one is not a
+            // cosmetic slip — it is a bill for another visit, priced, on this customer's screen.
+            hasIntake = true, signed = false, billed = false, bills = emptyList(),
             // Set from THIS handoff's customer, never left over from a previously-opened one —
             // carrying the last customer's contact would WhatsApp a signed quote to the wrong
             // person. Intake now passes the contact it captured, so the send dialog is prefilled
@@ -488,7 +490,7 @@ class QuoteViewModel @Inject constructor(
             depositAmtText = "", depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
-            intake = null, jobId = null, hasIntake = false, signed = false, billed = false,
+            intake = null, jobId = null, hasIntake = false, signed = false, billed = false, bills = emptyList(),
             customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
             pickerOpen = true, pickQuery = "", pickResults = emptyList(), pickVehicles = emptyList(),
         )

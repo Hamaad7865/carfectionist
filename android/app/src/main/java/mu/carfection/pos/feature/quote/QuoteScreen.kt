@@ -81,6 +81,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.ui.theme.Accent
@@ -839,7 +840,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             // what used to push the buttons off the bottom of the screen. The signature pad then
             // sizes itself to whatever room is left, so it can never be clipped either.
             if (s.acceptOpen) {
-                AcceptBody(s, vm, strokes, { padSize = it }, strokePx, acceptStep, Modifier.weight(1f))
+                AcceptBody(s, vm, strokes, { padSize = it }, padSize, strokePx, acceptStep, Modifier.weight(1f))
             } else if (locked) {
                 // Nothing here: the lines are on the left, and the totals block below fills
                 // the card on its own.
@@ -944,7 +945,9 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 // What they picked up while the car was in does NOT go on the quotation — so
                 // the quote looked untouched, and the operator who had just added two bottles
                 // had nowhere to see them. The bill says so, here, next to the totals.
-                if (s.bills.isNotEmpty()) BillsCard(s, vm)
+                // Not while they are signing: that panel needs the height, and the bill is
+                // not what is being agreed to.
+                if (s.bills.isNotEmpty() && !s.acceptOpen) BillsCard(s, vm)
                 when {
                     // Already converted: a quote maps to exactly one job, so don't offer to make
                     // another — just open the one it produced.
@@ -1122,12 +1125,13 @@ private fun AcceptBody(
     vm: QuoteViewModel,
     strokes: androidx.compose.runtime.snapshots.SnapshotStateList<List<Offset>>,
     onPadSize: (IntSize) -> Unit,
+    padSize: IntSize,
     strokePx: Float,
     step: Int,
     modifier: Modifier = Modifier,
 ) {
     val signed = strokes.any { it.size > 1 }
-    if (step == 1) { SignStep(s, vm, strokes, onPadSize, strokePx, signed, modifier); return }
+    if (step == 1) { SignStep(s, vm, strokes, onPadSize, padSize, strokePx, signed, modifier); return }
     Column(modifier.fillMaxWidth()) {
         // Step 0 — set up the job. Scrolls, so adding rows (Takes about, Deposit) can never
         // crowd the panel; signing is a screen of its own now, reached with "Continue".
@@ -1291,6 +1295,8 @@ private fun SignStep(
     vm: QuoteViewModel,
     strokes: androidx.compose.runtime.snapshots.SnapshotStateList<List<Offset>>,
     onPadSize: (IntSize) -> Unit,
+    /** The pad's own pixel size — the strip previews the strokes scaled out of it. */
+    padSize: IntSize,
     strokePx: Float,
     signed: Boolean,
     modifier: Modifier = Modifier,
@@ -1364,44 +1370,146 @@ private fun SignStep(
                 )
                 Spacer(Modifier.weight(1f))
             }
-        } else
-        // The pad takes all the room that's left, and CLIPS: a signature that runs past the edge
-        // stops at the edge instead of being drawn across the card. Points are clamped to the
-        // pad's bounds too, so the PNG that gets stored is exactly what the client saw.
-        Box(
-            Modifier.fillMaxWidth().weight(1f).heightIn(min = 200.dp)
-                .clip(RoundedCornerShape(12.dp))
-                .background(Color.White)
-                .border(1.dp, Hairline, RoundedCornerShape(12.dp))
-                .onSizeChanged(onPadSize)
-                .pointerInput(Unit) {
-                    fun clamp(p: Offset) = Offset(
-                        p.x.coerceIn(0f, size.width.toFloat()),
-                        p.y.coerceIn(0f, size.height.toFloat()),
-                    )
-                    detectDragGestures(
-                        onDragStart = { pos -> strokes.add(listOf(clamp(pos))) },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            if (strokes.isNotEmpty()) strokes[strokes.lastIndex] = strokes.last() + clamp(change.position)
-                        },
-                    )
-                },
-        ) {
-            if (!signed) Text(
-                "Client signs here to accept this quotation",
-                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted,
-                modifier = Modifier.align(Alignment.Center),
-            )
-            Canvas(Modifier.fillMaxSize()) {
-                strokes.forEach { pts ->
-                    if (pts.size > 1) {
-                        val path = androidx.compose.ui.graphics.Path().apply {
-                            moveTo(pts[0].x, pts[0].y)
-                            for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+        } else {
+            // The pad used to take "whatever room is left" at the bottom of this column, under
+            // the recap, the channel chips, the totals and the actions. On a real quote that
+            // was nothing at all: the customer was being asked to sign on a strip that had been
+            // squeezed out of existence. It opens on top of the screen now, big enough to sign
+            // on properly, and this is the way in — plus a look at what they drew.
+            var padOpen by remember { mutableStateOf(false) }
+            Box(
+                Modifier.fillMaxWidth().height(96.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (signed) Color.White else Inset)
+                    .border(if (signed) 1.dp else 1.5.dp, if (signed) Hairline else AccentLine, RoundedCornerShape(12.dp))
+                    .clickable { padOpen = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                if (signed) {
+                    // What they actually drew, scaled down to fit — proof it was captured,
+                    // not a tick that could lie about an empty pad.
+                    Canvas(Modifier.fillMaxSize().padding(8.dp)) {
+                        if (padSize.width > 0 && padSize.height > 0) {
+                            val k = minOf(size.width / padSize.width, size.height / padSize.height)
+                            val dx = (size.width - padSize.width * k) / 2f
+                            val dy = (size.height - padSize.height * k) / 2f
+                            strokes.forEach { pts ->
+                                if (pts.size > 1) {
+                                    val path = androidx.compose.ui.graphics.Path().apply {
+                                        moveTo(pts[0].x * k + dx, pts[0].y * k + dy)
+                                        for (i in 1 until pts.size) lineTo(pts[i].x * k + dx, pts[i].y * k + dy)
+                                    }
+                                    drawPath(path, Color(0xFF101A24), style = Stroke(width = strokePx * k, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                                }
+                            }
                         }
-                        drawPath(path, Color(0xFF101A24), style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round))
                     }
+                    Text(
+                        "tap to sign again",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted,
+                        modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Open the signature pad", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
+                        Text("Hand them the tablet — they sign to accept this quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted)
+                    }
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            if (padOpen) SignaturePadDialog(s, strokes, onPadSize, strokePx, signed) { padOpen = false }
+        }
+    }
+}
+
+/**
+ * The pad, on top of everything, at a size a person can sign at.
+ *
+ * Points are clamped to the pad's bounds and the canvas clips, so a signature that runs past
+ * the edge stops at the edge instead of being drawn across the card — the PNG that gets stored
+ * is exactly what the client saw. [onPadSize] reports THIS pad's pixels, which is what
+ * strokesToPng renders at.
+ */
+@Composable
+private fun SignaturePadDialog(
+    s: QuoteState,
+    strokes: androidx.compose.runtime.snapshots.SnapshotStateList<List<Offset>>,
+    onPadSize: (IntSize) -> Unit,
+    strokePx: Float,
+    signed: Boolean,
+    onClose: () -> Unit,
+) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.width(940.dp).card().padding(22.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    MiniLabel("CLIENT SIGNATURE")
+                    Text(
+                        "${s.who.ifBlank { "The customer" }} signs to accept ${s.ref}",
+                        fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, color = TextPrimary,
+                    )
+                }
+                if (signed) {
+                    Box(
+                        Modifier.height(40.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                            .clickable { strokes.clear() }.padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Accent) }
+                }
+            }
+            Box(
+                Modifier.fillMaxWidth().height(420.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(Color.White)
+                    .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+                    .onSizeChanged(onPadSize)
+                    .pointerInput(Unit) {
+                        fun clamp(p: Offset) = Offset(
+                            p.x.coerceIn(0f, size.width.toFloat()),
+                            p.y.coerceIn(0f, size.height.toFloat()),
+                        )
+                        detectDragGestures(
+                            onDragStart = { pos -> strokes.add(listOf(clamp(pos))) },
+                            onDrag = { change, _ ->
+                                change.consume()
+                                if (strokes.isNotEmpty()) strokes[strokes.lastIndex] = strokes.last() + clamp(change.position)
+                            },
+                        )
+                    },
+            ) {
+                if (!signed) Text(
+                    "Sign here",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 14.sp, color = TextMuted,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+                Canvas(Modifier.fillMaxSize()) {
+                    strokes.forEach { pts ->
+                        if (pts.size > 1) {
+                            val path = androidx.compose.ui.graphics.Path().apply {
+                                moveTo(pts[0].x, pts[0].y)
+                                for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+                            }
+                            drawPath(path, Color(0xFF101A24), style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+                        }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                // Close, don't erase. Reopening the pad to look at a signature already given
+                // and losing it to the Cancel button would be a nasty way to learn the rule —
+                // Clear is the button that throws work away, and it says so.
+                OutlineBtn("Close", Modifier.weight(1f), 52, onClose)
+                Box(
+                    Modifier.weight(1.6f).height(52.dp)
+                        .background(if (signed) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                        .clickable(enabled = signed, onClick = onClose),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (signed) "Done" else "Waiting for their signature",
+                        fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        color = if (signed) AccentInk else TextMuted,
+                    )
                 }
             }
         }
