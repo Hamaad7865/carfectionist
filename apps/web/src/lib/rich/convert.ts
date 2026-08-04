@@ -50,9 +50,32 @@ function readRuns(nodes: TipTapNode[] | undefined): Runs {
   return runs;
 }
 
-/** A list item and a table cell both wrap their text in a paragraph. Unwrap it. */
-const readWrapped = (node: TipTapNode | undefined): Runs =>
-  (node?.content ?? []).flatMap((child) => (child?.type === "paragraph" ? readRuns(child.content) : []));
+/**
+ * A list item and a table cell both wrap their text in a paragraph. Unwrap it —
+ * and gather EVERY paragraph underneath, however deep.
+ *
+ * A cell may legally hold more than one paragraph, and TipTap's listItem allows a
+ * nested list (Tab indents one). Our tree is flat by design, so that content is
+ * folded into the parent item rather than dropped: reading only the first-level
+ * paragraphs silently lost whatever was typed under an indent, and concatenating
+ * them with nothing between glued "Body panels" and "and glass" into one word.
+ */
+function readWrapped(node: TipTapNode | undefined): Runs {
+  const paragraphs: Runs[] = [];
+  const walk = (n: TipTapNode | undefined) => {
+    for (const child of n?.content ?? []) {
+      if (child?.type === "paragraph") {
+        const runs = readRuns(child.content);
+        if (runs.length > 0) paragraphs.push(runs);
+      } else if (child?.content) {
+        walk(child);
+      }
+    }
+  };
+  walk(node);
+  // One space between what were separate paragraphs, so the words stay words.
+  return paragraphs.flatMap((runs, i) => (i === 0 ? runs : [{ text: " " }, ...runs]));
+}
 
 const readItems = (node: TipTapNode): Runs[] =>
   (node.content ?? []).filter((i) => i?.type === "listItem").map(readWrapped);

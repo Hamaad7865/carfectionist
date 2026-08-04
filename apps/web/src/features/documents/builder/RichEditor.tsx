@@ -136,6 +136,11 @@ export default function RichEditor({
         codeBlock: false,
         horizontalRule: false,
         underline: false,
+        // Shift-Enter, off deliberately. Our tree has no line-break node, so a
+        // hardBreak was read as nothing at all and the text either side arrived
+        // glued together — "body panelsand glass". Better that the key does
+        // nothing than that it quietly eats a space. Enter starts a paragraph.
+        hardBreak: false,
         link: {
           openOnClick: false,
           autolink: true,

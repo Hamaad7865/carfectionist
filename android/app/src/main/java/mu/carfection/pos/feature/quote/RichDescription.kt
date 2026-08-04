@@ -56,15 +56,25 @@ import mu.carfection.pos.ui.theme.TextSecondary
  * whoever typed it.
  */
 
+/**
+ * Same allow-list as the web renderer's SAFE_SCHEME. Without it the tablet
+ * underlined a javascript: link that the printed document renders as plain text —
+ * the same run looking like a link on one screen and not on the other.
+ */
+private val SAFE_SCHEME = Regex("^(https?:|mailto:|tel:)", RegexOption.IGNORE_CASE)
+
+private fun RichRun.isLink(): Boolean = href?.let { SAFE_SCHEME.containsMatchIn(it) } == true
+
 private fun runs(runs: List<RichRun>): AnnotatedString = buildAnnotatedString {
     runs.forEach { r ->
+        val link = r.isLink()
         val style = SpanStyle(
             fontWeight = if (r.bold) FontWeight.Bold else null,
             fontStyle = if (r.italic) FontStyle.Italic else null,
             textDecoration = when {
-                r.strike && r.href != null -> TextDecoration.combine(listOf(TextDecoration.LineThrough, TextDecoration.Underline))
+                r.strike && link -> TextDecoration.combine(listOf(TextDecoration.LineThrough, TextDecoration.Underline))
                 r.strike -> TextDecoration.LineThrough
-                r.href != null -> TextDecoration.Underline
+                link -> TextDecoration.Underline
                 else -> null
             },
         )

@@ -169,3 +169,52 @@ describe("toTipTap", () => {
     expect(fromTipTap(toTipTap(doc))).toEqual(doc);
   });
 });
+
+describe("fromTipTap — nothing typed is silently lost", () => {
+  const para = (text: string) => ({ type: "paragraph", content: [{ type: "text", text }] });
+
+  it("separates two paragraphs in one table cell instead of gluing them", () => {
+    const out = fromTipTap({
+      type: "doc",
+      content: [
+        {
+          type: "table",
+          content: [{ type: "tableRow", content: [{ type: "tableCell", content: [para("Body panels"), para("and glass")] }] }],
+        },
+      ],
+    });
+    // Was "Body panelsand glass".
+    const cell = (out.blocks[0] as { rows: { text: string }[][][] }).rows[0][0];
+    expect(cell.map((r) => r.text).join("")).toBe("Body panels and glass");
+  });
+
+  it("keeps a list nested inside a list item rather than dropping it", () => {
+    // TipTap's listItem allows a nested list (Tab indents). Our tree is flat by
+    // design, so the words are folded into the parent item — flattened, not lost.
+    const out = fromTipTap({
+      type: "doc",
+      content: [
+        {
+          type: "bulletList",
+          content: [
+            {
+              type: "listItem",
+              content: [para("Paint Correction"), { type: "bulletList", content: [{ type: "listItem", content: [para("1 to 5 step")] }] }],
+            },
+          ],
+        },
+      ],
+    });
+    const items = (out.blocks[0] as { items: { text: string }[][] }).items;
+    expect(items).toHaveLength(1);
+    expect(items[0].map((r) => r.text).join("")).toBe("Paint Correction 1 to 5 step");
+  });
+
+  it("still reads an ordinary single-paragraph item unchanged", () => {
+    const out = fromTipTap({
+      type: "doc",
+      content: [{ type: "bulletList", content: [{ type: "listItem", content: [para("Full Vehicle decontamination")] }] }],
+    });
+    expect(out.blocks[0]).toEqual({ type: "ul", items: [[{ text: "Full Vehicle decontamination" }]] });
+  });
+});
