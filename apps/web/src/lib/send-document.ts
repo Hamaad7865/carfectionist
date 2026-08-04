@@ -154,13 +154,31 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
     d = fresh as any;
     issued = { number: d.number, status: d.status };
   }
+  // A rehearsal must never reach a customer. The sandbox tenant exists so testing can be
+  // undone, and a test quotation landing in somebody's WhatsApp is the one part of a test
+  // that cannot be. So every send from it is redirected, whatever the operator typed.
+  const { data: bs } = await sb
+    .from("business_settings")
+    .select("is_sandbox, sandbox_send_to")
+    .eq("id", d.tenant_id)
+    .maybeSingle();
+  const sandbox = (bs as any)?.is_sandbox === true;
+  const sandboxTo = ((bs as any)?.sandbox_send_to ?? "").trim();
+  if (sandbox && !sandboxTo) {
+    return { ok: false, error: "This is the test company and it has no test recipient set — nothing was sent." };
+  }
+
   const kind = KIND_LABEL[d.doc_type] ?? "document";
   const customerName: string = d.customers?.name ?? "customer";
 
-  const to = i.to.trim();
+  // On the sandbox the typed recipient is DISCARDED, not merely defaulted — an operator
+  // rehearsing a send will type a real customer's number, because that is what rehearsing
+  // looks like. The nominated address is the only one a test document may reach.
+  const to = (sandbox ? sandboxTo : i.to).trim();
   if (!to) return { ok: false, error: "Enter where to send it." };
   // One line, bounded — WhatsApp template variables reject newlines/tabs.
-  const note = (i.note ?? "").replace(/\s+/g, " ").trim().slice(0, 300) || DEFAULT_SEND_NOTE;
+  const typedNote = (i.note ?? "").replace(/\s+/g, " ").trim().slice(0, 300) || DEFAULT_SEND_NOTE;
+  const note = sandbox ? `[TEST — not a real quotation] ${typedNote}`.slice(0, 300) : typedNote;
 
   if (i.channel === "email") {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return { ok: false, error: "That email address doesn't look right." };

@@ -91,6 +91,45 @@ describe("sendDocument — what may be sent without a number", () => {
     expect(r).toEqual({ ok: false, error: "Couldn't issue this quotation to send it: the day is closed" });
   });
 
+  // The sandbox exists so testing can be undone. A test quotation arriving in a real
+  // customer's WhatsApp is the one part of a rehearsal that cannot be — so the typed
+  // recipient is DISCARDED there, not merely defaulted. An operator rehearsing a send
+  // types a real number, because that is what rehearsing looks like.
+  it("throws away the typed recipient on the sandbox tenant", async () => {
+    const sb = client([
+      { ...draftQuote, number: "TESTQ-1", status: "issued" },
+      { is_sandbox: true, sandbox_send_to: "nope" },
+    ]);
+
+    const r = await sendDocument({ sb, docId: "doc-1", channel: "email", to: "real@customer.com", origin: "https://x.test" });
+
+    // It validated "nope", not the perfectly good address the operator typed.
+    expect(r).toEqual({ ok: false, error: "That email address doesn't look right." });
+  });
+
+  it("sends nothing from a sandbox with no test recipient set", async () => {
+    const sb = client([
+      { ...draftQuote, number: "TESTQ-1", status: "issued" },
+      { is_sandbox: true, sandbox_send_to: "  " },
+    ]);
+
+    const r = await sendDocument({ sb, docId: "doc-1", channel: "email", to: "real@customer.com", origin: "https://x.test" });
+
+    expect(r).toEqual({ ok: false, error: "This is the test company and it has no test recipient set — nothing was sent." });
+  });
+
+  it("leaves the real company's recipients alone", async () => {
+    const sb = client([
+      { ...draftQuote, number: "A00124", status: "issued" },
+      { is_sandbox: false, sandbox_send_to: null },
+    ]);
+
+    const r = await send(sb);
+
+    // The typed address is what got validated — no redirect on the live books.
+    expect(r).toEqual({ ok: false, error: "That email address doesn't look right." });
+  });
+
   it("reports nothing to send when the document is gone", async () => {
     const r = await send(client([null]));
 
