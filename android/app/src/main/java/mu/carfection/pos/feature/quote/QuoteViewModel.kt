@@ -171,6 +171,9 @@ data class QuoteState(
     val basketMode: DiscountMode = DiscountMode.PCT,
     val basketText: String = "",
     val technicians: List<TechnicianDto> = emptyList(),
+    /** The lines panel, open over the screen from the right. The summary keeps the column;
+     *  the lines get a surface with room to open one and work on it. */
+    val linesOpen: Boolean = false,
     val acceptOpen: Boolean = false,
     // ── the bill, before it is issued ────────────────────────────────────────
     // A customer having a service walks the shop and picks something up. It belongs on
@@ -604,7 +607,7 @@ class QuoteViewModel @Inject constructor(
             it.copy(
                 mode = QuoteMode.LIST,
                 pickerOpen = false, confirmDelete = false, sendOpen = false,
-                adhocOpen = false, acceptOpen = false,
+                adhocOpen = false, acceptOpen = false, linesOpen = false,
                 datePickerOpen = false, timePickerOpen = false,
                 // busy belongs to work that was happening IN the builder. Carrying it out left
                 // every control gated on !busy dead for the life of the screen — Back, Continue
@@ -652,6 +655,9 @@ class QuoteViewModel @Inject constructor(
 
     /** Gross (pre-discount) subtotal in cents, for the "Subtotal" display row. */
     fun grossCents(s: QuoteState): Long = s.lines.sumOf { it.qty * it.unitCents }
+
+    fun openLines() = _s.update { it.copy(linesOpen = true) }
+    fun closeLines() = _s.update { it.copy(linesOpen = false) }
 
     fun toggleLine(i: Int) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(expanded = !l.expanded) else l.copy(expanded = false) }) }
     fun setQty(i: Int, q: Int) = _s.update { st -> if (!editable(st)) st else if (q <= 0) st.copy(lines = st.lines.filterIndexed { j, _ -> j != i }) else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = q) else l }) }
