@@ -296,3 +296,38 @@
   }
   .group:hover .nav-ic-hist .hand { transform: rotate(-28deg); }
 }
+
+/* ── Line-description editor ────────────────────────────────────────────────
+   Tailwind's reset strips list markers and table borders. The printed document
+   draws its own (RichContent's inline styles), so these rules exist only to make
+   the editing surface look like the result. Keep the two in step: a bullet that
+   shows here and not on the A4 is a lie told to whoever typed it. */
+@layer components {
+  .rich-editor-content {
+    min-height: 74px;
+    padding: 8px 10px;
+    font-size: 12.5px;
+    line-height: 1.6;
+    color: var(--ink, #20242a);
+    outline: none;
+  }
+  .rich-editor-content ul,
+  .rich-editor-content ol { padding-left: 18px; margin: 2px 0; }
+  .rich-editor-content ul { list-style: disc; }
+  .rich-editor-content ol { list-style: decimal; }
+  .rich-editor-content li { margin: 1px 0; }
+  .rich-editor-content a { color: #2b8cff; text-decoration: underline; }
+  .rich-editor-content s { text-decoration: line-through; }
+  .rich-editor-content table { border-collapse: collapse; margin: 4px 0; width: 100%; }
+  .rich-editor-content td,
+  .rich-editor-content th { border: 1px solid var(--line-2, #c9d2dc); padding: 2px 6px; text-align: left; }
+  .rich-editor-content th { background: rgba(15, 23, 32, 0.04); font-weight: 700; }
+  /* ProseMirror's own placeholder for a completely empty document. */
+  .rich-editor-content p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    color: var(--faint, #98a2ad);
+    float: left;
+    height: 0;
+    pointer-events: none;
+  }
+}

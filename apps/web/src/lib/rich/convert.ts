@@ -14,12 +14,22 @@ import type { Block, RichDoc, Run, Runs } from "./types";
  * system has never heard of. Writing is exact.
  */
 
+/** What we may be handed. Everything optional — this is untrusted input. */
 interface TipTapNode {
   type?: string;
   text?: string;
   attrs?: Record<string, unknown>;
   marks?: { type?: string; attrs?: Record<string, unknown> }[];
   content?: TipTapNode[];
+}
+
+/** What we produce. `type` is always set, which is what TipTap's JSONContent demands. */
+export interface TipTapJson {
+  type: string;
+  text?: string;
+  attrs?: Record<string, unknown>;
+  marks?: { type: string; attrs?: Record<string, unknown> }[];
+  content?: TipTapJson[];
 }
 
 // ── TipTap → ours ───────────────────────────────────────────────────────────
@@ -85,11 +95,11 @@ export function fromTipTap(json: unknown): RichDoc {
 
 // ── Ours → TipTap ───────────────────────────────────────────────────────────
 
-function writeRuns(runs: Runs | undefined): TipTapNode[] {
+function writeRuns(runs: Runs | undefined): TipTapJson[] {
   return (runs ?? [])
     .filter((r) => r?.text)
     .map((r) => {
-      const marks: TipTapNode["marks"] = [];
+      const marks: TipTapJson["marks"] = [];
       if (r.bold) marks.push({ type: "bold" });
       if (r.italic) marks.push({ type: "italic" });
       if (r.strike) marks.push({ type: "strike" });
@@ -98,12 +108,12 @@ function writeRuns(runs: Runs | undefined): TipTapNode[] {
     });
 }
 
-const wrap = (type: string, runs: Runs): TipTapNode => ({
+const wrap = (type: string, runs: Runs): TipTapJson => ({
   type,
   content: [{ type: "paragraph", content: writeRuns(runs) }],
 });
 
-function writeBlock(block: Block): TipTapNode | null {
+function writeBlock(block: Block): TipTapJson | null {
   switch (block?.type) {
     case "p":
       return { type: "paragraph", content: writeRuns(block.runs) };
@@ -124,10 +134,10 @@ function writeBlock(block: Block): TipTapNode | null {
   }
 }
 
-export function toTipTap(doc: RichDoc | null | undefined): TipTapNode {
+export function toTipTap(doc: RichDoc | null | undefined): TipTapJson {
   const content = (doc?.blocks ?? [])
     .map(writeBlock)
-    .filter((n): n is TipTapNode => n !== null);
+    .filter((n): n is TipTapJson => n !== null);
   // TipTap will not mount a doc with no content.
   return { type: "doc", content: content.length > 0 ? content : [{ type: "paragraph" }] };
 }

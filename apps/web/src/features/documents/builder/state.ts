@@ -58,6 +58,8 @@ export type BuilderAction =
   | { type: "addLine"; line: BuilderLine }
   | { type: "patchLine"; key: string; patch: Partial<BuilderLine> }
   | { type: "removeLine"; key: string }
+  | { type: "moveLine"; key: string; by: -1 | 1 }
+  | { type: "duplicateLine"; key: string }
   | { type: "setDocDiscount"; kind: DiscountKind | null; value: number }
   | { type: "setSection"; key: keyof SectionFlags; value: boolean }
   | { type: "addCustomField"; field?: { label: string; value: string } }
@@ -86,6 +88,26 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
       });
     case "removeLine":
       return touched({ ...state, lines: state.lines.filter((l) => l.key !== action.key) });
+    case "moveLine": {
+      // sort_order is written from the array index and save_draft replaces every
+      // line, so reordering this array IS the persistence. No server work at all.
+      const i = state.lines.findIndex((l) => l.key === action.key);
+      const j = i + action.by;
+      if (i < 0 || j < 0 || j >= state.lines.length) return state;
+      const lines = [...state.lines];
+      [lines[i], lines[j]] = [lines[j], lines[i]];
+      return touched({ ...state, lines });
+    }
+    case "duplicateLine": {
+      const i = state.lines.findIndex((l) => l.key === action.key);
+      if (i < 0) return state;
+      // A fresh key, everything else carried — the whole point of duplicating the
+      // Diamondbrite line is not to retype its bullets.
+      const copy = { ...state.lines[i], key: newKey() };
+      const lines = [...state.lines];
+      lines.splice(i + 1, 0, copy);
+      return touched({ ...state, lines });
+    }
     case "setDocDiscount":
       return touched({ ...state, docDiscountKind: action.kind, docDiscountValue: action.value });
     case "setSection":
