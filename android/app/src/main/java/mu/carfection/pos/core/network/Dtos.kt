@@ -65,6 +65,8 @@ data class JobRow(val id: String)
     // Set when the server priced this document from a quote. Its presence is the only
     // trustworthy answer to "was this bill already priced?" — the client must not decide.
     @SerialName("source_document_id") val sourceDocumentId: String? = null,
+    // What the document comes to as it stands — the quote screen shows the running bill.
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
 )
 
 /**
@@ -144,6 +146,7 @@ data class FlowInvoiceRefDto(
     val number: String? = null,
     @SerialName("doc_type") val docType: String = "",
     val status: String = "",
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
 )
 
 @Serializable

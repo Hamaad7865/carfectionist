@@ -118,6 +118,12 @@ fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
     if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
 }
 
+/** One bill raised against a quote, as the quote screen shows it. */
+data class BillRef(val id: String, val number: String?, val status: String, val totalCents: Long) {
+    /** Still being added to — it has no number yet and nothing is owed on it. */
+    val isDraft: Boolean get() = status == "draft"
+}
+
 /**
  * Which lines on a bill the counter may still work on.
  *
@@ -243,6 +249,10 @@ data class QuoteState(
     val signed: Boolean = false,
     // a live invoice exists for this quote ("Bill now" / auto-billing on ready)
     val billed: Boolean = false,
+    /** Every live bill raised against this quote, so the screen can SAY so. The extras a
+     *  customer picks up go on the bill and not on the quotation — which left the operator
+     *  looking at an unchanged quote wondering where the two bottles they just added went. */
+    val bills: List<BillRef> = emptyList(),
     // "Send to customer" (post-accept): prefill + progress
     val customerEmail: String? = null,
     val customerPhone: String? = null,
@@ -570,7 +580,10 @@ class QuoteViewModel @Inject constructor(
                 linesLoaded = false, // becomes true only when the lines actually load
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
                 signed = q.acceptedSignature != null && q.acceptedSignature !is kotlinx.serialization.json.JsonNull,
-                billed = q.invoices.any { it.docType == "invoice" && it.status != "void" },
+                billed = q.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" },
+                bills = q.invoices
+                    .filter { it.docType == "invoice" && it.status != "void" }
+                    .map { BillRef(it.id, it.number, it.status, rupeesToCents(it.totalIncl)) },
             )
         }
         viewModelScope.launch {
@@ -1273,21 +1286,17 @@ class QuoteViewModel @Inject constructor(
     }
 
     /**
-     * Bill the quote now: persist it, copy into a draft invoice, then issue for gapless INV#.
+     * Open this quote's bill: persist the quote, copy it into a draft invoice, and hand back
+     * the SAME draft every time.
      *
-     * The second time it is asked, it opens an EMPTY bill instead.
-     *
-     * convert_quote_to_invoice is idempotent per quote — it hands back the one invoice that
-     * quote has — and once that invoice is issued it is a fiscal document, frozen. So the
-     * customer who comes back to the counter with a second thing cannot be added to it. That
-     * is a new bill, with its own number, and it starts blank: the quoted work is already on
-     * the first one and must not be charged twice.
+     * convert_quote_to_invoice is idempotent per quote, so the customer who walks the shop
+     * three times has one bill that grows, not three invoices. It only stops being addable
+     * once someone issues it, and then it is a numbered fiscal document and frozen.
      */
     fun convertToInvoice() {
         val s = _s.value
         if (s.busy) return // double-tap on a fresh quote = two quotes -> two invoices
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
-        if (s.billed) { openExtraBill(); return }
         if (s.lines.isEmpty()) { _s.update { it.copy(error = "Add a line before billing") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
@@ -1318,18 +1327,29 @@ class QuoteViewModel @Inject constructor(
                 // re-bill a draft the server no longer has.
             }.onSuccess { (draft, lines) ->
                 if (lines.isEmpty() && draft.status != null && draft.status != "draft") {
-                    // The quote's own bill was issued elsewhere — from the board, or on another
-                    // till. Nothing to add to it, so this becomes the second bill instead of a
-                    // dead end that only says "Invoice issued".
-                    _s.update { it.copy(busy = false, acceptOpen = false, status = "accepted", billed = true) }
-                    openExtraBill()
+                    // Issued: a numbered fiscal document, frozen. Nothing more can go on it,
+                    // and raising a second invoice behind the operator's back would only hide
+                    // that. A customer who has already settled and wants one more thing is a
+                    // counter sale, which Checkout already does.
+                    _s.update {
+                        it.copy(
+                            busy = false, acceptOpen = false, status = "accepted", billed = true,
+                            bills = it.bills.filterNot { b -> b.id == draft.id } +
+                                BillRef(draft.id, draft.number, draft.status, rupeesToCents(draft.totalIncl)),
+                            error = "${draft.number ?: "This bill"} is already issued, so nothing can be added to it. Ring the extras up in Checkout as a counter sale.",
+                        )
+                    }
                 } else {
                     _s.update {
                         it.copy(
                             // The quote's own lines panel gets out of the way: the bill is what
                             // is being worked on now, and it wants the same side of the screen.
                             busy = false, acceptOpen = false, linesOpen = false, status = "accepted",
-                            billOpen = true, billDocId = draft.id, billLines = lines, billQuotedCount = lines.size,
+                            billOpen = true, billDocId = draft.id, billLines = lines,
+                            // The quote's lines were copied across first, so they are the ones
+                            // that are frozen. Counting the WHOLE draft would freeze the extras
+                            // added on an earlier visit too, and they are still only a draft.
+                            billQuotedCount = minOf(it.lines.size, lines.size),
                         )
                     }
                 }
@@ -1339,21 +1359,6 @@ class QuoteViewModel @Inject constructor(
     }
 
     // ── the bill basket ──────────────────────────────────────────────────────
-    /**
-     * A blank bill for whatever they pick up next.
-     *
-     * No document is created here. An empty draft invoice raised every time the counter
-     * opened the basket and thought better of it would litter the ledger with numbers
-     * nobody asked for — so the bill exists on this screen only, and becomes a document
-     * at the moment it is issued. See [issueTheBill].
-     */
-    private fun openExtraBill() = _s.update {
-        it.copy(
-            busy = false, error = null, acceptOpen = false, linesOpen = false,
-            billOpen = true, billDocId = null, billLines = emptyList(), billQuotedCount = 0,
-        )
-    }
-
     fun addToBill(p: ProductEntity) = _s.update { st ->
         if (!st.billOpen) st else st.copy(
             billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat),
@@ -1429,9 +1434,12 @@ class QuoteViewModel @Inject constructor(
                 vatRatePct = it.vatRate,
             )
         },
-        // No order-level discount on the bill: the quote's own discount is already baked
-        // into the lines convert_quote_to_invoice copied across.
-        null, 0.0, 0L,
+        // The quote's order-level discount, because the BILL carries it: convert_quote_to_invoice
+        // copies discount_kind/value onto the invoice and copies the lines undiscounted, and
+        // save_draft leaves both alone when the payload does not mention them. Passing null here
+        // (on the belief that the discount was baked into the lines) showed the counter a total
+        // higher than the invoice it was about to raise — Rs 13,200 against a real Rs 11,880.
+        orderKind = docDiscountKind(s), orderPct = basketPct(s).toDouble(), orderAmtInclCents = basketAmtCents(s),
     )
 
     /** Back out of the bill without issuing it. The quote's own draft invoice stays on the
@@ -1440,15 +1448,24 @@ class QuoteViewModel @Inject constructor(
     fun closeBill() = _s.update { it.copy(billOpen = false, billLines = emptyList(), billDocId = null) }
 
     /**
-     * Everything the customer is taking today, priced and issued as one bill.
+     * Put what they are taking on the bill, and leave it there.
      *
-     * Issuing is not collecting. The car is usually still in the workshop when the extras
-     * go on, and the money is taken when the job is done — so the bill is raised, left to
-     * be paid, and the screen stays put. [takePayment] is the counter saying otherwise,
-     * for the customer who wants to settle there and then.
+     * ONE bill per visit. The car is still in the workshop, the customer is still walking
+     * around, and they will be back with something else — so the bill stays a draft and
+     * keeps accumulating. Issuing it on every trip to the counter is how one customer
+     * walked away owing three separate invoices for one afternoon.
+     *
+     * Nothing is collected and nothing is numbered. Checkout issues it when the money is
+     * taken, exactly as it already does for a job's own bill.
      */
-    fun issueTheBill(takePayment: Boolean = false) {
+    fun saveTheBill() = writeTheBill(issue = false, takePayment = false)
+
+    /** They are settling at the counter instead: number it and open the payment pad. */
+    fun issueTheBill(takePayment: Boolean = true) = writeTheBill(issue = true, takePayment = takePayment)
+
+    private fun writeTheBill(issue: Boolean, takePayment: Boolean) {
         val s = _s.value
+        val id = s.billDocId ?: return
         val cid = s.customerId ?: return
         if (s.busy) return
         if (s.billLines.isEmpty()) { _s.update { it.copy(error = "Nothing on this bill") }; return }
@@ -1456,25 +1473,30 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val doc = buildJsonObject {
-                    // A second bill has no document yet — save_draft creates one here rather
-                    // than leaving an empty invoice behind every time the basket is opened.
-                    if (s.billDocId != null) put("id", s.billDocId) else put("id", JsonNull)
+                    put("id", id)
                     put("doc_type", "invoice"); put("customer_id", cid)
                     if (s.vehicleId != null) put("vehicle_id", s.vehicleId) else put("vehicle_id", JsonNull)
-                    put("origin", "standalone")
+                    // No `origin`: convert_quote_to_invoice already stamped where this bill
+                    // came from, and save_draft overwrites the column when it is sent.
                 }
-                val id = api.saveDraft(doc, billLinesJson(s)).id
+                val saved = api.saveDraft(doc, billLinesJson(s))
                 // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
                 // key spent on the void one would refuse its replacement for ever.
-                Pair(id, api.issueDocument(id, "inv:$id").number)
-            }.onSuccess { (id, n) ->
+                if (issue) api.issueDocument(saved.id, "inv:${saved.id}") else saved
+            }.onSuccess { doc ->
                 _s.update {
                     it.copy(
                         busy = false, billOpen = false, billLines = emptyList(), billDocId = null,
-                        billed = true, createdInvoiceRef = n ?: "Invoice issued",
+                        billQuotedCount = 0,
+                        billed = it.billed || issue,
+                        // Only an issued bill takes over the screen. A saved one says so where
+                        // the operator was looking for it: on the quote, beside the totals.
+                        createdInvoiceRef = if (issue) doc.number ?: "Invoice issued" else null,
+                        bills = it.bills.filterNot { b -> b.id == doc.id } +
+                            BillRef(doc.id, doc.number, doc.status, rupeesToCents(doc.totalIncl)),
                     )
                 }
-                if (takePayment && _s.value.takesPayments) collectBus.request(id, null)
+                if (issue && takePayment && _s.value.takesPayments) collectBus.request(doc.id, null)
                 loadQuotes()
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }

@@ -285,11 +285,8 @@ private fun AdhocDialog(s: QuoteState, vm: QuoteViewModel, inclVat: Boolean) {
 private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
     val t = vm.billTotals(s)
     Column(Modifier.weight(47f).fillMaxHeight().card()) {
-        // A second bill: the quote's own is issued and frozen, so what they picked up on the
-        // way back to the counter starts a new one, with its own number and nothing on it.
-        val second = s.billed && s.billQuotedCount == 0
         Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (second) "A SECOND BILL" else "THE BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
+            Text("THE BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
             Spacer(Modifier.weight(1f))
             Text(
                 "${s.billLines.size} line${if (s.billLines.size == 1) "" else "s"}",
@@ -302,12 +299,6 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
             Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(7.dp),
         ) {
-            if (second) {
-                Text(
-                    "${s.createdInvoiceRef ?: "The first bill"} is already issued and cannot be changed. Anything they pick up now goes on this one.",
-                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Accent,
-                )
-            }
             if (s.billLines.isEmpty()) {
                 Text("Nothing on this bill yet.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
             }
@@ -328,7 +319,8 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(
-                "Anything else they are taking today goes on here — tap it on the left, then tap the line to price it.",
+                "Anything else they are taking today goes on here — tap it on the left, then tap the line to price it. " +
+                    "Saving keeps ONE bill open: come back and add to it as often as they ask.",
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -342,21 +334,21 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                 Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
             }
             s.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontSize = 12.sp) }
-            // Issuing is not collecting. The car is usually still in the workshop when the
-            // extras go on, and the money is taken when the job is done — so the bill is
-            // raised and left to be paid. The customer who wants to settle now still can,
-            // but the counter has to say so.
+            // Saving is the default, and it does NOT issue. The car is still in the workshop
+            // and the customer is still walking around — issuing on every trip to the counter
+            // is how one visit became three invoices. One bill, kept as a draft, collected at
+            // Checkout when the work is done. Settling here and now is the other button.
             val ready = !s.busy && s.billLines.isNotEmpty()
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeBill() }
                 Box(
                     Modifier.weight(1.6f).height(52.dp)
                         .background(if (ready) Accent else InsetAlt, RoundedCornerShape(13.dp))
-                        .clickable(enabled = ready) { vm.issueTheBill() },
+                        .clickable(enabled = ready) { vm.saveTheBill() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        if (s.busy) "Issuing…" else "Issue bill",
+                        if (s.busy) "Saving…" else "Save bill",
                         fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                         color = if (ready) AccentInk else TextMuted,
                     )
@@ -367,11 +359,11 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                     Modifier.fillMaxWidth().height(46.dp)
                         .background(if (ready) AccentSoft else InsetAlt, RoundedCornerShape(13.dp))
                         .border(1.dp, if (ready) AccentLine else Color(0x17101A24), RoundedCornerShape(13.dp))
-                        .clickable(enabled = ready) { vm.issueTheBill(takePayment = true) },
+                        .clickable(enabled = ready) { vm.issueTheBill() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        "Issue & take payment now",
+                        "They are paying now — issue & collect",
                         fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
                         color = if (ready) Accent else TextMuted,
                     )
@@ -436,6 +428,50 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
                         .clickable(onClick = vm::closeLines),
                     contentAlignment = Alignment.Center,
                 ) { Text("Done", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk) }
+            }
+        }
+    }
+}
+
+/**
+ * The bill (or bills) standing against this quote.
+ *
+ * The quotation is the price the customer signed for the WORK. A bottle of wax they pick up
+ * on the way past the shelf goes on their bill instead — which is right, and which left the
+ * quote screen showing exactly what it showed before, with no sign the extras had landed
+ * anywhere at all. This is that sign, and tapping the open one goes back to it.
+ */
+@Composable
+private fun BillsCard(s: QuoteState, vm: QuoteViewModel) {
+    Column(
+        Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(13.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(13.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            if (s.bills.size == 1) "THEIR BILL" else "THEIR BILLS",
+            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp, color = TextMuted,
+        )
+        s.bills.forEach { b ->
+            Row(
+                Modifier.fillMaxWidth()
+                    .clickable(enabled = b.isDraft && !s.busy) { vm.convertToInvoice() },
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        b.number ?: "Not issued yet",
+                        fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                        color = if (b.isDraft) TextSecondary else TextPrimary,
+                    )
+                    Text(
+                        // A draft is the one still being added to; anything else is a document.
+                        if (b.isDraft) "open — tap to add more, collect it at Checkout" else b.status,
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                        color = if (b.isDraft) Accent else TextMuted,
+                    )
+                }
+                Text(formatMUR(b.totalCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
             }
         }
     }
@@ -628,7 +664,9 @@ private fun ColumnScope.QuoteList(s: QuoteState, vm: QuoteViewModel, onGoIntake:
                         Text(q.number ?: "Draft", fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextSecondary)
                         Spacer(Modifier.weight(1f))
                         StatusChip(q.status)
-                        if (q.invoices.any { it.docType == "invoice" && it.status != "void" }) StatusChip("billed")
+                        // A DRAFT bill is one still being added to at the counter — calling that
+                        // "billed" on the list would retire a quote that has not been billed yet.
+                        if (q.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" }) StatusChip("billed")
                     }
                     Text(q.customers?.name ?: "—", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(listOfNotNull(q.vehicles?.plate, listOfNotNull(q.vehicles?.make, q.vehicles?.model).joinToString(" ").ifBlank { null }).joinToString(" · ").ifBlank { "—" }, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -903,6 +941,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     }.withCurrent(),
                 )
                 s.error?.let { Text(it, color = Danger, fontSize = 12.sp) }
+                // What they picked up while the car was in does NOT go on the quotation — so
+                // the quote looked untouched, and the operator who had just added two bottles
+                // had nowhere to see them. The bill says so, here, next to the totals.
+                if (s.bills.isNotEmpty()) BillsCard(s, vm)
                 when {
                     // Already converted: a quote maps to exactly one job, so don't offer to make
                     // another — just open the one it produced.
