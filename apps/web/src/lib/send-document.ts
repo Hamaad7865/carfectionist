@@ -5,6 +5,7 @@ import { PdfConfigError } from "@/lib/pdf/render";
 import { sendDocumentEmail } from "@/lib/email";
 import { docToken } from "@/lib/receipt-token";
 import { normalizePhoneMU } from "@/lib/phone";
+import { issueDocument } from "@/lib/supabase/rpc";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordOutbound } from "@/lib/wa-inbox";
 import * as wa from "@/lib/whatsapp";
@@ -102,23 +103,53 @@ export interface SendDocumentInput {
   deviceCode?: string | null; // stamps the traceability event when sent from a tablet
 }
 
-export type SendDocumentResult = { ok: true } | { ok: false; error: string };
+/** `issued` is set only when THIS send is what issued the document, so the caller
+ *  can retire its "Draft" chip instead of showing one over a frozen quote. */
+export type SendDocumentResult =
+  | { ok: true; issued?: { number: string; status: string } }
+  | { ok: false; error: string };
 
 const KIND_LABEL: Record<string, string> = { quote: "quotation", invoice: "invoice", credit_note: "credit note" };
+
+const DOC_SELECT = "id, tenant_id, doc_type, number, status, total_incl, issue_date, customer_id, accepted_signature, customers(name)";
 
 export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentResult> {
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const sb = i.sb as SupabaseClient<any>;
 
   // Load the document through the operator's RLS — also proves they may see it.
-  const { data: doc } = await sb
-    .from("documents")
-    .select("id, tenant_id, doc_type, number, status, total_incl, issue_date, customer_id, accepted_signature, customers(name)")
-    .eq("id", i.docId)
-    .maybeSingle();
+  const { data: doc } = await sb.from("documents").select(DOC_SELECT).eq("id", i.docId).maybeSingle();
   if (!doc) return { ok: false, error: "Document not found." };
-  const d: any = doc;
-  if (!d.number) return { ok: false, error: "This document is still a draft — issue or accept it first." };
+  let d: any = doc;
+
+  // A quotation exists to be argued with: the customer reads it, thinks, and only
+  // then accepts. So the send has to happen BEFORE acceptance — and a draft has no
+  // number for the PDF header, the WhatsApp template or the customer to quote back.
+  // Sending issues it: 'issued' already means "quoted to the customer, not agreed".
+  // Acceptance stays where it is — the signature pad and convert_quote_to_invoice.
+  let issued: { number: string; status: string } | undefined;
+  if (!d.number) {
+    if (d.doc_type !== "quote") {
+      return { ok: false, error: "This invoice is still a draft — issue it at the till first." };
+    }
+    if (d.status !== "draft") return { ok: false, error: `This quotation is ${d.status} and can no longer be sent.` };
+    try {
+      // No stock location (a quote moves none) and no session ON PURPOSE: passing one
+      // stamps the till and runs assert_till_day_current, which would let a stale till
+      // refuse a quotation. convert_quote_to_job issues its quote the same way.
+      // The key mirrors quote-accept:<id> — the RPC's advisory lock + replay make a
+      // double-tap, a retry, or two operators sending at once land on ONE number.
+      await issueDocument(sb as any, i.docId, null, `quote-send:${i.docId}`, null);
+    } catch (e) {
+      return { ok: false, error: `Couldn't issue this quotation to send it: ${(e as Error).message}` };
+    }
+    // Re-read rather than patch: issuing also stamps issue_date, the bill-to snapshot
+    // and the VAT breakdown, and the PDF/template below read those.
+    const { data: fresh } = await sb.from("documents").select(DOC_SELECT).eq("id", i.docId).maybeSingle();
+    if (!fresh || !(fresh as any).number) return { ok: false, error: "This quotation could not be issued." };
+    d = fresh as any;
+    issued = { number: d.number, status: d.status };
+  }
   const kind = KIND_LABEL[d.doc_type] ?? "document";
   const customerName: string = d.customers?.name ?? "customer";
 
@@ -265,5 +296,5 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
   });
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return { ok: true };
+  return { ok: true, issued };
 }

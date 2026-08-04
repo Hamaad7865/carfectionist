@@ -263,13 +263,32 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
           {showPreview ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
           {showPreview ? "Hide preview" : "Preview"}
         </button>
+        {/* A quotation is sent BEFORE it is agreed — the customer has to read the price
+            to accept it. Sending issues the draft on the way out, so this sits beside
+            Issue rather than behind it, and it is the SAME element from draft through
+            issued: swapping in the read-only bar below would tear the send sheet down
+            in the middle of its "sent ✓". The save is flushed first — the autosave
+            debounce means the newest line may not have reached the server yet. */}
+        {state.docType === "quote" && state.docId && (!readOnly || state.number) && (
+          <DocumentShareBar
+            documentId={state.docId}
+            number={state.number}
+            onBeforeSend={async () => !!(await doSave())}
+            onSent={(issued) => {
+              if (!issued) return;
+              dispatch({ type: "issued", number: issued.number, status: issued.status });
+              router.refresh();
+            }}
+          />
+        )}
         {!readOnly && (
           <button onClick={onIssue} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center gap-2 rounded-[10px] px-[18px] font-display text-[13px] font-extrabold text-white disabled:opacity-60">
             {busy ? "Working…" : `Issue ${state.docType}`}
             <ArrowRight size={16} />
           </button>
         )}
-        {readOnly && state.docId && state.number && (
+        {/* Quotes are served by the bar above, from draft onwards. */}
+        {readOnly && state.docType !== "quote" && state.docId && state.number && (
           <DocumentShareBar
             documentId={state.docId}
             number={state.number}
@@ -277,6 +296,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             defaultPhone={customer?.phone ?? null}
           />
         )}
+        {/* Nothing to share: a void quote never got a number. */}
         {readOnly && state.docId && !state.number && (
           <a href={`/print/doc/${state.docId}`} target="_blank" rel="noreferrer" className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[13px] font-semibold text-body">
             <FileDown size={15} /> Print / PDF

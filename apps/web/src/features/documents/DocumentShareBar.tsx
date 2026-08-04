@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Printer, Download, Share2, ChevronDown, Mail, MessageCircle, Link2, Check } from "lucide-react";
 import { btn } from "@/components/ui/button";
 import { publicDocLinkAction } from "./actions";
@@ -14,13 +15,23 @@ import { SendDocumentDialog } from "./SendDocumentDialog";
 export function DocumentShareBar({
   documentId,
   number,
+  onBeforeSend,
+  onSent,
 }: {
   documentId: string;
   number: string | null;
   // kept for call-site compatibility; the sheet loads contacts itself
   defaultEmail?: string | null;
   defaultPhone?: string | null;
+  /** Run before the send sheet opens — the builder flushes its pending autosave
+   *  here, so the customer is never sent the PDF of a stale draft. Return false
+   *  to abort (the save failed). */
+  onBeforeSend?: () => Promise<boolean>;
+  /** Fires on a successful send; `issued` is set when the send is what issued a
+   *  draft quotation. Defaults to refreshing the route. */
+  onSent?: (issued?: { number: string; status: string }) => void;
 }) {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<null | "email" | "whatsapp">(null);
   const [copied, setCopied] = useState(false);
@@ -42,6 +53,12 @@ export function DocumentShareBar({
       document.removeEventListener("keydown", onKey);
     };
   }, [menuOpen]);
+
+  async function openSend(ch: "email" | "whatsapp") {
+    setMenuOpen(false);
+    if (onBeforeSend && !(await onBeforeSend())) return;
+    setDialog(ch);
+  }
 
   async function copyLink() {
     setMenuOpen(false);
@@ -80,8 +97,8 @@ export function DocumentShareBar({
 
           {menuOpen && (
             <div role="menu" className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-[12px] border border-line bg-card p-1 shadow-[0_12px_32px_rgba(6,12,20,0.16)]">
-              <MenuItem onClick={() => { setMenuOpen(false); setDialog("email"); }} icon={<Mail size={15} className="text-link" />} label="Send Email" />
-              <MenuItem onClick={() => { setMenuOpen(false); setDialog("whatsapp"); }} icon={<MessageCircle size={15} className="text-[#25D366]" />} label="Send WhatsApp" />
+              <MenuItem onClick={() => void openSend("email")} icon={<Mail size={15} className="text-link" />} label="Send Email" />
+              <MenuItem onClick={() => void openSend("whatsapp")} icon={<MessageCircle size={15} className="text-[#25D366]" />} label="Send WhatsApp" />
               <div className="my-1 h-px bg-line-2" />
               <MenuItem onClick={copyLink} icon={<Link2 size={15} className="text-muted" />} label="Copy share link" />
             </div>
@@ -100,7 +117,16 @@ export function DocumentShareBar({
         </span>
       )}
 
-      {dialog && <SendDocumentDialog documentId={documentId} channel={dialog} onClose={() => setDialog(null)} />}
+      {dialog && (
+        <SendDocumentDialog
+          documentId={documentId}
+          channel={dialog}
+          onClose={() => setDialog(null)}
+          // Sending a draft quotation issues it — the page is now showing a number
+          // and a status it does not know about.
+          onSent={onSent ?? ((issued) => { if (issued) router.refresh(); })}
+        />
+      )}
     </>
   );
 }

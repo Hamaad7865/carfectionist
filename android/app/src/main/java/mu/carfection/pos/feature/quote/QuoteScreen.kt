@@ -133,10 +133,21 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
             Column(Modifier.width(470.dp).card().padding(26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (jobId != null) "Quote accepted" else "Send quotation", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
                 Text(
-                    if (jobId != null) "JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:"
-                    else "Send ${s.ref} to the customer — again if they have already had it:",
+                    when {
+                        jobId != null -> "JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:"
+                        s.status == "draft" -> "Send this quotation to the customer so they can agree to it:"
+                        else -> "Send ${s.ref} to the customer — again if they have already had it:"
+                    },
                     fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary,
                 )
+                // Say what sending costs BEFORE they send: the price freezes, and Revise
+                // is the way back. Acceptance is still the signature, not this.
+                if (jobId == null && s.status == "draft") {
+                    Text(
+                        "It is still a draft — sending gives it its number and locks the price. The customer can still accept or decline. Use Revise to change it afterwards.",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = Accent,
+                    )
+                }
 
                 MiniLabel("MESSAGE")
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -166,7 +177,13 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
                 s.sendDone?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Color(0xFF12A150)) }
                 s.sendError?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = Color(0xFFD63B50)) }
 
-                OutlineBtn("Done", Modifier.fillMaxWidth(), 48) { viewModel.clearToast(); viewModel.back() }
+                // Match the dismiss handler: leaving the builder is right after ACCEPTING
+                // (the job is on the board), wrong after a plain send — the operator is
+                // still working on that quote.
+                OutlineBtn("Done", Modifier.fillMaxWidth(), 48) {
+                    viewModel.clearToast()
+                    if (jobId != null) viewModel.back() else viewModel.closeSend()
+                }
             }
         }
     }
@@ -306,8 +323,11 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         Box(Modifier.size(44.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(12.dp)).clickable { vm.back() }, contentAlignment = Alignment.Center) { Text("←", fontFamily = Barlow, fontSize = 18.sp, color = TextSecondary) }
         Text(s.ref.uppercase(), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
         StatusChip(s.status)
-        // Re-send: reachable for any SAVED quote, not only in the moment after accepting.
-        if (s.quoteId != null) {
+        // Reachable for ANY quote with a customer on it — a draft included. A quotation
+        // is sent so the customer can agree to it; sending issues the draft on the way
+        // out, and an unsaved builder saves itself first. Re-sending an accepted quote
+        // (lost WhatsApp, "email it too") goes through the same button.
+        if (s.customerId != null && (s.quoteId != null || s.lines.isNotEmpty())) {
             Box(
                 Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
                     .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
@@ -579,7 +599,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     // Signed, but the work never started — the customer took the price away
                     // and has now come back. Raise the job from the quote they actually signed,
                     // rather than re-keying it as a new one.
-                    s.status == "accepted" && s.jobId == null -> {
+                    // …but not one that has already been billed. Raising the bill now accepts
+                    // the quote too (convert_quote_to_invoice, 20260804000010), so a walk-in
+                    // sale lands here with no job — and "Create job →" / "Customer never came
+                    // back" are both finished business for money already taken. Let it fall to
+                    // the billed branch below, which says so.
+                    s.status == "accepted" && s.jobId == null && !s.billed -> {
                         // The moment the crew CAN be kept — accepting for later had nowhere to
                         // put them, so this is where the promise made on the accept panel comes
                         // due. Same chips, so picking a crew works the same wherever you are.

@@ -374,7 +374,9 @@ class JobsViewModel @Inject constructor(
         if (to.isBlank() || _s.value.sendBusy) return
         _s.update { it.copy(sendBusy = true, sendDone = null, sendError = null) }
         viewModelScope.launch {
-            val err = runCatching { sendApi.send(id, channel, to.trim(), note.trim().take(300), session.deviceId()) }
+            // An invoice is never issued by its send (only quotations are) — the
+            // outcome's issued fields stay null here.
+            val err = runCatching { sendApi.send(id, channel, to.trim(), note.trim().take(300), session.deviceId()).error }
                 .getOrElse { it.message ?: "Network error" }
             _s.update { cur ->
                 // A late reply must never stamp a different invoice's dialog.

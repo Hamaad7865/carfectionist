@@ -15,6 +15,13 @@ import { muToday } from "@/lib/mu-date";
 import { btn } from "@/components/ui/button";
 
 const rs = (v: string) => formatMUR(Math.round(Number(v) * 100));
+
+// A DRAFT QUOTE can be sent — sending issues it. The customer has to read a price
+// before they can agree to one, so the quotation travels first and is accepted
+// after. Everything else still needs its number before it can go anywhere.
+const canSend = (r: { number: string | null; doc_type: string; status: string }) =>
+  !!r.number || (r.doc_type === "quote" && r.status === "draft");
+
 const COLS = "grid-cols-[120px_1fr_90px_90px_120px_130px_36px]";
 const TCOLS = "grid-cols-[130px_110px_100px_70px_70px_130px_130px_36px]";
 
@@ -221,7 +228,7 @@ export default async function SalesPage({
                 </div>
                 <div className="flex shrink-0 flex-col items-end gap-2">
                   <div className="num text-[14px] font-bold text-ink-strong">{rs(r.total_incl)}</div>
-                  {r.number && <RowSendButton documentId={r.id} />}
+                  {canSend(r) && <RowSendButton documentId={r.id} />}
                 </div>
               </div>
               {/* Desktop grid */}
@@ -247,7 +254,7 @@ export default async function SalesPage({
                 </span>
                 <span className="num text-right text-[13px] font-bold text-ink-strong">{rs(r.total_incl)}</span>
                 <span className="flex items-center justify-end gap-1.5 text-faint">
-                  {r.number && <RowSendButton documentId={r.id} />}
+                  {canSend(r) && <RowSendButton documentId={r.id} />}
                   <ChevronRight size={16} />
                 </span>
               </div>

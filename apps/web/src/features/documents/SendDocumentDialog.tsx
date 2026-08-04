@@ -29,10 +29,14 @@ export function SendDocumentDialog({
   documentId,
   channel,
   onClose,
+  onSent,
 }: {
   documentId: string;
   channel: "email" | "whatsapp";
   onClose: () => void;
+  /** Fires on a successful send. `issued` is set when THIS send is what issued a
+   *  draft quotation, so the caller can retire its Draft chip. */
+  onSent?: (issued?: { number: string; status: string }) => void;
 }) {
   const [ctx, setCtx] = useState<SendContext | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,9 +107,12 @@ export function SendDocumentDialog({
     ].filter(Boolean);
     setSentScheduled(!!r.scheduled);
     setDone(bits.join(" · ") + ".");
+    onSent?.(r.issued);
   }
 
   const isWa = channel === "whatsapp";
+  // A draft quotation is issued on the way out — say so before they send, not after.
+  const willIssue = !!ctx && !ctx.number && ctx.kind === "quotation" && ctx.status === "draft";
   const kindCap = ctx ? ctx.kind.charAt(0).toUpperCase() + ctx.kind.slice(1) : "Document";
   const title = `${isWa ? "WhatsApp" : "Email"} ${kindCap}`;
 
@@ -156,6 +163,16 @@ export function SendDocumentDialog({
             </div>
           ) : (
             <>
+              {/* A quotation is sent BEFORE it is agreed — so sending issues it. Say
+                  what that costs (the price freezes) and name the way back (Revise). */}
+              {willIssue && (
+                <p className="rounded-[11px] border border-[rgba(43,140,255,0.28)] bg-brand-wash px-3 py-2.5 text-[12px] leading-snug text-body">
+                  This quotation is still a draft. Sending gives it its number and locks the
+                  price — the customer can still accept or decline it. Use <b>Revise</b> to
+                  change it afterwards.
+                </p>
+              )}
+
               {/* client name (read-only) */}
               <Field label="Client's name">
                 <div className="flex h-10 items-center rounded-[11px] border border-line-2 bg-sub px-3 text-[13px] font-semibold text-body">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Send } from "lucide-react";
 import { SendDocumentDialog } from "./SendDocumentDialog";
 
@@ -9,6 +10,7 @@ import { SendDocumentDialog } from "./SendDocumentDialog";
 // invoice row (documents list + tickets history), so a document can be sent
 // from anywhere it appears, not only its own page.
 export function RowSendButton({ documentId }: { documentId: string }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   return (
     <>
@@ -25,7 +27,15 @@ export function RowSendButton({ documentId }: { documentId: string }) {
       >
         <Send size={14} />
       </button>
-      {open && <SendDocumentDialog documentId={documentId} channel="whatsapp" onClose={() => setOpen(false)} />}
+      {open && (
+        <SendDocumentDialog
+          documentId={documentId}
+          channel="whatsapp"
+          onClose={() => setOpen(false)}
+          // A draft quotation sent from this row now HAS a number and reads "issued".
+          onSent={(issued) => { if (issued) router.refresh(); }}
+        />
+      )}
     </>
   );
 }

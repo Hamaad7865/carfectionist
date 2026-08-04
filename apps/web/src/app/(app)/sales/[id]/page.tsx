@@ -125,7 +125,9 @@ export default async function DocumentDetailPage({
                 <Receipt size={15} /> Receipt
               </a>
             )}
-            {doc.number && doc.status !== "void" ? (
+            {/* A draft QUOTE shares too — sending issues it, because the customer has
+                to read the price before they can agree to it. */}
+            {(doc.number || (doc.docType === "quote" && doc.status === "draft")) && doc.status !== "void" ? (
               <DocumentShareBar documentId={doc.id} number={doc.number} defaultEmail={doc.customerEmail} defaultPhone={doc.customerPhone} />
             ) : (
               <a href={`/print/doc/${doc.id}`} target="_blank" rel="noreferrer" className={btn()}>

@@ -24,7 +24,17 @@ private data class SendDocumentBody(
 )
 
 @Serializable
-private data class SendDocumentResponse(val ok: Boolean = false, val error: String? = null)
+private data class IssuedDto(val number: String? = null, val status: String? = null)
+
+@Serializable
+private data class SendDocumentResponse(val ok: Boolean = false, val error: String? = null, val issued: IssuedDto? = null)
+
+/**
+ * [error] null means it went. [issuedNumber]/[issuedStatus] are set ONLY when this send
+ * is what issued the document — sending a draft quotation issues it, and the tablet has
+ * to stop showing a DRAFT chip over a quote the server has since frozen.
+ */
+data class SendOutcome(val error: String?, val issuedNumber: String? = null, val issuedStatus: String? = null)
 
 @Serializable
 private data class SendZReportBody(val to: String, val deviceCode: String? = null)
@@ -41,11 +51,11 @@ class DocumentSendApi @Inject constructor(private val client: SupabaseClient) {
     private val base = BuildConfig.POS_WEB_URL.trimEnd('/')
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
-    /** Returns null on success, or a human-readable error message. */
-    suspend fun send(documentId: String, channel: String, to: String, note: String?, deviceCode: String?): String? =
+    /** Sends, and reports back whether the send is what issued the document. */
+    suspend fun send(documentId: String, channel: String, to: String, note: String?, deviceCode: String?): SendOutcome =
         withContext(Dispatchers.IO) {
             val token = client.auth.currentAccessTokenOrNull()
-                ?: return@withContext "Not signed in — sign in again and retry."
+                ?: return@withContext SendOutcome("Not signed in — sign in again and retry.")
             val body = json.encodeToString(SendDocumentBody(channel, to, note = note?.takeIf { it.isNotBlank() }, saveContact = true, deviceCode = deviceCode))
             val conn = (URL("$base/api/documents/$documentId/send").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
@@ -63,12 +73,12 @@ class DocumentSendApi @Inject constructor(private val client: SupabaseClient) {
                     ?.bufferedReader()?.use(BufferedReader::readText) ?: ""
                 val parsed = runCatching { json.decodeFromString<SendDocumentResponse>(text) }.getOrNull()
                 when {
-                    parsed?.ok == true -> null
-                    parsed?.error != null -> parsed.error
-                    else -> "Send failed (HTTP $code)"
+                    parsed?.ok == true -> SendOutcome(null, parsed.issued?.number, parsed.issued?.status)
+                    parsed?.error != null -> SendOutcome(parsed.error)
+                    else -> SendOutcome("Send failed (HTTP $code)")
                 }
             } catch (e: Exception) {
-                e.message ?: "Network error"
+                SendOutcome(e.message ?: "Network error")
             } finally {
                 conn.disconnect()
             }

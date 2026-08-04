@@ -32,6 +32,7 @@ import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteRowDto
+import mu.carfection.pos.core.network.SendOutcome
 import mu.carfection.pos.core.network.TechnicianDto
 import mu.carfection.pos.core.network.uiMessage
 import java.time.Instant
@@ -914,11 +915,12 @@ class QuoteViewModel @Inject constructor(
                     loadQuotes()
                 }
                 .onFailure { e ->
-                    // A draft that already spawned a job or carries a payment is referenced by
-                    // something real — say so rather than leaking a foreign-key message.
+                    // Something real was raised FROM this draft — a bill, a revision, a copy —
+                    // and points back at it through documents.source_document_id. Say that,
+                    // rather than leaking "violates foreign key constraint …" to the shop.
                     val fk = (e.message ?: "").contains("foreign key", true) || (e.message ?: "").contains("violates", true)
                     _s.update {
-                        it.copy(busy = false, error = if (fk) "This quote already has work booked against it, so it can't be discarded." else e.uiMessage())
+                        it.copy(busy = false, error = if (fk) "Another document was raised from this quote and still refers back to it, so it can't be discarded." else e.uiMessage())
                     }
                 }
         }
@@ -1069,34 +1071,61 @@ class QuoteViewModel @Inject constructor(
                 // One already issued (by the board, say) is handed back as it stands.
                 if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}").number
                 else draft.number
-            }.onSuccess { n -> _s.update { it.copy(busy = false, acceptOpen = false, billed = true, createdInvoiceRef = n ?: "Invoice issued") } }
+                // Raising the bill accepts the quote on the server too (convert_quote_to_invoice,
+                // 20260804000010) — carry that here, or the screen keeps offering to re-save and
+                // re-bill a draft the server no longer has.
+            }.onSuccess { n -> _s.update { it.copy(busy = false, acceptOpen = false, status = "accepted", billed = true, createdInvoiceRef = n ?: "Invoice issued") } }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 
     fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null, createdInvoiceRef = null, sendDone = null, sendError = null, sendBusy = false) }
 
-    /** Post-accept "Send to customer": the Worker renders the signed quotation PDF
-     *  and delivers it by [channel] ("email" | "whatsapp"). */
+    /** "Send to customer": the Worker renders the quotation PDF and delivers it by
+     *  [channel] ("email" | "whatsapp").
+     *
+     *  A DRAFT can be sent — that is the point of a quotation. The customer has to
+     *  read a price before they can agree to one, so the server issues the draft on
+     *  the way out and hands back the number it was given. Sending does NOT accept
+     *  it: the signature pad still does that.
+     *
+     *  An unsaved builder saves first, exactly as [create] does, so Send and Accept
+     *  behave alike from a fresh quote. */
     fun sendToCustomer(channel: String, to: String, note: String = "") {
-        val quoteId = _s.value.quoteId ?: return
-        if (to.isBlank() || _s.value.sendBusy) return
+        val s = _s.value
+        if (to.isBlank() || s.sendBusy) return
+        val cid = s.customerId ?: run { _s.update { it.copy(sendError = "No customer on this quote") }; return }
+        if (s.quoteId == null && !s.linesLoaded) { _s.update { it.copy(sendError = "Items still loading — wait a moment.") }; return }
+        if (s.quoteId == null && s.lines.isEmpty()) { _s.update { it.copy(sendError = "Add a line before sending.") }; return }
         _s.update { it.copy(sendBusy = true, sendError = null, sendDone = null) }
         viewModelScope.launch {
-            val err = runCatching { sendApi.send(quoteId, channel, to.trim(), note.trim().take(300), session.deviceId()) }
-                .getOrElse { it.message ?: "Network error" }
+            val saved = runCatching {
+                if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
+                else s.quoteId ?: error("This quote hasn't been saved yet")
+            }.getOrElse { e ->
+                _s.update { it.copy(sendBusy = false, sendError = e.uiMessage()) }
+                return@launch
+            }
+            val out = runCatching { sendApi.send(saved, channel, to.trim(), note.trim().take(300), session.deviceId()) }
+                .getOrElse { SendOutcome(it.message ?: "Network error") }
             _s.update { cur ->
                 // A late result must not stamp a DIFFERENT quote's dialog (the
                 // operator may have dismissed and accepted another quote meanwhile).
-                if (cur.quoteId != quoteId) cur
-                else if (err == null) cur.copy(
+                if (cur.quoteId != null && cur.quoteId != saved) cur
+                else if (out.error == null) cur.copy(
                     sendBusy = false,
+                    quoteId = saved,
                     sendDone = if (channel == "email") "Sent by email ✓" else "Sent on WhatsApp ✓",
+                    // The send issued it: drop the DRAFT chip and show the number, or the
+                    // builder stays editable over a quote the server has already frozen.
+                    status = out.issuedStatus ?: cur.status,
+                    ref = out.issuedNumber ?: cur.ref,
                     // remember what worked so re-opening prefills the corrected value
                     customerEmail = if (channel == "email") to.trim() else cur.customerEmail,
                     customerPhone = if (channel == "whatsapp") to.trim() else cur.customerPhone,
-                ) else cur.copy(sendBusy = false, sendError = err)
+                ) else cur.copy(sendBusy = false, sendError = out.error, quoteId = saved)
             }
+            if (out.error == null && out.issuedNumber != null) loadQuotes()
         }
     }
 }

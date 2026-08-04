@@ -248,7 +248,9 @@ const sendDocSchema = z.object({
 });
 
 /** Email / WhatsApp the document PDF to the customer (same engine as the tablet). */
-export async function sendDocumentAction(input: z.infer<typeof sendDocSchema>): Promise<{ ok: true } | { ok: false; error: string }> {
+export async function sendDocumentAction(
+  input: z.infer<typeof sendDocSchema>,
+): Promise<{ ok: true; issued?: { number: string; status: string } } | { ok: false; error: string }> {
   await requireRole(...WRITE_ROLES);
   const p = sendDocSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Invalid input" };
@@ -276,7 +278,7 @@ const REMINDER_NOTE = "A friendly reminder that this invoice is still outstandin
  *  optional auto-reminders on an unpaid invoice. */
 export async function deliverDocumentAction(
   input: z.infer<typeof deliverSchema>,
-): Promise<{ ok: true; scheduled: boolean; reminders: number } | { ok: false; error: string }> {
+): Promise<{ ok: true; scheduled: boolean; reminders: number; issued?: { number: string; status: string } } | { ok: false; error: string }> {
   await requireRole(...WRITE_ROLES);
   const p = deliverSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Invalid input" };
@@ -286,11 +288,16 @@ export async function deliverDocumentAction(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: doc } = await (sb as any)
     .from("documents")
-    .select("id, tenant_id, doc_type, number, due_date, issue_date")
+    .select("id, tenant_id, doc_type, status, number, due_date, issue_date")
     .eq("id", documentId)
     .maybeSingle();
   if (!doc) return { ok: false, error: "Document not found." };
-  if (!doc.number) return { ok: false, error: "This document is still a draft — issue it first." };
+  if (!doc.number && doc.doc_type !== "quote") {
+    return { ok: false, error: "This invoice is still a draft — issue it at the till first." };
+  }
+  if (!doc.number && doc.status !== "draft") {
+    return { ok: false, error: `This quotation is ${doc.status} and can no longer be sent.` };
+  }
 
   // Normalise / validate the recipient the same way an immediate send would, so
   // a scheduled row can never hold an unsendable address.
@@ -314,11 +321,23 @@ export async function deliverDocumentAction(
 
   // ── the primary action: schedule for later, or send now ──
   let scheduled = false;
+  let issued: { number: string; status: string } | undefined;
   if (scheduleAt) {
     // Interpret the naive datetime-local as Mauritius time (UTC+4, no DST).
     const when = new Date(`${scheduleAt}:00+04:00`);
     if (isNaN(when.getTime())) return { ok: false, error: "That date and time isn't valid." };
     if (when.getTime() <= Date.now() + 30_000) return { ok: false, error: "Pick a time at least a minute in the future." };
+    // A draft quote is issued NOW, not when the send fires: the document the customer
+    // eventually receives must be the one that was locked when this was queued, and
+    // nobody should be able to edit a quote out from under a send already promised.
+    if (!doc.number) {
+      try {
+        const row = await rpc.issueDocument(sb, documentId, null, `quote-send:${documentId}`, null);
+        issued = { number: row.number ?? "", status: row.status };
+      } catch (e) {
+        return { ok: false, error: `Couldn't issue this quotation to schedule it: ${(e as Error).message}` };
+      }
+    }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (sb as any).from("scheduled_sends").insert({
       tenant_id: doc.tenant_id, document_id: documentId, channel, to_addr: toAddr,
@@ -333,6 +352,7 @@ export async function deliverDocumentAction(
     const proto = host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
     const r = await sendDocument({ sb, docId: documentId, channel, to, note, origin: `${proto}://${host}` });
     if (!r.ok) return r;
+    issued = r.issued;
   }
 
   // ── optional: auto-reminders on an unpaid invoice ──
@@ -357,7 +377,9 @@ export async function deliverDocumentAction(
     }
   }
 
-  return { ok: true, scheduled, reminders };
+  revalidatePath("/sales");
+  revalidatePath(`/sales/${documentId}`);
+  return { ok: true, scheduled, reminders, issued };
 }
 
 /** Cancel a still-pending scheduled send. */
@@ -372,6 +394,7 @@ export async function cancelScheduledSendAction(id: string): Promise<{ ok: true 
 
 export interface SendContext {
   number: string | null;
+  status: string; // draft → the sheet warns that sending issues and locks the quotation
   kind: "quotation" | "invoice" | "credit note" | "document";
   customerName: string;
   customerPhone: string | null;
@@ -391,7 +414,7 @@ export async function getSendContextAction(documentId: string): Promise<{ ok: tr
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (sb as any)
     .from("documents")
-    .select("doc_type, number, customers(name, phone, email)")
+    .select("doc_type, number, status, customers(name, phone, email)")
     .eq("id", documentId)
     .maybeSingle();
   if (!data) return { ok: false, error: "Document not found." };
@@ -412,6 +435,7 @@ export async function getSendContextAction(documentId: string): Promise<{ ok: tr
     ok: true,
     ctx: {
       number: data.number ?? null,
+      status: data.status ?? "draft",
       kind: KIND_MAP[data.doc_type] ?? "document",
       customerName: data.customers?.name ?? "",
       customerPhone: data.customers?.phone ?? null,
