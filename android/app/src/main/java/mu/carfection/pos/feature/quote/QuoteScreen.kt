@@ -516,7 +516,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         // showing none, so the picker gives way to the one thing left to do: revise it.
         if (!vm.editable(s) && !s.billOpen) LockedQuotePanel(s, vm) else {
         CategoryRail(s, vm)
-        Column(Modifier.weight(53f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(44f).fillMaxHeight(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             // The ad-hoc tile lives at the end of the grid — past hundreds of products, so it
             // may as well not exist. This button is the way in: a typed one-off line, always
             // one tap away.
@@ -571,7 +571,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         }
         // RIGHT 47 — the bill while one is open, otherwise the quote's own lines
         if (s.billOpen) { BillPanel(s, vm); return@Row }
-        Column(Modifier.weight(47f).fillMaxHeight().card()) {
+        Column(Modifier.weight(56f).fillMaxHeight().card()) {
             // Once the quote is locked its lines are read on the LEFT, in the wide half. This
             // column is then only the totals and what happens next — so it drops its header
             // and lets that block fill the card, rather than floating it under a title with
@@ -728,7 +728,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 // The car's journey — same five steps as the back office. Hidden while the
                 // client is signing: it is decorative at that moment, and the ~90dp it eats
                 // is the difference between a cramped signature strip and a real pad.
-                if (!s.acceptOpen) FlowStrip(
+                // Hidden while a line is OPEN for the same reason it is hidden while the client
+                // signs: it is decorative at that moment, and the ~90dp it eats is the difference
+                // between an editor you can read and one whose last row is clipped off.
+                if (!s.acceptOpen && s.lines.none { it.expanded }) FlowStrip(
                     buildList {
                         // Goods over the counter never came in through intake and never go to a
                         // bay. Showing those two steps greyed out invites someone to go and
