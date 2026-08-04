@@ -233,7 +233,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (!adName.trim()) return;
     // Typed as the shelf price when the shop quotes gross — store the net the ledger adds VAT to.
     const cents = ctx.pricesInclVat ? netFromGrossCents(typed, 15) : typed;
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: adKind } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -417,7 +417,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         key={p.id}
                         onClick={() => {
                           // From the catalogue: the product's own kind answers, so this stays null.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct, lineKind: null } });
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"

@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import type { Block, RichDoc, Run, Runs } from "./types";
 
@@ -48,7 +49,9 @@ function renderRun(run: Run, key: number): ReactNode {
     );
   }
 
-  return <span key={key}>{node}</span>;
+  // A Fragment, not a span: an unmarked run should add no markup at all. The PDF
+  // is generated from this HTML, so every wrapper element is weight for nothing.
+  return <Fragment key={key}>{node}</Fragment>;
 }
 
 const renderRuns = (runs: Runs | undefined): ReactNode[] => (runs ?? []).map(renderRun);

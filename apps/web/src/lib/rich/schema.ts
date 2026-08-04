@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { RichDoc } from "./types";
 
 /**
  * Runtime validation for rich line content.
@@ -37,3 +38,18 @@ export const richDocSchema = z
   .refine((doc) => JSON.stringify(doc).length <= MAX_RICH_BYTES, {
     message: "That description is too long to store on a line.",
   });
+
+/**
+ * Read a `description_richtext` column back into a tree, or null.
+ *
+ * Fails closed and never throws. The column is written by the tablet as well as
+ * the back office, so a row can hold a shape this build does not understand — a
+ * newer schemaVersion, or the stringified blob that `->>` would have stored. A
+ * line then renders with no description, which is wrong but harmless; throwing
+ * here would take out the print page and the emailed PDF together.
+ */
+export function parseRichDoc(value: unknown): RichDoc | null {
+  if (value === null || value === undefined) return null;
+  const parsed = richDocSchema.safeParse(value);
+  return parsed.success ? (parsed.data as RichDoc) : null;
+}

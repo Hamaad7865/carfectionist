@@ -1,11 +1,16 @@
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
 import type { DiscountKind } from "@/lib/money/totals";
+import type { RichDoc } from "@/lib/rich/types";
 
 export interface BuilderLine {
   key: string;
   productId: string | null; // null = ad-hoc typed line
   title: string;
+  /** Flat text from a row saved before rich content existed. Read-only now. */
   description: string;
+  /** The description proper. Its flat mirror is derived at the save seam. */
+  rich: RichDoc | null;
+  unitLabel: string; // "" = no unit shown
   qty: number;
   unitCents: number;
   discountPct: number;
@@ -44,7 +49,7 @@ export function newKey(): string {
 export function blankLine(): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.
-  return { key: newKey(), productId: null, title: "", description: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: "service" };
+  return { key: newKey(), productId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: "service" };
 }
 
 export type BuilderAction =
