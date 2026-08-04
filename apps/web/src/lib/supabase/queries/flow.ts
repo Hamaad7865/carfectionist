@@ -182,6 +182,33 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
     },
   ];
 
+  // Goods over the counter never came in through intake and never go to a bay. Showing
+  // those two steps greyed out on a products-only deal invites someone to go and
+  // "complete" them, on a sale that has no car in it — and the first-todo rule below
+  // would announce "Next step: Intake" for a customer who is buying two bottles of
+  // sealant. A job of its own overrides this: if one exists, the steps are real.
+  // Effective kind is coalesce(line_kind, products.kind, 'service') — same rule the
+  // tablet and the database use.
+  const kindSource = quote ?? invoice;
+  if (kindSource && !job) {
+    const { data: kindRows } = await sb
+      .from("document_lines")
+      .select("line_kind, products(kind)")
+      .eq("document_id", (kindSource as { id: string }).id);
+    // The generated types call the embedded to-one relation an array; the wire gives an
+    // object. Normalise rather than trust either.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows = (kindRows ?? []) as any[];
+    const productKind = (l: any) => (Array.isArray(l.products) ? l.products[0]?.kind : l.products?.kind) ?? null;
+    const hasWork = rows.length === 0 || rows.some((l) => (l.line_kind ?? productKind(l) ?? "service") === "service");
+    if (!hasWork) {
+      for (const dead of ["intake", "job"] as const) {
+        const i = steps.findIndex((s) => s.key === dead);
+        if (i >= 0) steps.splice(i, 1);
+      }
+    }
+  }
+
   // A certificate extends the journey to six steps — but only when one exists
   // (most work isn't ceramic; a permanent empty sixth step would be noise).
   if (cert) {

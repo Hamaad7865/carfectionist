@@ -593,10 +593,15 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 // client is signing: it is decorative at that moment, and the ~90dp it eats
                 // is the difference between a cramped signature strip and a real pad.
                 if (!s.acceptOpen) FlowStrip(
-                    listOf(
-                        FlowStepUi("Intake", if (s.hasIntake) FlowState.DONE else FlowState.TODO, if (s.hasIntake) "recorded" else "walk-in"),
-                        FlowStepUi("Quote", FlowState.DONE, s.ref),
-                        FlowStepUi(
+                    buildList {
+                        // Goods over the counter never came in through intake and never go to a
+                        // bay. Showing those two steps greyed out invites someone to go and
+                        // "complete" them, on a sale that has no car in it — so a products-only
+                        // quote is quote → signed → invoice, and nothing else.
+                        val work = vm.hasService(s)
+                        if (work) add(FlowStepUi("Intake", if (s.hasIntake) FlowState.DONE else FlowState.TODO, if (s.hasIntake) "recorded" else "walk-in"))
+                        add(FlowStepUi("Quote", FlowState.DONE, s.ref))
+                        add(FlowStepUi(
                             "Signed",
                             when {
                                 s.status == "declined" -> FlowState.DECLINED
@@ -604,10 +609,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                 else -> FlowState.TODO
                             },
                             if (s.signed) "client signed" else if (s.jobId != null) "accepted" else null,
-                        ),
-                        FlowStepUi("Job", if (s.jobId != null) FlowState.DONE else FlowState.TODO, s.jobId?.let { "on the board" }),
-                        FlowStepUi("Invoice", if (s.createdInvoiceRef != null || s.billed) FlowState.DONE else FlowState.TODO, s.createdInvoiceRef ?: if (s.billed) "issued" else null),
-                    ).withCurrent(),
+                        ))
+                        if (work) add(FlowStepUi("Job", if (s.jobId != null) FlowState.DONE else FlowState.TODO, s.jobId?.let { "on the board" }))
+                        add(FlowStepUi("Invoice", if (s.createdInvoiceRef != null || s.billed) FlowState.DONE else FlowState.TODO, s.createdInvoiceRef ?: if (s.billed) "issued" else null))
+                    }.withCurrent(),
                 )
                 s.error?.let { Text(it, color = Danger, fontSize = 12.sp) }
                 when {
@@ -688,10 +693,27 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         Text("This quote already has an invoice — accepting or re-billing it here is disabled.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
                     }
                     !s.acceptOpen -> {
+                        // Only a DRAFT can be saved. A quote the customer has already been shown
+                        // cannot, and offering "Save draft" on one was a button that could only
+                        // ever fail — what a sent quote needs is the way OUT, for the customer
+                        // who says no. Voided, not erased: it has a number on it.
+                        val work = vm.hasService(s)
                         Row(Modifier.padding(top = 7.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                            OutlineBtn(if (s.busy) "Saving…" else if (s.savedRef != null) "Saved ✓" else "Save draft", Modifier.weight(1f), 52) { if (!s.busy) vm.saveDraft() }
+                            if (vm.editable(s)) {
+                                OutlineBtn(if (s.busy) "Saving…" else if (s.savedRef != null) "Saved ✓" else "Save draft", Modifier.weight(1f), 52) { if (!s.busy) vm.saveDraft() }
+                            } else {
+                                Box(
+                                    Modifier.weight(1f).height(52.dp).border(1.dp, Color(0x33D63B50), RoundedCornerShape(13.dp))
+                                        .clickable(enabled = !s.busy) { vm.askDelete() },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(if (s.busy) "Working…" else "Not going ahead", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Danger)
+                                }
+                            }
                             Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
-                                Text(if (s.startJobNow) "Accept → create job" else "Accept — save for later", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
+                                // Nothing to put on the board when it is goods only — say so here
+                                // rather than promising a job the accept panel will not create.
+                                Text(if (work) "Accept → create job" else "Accept — goods only", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
                             }
                         }
                         Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
@@ -1447,8 +1469,16 @@ private fun DiscardDraftDialog(s: QuoteState, vm: QuoteViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val isDraft = s.status == "draft"
+            // Sent but never signed is a different story from signed and abandoned: the first
+            // is a customer saying no, the second is one who agreed and vanished. Same void
+            // underneath, but asking the wrong question makes staff hesitate over the right button.
+            val signed = s.signed || s.status == "accepted"
             Text(
-                if (isDraft) "DISCARD THIS DRAFT?" else "CUSTOMER NEVER CAME BACK?",
+                when {
+                    isDraft -> "DISCARD THIS DRAFT?"
+                    signed -> "CUSTOMER NEVER CAME BACK?"
+                    else -> "CANCEL THIS QUOTATION?"
+                },
                 fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary,
             )
             Text(
@@ -1462,13 +1492,17 @@ private fun DiscardDraftDialog(s: QuoteState, vm: QuoteViewModel) {
                         append(if (s.lines.size == 1) " line" else " lines")
                         append(" will be deleted. This cannot be undone.")
                     } else {
-                        // Not "deleted": it was signed, so what was agreed stays on the record.
+                        // Not "deleted": it has a number, so what the customer was shown — or
+                        // agreed to — stays on the record.
                         append(s.ref)
                         append(" for ")
                         append(s.who.ifBlank { "this customer" })
                         s.vehPlate?.let { append(" ($it)") }
                         append(" will be marked void and drop off the quotes list. ")
-                        append("It stays on the record as what was agreed, and no job is created.")
+                        append(
+                            if (signed) "It stays on the record as what was agreed, and no job is created."
+                            else "It stays on the record as what the customer was quoted. Revise instead if they want a different price.",
+                        )
                     }
                 },
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 18.sp, color = TextSecondary,
