@@ -25,6 +25,7 @@ import { ScheduledSends } from "@/features/documents/ScheduledSends";
 import { getScheduledSends } from "@/lib/supabase/queries/scheduled-sends";
 import { CarDiagram } from "@/features/intake/CarDiagram";
 import { StartJobButton } from "@/features/intake/StartJobButton";
+import { QuoteAnswerButtons } from "@/features/intake/QuoteAnswerButtons";
 import { markerMeta } from "@/features/intake/damage";
 import { formatMUR } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
@@ -186,7 +187,15 @@ export default async function DocumentDetailPage({
             ) : ["declined", "expired"].includes(doc.status) ? (
               <span className="text-[12px] font-semibold text-faint">Quote is {doc.status}</span>
             ) : (
-              <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} hasService={doc.hasService} />
+              <div className="flex flex-col gap-3">
+                <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} hasService={doc.hasService} />
+                {/* Sent and waiting on the customer. Their answer arrives by whatever route the
+                    quote went out on, so it has to be recordable without them in the room —
+                    and "no" is a lost sale, not a document raised in error. */}
+                {doc.status === "issued" && (
+                  <QuoteAnswerButtons documentId={doc.id} customerName={doc.customerName} hasService={doc.hasService} />
+                )}
+              </div>
             )}
           </div>
         )}

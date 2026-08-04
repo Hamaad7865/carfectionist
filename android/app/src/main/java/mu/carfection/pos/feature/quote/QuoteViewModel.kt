@@ -172,6 +172,13 @@ data class QuoteState(
     val basketText: String = "",
     val technicians: List<TechnicianDto> = emptyList(),
     val acceptOpen: Boolean = false,
+    /** How the customer agreed when they are NOT at the pad: "whatsapp" | "phone" | "email".
+     *  Null means they are here and signing. A quote sent by WhatsApp is answered by
+     *  WhatsApp — insisting on a signature would mean it could never be accepted at all. */
+    val agreedVia: String? = null,
+    /** Confirming a decline, with the customer's reason if they gave one. */
+    val declineOpen: Boolean = false,
+    val declineReason: String = "",
     /** Ticked = the car is here and the work starts now. Unticked = signed, come back later. */
     val startJobNow: Boolean = true,
     // The crew, in the order they were picked. The FIRST is the lead — jobs.technician_id,
@@ -236,7 +243,7 @@ data class QuoteState(
  * yet, which is the most live thing on the list.
  */
 private fun QuoteRowDto.isRetired(): Boolean {
-    if (status == "void") return true
+    if (status == "void" || status == "declined" || status == "expired") return true
     if (job?.status == "delivered" || job?.status == "cancelled") return true
     // Retired once the money question is closed, which happens two ways:
     //  • every bill it ever had was voided — nothing owed, nothing booked (A00023);
@@ -862,14 +869,47 @@ class QuoteViewModel @Inject constructor(
      * card raised in error is dismissed in one tap, whereas work with no card is work
      * nobody is tracking.
      */
-    fun hasService(s: QuoteState): Boolean = s.lines.any { l ->
-        (l.lineKind ?: s.products.firstOrNull { it.id == l.productId }?.kind ?: "service") == "service"
+    fun hasService(s: QuoteState): Boolean {
+        // NOT KNOWN YET is not the same as NO WORK. A quote whose lines are still loading —
+        // or whose load failed, which is what the shop sees when the tablet drops off the
+        // network — has an empty list, and reading that as "goods only" hid Intake and Job
+        // on a service quote and would have billed it instead of putting the car on the
+        // board. Same reason the per-line fallback says 'service': the cost of guessing
+        // wrong towards work is a job card dismissed in one tap.
+        if (!s.linesLoaded || s.lines.isEmpty()) return true
+        return s.lines.any { l ->
+            (l.lineKind ?: s.products.firstOrNull { it.id == l.productId }?.kind ?: "service") == "service"
+        }
     }
 
     // The panel opens on what the quote actually contains rather than on "yes" every time.
     // Still a toggle: a service quote signed today for work booked next month turns it off,
     // and the rare products-only job turns it on.
-    fun openAccept() = _s.update { it.copy(acceptOpen = true, startJobNow = hasService(it)) }
+    fun openAccept() = _s.update { it.copy(acceptOpen = true, startJobNow = hasService(it), agreedVia = null) }
+
+    /** Signing here, or agreed elsewhere. Picking a channel puts the pad away. */
+    fun setAgreedVia(via: String?) = _s.update { it.copy(agreedVia = via) }
+
+    fun askDecline() = _s.update { it.copy(declineOpen = true, declineReason = "", error = null) }
+    fun cancelDecline() = _s.update { it.copy(declineOpen = false, declineReason = "") }
+    fun setDeclineReason(t: String) = _s.update { it.copy(declineReason = t.take(200)) }
+
+    /**
+     * The customer turned it down. Declined, not void: void is for paperwork raised in
+     * error, and mixing the two is how "how many quotes do we lose?" stopped being
+     * answerable. Cashiers may record it — the person who sent the quote hears the answer.
+     */
+    fun declineThisQuote() {
+        val id = _s.value.quoteId ?: return
+        if (_s.value.busy) return
+        val reason = _s.value.declineReason.trim().ifBlank { null }
+        _s.update { it.copy(busy = true, error = null, declineOpen = false) }
+        viewModelScope.launch {
+            runCatching { api.declineQuote(id, reason) }
+                .onSuccess { _s.update { it.copy(busy = false, status = "declined", declineReason = "") }; loadQuotes(); back() }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
     fun closeAccept() = _s.update { it.copy(acceptOpen = false) }
     /**
      * Tap a technician to put them on the job, tap again to take them off. The first one
@@ -1075,7 +1115,7 @@ class QuoteViewModel @Inject constructor(
                 // Signed, but the work is not starting today — no job, no card on the board.
                 // "Create job" on this quote raises it whenever the customer comes back.
                 if (!s.startJobNow) {
-                    api.acceptQuoteOnly(quoteId, sigPath, s.who.takeUnless { it.isBlank() || it == "—" })
+                    api.acceptQuoteOnly(quoteId, sigPath, s.who.takeUnless { it.isBlank() || it == "—" }, s.agreedVia)
                     // GOODS ONLY: the signature is not a promise of future work, it is a purchase
                     // happening right now — so the bill follows the signature immediately. On a
                     // paying till the pad opens on it (a deposit pre-fills the figure; otherwise
@@ -1099,7 +1139,7 @@ class QuoteViewModel @Inject constructor(
                     _s.update {
                         it.copy(
                             busy = false, quoteId = quoteId, status = "accepted",
-                            acceptOpen = false, intake = null, signed = sigPath != null,
+                            acceptOpen = false, intake = null, signed = sigPath != null || it.agreedVia != null,
                             jobId = null, createdJobId = null,
                             billed = it.billed || goodsInvoice != null,
                             // Reuses the deposit hand-off: on a paying till this walks the
@@ -1112,7 +1152,7 @@ class QuoteViewModel @Inject constructor(
                     loadQuotes()
                     return@runCatching Triple(quoteId, null, null)
                 }
-                val jobId = api.convertQuoteToJob(quoteId, s.crew.firstOrNull(), signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" })
+                val jobId = api.convertQuoteToJob(quoteId, s.crew.firstOrNull(), signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" }, agreedVia = s.agreedVia)
                 // Book the car in, with how long it should take. Safe to retry: the conversion
                 // is idempotent, so a failed schedule write simply re-runs against the same job.
                 api.setJobSchedule(jobId, scheduledIso(s), s.estimateMinutes)

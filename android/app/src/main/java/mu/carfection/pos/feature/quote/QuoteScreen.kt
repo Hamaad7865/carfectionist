@@ -205,6 +205,7 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
     if (s.pickerOpen) QuoteCustomerPicker(s, viewModel)
     if (s.confirmDelete) DiscardDraftDialog(s, viewModel)
+    if (s.declineOpen) DeclineQuoteDialog(s, viewModel)
     if (s.datePickerOpen) StartDatePicker(s, viewModel)
     if (s.timePickerOpen) StartTimePicker(s, viewModel)
 }
@@ -730,10 +731,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             } else {
                                 Box(
                                     Modifier.weight(1f).height(52.dp).border(1.dp, Color(0x33D63B50), RoundedCornerShape(13.dp))
-                                        .clickable(enabled = !s.busy) { vm.askDelete() },
+                                        .clickable(enabled = !s.busy) { vm.askDecline() },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    Text(if (s.busy) "Working…" else "Not going ahead", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Danger)
+                                    Text(if (s.busy) "Working…" else "Customer declined", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Danger)
                                 }
                             }
                             Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
@@ -768,9 +769,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) acceptStep = 0 }
                             Box(
                                 Modifier.weight(1.6f).height(52.dp)
-                                    .background(if (s.busy || !signed) InsetAlt else Accent, RoundedCornerShape(13.dp))
-                                    .clickable(enabled = !s.busy && signed) {
-                                        vm.create(strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx))
+                                    .background(if (s.busy || !(signed || s.agreedVia != null)) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                                    .clickable(enabled = !s.busy && (signed || s.agreedVia != null)) {
+                                        vm.create(
+                                            if (s.agreedVia != null) null
+                                            else strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx),
+                                        )
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
@@ -778,16 +782,17 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                 // purchase, and the bill follows it straight to the pad. Saying
                                 // "Create job" here was a promise the button never kept.
                                 val goods = !vm.hasService(s)
+                                val agreed = signed || s.agreedVia != null
                                 Text(
                                     when {
                                         s.busy -> if (goods) "Billing…" else "Creating…"
-                                        !signed -> if (goods) "Sign to accept" else "Sign to create job"
+                                        !agreed -> if (goods) "Sign to accept" else "Sign to create job"
                                         goods -> if (s.takesPayments) "Accept — take payment" else "Accept — create invoice"
                                         !s.startJobNow -> "Accept — save for later"
                                         else -> "Create job"
                                     },
                                     fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                                    color = if (s.busy || !signed) TextMuted else AccentInk,
+                                    color = if (s.busy || !agreed) TextMuted else AccentInk,
                                 )
                             }
                         }
@@ -1012,11 +1017,46 @@ private fun SignStep(
             if (s.depositCents > 0) RecapRow("Deposit on signing", formatMUR(s.depositCents))
         }
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            MiniLabel("CLIENT SIGNATURE")
+        // A quotation sent by WhatsApp is answered by WhatsApp. Demanding a signature from a
+        // customer who is not in the room meant a quote could be sent and then never accepted
+        // at all — so the pad is one way to evidence agreement, not the only one.
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            MiniLabel(if (s.agreedVia == null) "CLIENT SIGNATURE" else "HOW THEY AGREED")
             Spacer(Modifier.weight(1f))
-            if (signed) Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { strokes.clear() }.padding(horizontal = 4.dp))
+            if (signed && s.agreedVia == null) Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { strokes.clear() }.padding(horizontal = 4.dp))
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            listOf(null to "Signing here", "whatsapp" to "WhatsApp", "phone" to "Phone", "email" to "Email").forEach { (via, label) ->
+                val on = s.agreedVia == via
+                Box(
+                    Modifier.weight(1f).height(36.dp)
+                        .background(if (on) AccentSoft else Inset, RoundedCornerShape(10.dp))
+                        .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(10.dp))
+                        .clickable { strokes.clear(); vm.setAgreedVia(via) },
+                    contentAlignment = Alignment.Center,
+                ) { Text(label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = if (on) Accent else TextSecondary) }
+            }
+        }
+        if (s.agreedVia != null) {
+            Column(
+                Modifier.fillMaxWidth().weight(1f).heightIn(min = 120.dp)
+                    .background(Inset, RoundedCornerShape(12.dp)).padding(20.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    s.who.ifBlank { "The customer" } + " agreed by " +
+                        when (s.agreedVia) { "whatsapp" -> "WhatsApp"; "phone" -> "phone"; else -> "email" },
+                    fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, color = TextPrimary,
+                )
+                Text(
+                    "Recorded against " + s.ref + " with the time, in place of a signature. " +
+                        "Tap Signing here instead if they are in front of you.",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 19.sp, color = TextMuted,
+                )
+                Spacer(Modifier.weight(1f))
+            }
+        } else
         // The pad takes all the room that's left, and CLIPS: a signature that runs past the edge
         // stops at the edge instead of being drawn across the card. Points are clamped to the
         // pad's bounds too, so the PNG that gets stored is exactly what the client saw.
@@ -1503,6 +1543,77 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                     contentAlignment = Alignment.Center,
                 ) { Text(if (s.customerId != null) "Skip" else "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
             }
+        }
+    }
+}
+
+/**
+ * The customer said no.
+ *
+ * Declined, not void. Both retire the quote, but they are different facts: a decline is a
+ * lost sale worth counting, a void is paperwork raised in error. Every "no" the shop has
+ * ever recorded went down as void, so the one number the owner wants — how many quotes do
+ * we lose, and why — was never there to read. The reason is optional: an unexplained loss
+ * is still worth more than a loss filed as a clerical mistake.
+ */
+@Composable
+private fun DeclineQuoteDialog(s: QuoteState, vm: QuoteViewModel) {
+    Dialog(onDismissRequest = vm::cancelDecline) {
+        Column(
+            Modifier.width(470.dp).background(CardBg, RoundedCornerShape(18.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(18.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                "CUSTOMER DECLINED?",
+                fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary,
+            )
+            Text(
+                buildString {
+                    append(s.ref)
+                    append(" for ")
+                    append(s.who.ifBlank { "this customer" })
+                    s.vehPlate?.let { append(" ($it)") }
+                    append(" will be marked declined and leave the quotes list. ")
+                    append("It stays on the record as a quotation the shop lost — revise it instead if they only want a different price.")
+                },
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 18.sp, color = TextSecondary,
+            )
+            MiniLabel("WHY, IF THEY SAID (OPTIONAL)")
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("Too expensive", "Going elsewhere", "Not now").forEach { preset ->
+                    val on = s.declineReason == preset
+                    Box(
+                        Modifier.weight(1f).height(34.dp)
+                            .background(if (on) AccentSoft else Inset, RoundedCornerShape(10.dp))
+                            .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(10.dp))
+                            .clickable { vm.setDeclineReason(if (on) "" else preset) },
+                        contentAlignment = Alignment.Center,
+                    ) { Text(preset, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
+                }
+            }
+            FilledInput(
+                value = s.declineReason, onValueChange = vm::setDeclineReason,
+                placeholder = "Or type what they said…", modifier = Modifier.fillMaxWidth(), bg = Inset,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.cancelDecline() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Keep it", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                Box(
+                    Modifier.weight(1.2f).height(50.dp).background(Danger, RoundedCornerShape(13.dp))
+                        .clickable(enabled = !s.busy) { vm.declineThisQuote() },
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (s.busy) "Working…" else "Mark declined", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color.White) }
+            }
+            // The other kind of no: this quotation should never have existed. Kept out of the
+            // way, because it is rare and it is not a lost sale.
+            Text(
+                "Raised in error instead? Void it →",
+                fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextMuted,
+                modifier = Modifier.clickable { vm.cancelDecline(); vm.askDelete() },
+            )
         }
     }
 }

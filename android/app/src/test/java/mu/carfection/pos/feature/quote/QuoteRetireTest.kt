@@ -27,7 +27,7 @@ class QuoteRetireTest {
 
     /** Mirrors QuoteViewModel.isRetired — kept in step by these cases. */
     private fun retired(q: QuoteRowDto): Boolean {
-        if (q.status == "void") return true
+        if (q.status == "void" || q.status == "declined" || q.status == "expired") return true
         if (q.job?.status == "delivered" || q.job?.status == "cancelled") return true
         val bills = q.invoices.filter { it.docType == "invoice" }
         if (bills.isEmpty()) return false
@@ -79,6 +79,22 @@ class QuoteRetireTest {
     @Test
     fun `a voided quote is retired whatever else is true`() {
         assertTrue(retired(quote(status = "void")))
+    }
+
+    /**
+     * The customer said no. It is finished business exactly like a void — but it is a
+     * DIFFERENT fact, and the whole point of separating them is that one is a lost sale
+     * worth counting and the other is paperwork raised in error.
+     */
+    @Test
+    fun `a declined quote leaves the working list`() {
+        assertTrue(retired(quote(status = "declined")))
+        assertTrue(retired(quote(status = "expired")))
+    }
+
+    @Test
+    fun `a sent quote still waiting on the customer stays`() {
+        assertFalse(retired(quote(status = "issued")))
     }
 
     @Test

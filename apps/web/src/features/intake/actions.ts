@@ -81,11 +81,31 @@ export async function createJobFromDocumentAction(documentId: string): Promise<R
  *  work booked next month should not put a car on tonight's board. "Accept →
  *  create job" (createJobFromDocumentAction) stays the other choice; same
  *  two-way split as the tablet's "signed, come back later" toggle. */
-export async function acceptQuoteOnlyAction(documentId: string): Promise<Result> {
+export async function acceptQuoteOnlyAction(
+  documentId: string,
+  agreedVia: "whatsapp" | "phone" | "email" | null = null,
+  name: string | null = null,
+): Promise<Result> {
   await requireRole("owner", "manager", "cashier");
   const sb = await createClient();
   try {
-    await rpc.acceptQuote(sb, documentId);
+    await rpc.acceptQuote(sb, documentId, agreedVia, name);
+    revalidatePath("/sales");
+    revalidatePath(`/sales/${documentId}`);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** The customer said no. Declined, not void — a lost sale is a number worth having, and
+ *  filing it as cancelled paperwork is how that number stopped existing. Cashiers may
+ *  record it: whoever sent the quote is who hears the answer. */
+export async function declineQuoteAction(documentId: string, reason: string | null = null): Promise<Result> {
+  await requireRole("owner", "manager", "cashier");
+  const sb = await createClient();
+  try {
+    await rpc.declineQuote(sb, documentId, reason?.trim() || null);
     revalidatePath("/sales");
     revalidatePath(`/sales/${documentId}`);
     return { ok: true };

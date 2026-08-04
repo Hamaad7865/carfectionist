@@ -438,6 +438,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * is VOIDED rather than erased — the record of what was agreed survives, it just stops
      * reading as live work. The RPC refuses one with a live job or a live invoice.
      */
+    /** The customer said no. A lost sale, not cancelled paperwork — see void_quote for that. */
+    suspend fun declineQuote(quoteId: String, reason: String? = null) {
+        client.postgrest.rpc("decline_quote", buildJsonObject {
+            put("p_quote_id", quoteId)
+            if (reason != null) put("p_reason", reason) else put("p_reason", JsonNull)
+        })
+    }
+
     suspend fun voidQuote(quoteId: String, reason: String? = null) {
         client.postgrest.rpc("void_quote", buildJsonObject {
             put("p_quote_id", quoteId)
@@ -728,12 +736,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * booked next month should not put a car in the bay tonight. The job can be raised from
      * this same quote whenever they actually turn up.
      */
-    suspend fun acceptQuoteOnly(quoteId: String, signaturePath: String? = null, signedName: String? = null) {
+    /** [agreedVia] records a customer who agreed WITHOUT the pad — "whatsapp", "phone",
+     *  "email", "counter". The quote is just as accepted; the evidence is the channel and
+     *  the name instead of a drawn signature. */
+    suspend fun acceptQuoteOnly(quoteId: String, signaturePath: String? = null, signedName: String? = null, agreedVia: String? = null) {
         client.postgrest.rpc("accept_quote", buildJsonObject {
             put("p_quote_id", quoteId)
-            if (signaturePath != null) {
+            if (signaturePath != null || agreedVia != null) {
                 put("p_signature", buildJsonObject {
-                    put("path", signaturePath)
+                    if (signaturePath != null) put("path", signaturePath)
+                    if (agreedVia != null) put("via", agreedVia)
                     if (signedName != null) put("name", signedName)
                 })
             } else {
@@ -748,14 +760,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         scheduledAt: String? = null,
         signaturePath: String? = null,
         signedName: String? = null,
+        agreedVia: String? = null,
     ): String =
         client.postgrest.rpc("convert_quote_to_job", buildJsonObject {
             put("p_quote_id", quoteId)
             if (technicianId != null) put("p_technician_id", technicianId) else put("p_technician_id", JsonNull)
             if (scheduledAt != null) put("p_scheduled_at", scheduledAt) else put("p_scheduled_at", JsonNull)
-            if (signaturePath != null) {
+            if (signaturePath != null || agreedVia != null) {
                 put("p_signature", buildJsonObject {
-                    put("path", signaturePath)
+                    if (signaturePath != null) put("path", signaturePath)
+                    if (agreedVia != null) put("via", agreedVia)
                     if (signedName != null) put("name", signedName)
                 })
             } else put("p_signature", JsonNull)

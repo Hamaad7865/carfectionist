@@ -225,8 +225,18 @@ export const reversePayment = (sb: Client, paymentId: string, reason: string | n
 /** Sign off the price WITHOUT putting a car on the board — same accept_quote
  *  RPC as the tablet's "signed, come back later" choice. Use convertQuoteToJob
  *  when the work starts today. */
-export const acceptQuote = (sb: Client, quoteId: string) =>
-  callRpc<DocumentRow>(sb, "accept_quote", { p_quote_id: quoteId, p_signature: null });
+/** [agreedVia] records a customer who agreed without the pad — the quote was sent to
+ *  them, so the answer comes back by the same route. The acceptance record carries the
+ *  channel and their name in place of a drawn signature. */
+export const acceptQuote = (sb: Client, quoteId: string, agreedVia: string | null = null, name: string | null = null) =>
+  callRpc<DocumentRow>(sb, "accept_quote", {
+    p_quote_id: quoteId,
+    p_signature: agreedVia ? { via: agreedVia, ...(name ? { name } : {}) } : null,
+  });
+
+/** The customer turned it down. A lost sale, countable — not cancelled paperwork. */
+export const declineQuote = (sb: Client, quoteId: string, reason: string | null = null) =>
+  callRpc<DocumentRow>(sb, "decline_quote", { p_quote_id: quoteId, p_reason: reason });
 
 export const createCreditNote = (sb: Client, invoiceId: string, restock: boolean, location: string | null = null, sessionId: string | null = null) =>
   // sessionId = the till the refund is booked to: a paid invoice's credit note writes
