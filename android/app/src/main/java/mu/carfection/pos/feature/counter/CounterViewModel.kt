@@ -469,10 +469,11 @@ class CounterViewModel @Inject constructor(
             // payment pad that could never succeed.
             val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
                 .filter { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) > 0 }
-                // A draft only belongs at the till if it is a JOB's bill, raised at ready and
-                // waiting to be finished. A draft typed in the back office and abandoned is
-                // not a debt, and offering it here would be inventing one.
-                .filter { it.status != "draft" || it.jobId != null }
+                // TO COLLECT means collect NOW. A draft belongs here only when it is a job's
+                // bill and that car is finished — a bill opened mid-service so the counter
+                // could add something to it is not yet a debt, and a draft typed in the back
+                // office and abandoned never was.
+                .filter { it.status != "draft" || it.jobs?.status == "ready" || it.jobs?.status == "delivered" }
             val paidRaw = runCatching { api.fetchTodayPayments(start) }.getOrDefault(emptyList())
             // PAID TODAY = money that actually stands. A mistake + its reversal
             // cancel out and BOTH disappear (the trail stays in History and the

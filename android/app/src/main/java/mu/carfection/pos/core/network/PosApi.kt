@@ -869,7 +869,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     /** Invoices awaiting payment (issued or partly paid) — the "TO COLLECT" list. */
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, issued_at, customers(name), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, issued_at, jobs(status), customers(name), vehicles(plate, make, model)")) {
                 // 'draft' belongs here now: a quoted job's bill is raised when the car is
                 // marked ready and left OPEN, so the counter can add whatever the customer
                 // picked up on their way out. It is issued as they pay. Callers drop the

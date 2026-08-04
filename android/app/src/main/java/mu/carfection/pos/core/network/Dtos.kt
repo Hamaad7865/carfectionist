@@ -221,6 +221,9 @@ data class OutstandingInvoiceDto(
     @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
     val status: String = "issued",
     @SerialName("job_id") val jobId: String? = null,
+    /** The job behind this bill, when there is one — a draft raised while the car is still
+     *  in the bay is not something the till should be offering to collect yet. */
+    val jobs: JobStatusRefDto? = null,
     @SerialName("issued_at") val issuedAt: String? = null, // for the payment screen's bill header
     val customers: JobCustomerDto? = null,
     val vehicles: JobVehicleDto? = null,

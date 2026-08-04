@@ -571,6 +571,21 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
             // footer action
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                // The car is still in the bay and the customer is wandering the shop — which is
+                // when they find the thing they want. Their bill can be opened and added to now
+                // rather than only once the work is finished; it stays a draft either way, and
+                // it does not reach the till list until the car is ready.
+                if ((j.status == "scheduled" || j.status == "in_progress") && j.sourceQuoteId != null &&
+                    j.invoices.none { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth().height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp))
+                            .clickable { vm.openInvoice() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text("＋  Add to bill", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                    }
+                }
                 if (j.status == "ready" || j.status == "delivered") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                         // A DRAFT bill is not a finished one — this is the way back into it to add
