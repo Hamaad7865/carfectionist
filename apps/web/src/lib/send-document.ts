@@ -130,7 +130,11 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
   let issued: { number: string; status: string } | undefined;
   if (!d.number) {
     if (d.doc_type !== "quote") {
-      return { ok: false, error: "This invoice is still a draft — issue it at the till first." };
+      // Issuing one of these is a fiscal act — the number, the stock and the till all
+      // move — so it stays a deliberate step at the till rather than a side effect of
+      // pressing Send.
+      const what = d.doc_type === "credit_note" ? "credit note" : "invoice";
+      return { ok: false, error: `This ${what} is still a draft — issue it at the till first.` };
     }
     if (d.status !== "draft") return { ok: false, error: `This quotation is ${d.status} and can no longer be sent.` };
     try {

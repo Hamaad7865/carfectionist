@@ -1136,15 +1136,20 @@ class QuoteViewModel @Inject constructor(
                 _s.update { it.copy(sendBusy = false, sendError = e.uiMessage()) }
                 return@launch
             }
+            // Learn the id the MOMENT it exists, so the guard below can stay strict. Without
+            // this, a send started from an unsaved builder and answered after the operator
+            // moved on would match a state whose quoteId is null — stamping this quote's id,
+            // number and "Sent ✓" onto whatever quote is on screen, and pointing the next
+            // Save or Accept at the wrong document.
+            _s.update { if (it.quoteId == null && it.customerId == cid) it.copy(quoteId = saved) else it }
             val out = runCatching { sendApi.send(saved, channel, to.trim(), note.trim().take(300), session.deviceId()) }
                 .getOrElse { SendOutcome(it.message ?: "Network error") }
             _s.update { cur ->
                 // A late result must not stamp a DIFFERENT quote's dialog (the
                 // operator may have dismissed and accepted another quote meanwhile).
-                if (cur.quoteId != null && cur.quoteId != saved) cur
+                if (cur.quoteId != saved) cur
                 else if (out.error == null) cur.copy(
                     sendBusy = false,
-                    quoteId = saved,
                     sendDone = if (channel == "email") "Sent by email ✓" else "Sent on WhatsApp ✓",
                     // The send issued it: drop the DRAFT chip and show the number, or the
                     // builder stays editable over a quote the server has already frozen.
@@ -1153,7 +1158,7 @@ class QuoteViewModel @Inject constructor(
                     // remember what worked so re-opening prefills the corrected value
                     customerEmail = if (channel == "email") to.trim() else cur.customerEmail,
                     customerPhone = if (channel == "whatsapp") to.trim() else cur.customerPhone,
-                ) else cur.copy(sendBusy = false, sendError = out.error, quoteId = saved)
+                ) else cur.copy(sendBusy = false, sendError = out.error)
             }
             if (out.error == null && out.issuedNumber != null) loadQuotes()
         }

@@ -28,7 +28,8 @@ class SendDraftQuoteTest {
 
     /** Mirrors what sendToCustomer applies on a successful send. */
     private fun applySend(s: QuoteState, saved: String, out: SendOutcome) =
-        if (out.error != null) s.copy(sendBusy = false, sendError = out.error, quoteId = saved)
+        if (s.quoteId != saved) s
+        else if (out.error != null) s.copy(sendBusy = false, sendError = out.error)
         else s.copy(
             sendBusy = false, quoteId = saved, sendDone = "Sent on WhatsApp ✓",
             status = out.issuedStatus ?: s.status,
@@ -91,7 +92,36 @@ class SendDraftQuoteTest {
     /** The draft saved on the way in has to be remembered, or the next tap saves a SECOND quote. */
     @Test
     fun `the id from the save on the way in is kept even when the send fails`() {
-        val after = applySend(state(quoteId = null), "q-new", SendOutcome("Network error"))
+        // sendToCustomer stamps the id as soon as the save returns, before the network call.
+        val mid = state(quoteId = null).copy(quoteId = "q-new")
+        val after = applySend(mid, "q-new", SendOutcome("Network error"))
         assertEquals("q-new", after.quoteId)
+        assertEquals("Network error", after.sendError)
+    }
+
+    /**
+     * The one that would corrupt data. A send started from an unsaved builder and answered
+     * after the operator moved on must land on NOTHING. Matching loosely — treating a null
+     * quoteId as "close enough" — stamped this quote's id, number and "Sent ✓" onto whichever
+     * quote was on screen, and pointed its next Save or Accept at the wrong document.
+     */
+    @Test
+    fun `a late result cannot stamp the quote that replaced it`() {
+        val moved = state(quoteId = null).copy(ref = "New quote", who = "somebody else")
+        val after = applySend(moved, "q-new", SendOutcome(null, issuedNumber = "A00124", issuedStatus = "issued"))
+
+        assertEquals("nothing may be stamped onto the new quote", null, after.quoteId)
+        assertEquals("New quote", after.ref)
+        assertEquals("draft", after.status)
+        assertEquals(null, after.sendDone)
+    }
+
+    @Test
+    fun `a late result cannot stamp a DIFFERENT saved quote either`() {
+        val other = state(quoteId = "q-other").copy(ref = "A00099", status = "issued")
+        val after = applySend(other, "q-new", SendOutcome(null, issuedNumber = "A00124", issuedStatus = "issued"))
+
+        assertEquals("q-other", after.quoteId)
+        assertEquals("A00099", after.ref)
     }
 }

@@ -62,6 +62,13 @@ describe("sendDocument — what may be sent without a number", () => {
     expect(r).toEqual({ ok: false, error: "This invoice is still a draft — issue it at the till first." });
   });
 
+  it("calls a credit note a credit note", async () => {
+    const r = await send(client([{ ...draftQuote, doc_type: "credit_note" }]));
+
+    expect(issueDocument).not.toHaveBeenCalled();
+    expect(r).toEqual({ ok: false, error: "This credit note is still a draft — issue it at the till first." });
+  });
+
   it("refuses a numberless quote that is no longer a draft", async () => {
     const r = await send(client([{ ...draftQuote, status: "void" }]));
 
