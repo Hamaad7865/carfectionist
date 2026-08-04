@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./database.types";
+import type { RichDoc } from "@/lib/rich/types";
 
 /**
  * The numbering / MRA seam. Every money-path write flows through one of these
@@ -12,7 +13,9 @@ type Client = SupabaseClient<Database>;
 export interface RpcDraftLine {
   product_id: string | null;
   title: string;
-  description: string | null;
+  description: string | null;          // flat-text mirror of description_richtext
+  description_richtext: RichDoc | null;
+  unit_label: string | null;           // free word beside qty, e.g. "panels"
   qty: number;
   unit_price: number; // rupees
   discount_pct: number;
