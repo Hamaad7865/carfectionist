@@ -207,6 +207,26 @@ export async function voidDocumentAction(id: string, reason: string): Promise<Ac
   }
 }
 
+/** Postgres refused the delete because another document still points at this one through
+ *  documents.source_document_id — a bill raised from it, a revision, or a copy. The raw
+ *  message ("violates foreign key constraint documents_source_document_id_fkey") reached
+ *  the operator's confirm dialog verbatim, which says nothing about what to do. Name the
+ *  document that is holding on instead: it is the thing they have to look at. */
+async function explainDeleteRefusal(sb: Awaited<ReturnType<typeof createClient>>, id: string): Promise<string> {
+  const { data: child } = await sb
+    .from("documents")
+    .select("doc_type, number, status")
+    .eq("source_document_id", id)
+    .order("created_at")
+    .limit(1)
+    .maybeSingle();
+  if (!child) return "Another document was raised from this draft, so it can't be deleted.";
+  const kind = child.doc_type === "invoice" ? "Invoice" : child.doc_type === "credit_note" ? "Credit note" : "Quotation";
+  const named = child.number ? `${kind} ${child.number}` : `A ${kind.toLowerCase()} draft`;
+  const voided = child.status === "void" ? " (now voided)" : "";
+  return `${named}${voided} was raised from this one and still refers back to it, so this draft can't be deleted.`;
+}
+
 export async function deleteDraftAction(id: string): Promise<ActionResult<{ id: string }>> {
   await requireRole(...WRITE_ROLES);
   const sb = await createClient();
@@ -217,7 +237,7 @@ export async function deleteDraftAction(id: string): Promise<ActionResult<{ id: 
     // explicit status filter turns an issued/already-gone row into a clean 0-row
     // result rather than a silent no-op.
     const { data, error } = await sb.from("documents").delete().eq("id", id).eq("status", "draft").select("id");
-    if (error) return { ok: false, error: error.message };
+    if (error) return { ok: false, error: error.code === "23503" ? await explainDeleteRefusal(sb, id) : error.message };
     if (!data || data.length === 0) {
       return { ok: false, error: "This document can no longer be deleted — it may have been issued or already removed." };
     }
