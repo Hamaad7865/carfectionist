@@ -932,7 +932,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
                                 // Nothing to put on the board when it is goods only — say so here
                                 // rather than promising a job the accept panel will not create.
-                                Text(if (work) "Accept → create job" else "Accept — goods only", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
+                                Text(if (!work) "Accept — goods only" else if (s.jobId != null) "Accept → update job" else "Accept → create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
                             }
                         }
                         Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
@@ -978,7 +978,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                 Text(
                                     when {
                                         s.busy -> if (goods) "Billing…" else "Creating…"
-                                        !agreed -> if (goods) "Sign to accept" else "Sign to create job"
+                                        !agreed -> if (goods) "Sign to accept" else if (s.jobId != null) "Sign to update job" else "Sign to create job"
                                         goods -> if (s.takesPayments) "Accept — take payment" else "Accept — create invoice"
                                         !s.startJobNow -> "Accept — save for later"
                                         else -> "Create job"

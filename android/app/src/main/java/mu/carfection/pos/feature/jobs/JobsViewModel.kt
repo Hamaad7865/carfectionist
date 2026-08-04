@@ -422,9 +422,12 @@ class JobsViewModel @Inject constructor(
         }
         loadPhotos(id)
         loadJobDetail(id)
-        // Pull the ordered services off the job's quote so the work order is detailed.
-        _s.value.jobs.firstOrNull { it.id == id }?.sourceQuoteId?.let { quoteId ->
-            viewModelScope.launch {
+        // The ordered services, off the quote that stands for this job NOW — not the one it
+        // was created from. An accepted revision moves the price and the work; source_quote_id
+        // stays put on purpose, so reading it showed the job as first agreed.
+        viewModelScope.launch {
+            val fallback = _s.value.jobs.firstOrNull { it.id == id }?.sourceQuoteId
+            (api.currentQuoteIdForJob(id) ?: fallback)?.let { quoteId ->
                 runCatching { api.fetchQuoteLines(quoteId) }
                     .onSuccess { lines -> _s.update { if (it.activeJobId == id) it.copy(detailLines = lines) else it } }
             }

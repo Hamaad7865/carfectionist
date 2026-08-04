@@ -208,6 +208,33 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * end-to-end run: the DTO knew about them, the payload carried them, and this
      * list did not mention them. QuoteLineColumnsTest pins the two together.
      */
+    /**
+     * The quote that CURRENTLY stands for this job.
+     *
+     * jobs.source_quote_id is the quote the job was created FROM and deliberately never
+     * moves — a revision accepted against a live job re-points the price without rewriting
+     * that history. So reading source_quote_id shows the work as first agreed, not as it
+     * stands: revise a job's quote, add a service, and its work order still listed the
+     * original single line.
+     *
+     * Same rule the billing RPCs use (convert_quote_to_invoice, create_document_from_job):
+     * signed beats merely sent, and the latest number wins.
+     */
+    suspend fun currentQuoteIdForJob(jobId: String): String? = runCatching {
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, number, status")) {
+                filter {
+                    eq("doc_type", "quote"); eq("job_id", jobId)
+                    isIn("status", listOf("accepted", "issued"))
+                }
+                order("number", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(10)
+            }
+            .decodeList<SavedDoc>()
+            .let { rows -> rows.firstOrNull { it.status == "accepted" } ?: rows.firstOrNull() }
+            ?.id
+    }.getOrNull()
+
     suspend fun fetchQuoteLines(quoteId: String): List<QuoteLineDto> =
         client.postgrest.from("document_lines")
             .select(Columns.raw(QUOTE_LINE_COLUMNS)) {
