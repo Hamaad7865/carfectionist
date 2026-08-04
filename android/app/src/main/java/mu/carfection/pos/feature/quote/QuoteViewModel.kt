@@ -143,7 +143,21 @@ fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
 }
 
 /** One bill raised against a quote, as the quote screen shows it. */
-data class BillRef(val id: String, val number: String?, val status: String, val totalCents: Long) {
+data class BillRef(
+    val id: String,
+    val number: String?,
+    val status: String,
+    val totalCents: Long,
+    /**
+     * What is on it BEYOND the quote's own lines — the things picked up at the counter.
+     *
+     * Held here rather than in a field of its own, because a field of its own leaked: it
+     * survived into the next quote the operator started, and TESTQ-00021 showed a bottle
+     * bought on TESTQ-00019 as "also on their bill". Hanging off the bill makes that
+     * impossible — clear the bills and the extras go with them.
+     */
+    val extras: List<QuoteLine> = emptyList(),
+) {
     /** Still being added to — it has no number yet and nothing is owed on it. */
     val isDraft: Boolean get() = status == "draft"
 }
@@ -277,9 +291,6 @@ data class QuoteState(
      *  customer picks up go on the bill and not on the quotation — which left the operator
      *  looking at an unchanged quote wondering where the two bottles they just added went. */
     val bills: List<BillRef> = emptyList(),
-    /** What is on that bill BEYOND the quote's own lines — the things picked up at the
-     *  counter. Listed under the quote's lines, because that is where they were looked for. */
-    val billExtras: List<QuoteLine> = emptyList(),
     // "Send to customer" (post-accept): prefill + progress
     val customerEmail: String? = null,
     val customerPhone: String? = null,
@@ -613,7 +624,6 @@ class QuoteViewModel @Inject constructor(
                 bills = q.invoices
                     .filter { it.docType == "invoice" && it.status != "void" }
                     .map { BillRef(it.id, it.number, it.status, rupeesToCents(it.totalIncl)) },
-                billExtras = emptyList(), // loaded below, once the quote's own lines are in
             )
         }
         viewModelScope.launch {
@@ -1368,12 +1378,18 @@ class QuoteViewModel @Inject constructor(
     private suspend fun loadBillExtras() {
         val st = _s.value
         val bill = st.bills.firstOrNull { it.isDraft } ?: st.bills.firstOrNull()
-        if (bill == null || !st.linesLoaded) { _s.update { it.copy(billExtras = emptyList()) }; return }
-        val extras = runCatching { api.fetchQuoteLines(bill.id) }.getOrNull() ?: return
+        if (bill == null || !st.linesLoaded) return
+        val lines = runCatching { api.fetchQuoteLines(bill.id) }.getOrNull() ?: return
         _s.update { cur ->
-            // Guard: the operator may have opened another quote while this was in flight.
+            // The operator may have opened another quote while this was in flight; the bill
+            // it was read from has to still be one of THIS quote's.
             if (cur.bills.none { it.id == bill.id }) cur
-            else cur.copy(billExtras = extras.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat) })
+            else cur.copy(
+                bills = cur.bills.map { b ->
+                    if (b.id != bill.id) b
+                    else b.copy(extras = lines.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat) })
+                },
+            )
         }
     }
 
@@ -1511,8 +1527,10 @@ class QuoteViewModel @Inject constructor(
                         // the operator was looking for it: on the quote, beside the totals.
                         createdInvoiceRef = if (issue) doc.number ?: "Invoice issued" else null,
                         bills = it.bills.filterNot { b -> b.id == doc.id } +
-                            BillRef(doc.id, doc.number, doc.status, rupeesToCents(doc.totalIncl)),
-                        billExtras = s.billLines.drop(s.billQuotedCount),
+                            BillRef(
+                                doc.id, doc.number, doc.status, rupeesToCents(doc.totalIncl),
+                                extras = s.billLines.drop(s.billQuotedCount),
+                            ),
                     )
                 }
                 if (issue && takePayment && _s.value.takesPayments) collectBus.request(doc.id, null)

@@ -1025,10 +1025,31 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         }
                     }
                     s.billed -> {
-                        Box(Modifier.fillMaxWidth().height(52.dp).background(InsetAlt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
-                            Text("Billed — collect it in Checkout", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary)
+                        // There IS somewhere to go from here — the money. This was a grey box
+                        // that named Checkout and could not take anybody to it, on a screen with
+                        // nothing else left to press.
+                        if (s.takesPayments) {
+                            Box(
+                                Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp))
+                                    .clickable { onGoCheckout() },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("Collect it in Checkout →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk) }
+                        } else {
+                            Box(Modifier.fillMaxWidth().height(52.dp).background(InsetAlt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+                                Text("Billed — collect it at the paying till", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary)
+                            }
                         }
-                        Text("This quote already has an invoice — accepting or re-billing it here is disabled.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                        if (s.jobId != null) {
+                            Box(
+                                Modifier.fillMaxWidth().height(46.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp))
+                                    .clickable { vm.viewJob(); onViewJob() },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("View job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent) }
+                        }
+                        Text(
+                            "This quote is billed, and an issued bill cannot be changed. Anything else they pick up is a counter sale in Checkout.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 16.sp, color = TextMuted,
+                        )
                     }
                     !s.acceptOpen -> {
                         // Only a DRAFT can be saved. A quote the customer has already been shown
@@ -1598,7 +1619,8 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
             // What they picked up while the car was in. NOT on the quotation — the quote is the
             // price they signed — but this is where the counter looks for them, so this is where
             // they are listed, under their own heading and on their own bill.
-            if (s.billExtras.isNotEmpty()) BillExtrasSection(s)
+            val extras = s.bills.flatMap { it.extras }
+            if (extras.isNotEmpty()) BillExtrasSection(s, extras)
         }
 
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
@@ -1622,17 +1644,17 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
  * added go", so they are shown here, marked for what they are.
  */
 @Composable
-private fun ColumnScope.BillExtrasSection(s: QuoteState) {
+private fun ColumnScope.BillExtrasSection(s: QuoteState, extras: List<QuoteLine>) {
     Spacer(Modifier.height(4.dp))
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("ALSO ON THEIR BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp, color = Accent)
         Box(Modifier.weight(1f).height(1.dp).background(AccentLine))
         Text(
-            "${s.billExtras.size} item${if (s.billExtras.size == 1) "" else "s"}",
+            "${extras.size} item${if (extras.size == 1) "" else "s"}",
             fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, color = TextMuted,
         )
     }
-    s.billExtras.forEach { l ->
+    extras.forEach { l ->
         val gross = l.qty * (if (s.pricesInclVat) l.unitCents else grossCents(l.unitCents, l.vatRate))
         Row(
             Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp))
