@@ -183,6 +183,9 @@ data class QuoteState(
     val billLines: List<QuoteLine> = emptyList(),
     /** Lines that came from the quote — priced and agreed, so they are not re-priced here. */
     val billQuotedCount: Int = 0,
+    /** The board asked for this quote's bill. Held until its lines arrive — billing before
+     *  they do would raise an invoice for a quote this screen has not finished reading. */
+    val pendingBillOnOpen: Boolean = false,
     /** How the customer agreed when they are NOT at the pad: "whatsapp" | "phone" | "email".
      *  Null means they are here and signing. A quote sent by WhatsApp is answered by
      *  WhatsApp — insisting on a signature would mean it could never be accepted at all. */
@@ -284,6 +287,7 @@ class QuoteViewModel @Inject constructor(
     private val session: SessionRepository,
     private val openJobBus: OpenJobBus,
     private val collectBus: mu.carfection.pos.core.data.CollectBus,
+    private val billQuoteBus: mu.carfection.pos.core.data.BillQuoteBus,
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
     private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
 ) : ViewModel() {
@@ -307,6 +311,7 @@ class QuoteViewModel @Inject constructor(
         }
         loadQuotes()
         loadTechnicians()
+        collectBillRequests()
         // Reception hands over a customer+vehicle (+condition) — open a fresh builder on it.
         viewModelScope.launch {
             intakeBus.pending.collect { h -> if (h != null) { intakeBus.consume(); beginFromIntake(h) } }
@@ -361,6 +366,24 @@ class QuoteViewModel @Inject constructor(
     fun loadTechnicians() {
         viewModelScope.launch {
             runCatching { api.fetchTechnicians() }.onSuccess { t -> _s.update { it.copy(technicians = t) } }
+        }
+    }
+
+    /** The jobs board handing over a quote to be billed. */
+    private fun collectBillRequests() {
+        viewModelScope.launch {
+            billQuoteBus.pending.collect { quoteId ->
+                if (quoteId == null) return@collect
+                billQuoteBus.consume()
+                runCatching {
+                    val rows = api.fetchQuotes()
+                    rows.firstOrNull { it.id == quoteId }
+                }.onSuccess { row ->
+                    if (row == null) { _s.update { it.copy(error = "That quote could not be opened to bill it.") }; return@onSuccess }
+                    openQuote(row)
+                    _s.update { it.copy(pendingBillOnOpen = true) }
+                }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
+            }
         }
     }
 
@@ -560,6 +583,11 @@ class QuoteViewModel @Inject constructor(
                     }
                 }
                 .onFailure { e -> _s.update { it.copy(error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})") } }
+            // Asked for by the board: now the lines are in, build its bill.
+            if (_s.value.pendingBillOnOpen && _s.value.linesLoaded) {
+                _s.update { it.copy(pendingBillOnOpen = false) }
+                convertToInvoice()
+            }
         }
     }
 

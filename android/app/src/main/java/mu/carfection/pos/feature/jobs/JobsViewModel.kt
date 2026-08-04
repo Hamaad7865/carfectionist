@@ -83,6 +83,9 @@ data class JobsState(
     val certTermMonths: Int = 36,
     val certBusy: Boolean = false,
     // invoice a finished job
+    /** Set when this job's bill should be built on the quote screen — the shell reads it
+     *  and navigates, because the basket needs the catalogue and the board has none. */
+    val goBillQuote: String? = null,
     val invoiceOpen: Boolean = false,
     val invoiceService: String = "",
     val invoiceAmountText: String = "",
@@ -122,6 +125,7 @@ class JobsViewModel @Inject constructor(
     private val captures: CaptureBus,
     private val session: SessionRepository,
     private val openJobBus: OpenJobBus,
+    private val billQuoteBus: mu.carfection.pos.core.data.BillQuoteBus,
     private val printer: ReceiptPrinter,
     private val sendApi: DocumentSendApi,
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
@@ -226,20 +230,18 @@ class JobsViewModel @Inject constructor(
         val j = active(_s.value) ?: return
         val quoteId = j.sourceQuoteId
         if (quoteId != null) {
-            _s.update { it.copy(invoiceBusy = true) }
-            viewModelScope.launch {
-                runCatching { ensureQuoteInvoice(quoteId) }
-                    .onSuccess {
-                        _s.update { it.copy(invoiceBusy = false, toast = "Invoice raised from the quote — collect it in Checkout") }
-                        load()
-                    }
-                    .onFailure { e -> _s.update { it.copy(invoiceBusy = false, toast = e.uiMessage("Couldn’t raise the invoice")) } }
-            }
+            // Don't issue it here. The customer collecting their car is the one most likely
+            // to be holding something they picked up while they waited, and the board has no
+            // catalogue to add it from. Hand the quote to the quote screen, which does.
+            billQuoteBus.request(quoteId)
+            _s.update { it.copy(goBillQuote = quoteId) }
             return
         }
         _s.update { it.copy(invoiceOpen = true, invoiceService = j.notes?.ifBlank { null } ?: "Detailing service", invoiceAmountText = "") }
     }
     fun closeInvoice() = _s.update { it.copy(invoiceOpen = false) }
+    /** The shell has navigated; stop asking. */
+    fun clearGoBill() = _s.update { it.copy(goBillQuote = null) }
     fun setInvoiceService(t: String) = _s.update { it.copy(invoiceService = t) }
     fun setInvoiceAmount(t: String) = _s.update { it.copy(invoiceAmountText = t.filter { c -> c.isDigit() || c == '.' }) }
 

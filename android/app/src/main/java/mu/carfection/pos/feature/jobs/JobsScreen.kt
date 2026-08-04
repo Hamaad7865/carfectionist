@@ -152,9 +152,13 @@ private fun vehLabel(j: JobBoardDto): String = listOfNotNull(j.vehicles?.make, j
 private fun Modifier.card(radius: Int = 16) = this.background(CardBg, RoundedCornerShape(radius.dp)).border(1.dp, Hairline, RoundedCornerShape(radius.dp))
 
 @Composable
-fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, viewModel: JobsViewModel = hiltViewModel()) {
+fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, onGoQuotes: () -> Unit, viewModel: JobsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() } // refresh the board on entry
+    // Billing a quoted job builds its bill on the quote screen, where the catalogue is.
+    LaunchedEffect(s.goBillQuote) {
+        if (s.goBillQuote != null) { viewModel.clearGoBill(); onGoQuotes() }
+    }
     // System back closes the work-order drawer before it pops the tab history.
     BackHandler(enabled = s.activeJobId != null) { viewModel.close() }
     Box(Modifier.fillMaxSize()) {
