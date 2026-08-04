@@ -16,6 +16,26 @@ val localProps = Properties().apply {
 }
 fun prop(key: String) = localProps.getProperty(key) ?: ""
 
+// local.properties is GITIGNORED, so a build from a git worktree or a fresh clone
+// silently gets none of it — and an APK with a blank Supabase URL and device key is
+// not a degraded app, it is a brick: it cannot reach the roster, so it opens on
+// "PIN login isn't set up on this tablet yet" and no one can sign in. That APK looks
+// exactly like a good one on disk, installs over a working build, and would lock
+// every tablet in the shop out if it ever reached publish-apk.
+//
+// So the build refuses instead. Copy android/local.properties into the worktree.
+run {
+    val missing = listOf("supabase.url", "supabase.anonKey", "pos.deviceKey").filter { prop(it).isBlank() }
+    if (missing.isNotEmpty()) {
+        throw GradleException(
+            "Missing ${missing.joinToString(", ")} in ${rootProject.file("local.properties")}.\n" +
+                "local.properties is gitignored, so worktrees and fresh clones do not have it. " +
+                "Copy it in from the main checkout (C:/Projects/Carfection/android/local.properties) before building.\n" +
+                "Building without it produces an APK that cannot sign anybody in.",
+        )
+    }
+}
+
 // Release signing comes from keystore.properties (gitignored). Absent on a fresh
 // checkout / CI without the secret → release builds fall back to debug signing.
 val keystoreProps = Properties().apply {
