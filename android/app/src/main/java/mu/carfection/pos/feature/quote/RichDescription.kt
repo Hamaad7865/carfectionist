@@ -12,7 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -134,7 +137,25 @@ fun RichDescription(doc: RichDoc?, modifier: Modifier = Modifier) {
 fun LineDescription(line: QuoteLine, index: Int, vm: QuoteViewModel) {
     val doc = parseRichDoc(line.richJson)
     val editable = isBulletsOnly(doc)
-    val bullets = remember(line.richJson) { richDocToBullets(doc).ifEmpty { listOf("") } }
+
+    /**
+     * The rows being edited are LOCAL state, not a projection of the saved document.
+     *
+     * They cannot be derived from it: bulletsToRichDoc drops blank bullets on purpose —
+     * a saved description should not carry empty ones — so a row the operator has not
+     * typed into yet would never survive the round trip. Deriving them meant "+ Add a
+     * line" did nothing at all, and clearing a bullet made its row vanish under the
+     * cursor. Blank rows live here; only the non-blank ones reach the document.
+     *
+     * Seeded per line, and re-seeded whenever the panel is collapsed and reopened,
+     * which is also how an edit made elsewhere gets picked up.
+     */
+    var rows by remember(index) { mutableStateOf(richDocToBullets(doc).ifEmpty { listOf("") }) }
+    fun apply(next: List<String>) {
+        rows = next.ifEmpty { listOf("") }
+        vm.setLineBullets(index, next)
+    }
+    val bullets = rows
 
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Text(
@@ -157,14 +178,14 @@ fun LineDescription(line: QuoteLine, index: Int, vm: QuoteViewModel) {
                 Text("•", fontFamily = Barlow, fontSize = 14.sp, color = TextMuted)
                 FilledInput(
                     value = text,
-                    onValueChange = { v -> vm.setLineBullets(index, bullets.toMutableList().also { it[b] = v }) },
+                    onValueChange = { v -> apply(bullets.toMutableList().also { it[b] = v }) },
                     placeholder = "e.g. Full Vehicle decontamination",
                     modifier = Modifier.weight(1f), height = 40.dp, radius = 10.dp,
                     bg = CardBg, fontFamily = Barlow, fontSize = 13.sp,
                 )
                 Box(
                     Modifier.size(40.dp).background(Inset, RoundedCornerShape(10.dp))
-                        .clickable { vm.setLineBullets(index, bullets.toMutableList().also { it.removeAt(b) }) },
+                        .clickable { apply(bullets.toMutableList().also { it.removeAt(b) }) },
                     contentAlignment = Alignment.Center,
                 ) { Text("✕", color = TextMuted, fontFamily = Barlow, fontSize = 14.sp) }
             }
@@ -172,7 +193,7 @@ fun LineDescription(line: QuoteLine, index: Int, vm: QuoteViewModel) {
 
         Box(
             Modifier.background(Inset, RoundedCornerShape(10.dp))
-                .clickable { vm.setLineBullets(index, bullets + "") }
+                .clickable { apply(bullets + "") }
                 .padding(horizontal = 14.dp, vertical = 9.dp),
         ) {
             Text("+ Add a line", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = TextSecondary)
