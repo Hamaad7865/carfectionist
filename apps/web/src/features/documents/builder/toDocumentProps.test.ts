@@ -79,7 +79,7 @@ describe("toDocumentProps — rich content reaches the preview", () => {
   it("passes the tree and the unit straight through to the A4 props", () => {
     const s: BuilderState = {
       ...state,
-      lines: [{ key: "a", productId: null, title: "Diamondbrite", description: "", rich, unitLabel: "panels", qty: 3, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 }],
+      lines: [{ key: "a", productId: null, title: "Diamondbrite", description: "", rich, unitLabel: "panels", qty: 3, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: null }],
     };
     const props = toDocumentProps(s, business, PREVIEW);
     expect(props.lines[0].rich).toEqual(rich);
@@ -89,7 +89,7 @@ describe("toDocumentProps — rich content reaches the preview", () => {
   it("sends null rather than an empty string when a line has no unit", () => {
     const s: BuilderState = {
       ...state,
-      lines: [{ key: "a", productId: null, title: "Wash", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 }],
+      lines: [{ key: "a", productId: null, title: "Wash", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: null }],
     };
     const props = toDocumentProps(s, business, PREVIEW);
     expect(props.lines[0].unit).toBeNull();

@@ -68,6 +68,7 @@ export function toSaveDraftLines(lines: BuilderLine[]) {
     discountKind: l.discountKind,
     discountAmountCents: l.discountAmountCents,
     vatRatePct: l.vatRatePct,
+    lineKind: l.lineKind,
   }));
 }
 
