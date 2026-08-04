@@ -70,6 +70,8 @@ import mu.carfection.pos.ui.FlowState
 import mu.carfection.pos.ui.FlowStepUi
 import mu.carfection.pos.ui.FlowStrip
 import mu.carfection.pos.ui.withCurrent
+import mu.carfection.pos.core.rich.parseRichDoc
+import mu.carfection.pos.core.rich.richToPlainText
 import mu.carfection.pos.ui.FilledInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -218,7 +220,10 @@ private fun AdhocDialog(vm: QuoteViewModel, inclVat: Boolean) {
         Column(Modifier.width(440.dp).card().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("Ad-hoc line", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
             Text("A one-off service or product, priced by hand.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary)
-            MiniLabel("DESCRIPTION")
+            // Labelled DESCRIPTION for a long time, which it never was — this is the
+            // line's NAME, the words printed in the Item column. A line's description
+            // is the block underneath it, edited from the line itself.
+            MiniLabel("ITEM NAME")
             FilledInput(value = name, onValueChange = { name = it }, placeholder = "e.g. Headlight restoration", modifier = Modifier.fillMaxWidth(), bg = Inset)
             MiniLabel(if (inclVat) "UNIT PRICE (Rs, incl. VAT)" else "UNIT PRICE (Rs, excl. VAT)")
             FilledInput(value = price, onValueChange = { p -> price = p.filter { it.isDigit() || it == '.' } }, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset)
@@ -497,7 +502,19 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         Row(Modifier.fillMaxWidth().clickable(enabled = vm.editable(s)) { vm.toggleLine(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text("×${l.qty}$discNote", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                                Text("×${l.qty}${if (l.unitLabel.isNotBlank()) " ${l.unitLabel}" else ""}$discNote", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                                // Collapsed, the description is one muted line — enough to know it
+                                // is there. Expanded, it renders properly underneath.
+                                if (!l.expanded) {
+                                    val flat = richToPlainText(parseRichDoc(l.richJson)).ifBlank { l.description.orEmpty() }
+                                    if (flat.isNotBlank()) {
+                                        Text(
+                                            flat.replace("\n", " · "),
+                                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp,
+                                            color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                }
                             }
                             Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary)
                         }
@@ -514,8 +531,14 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                     placeholder = "0.00", modifier = Modifier.weight(1f), height = 40.dp,
                                     radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
                                 )
+                                FilledInput(
+                                    value = l.unitLabel, onValueChange = { vm.setUnitLabel(i, it) },
+                                    placeholder = "unit", modifier = Modifier.width(88.dp), height = 40.dp,
+                                    radius = 10.dp, bg = CardBg, fontFamily = Barlow, fontSize = 13.sp,
+                                )
                                 Box(Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp)).clickable { vm.removeLine(i) }, contentAlignment = Alignment.Center) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
                             }
+                            LineDescription(l, i, vm)
                             // discount: % presets or a typed Rs amount (VAT-inclusive, like the DB)
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->

@@ -23,6 +23,11 @@ import mu.carfection.pos.core.data.IntakeHandoffBus
 import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.rich.bulletsToRichDoc
+import mu.carfection.pos.core.rich.isBulletsOnly
+import mu.carfection.pos.core.rich.parseRichDoc
+import mu.carfection.pos.core.rich.richDocToJson
+import mu.carfection.pos.core.rich.richToPlainText
 import mu.carfection.pos.core.money.DocDiscountTotals
 import mu.carfection.pos.core.money.DocLineIn
 import mu.carfection.pos.core.money.centsToPlainText
@@ -639,6 +644,36 @@ class QuoteViewModel @Inject constructor(
     fun setPrice(i: Int, t: String) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(priceText = moneyText(t)) else l }) }
     fun setLineDiscMode(i: Int, m: DiscountMode) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountMode = m) else l }) }
     fun setLineDiscAmt(i: Int, t: String) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountAmtText = moneyText(t)) else l }) }
+
+    fun setUnitLabel(i: Int, t: String) = _s.update { st ->
+        if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(unitLabel = t.take(24)) else l })
+    }
+
+    /**
+     * Replace a line's description with these bullet rows.
+     *
+     * Refuses when the line holds something the tablet cannot author — a table, a
+     * numbered list, bold text. The screen does not offer the editor in that case
+     * either, but the guard lives here too: this is the function that would destroy
+     * the back office's work, so this is where it says no.
+     */
+    fun setLineBullets(i: Int, bullets: List<String>) = _s.update { st ->
+        if (!editable(st)) return@update st
+        val line = st.lines.getOrNull(i) ?: return@update st
+        if (!isBulletsOnly(parseRichDoc(line.richJson))) return@update st
+        val doc = bulletsToRichDoc(bullets)
+        st.copy(
+            lines = st.lines.mapIndexed { j, l ->
+                if (j != i) l
+                else l.copy(
+                    richJson = doc?.let { richDocToJson(it) },
+                    // The flat mirror is derived here exactly as it is on the web, so
+                    // the two platforms can never write different text for one tree.
+                    description = doc?.let { richToPlainText(it) },
+                )
+            },
+        )
+    }
 
     // ── basket (order-level) discount ────────────────────────────────────────────
     fun setBasketMode(m: DiscountMode) = _s.update { if (!editable(it)) it else it.copy(basketMode = m, basketText = "") }
