@@ -16,6 +16,9 @@ export const draftLineSchema = z.object({
   discountKind: z.enum(["percent", "amount"]).optional(),
   discountAmountCents: z.number().int().min(0).optional(), // VAT-inclusive
   vatRatePct: z.number(),
+  // Stated on a hand-typed line only; a catalogue line leaves it null and lets
+  // products.kind answer. Decides whether an accepted quote raises a job.
+  lineKind: z.enum(["service", "product"]).nullable().optional(),
 });
 
 export const draftDocSchema = z.object({
@@ -77,5 +80,7 @@ export function toRpcLines(lines: SaveDraftInput["lines"]): RpcDraftLine[] {
     discount_amount: (l.discountAmountCents ?? 0) / 100, // cents → rupees (VAT-inclusive)
     vat_rate: l.vatRatePct,
     sort_order: i,
+    // Only a hand-typed line states one — null hands the question to the product.
+    line_kind: l.productId ? null : l.lineKind ?? null,
   }));
 }

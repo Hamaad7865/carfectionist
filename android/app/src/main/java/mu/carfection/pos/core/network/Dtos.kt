@@ -77,6 +77,8 @@ data class QuoteLineDto(
     @SerialName("discount_kind") val discountKind: String = "percent",
     @SerialName("discount_amount") val discountAmount: FlexDouble = 0.0, // Rs, VAT-inclusive
     @SerialName("vat_rate") val vatRate: FlexDouble = 15.0,
+    /** Stated on a typed-in line; null on a catalogue line, where products.kind answers. */
+    @SerialName("line_kind") val lineKind: String? = null,
 )
 
 @Serializable

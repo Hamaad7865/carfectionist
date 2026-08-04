@@ -201,7 +201,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchQuoteLines(quoteId: String): List<QuoteLineDto> =
         client.postgrest.from("document_lines")
-            .select(Columns.raw("product_id, title, description, qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate")) {
+            .select(Columns.raw("product_id, title, description, qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate, line_kind")) {
                 filter { eq("document_id", quoteId) }
                 order("sort_order", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }

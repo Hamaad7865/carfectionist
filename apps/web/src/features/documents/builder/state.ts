@@ -12,6 +12,10 @@ export interface BuilderLine {
   discountKind: DiscountKind;      // 'percent' uses discountPct; 'amount' uses discountAmountCents
   discountAmountCents: number;     // VAT-inclusive Rs off, in cents
   vatRatePct: number;
+  // What the line IS — stated only on an ad-hoc line, because nothing else can say.
+  // A catalogue line leaves it null: products.kind is the better answer, and copying it
+  // here would only let the two drift. Decides whether an accepted quote raises a job.
+  lineKind: "service" | "product" | null;
 }
 
 export interface BuilderState {
@@ -38,7 +42,9 @@ export function newKey(): string {
 }
 
 export function blankLine(): BuilderLine {
-  return { key: newKey(), productId: null, title: "", description: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 };
+  // A hand-typed line starts as work: that is what the shop types by hand, and the row's
+  // own Service/Product control is right there to say otherwise.
+  return { key: newKey(), productId: null, title: "", description: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: "service" };
 }
 
 export type BuilderAction =

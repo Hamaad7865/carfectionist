@@ -66,6 +66,11 @@ export interface DocumentDetail {
   acceptedSignature: { url: string; name: string | null; at: string | null } | null;
   /** Ex-VAT total taken off by per-LINE discounts (the order discount is separate, above). */
   lineDiscountCents: number;
+  /** Is there WORK on this document? A hand-typed line says so itself; a catalogue line
+   *  is answered by its product; a line that says neither is read as work — which is what
+   *  ad-hoc lines were before the builders asked, and the same fallback the DB uses.
+   *  Decides whether accepting a quote leads with "create job" or with a plain sale. */
+  hasService: boolean;
   lines: {
     title: string;
     description: string | null;
@@ -83,7 +88,9 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
   if (!doc) return null;
 
   const [{ data: lines }, { data: payments }, { data: bs }] = await Promise.all([
-    sb.from("document_lines").select("*").eq("document_id", id).order("sort_order"),
+    // products(kind) rides along so the page can tell WORK from GOODS: a quote with
+    // work on it belongs on the jobs board, a products-only one is a straight sale.
+    sb.from("document_lines").select("*, products(kind)").eq("document_id", id).order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
     sb.from("business_settings").select("prices_vat_exclusive").limit(1).maybeSingle(),
   ]);
@@ -201,6 +208,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     jobChecklist,
     intake,
     acceptedSignature,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    hasService: ((lines ?? []) as any[]).some((l) => (l.line_kind ?? l.products?.kind ?? "service") === "service"),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,

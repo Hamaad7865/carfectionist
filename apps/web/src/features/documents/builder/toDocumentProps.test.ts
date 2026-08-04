@@ -24,9 +24,9 @@ const state: BuilderState = {
   customerId: "c1",
   revision: 0,
   lines: [
-    { key: "a", productId: "p1", title: "Full Decontamination & Body Polish", description: "", qty: 1, unitCents: 3200000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 },
-    { key: "b", productId: "p2", title: "Remove Wheel, Decontamination & Polish", description: "", qty: 4, unitCents: 380000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 },
-    { key: "c", productId: "p3", title: "Diamondbrite 3-Year Protection (Exterior Only)", description: "", qty: 1, unitCents: 3000000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 },
+    { key: "a", productId: "p1", title: "Full Decontamination & Body Polish", description: "", qty: 1, unitCents: 3200000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: null },
+    { key: "b", productId: "p2", title: "Remove Wheel, Decontamination & Polish", description: "", qty: 4, unitCents: 380000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: null },
+    { key: "c", productId: "p3", title: "Diamondbrite 3-Year Protection (Exterior Only)", description: "", qty: 1, unitCents: 3000000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: null },
   ],
   docDiscountKind: null,
   docDiscountValue: 0,

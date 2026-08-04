@@ -185,7 +185,7 @@ export default async function DocumentDetailPage({
             ) : ["declined", "expired"].includes(doc.status) ? (
               <span className="text-[12px] font-semibold text-faint">Quote is {doc.status}</span>
             ) : (
-              <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} />
+              <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} hasService={doc.hasService} />
             )}
           </div>
         )}
@@ -270,6 +270,7 @@ export default async function DocumentDetailPage({
                   documentId={doc.id}
                   quote={doc.docType === "quote"}
                   alreadyAccepted={doc.docType === "quote" && doc.status === "accepted"}
+                  hasService={doc.hasService}
                 />
               )}
             </div>

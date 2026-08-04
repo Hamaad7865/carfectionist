@@ -59,6 +59,10 @@ data class QuoteLine(
     // price, and unitCents converts it back to the net the ledger stores — one direction
     // only, so nothing drifts while the field is being edited.
     val priceIsGross: Boolean = false,
+    // 'service' | 'product' — stated when the line was TYPED IN, because nothing else can
+    // say what a line with no product behind it is. Null on a catalogue line: the product's
+    // own kind answers, and copying it here would only let the two drift.
+    val lineKind: String? = null,
 ) {
     val unitCents: Long get() {
         val typed = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
@@ -474,6 +478,7 @@ class QuoteViewModel @Inject constructor(
                                 discountMode = if (it.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
                                 discountPct = it.discountPct.toInt(),
                                 discountAmtText = if (it.discountKind == "amount" && it.discountAmount > 0) centsToPlainText(rupeesToCents(it.discountAmount)) else "",
+                                lineKind = it.lineKind,
                             )
                         })
                     }
@@ -526,13 +531,18 @@ class QuoteViewModel @Inject constructor(
 
     fun openAdhoc() = _s.update { if (editable(it)) it.copy(adhocOpen = true) else it }
     fun closeAdhoc() = _s.update { it.copy(adhocOpen = false) }
-    fun addAdhoc(name: String, priceCents: Long, vatRate: Double = 15.0) = _s.update { st ->
+    /** [isService] is asked for every time: work on a car sends the accepted quote to the
+     *  board, goods over the counter do not, and a typed-in line has no product to ask. */
+    fun addAdhoc(name: String, priceCents: Long, vatRate: Double = 15.0, isService: Boolean = true) = _s.update { st ->
         if (!editable(st)) return@update st.copy(adhocOpen = false)
         if (name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
         // priceCents is what was TYPED — already the shelf price when the shop quotes gross.
         else st.copy(
             adhocOpen = false,
-            lines = st.lines + QuoteLine(null, name.trim(), centsToPlainText(priceCents), vatRate, priceIsGross = st.pricesInclVat),
+            lines = st.lines + QuoteLine(
+                null, name.trim(), centsToPlainText(priceCents), vatRate,
+                priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
+            ),
         )
     }
 
@@ -753,7 +763,25 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
-    fun openAccept() = _s.update { it.copy(acceptOpen = true) }
+    /**
+     * Does this quote have WORK on it?
+     *
+     * Work on a car goes to the jobs board; goods over the counter are a sale and belong
+     * nowhere near the bays. A typed-in line states which it is (the ad-hoc sheet asks
+     * every time); a catalogue line is answered by its product. A line that states
+     * neither is read as work — that is what ad-hoc lines were before the sheet asked,
+     * and the same fallback the database uses. It errs towards a job on purpose: a job
+     * card raised in error is dismissed in one tap, whereas work with no card is work
+     * nobody is tracking.
+     */
+    fun hasService(s: QuoteState): Boolean = s.lines.any { l ->
+        (l.lineKind ?: s.products.firstOrNull { it.id == l.productId }?.kind ?: "service") == "service"
+    }
+
+    // The panel opens on what the quote actually contains rather than on "yes" every time.
+    // Still a toggle: a service quote signed today for work booked next month turns it off,
+    // and the rare products-only job turns it on.
+    fun openAccept() = _s.update { it.copy(acceptOpen = true, startJobNow = hasService(it)) }
     fun closeAccept() = _s.update { it.copy(acceptOpen = false) }
     /**
      * Tap a technician to put them on the job, tap again to take them off. The first one
@@ -889,6 +917,8 @@ class QuoteViewModel @Inject constructor(
                 put("discount_amount", if (l.discountMode == DiscountMode.AMT) centsToRupees(l.discountAmtCents) else 0.0)
                 put("vat_rate", l.vatRate)
                 put("sort_order", i)
+                // Only a typed-in line states one; a catalogue line leaves it to the product.
+                if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
             })
         }
     }

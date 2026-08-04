@@ -126,6 +126,7 @@ export interface LoadedDraft {
     discountKind: "percent" | "amount";
     discountAmountCents: number;
     vatRatePct: number;
+    lineKind: "service" | "product" | null;
   }[];
 }
 
@@ -167,6 +168,9 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
       discountKind: (l.discount_kind ?? "percent") as "percent" | "amount",
       discountAmountCents: rupeesToCents(Number(l.discount_amount ?? 0)),
       vatRatePct: Number(l.vat_rate),
+      // Only a hand-typed line ever stated one; a catalogue line reads null and
+      // lets its product answer.
+      lineKind: (l.line_kind ?? null) as "service" | "product" | null,
     })),
   };
 }

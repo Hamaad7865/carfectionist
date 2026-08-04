@@ -209,6 +209,10 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
 private fun AdhocDialog(vm: QuoteViewModel, inclVat: Boolean) {
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
+    // Work or goods. Nothing else can say: a typed-in line has no product behind it, and
+    // the answer decides whether the accepted quote puts a car on the jobs board.
+    // Defaults to work — the overwhelming majority of hand-priced lines here are labour.
+    var isService by remember { mutableStateOf(true) }
     val cents = parseMoneyToCents(price)
     Dialog(onDismissRequest = vm::closeAdhoc) {
         Column(Modifier.width(440.dp).card().padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -218,9 +222,31 @@ private fun AdhocDialog(vm: QuoteViewModel, inclVat: Boolean) {
             FilledInput(value = name, onValueChange = { name = it }, placeholder = "e.g. Headlight restoration", modifier = Modifier.fillMaxWidth(), bg = Inset)
             MiniLabel(if (inclVat) "UNIT PRICE (Rs, incl. VAT)" else "UNIT PRICE (Rs, excl. VAT)")
             FilledInput(value = price, onValueChange = { p -> price = p.filter { it.isDigit() || it == '.' } }, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset)
+
+            MiniLabel("WHAT IS IT")
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                listOf(true to "Service — work on the car", false to "Product — goods sold").forEach { (svc, label) ->
+                    val on = isService == svc
+                    Box(
+                        Modifier.weight(1f).height(46.dp)
+                            .background(if (on) AccentSoft else Inset, RoundedCornerShape(12.dp))
+                            .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(12.dp))
+                            .clickable { isService = svc },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = if (on) Accent else TextSecondary)
+                    }
+                }
+            }
+            Text(
+                if (isService) "Accepting this quote will offer to put the car on the jobs board."
+                else "Goods only — accepting will not raise a job unless something else on the quote is work.",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+            )
+
             Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 OutlineBtn("Cancel", Modifier.weight(1f), 52) { vm.closeAdhoc() }
-                Box(Modifier.weight(1.4f).height(52.dp).background(if (name.isNotBlank() && cents != null && cents > 0) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = name.isNotBlank() && cents != null && cents > 0) { vm.addAdhoc(name, cents ?: 0) }, contentAlignment = Alignment.Center) {
+                Box(Modifier.weight(1.4f).height(52.dp).background(if (name.isNotBlank() && cents != null && cents > 0) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = name.isNotBlank() && cents != null && cents > 0) { vm.addAdhoc(name, cents ?: 0, isService = isService) }, contentAlignment = Alignment.Center) {
                     Text("Add line", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (name.isNotBlank() && cents != null && cents > 0) AccentInk else TextMuted)
                 }
             }

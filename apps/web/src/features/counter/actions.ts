@@ -96,6 +96,8 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       discount_amount: (l.discountAmountCents ?? 0) / 100,
       vat_rate: prod.vat_rate == null ? vatDefault : Number(prod.vat_rate),
       sort_order: i,
+      // Every counter line comes from the catalogue, so its product answers for it.
+      line_kind: null,
     };
   });
 

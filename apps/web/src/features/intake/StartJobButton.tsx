@@ -10,12 +10,18 @@ export function StartJobButton({
   documentId,
   quote = false,
   alreadyAccepted = false,
+  hasService = true,
 }: {
   documentId: string;
   quote?: boolean;
   /** The quote is already signed (status='accepted') with no job yet — the
    *  "accept only" choice was already made, so only starting the job is left. */
   alreadyAccepted?: boolean;
+  /** Is there work on this quote? Work on a car belongs on the jobs board; goods over
+   *  the counter are a sale and belong nowhere near the bays, so a products-only quote
+   *  leads with accepting and keeps raising a job as the second option — never removes
+   *  it, because the odd products-only job does happen. */
+  hasService?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"job" | "accept" | null>(null);
@@ -46,24 +52,31 @@ export function StartJobButton({
     }
   }
 
+  // A products-only quote leads with accepting: nobody is working on a car, so there is
+  // nothing to put through the bays. Both actions stay on screen either way — this
+  // decides which one is the obvious one, not which one is possible.
+  const jobLeads = hasService || alreadyAccepted;
+  const canAcceptOnly = quote && !alreadyAccepted;
+
   return (
     <div className="flex flex-col items-start gap-1.5">
       <div className="flex flex-wrap items-center gap-2">
+        {canAcceptOnly && !jobLeads && (
+          <button onClick={acceptOnly} disabled={busy !== null} className={btn("primary", "lg", "gap-2")}>
+            <Check size={15} /> {busy === "accept" ? "Accepting…" : "Accept — goods only, no job"}
+          </button>
+        )}
         <button
           onClick={startJob}
           disabled={busy !== null}
-          className={btn("primary", "lg", "gap-2")}
+          className={btn(jobLeads ? "primary" : "quiet", "lg", "gap-2")}
         >
           {/* Accepting a quote issues + numbers it — say so (same wording as the POS). */}
           <Wrench size={15} />{" "}
           {busy === "job" ? "Starting job…" : quote && !alreadyAccepted ? "Accept → create job" : "Start job →"}
         </button>
-        {quote && !alreadyAccepted && (
-          <button
-            onClick={acceptOnly}
-            disabled={busy !== null}
-            className={btn("quiet", "lg", "gap-2")}
-          >
+        {canAcceptOnly && jobLeads && (
+          <button onClick={acceptOnly} disabled={busy !== null} className={btn("quiet", "lg", "gap-2")}>
             <Check size={15} /> {busy === "accept" ? "Accepting…" : "Accept only (book later)"}
           </button>
         )}

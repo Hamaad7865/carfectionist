@@ -20,6 +20,7 @@ export interface RpcDraftLine {
   discount_amount: number; // rupees, VAT-inclusive
   vat_rate: number; // percent
   sort_order: number;
+  line_kind: "service" | "product" | null; // stated on an ad-hoc line; null defers to products.kind
 }
 
 export interface RpcDraftDoc {

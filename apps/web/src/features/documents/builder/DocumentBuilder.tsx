@@ -75,6 +75,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [custQuery, setCustQuery] = useState("");
   const [adName, setAdName] = useState("");
   const [adPrice, setAdPrice] = useState("");
+  // Work or goods — asked every time a line is typed by hand, because nothing else can
+  // say what it is, and the answer decides whether an accepted quote raises a job.
+  const [adKind, setAdKind] = useState<"service" | "product">("service");
   const [zoom, setZoom] = useState(1);
   const [fitMode, setFitMode] = useState(true);
   const [issueKey] = useState(() => crypto.randomUUID()); // idempotent Issue (per document mount)
@@ -230,9 +233,10 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (!adName.trim()) return;
     // Typed as the shelf price when the shop quotes gross — store the net the ledger adds VAT to.
     const cents = ctx.pricesInclVat ? netFromGrossCents(typed, 15) : typed;
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15 } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
+    setAdKind("service");
   }
 
   const label = "text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]";
@@ -412,7 +416,8 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                       <button
                         key={p.id}
                         onClick={() => {
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct } });
+                          // From the catalogue: the product's own kind answers, so this stays null.
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -433,11 +438,28 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   </div>
                 )}
 
-                <div className="mb-3.5 flex gap-2 rounded-[11px] border border-dashed border-line-2 bg-sub p-2.5">
-                  <input value={adName} onChange={(e) => setAdName(e.target.value)} placeholder="Type an ad-hoc line — e.g. Headlight restoration" className="h-[42px] flex-1 rounded-[9px] border border-line-2 bg-sub px-3 text-[13px] font-medium text-ink outline-none placeholder:text-faint" />
+                <div className="mb-3.5 flex flex-wrap gap-2 rounded-[11px] border border-dashed border-line-2 bg-sub p-2.5">
+                  <input value={adName} onChange={(e) => setAdName(e.target.value)} placeholder="Type an ad-hoc line — e.g. Headlight restoration" className="h-[42px] min-w-[180px] flex-1 rounded-[9px] border border-line-2 bg-sub px-3 text-[13px] font-medium text-ink outline-none placeholder:text-faint" />
                   <div className="relative w-[120px]">
                     <span className="num absolute left-3 top-3 text-[13px] text-faint">Rs</span>
                     <input value={adPrice} onChange={(e) => setAdPrice(e.target.value)} inputMode="numeric" placeholder="0" className="num h-[42px] w-full rounded-[9px] border border-line-2 bg-sub pl-9 pr-3 text-[13px] font-semibold text-ink outline-none" />
+                  </div>
+                  {/* Work or goods. A catalogue line is answered by its product; a line
+                      typed by hand has nothing to ask, and the answer is what decides
+                      whether accepting the quote puts the car on the jobs board. */}
+                  <div className="flex h-[42px] items-center gap-0 rounded-[9px] border border-line-2 bg-card p-1">
+                    {(["service", "product"] as const).map((k) => (
+                      <button
+                        key={k}
+                        type="button"
+                        aria-pressed={adKind === k}
+                        onClick={() => setAdKind(k)}
+                        title={k === "service" ? "Work on the car — an accepted quote can raise a job" : "Goods sold — no job of its own"}
+                        className={`h-[34px] rounded-[7px] px-3 text-[12px] font-bold capitalize ${adKind === k ? "bg-brand-wash text-link" : "text-muted"}`}
+                      >
+                        {k}
+                      </button>
+                    ))}
                   </div>
                   <button onClick={addAdhoc} className="inline-flex h-[42px] items-center justify-center rounded-[9px] bg-[#e2e8ef] px-4 text-[13px] font-bold text-body">Add</button>
                 </div>
