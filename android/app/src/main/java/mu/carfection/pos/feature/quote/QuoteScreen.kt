@@ -115,11 +115,13 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     val s by viewModel.state.collectAsState()
     LaunchedEffect(s.mode) { if (s.mode == QuoteMode.LIST) viewModel.loadQuotes() } // refresh list on entry / when returning from builder
     BackHandler(enabled = s.linesOpen) { viewModel.closeLines() }
+    BackHandler(enabled = s.billLinesOpen) { viewModel.closeBillLines() }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (s.mode == QuoteMode.LIST) QuoteList(s, viewModel, onGoIntake) else QuoteBuilder(s, viewModel, onViewJob, onGoCheckout)
         }
         if (s.linesOpen && s.mode == QuoteMode.BUILDER) QuoteLinesSheet(s, viewModel)
+        if (s.billLinesOpen && s.billOpen) BillLinesSheet(s, viewModel)
     }
     // A deposit was agreed → after signing, go STRAIGHT to Checkout to collect it: the
     // CollectBus request is already latched, so the pad opens on the deposit figure. Leaving
@@ -293,6 +295,18 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                 "${s.billLines.size} line${if (s.billLines.size == 1) "" else "s"}",
                 fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary,
             )
+            // The basket also holds the running total and the actions, so an editor opened in
+            // it has nowhere to unfold — the same squeeze that moved the quote's lines onto a
+            // panel of their own. This is the way there.
+            if (s.billLines.size > s.billQuotedCount) {
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier.height(30.dp).background(AccentSoft, RoundedCornerShape(9.dp))
+                        .border(1.dp, AccentLine, RoundedCornerShape(9.dp))
+                        .clickable { vm.openBillLines() }.padding(horizontal = 11.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Edit lines →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Accent) }
+            }
         }
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
 
@@ -313,6 +327,7 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                     l, i, lineTotal, editable = !quoted, ops = billLineOps(vm),
                     note = if (quoted) "quoted" else "added now",
                     noteColor = if (quoted) TextMuted else Accent,
+                    onTap = { vm.openBillLines() },
                 )
             }
         }
@@ -320,8 +335,7 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
             Text(
-                "Anything else they are taking today goes on here — tap it on the left, then tap the line to price it. " +
-                    "Saving keeps ONE bill open: come back and add to it as often as they ask.",
+                "Tap what they are taking on the left. Saving keeps ONE bill open — come back and add to it as often as they ask.",
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -435,6 +449,68 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
 }
 
 /**
+ * The bill's lines, on the same surface the quote's lines get.
+ *
+ * A line added at the counter is a full line — its price, its unit, its discount, what it
+ * includes — and none of that fits in a basket that also has to show the running total and
+ * the buttons. Quoted lines come across read-only: that is the price the customer agreed.
+ */
+@Composable
+private fun BoxScope.BillLinesSheet(s: QuoteState, vm: QuoteViewModel) {
+    val t = vm.billTotals(s)
+    Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().background(Color(0x66101A24)).clickable(onClick = vm::closeBillLines))
+        Column(
+            Modifier.align(Alignment.CenterEnd).width(720.dp).fillMaxHeight()
+                .background(CardBg).border(1.dp, Hairline),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp),
+            ) {
+                Text("BILL LINES", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.2.sp, color = TextPrimary)
+                Text(
+                    "${s.billLines.size} line${if (s.billLines.size == 1) "" else "s"}",
+                    fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextMuted,
+                )
+                Spacer(Modifier.weight(1f))
+                Text("tap a line to change it", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted)
+                Box(
+                    Modifier.size(42.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(12.dp))
+                        .clickable(onClick = vm::closeBillLines),
+                    contentAlignment = Alignment.Center,
+                ) { Text("✕", fontFamily = Barlow, fontSize = 16.sp, color = TextSecondary) }
+            }
+            Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                s.billLines.forEachIndexed { i, l ->
+                    val lineTotal = (t.lineExclCents.getOrNull(i) ?: 0L)
+                        .let { net -> if (s.pricesInclVat) grossCents(net, l.vatRate) else net }
+                    val quoted = i < s.billQuotedCount
+                    LineCard(
+                        l, i, lineTotal, editable = !quoted, ops = billLineOps(vm),
+                        note = if (quoted) "quoted — agreed, not editable" else "added now",
+                        noteColor = if (quoted) TextMuted else Accent,
+                    )
+                }
+            }
+            Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+            Row(Modifier.fillMaxWidth().padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("TOTAL", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, color = TextPrimary)
+                Spacer(Modifier.weight(1f))
+                Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Accent)
+                Spacer(Modifier.width(16.dp))
+                Box(
+                    Modifier.width(180.dp).height(52.dp).background(Accent, RoundedCornerShape(13.dp))
+                        .clickable(onClick = vm::closeBillLines),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Done", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk) }
+            }
+        }
+    }
+}
+
+/**
  * The bill (or bills) standing against this quote.
  *
  * The quotation is the price the customer signed for the WORK. A bottle of wax they pick up
@@ -526,6 +602,9 @@ private fun LineCard(
     ops: LineOps,
     note: String? = null,
     noteColor: Color = TextMuted,
+    /** Where a tap goes. Defaults to opening this line's editor underneath it; the bill's
+     *  compact basket sends it to the panel instead, which is where its editors live. */
+    onTap: ((Int) -> Unit)? = null,
 ) {
     val discNote = when {
         l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
@@ -533,7 +612,7 @@ private fun LineCard(
         else -> ""
     }
     Column(Modifier.fillMaxWidth().background(if (l.expanded) InsetAlt else Color(0xFFF1F4F7), RoundedCornerShape(12.dp)).border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))) {
-        Row(Modifier.fillMaxWidth().clickable(enabled = editable) { ops.toggle(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(Modifier.fillMaxWidth().clickable(enabled = editable) { (onTap ?: ops.toggle)(i) }.padding(horizontal = 13.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {

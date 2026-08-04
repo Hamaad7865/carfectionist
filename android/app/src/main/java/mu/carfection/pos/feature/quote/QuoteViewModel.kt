@@ -237,6 +237,10 @@ data class QuoteState(
     // invoice as a draft and stops here, with the catalogue still on the left: the counter
     // adds whatever else they are taking, then issues.
     val billOpen: Boolean = false,
+    /** The bill's lines, opened on a surface of their own. The basket panel has to hold the
+     *  running total and the actions as well, so a line opened for its discount, its unit and
+     *  its bullet points there had nowhere to go — same reason the quote's lines moved. */
+    val billLinesOpen: Boolean = false,
     val billDocId: String? = null,
     val billLines: List<QuoteLine> = emptyList(),
     /** Lines that came from the quote — priced and agreed, so they are not re-priced here. */
@@ -1425,6 +1429,14 @@ class QuoteViewModel @Inject constructor(
         else st.copy(billLines = st.billLines.mapIndexed { j, l -> if (j == i) f(l) else l })
     }
 
+    fun openBillLines() = _s.update { it.copy(billLinesOpen = true) }
+
+    /** Closing collapses whatever was open, so the basket behind the panel does not come back
+     *  with an editor unfolded across it. */
+    fun closeBillLines() = _s.update { st ->
+        st.copy(billLinesOpen = false, billLines = st.billLines.map { it.copy(expanded = false) })
+    }
+
     fun toggleBillLine(i: Int) = _s.update { st ->
         if (!billEditable(st, i)) st
         else st.copy(billLines = st.billLines.mapIndexed { j, l -> l.copy(expanded = j == i && !l.expanded) })
@@ -1479,7 +1491,7 @@ class QuoteViewModel @Inject constructor(
     /** Back out of the bill without issuing it. The quote's own draft invoice stays on the
      *  server — convert_quote_to_invoice is idempotent, so billing again returns the same
      *  one — and a second bill was never a document in the first place. */
-    fun closeBill() = _s.update { it.copy(billOpen = false, billLines = emptyList(), billDocId = null) }
+    fun closeBill() = _s.update { it.copy(billOpen = false, billLinesOpen = false, billLines = emptyList(), billDocId = null) }
 
     /**
      * Put what they are taking on the bill, and leave it there.
@@ -1520,8 +1532,8 @@ class QuoteViewModel @Inject constructor(
             }.onSuccess { doc ->
                 _s.update {
                     it.copy(
-                        busy = false, billOpen = false, billLines = emptyList(), billDocId = null,
-                        billQuotedCount = 0,
+                        busy = false, billOpen = false, billLinesOpen = false,
+                        billLines = emptyList(), billDocId = null, billQuotedCount = 0,
                         billed = it.billed || issue,
                         // Only an issued bill takes over the screen. A saved one says so where
                         // the operator was looking for it: on the quote, beside the totals.
