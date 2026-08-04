@@ -361,6 +361,16 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 contentAlignment = Alignment.Center,
             ) { Text("Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
         }
+        // Revising is the only thing left to DO to a quote the customer has been shown, so it
+        // belongs with the other header actions rather than buried under the lines.
+        if (s.quoteId != null && !vm.editable(s) && s.status != "void") {
+            Box(
+                Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
+                    .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
+                    .clickable(enabled = !s.busy) { vm.reviseQuote() }.padding(horizontal = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(if (s.busy) "…" else "Revise", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
+        }
         Spacer(Modifier.weight(1f))
         Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
         s.vehPlate?.let { Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) { Text(it, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Color(0xFF151208)) } }
@@ -444,17 +454,27 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         }
         // RIGHT 47 — quote lines
         Column(Modifier.weight(47f).fillMaxHeight().card()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("QUOTE LINES", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
-                Spacer(Modifier.weight(1f))
-                Text("${s.lines.size} line${if (s.lines.size == 1) "" else "s"}", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary)
+            // Once the quote is locked its lines are read on the LEFT, in the wide half. This
+            // column is then only the totals and what happens next — so it drops its header
+            // and lets that block fill the card, rather than floating it under a title with
+            // half a screen of nothing above it.
+            val locked = !vm.editable(s)
+            if (!locked) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("QUOTE LINES", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
+                    Spacer(Modifier.weight(1f))
+                    Text("${s.lines.size} line${if (s.lines.size == 1) "" else "s"}", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary)
+                }
+                Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             }
-            Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             // Accepting takes over this middle region rather than growing the footer — that is
             // what used to push the buttons off the bottom of the screen. The signature pad then
             // sizes itself to whatever room is left, so it can never be clipped either.
             if (s.acceptOpen) {
                 AcceptBody(s, vm, strokes, { padSize = it }, strokePx, acceptStep, Modifier.weight(1f))
+            } else if (locked) {
+                // Nothing here: the lines are on the left, and the totals block below fills
+                // the card on its own.
             } else
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 if (s.lines.isEmpty()) {
@@ -991,45 +1011,72 @@ private fun EstStepper(caption: String, value: Int, onMinus: () -> Unit, onPlus:
 }
 
 /**
- * What stands where the product picker was, once a quote has left draft. It says plainly
- * that the quote is closed, why, and what to do instead — a screen that simply ignored
- * taps would leave the operator poking at products, wondering what was broken.
+ * What stands where the product picker was, once a quote has left draft.
+ *
+ * A quote the customer has been shown is not a shopping screen — 795 tappable products
+ * that silently do nothing are worse than none. But it IS the thing everyone wants to
+ * read, and squeezing four lines into the narrow right-hand column beside the totals,
+ * the flow strip and the crew picker showed one of them. So the lines move here, into
+ * the wide half, and the right-hand column becomes the "what happens next" column.
+ *
+ * Revising lives in the header now, with Send — the two things left to do to this quote.
  */
 @Composable
 private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
     val accepted = s.status == "accepted" || s.signed
-    Column(
-        Modifier.weight(53f).fillMaxHeight().card(14).padding(28.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp),
-    ) {
-        Spacer(Modifier.weight(1f))
-        Text(
-            if (accepted) "This quote has been signed" else "This quote has been sent",
-            fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = TextPrimary,
-        )
-        Text(
-            if (accepted)
-                "The customer agreed to these prices, so they stay exactly as they agreed them. " +
-                    "To change anything, start a revision — a new quote carrying these lines, with this one kept as the record."
-            else
-                "The customer has been shown these prices. To change anything, start a revision — " +
-                    "a new quote carrying these lines, with this one kept as the record.",
-            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 14.5.sp, lineHeight = 21.sp, color = TextMuted,
-        )
-        Spacer(Modifier.height(4.dp))
-        Box(
-            Modifier.height(52.dp).background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
-                .clickable(enabled = !s.busy) { vm.reviseQuote() }
-                .padding(horizontal = 26.dp),
-            contentAlignment = Alignment.Center,
-        ) {
+    val totals = vm.totals(s)
+    Column(Modifier.weight(53f).fillMaxHeight().card()) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("QUOTE LINES", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.6.sp, color = TextMuted)
+            Spacer(Modifier.weight(1f))
             Text(
-                if (s.busy) "Working…" else "Revise this quote →",
-                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                color = if (s.busy) TextSecondary else AccentInk,
+                "${s.lines.size} line${if (s.lines.size == 1) "" else "s"}",
+                fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextSecondary,
             )
         }
-        Spacer(Modifier.weight(1f))
+        Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            if (!s.linesLoaded) {
+                Text("Loading the items…", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
+            }
+            s.lines.forEachIndexed { i, l ->
+                val lineTotal = (totals.lineExclCents.getOrNull(i) ?: 0L)
+                    .let { net -> if (s.pricesInclVat) grossCents(net, l.vatRate) else net }
+                val discNote = when {
+                    l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
+                    l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
+                    else -> ""
+                }
+                // Read-only by design: no tap target, because there is nothing to open. The
+                // prices are the ones the customer agreed to.
+                Row(
+                    Modifier.fillMaxWidth().background(Color(0xFFF1F4F7), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color(0x12101A24), RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
+                        Text("×${l.qty}$discNote", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted)
+                    }
+                    Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
+                }
+            }
+        }
+
+        Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+        Text(
+            if (accepted)
+                "Signed — the customer agreed to these prices, so they stay exactly as agreed. Revise to change them: a new quote carrying these lines, with this one kept as the record."
+            else
+                "Sent — the customer has been shown these prices. Revise to change them: a new quote carrying these lines, with this one kept as the record.",
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 18.sp, color = TextMuted,
+        )
     }
 }
 
