@@ -119,7 +119,9 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     // the operator on the quote (or making them find a button) is the illogical flow the owner
     // hit. The signed quotation can still be sent later from the quote list.
     LaunchedEffect(s.createdJobId, s.depositPending) {
-        if (s.createdJobId != null && s.depositPending && s.takesPayments) { viewModel.clearToast(); onGoCheckout() }
+        // createdJobId is deliberately NOT required: a goods-only quote signs, bills and
+        // walks to the pad with no job anywhere — same latched CollectBus request.
+        if (s.depositPending && s.takesPayments) { viewModel.clearToast(); onGoCheckout() }
     }
     // Shown right after accepting (createdJobId) AND on demand for any saved quote (sendOpen),
     // so a lost WhatsApp or an "email it too" does not require re-accepting the quote.
@@ -772,8 +774,18 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                     },
                                 contentAlignment = Alignment.Center,
                             ) {
+                                // Goods only: no job exists or ever will — the signature IS the
+                                // purchase, and the bill follows it straight to the pad. Saying
+                                // "Create job" here was a promise the button never kept.
+                                val goods = !vm.hasService(s)
                                 Text(
-                                    if (s.busy) "Creating…" else if (!signed) "Sign to create job" else "Create job",
+                                    when {
+                                        s.busy -> if (goods) "Billing…" else "Creating…"
+                                        !signed -> if (goods) "Sign to accept" else "Sign to create job"
+                                        goods -> if (s.takesPayments) "Accept — take payment" else "Accept — create invoice"
+                                        !s.startJobNow -> "Accept — save for later"
+                                        else -> "Create job"
+                                    },
                                     fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                                     color = if (s.busy || !signed) TextMuted else AccentInk,
                                 )
@@ -979,17 +991,24 @@ private fun SignStep(
         modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // A one-glance recap of the setup they're signing off on.
+        // A one-glance recap of the setup they're signing off on. Goods only: there is no
+        // technician, no booking and no estimate — reciting "Assign later · Today · Now"
+        // over a counter sale reads like the app is planning work nobody asked for. What
+        // matters there is what signing does: the bill is raised on the spot.
         Column(
             Modifier.fillMaxWidth().background(InsetAlt, RoundedCornerShape(12.dp)).padding(horizontal = 13.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            RecapRow(
-                if (crewNames.size > 1) "Crew" else "Technician",
-                crewNames.joinToString(", ").ifEmpty { "Assign later" },
-            )
-            RecapRow("Booked in", vm.startDateLabel(s) + " · " + vm.startTimeLabel(s))
-            if (s.estimateMinutes != null) RecapRow("Ready in about", QuoteViewModel.estimateLabel(s.estimateMinutes!!))
+            if (vm.hasService(s)) {
+                RecapRow(
+                    if (crewNames.size > 1) "Crew" else "Technician",
+                    crewNames.joinToString(", ").ifEmpty { "Assign later" },
+                )
+                RecapRow("Booked in", vm.startDateLabel(s) + " · " + vm.startTimeLabel(s))
+                if (s.estimateMinutes != null) RecapRow("Ready in about", QuoteViewModel.estimateLabel(s.estimateMinutes!!))
+            } else {
+                RecapRow("Goods only", if (s.takesPayments) "signing raises the bill — payment is next" else "signing raises the bill for the paying till")
+            }
             if (s.depositCents > 0) RecapRow("Deposit on signing", formatMUR(s.depositCents))
         }
 

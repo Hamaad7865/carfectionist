@@ -1076,6 +1076,22 @@ class QuoteViewModel @Inject constructor(
                 // "Create job" on this quote raises it whenever the customer comes back.
                 if (!s.startJobNow) {
                     api.acceptQuoteOnly(quoteId, sigPath, s.who.takeUnless { it.isBlank() || it == "—" })
+                    // GOODS ONLY: the signature is not a promise of future work, it is a purchase
+                    // happening right now — so the bill follows the signature immediately. On a
+                    // paying till the pad opens on it (a deposit pre-fills the figure; otherwise
+                    // it opens on the balance); reception's tablet raises it to wait in TO
+                    // COLLECT. Best-effort: a billing hiccup must not un-accept a signed quote —
+                    // "Bill now" on this quote picks it up, idempotently, under the same key.
+                    val goodsInvoice = if (!hasService(s)) {
+                        runCatching {
+                            val inv = api.convertQuoteToInvoice(quoteId)
+                            if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
+                            inv
+                        }.getOrNull()
+                    } else null
+                    if (_s.value.takesPayments) goodsInvoice?.let {
+                        collectBus.request(it.id, s.depositCents.takeIf { d -> d > 0 })
+                    }
                     // Finish the job the success path below would have done. Returning early
                     // from runCatching skips it entirely, which left busy stuck true — every
                     // control gated on it then read "Saving…"/"Working…" for ever, with the
@@ -1084,7 +1100,12 @@ class QuoteViewModel @Inject constructor(
                         it.copy(
                             busy = false, quoteId = quoteId, status = "accepted",
                             acceptOpen = false, intake = null, signed = sigPath != null,
-                            jobId = null, createdJobId = null, depositPending = false,
+                            jobId = null, createdJobId = null,
+                            billed = it.billed || goodsInvoice != null,
+                            // Reuses the deposit hand-off: on a paying till this walks the
+                            // operator straight to Checkout with the pad already waiting.
+                            depositPending = goodsInvoice != null && it.takesPayments,
+                            createdInvoiceRef = if (goodsInvoice != null && !it.takesPayments) goodsInvoice.number ?: "Invoice raised" else null,
                             sendBusy = false, sendDone = null, sendError = null,
                         )
                     }

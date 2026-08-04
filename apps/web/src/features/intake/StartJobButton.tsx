@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Wrench, Check } from "lucide-react";
 import { createJobFromDocumentAction, acceptQuoteOnlyAction } from "./actions";
+import { convertQuoteToInvoiceAction } from "@/features/documents/actions";
 import { btn } from "@/components/ui/button";
 
 export function StartJobButton({
@@ -41,15 +42,25 @@ export function StartJobButton({
   // Signed, but the car isn't here yet — accept the price with nothing on the
   // board. "Accept → create job" on this same quote raises it whenever the
   // customer comes back (convert_quote_to_job accepts an already-accepted quote).
+  //
+  // GOODS ONLY: accepting is a purchase happening now, not a promise of work —
+  // so the bill follows immediately and the page goes to it, where issuing and
+  // recording the payment live. Billing is best-effort: a hiccup there must not
+  // un-accept the quote; "Convert to invoice" picks it up idempotently.
   async function acceptOnly() {
     setBusy("accept");
     setError(null);
     const r = await acceptQuoteOnlyAction(documentId);
-    if (r.ok) router.refresh();
-    else {
+    if (!r.ok) {
       setBusy(null);
       setError(r.error);
+      return;
     }
+    if (!hasService) {
+      const inv = await convertQuoteToInvoiceAction(documentId);
+      if (inv.ok) return router.push(`/sales/${inv.data.id}/edit`);
+    }
+    router.refresh();
   }
 
   // A products-only quote leads with accepting: nobody is working on a car, so there is
@@ -63,7 +74,7 @@ export function StartJobButton({
       <div className="flex flex-wrap items-center gap-2">
         {canAcceptOnly && !jobLeads && (
           <button onClick={acceptOnly} disabled={busy !== null} className={btn("primary", "lg", "gap-2")}>
-            <Check size={15} /> {busy === "accept" ? "Accepting…" : "Accept — goods only, no job"}
+            <Check size={15} /> {busy === "accept" ? "Accepting…" : "Accept → create invoice"}
           </button>
         )}
         <button
