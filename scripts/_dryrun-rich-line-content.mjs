@@ -135,6 +135,56 @@ try {
   }
   await c.query("rollback to savepoint g2");
 
+  // ── the bug this branch exists for ─────────────────────────────────────────
+  // The desk writes a description; the tablet then re-saves the same quote.
+  // save_draft deletes every line and re-inserts from the payload, so if the
+  // tablet's payload omits the description, the description is gone. This replays
+  // the EXACT json quoteLineJson() now produces — pinned by QuoteLineWireTest —
+  // rather than a hand-written approximation of it.
+  const tabletPayload = [
+    {
+      product_id: null,
+      title: "Diamondbrite 3 YEARS PROTECTION Exterior only",
+      description: FLAT,
+      description_richtext: DIAMONDBRITE,
+      unit_label: null,
+      qty: 1,
+      unit_price: 26465.02,
+      discount_pct: 0,
+      discount_kind: "percent",
+      discount_amount: 0,
+      vat_rate: 15,
+      sort_order: 0,
+    },
+  ];
+  await c.query("select public.save_draft($1::jsonb, $2::jsonb, null)", [
+    JSON.stringify({ id: q.id, doc_type: "quote" }),
+    JSON.stringify(tabletPayload),
+  ]);
+  const afterTablet = (
+    await c.query(
+      `select jsonb_typeof(description_richtext) rt, description,
+              description_richtext#>>'{blocks,0,items,3,0,text}' as last_bullet
+         from public.document_lines where document_id=$1 order by sort_order`,
+      [q.id],
+    )
+  ).rows[0];
+  check("a tablet re-save keeps the rich description", afterTablet.rt, "object");
+  check("a tablet re-save keeps the flat mirror", afterTablet.description, FLAT);
+  check("the fourth bullet is still there afterwards", afterTablet.last_bullet, "Plastic treatment and restoration");
+
+  // And the shape the tablet USED to send, to show the probe would have caught it.
+  await c.query("savepoint old");
+  await c.query("select public.save_draft($1::jsonb, $2::jsonb, null)", [
+    JSON.stringify({ id: q.id, doc_type: "quote" }),
+    JSON.stringify([{ ...tabletPayload[0], description: null, description_richtext: null }]),
+  ]);
+  const afterOld = (
+    await c.query("select jsonb_typeof(description_richtext) rt from public.document_lines where document_id=$1", [q.id])
+  ).rows[0];
+  check("the OLD tablet payload would have erased it (proving the probe bites)", afterOld.rt, null);
+  await c.query("rollback to savepoint old");
+
   // ── regression: a save with no new fields at all still works ───────────────
   const plain = (
     await c.query("select id from public.save_draft($1::jsonb, $2::jsonb, null)", [
