@@ -867,9 +867,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     // ── Checkout · collect on invoice ────────────────────────────────────────
     /** Invoices awaiting payment (issued or partly paid) — the "TO COLLECT" list. */
+    /**
+     * NAMED relationship on purpose. There are TWO foreign keys between documents and jobs —
+     * documents.job_id → jobs, and jobs.source_quote_id → documents — so a bare `jobs(...)`
+     * embed is ambiguous and PostgREST refuses the WHOLE query with PGRST201. The caller
+     * swallows failures into an empty list, so that refusal did not look like an error: it
+     * looked like nothing was owed, and TO COLLECT sat empty with real money in it.
+     */
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, issued_at, jobs(status), customers(name), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, issued_at, jobs!documents_job_id_fkey(status), customers(name), vehicles(plate, make, model)")) {
                 // 'draft' belongs here now: a quoted job's bill is raised when the car is
                 // marked ready and left OPEN, so the counter can add whatever the customer
                 // picked up on their way out. It is issued as they pay. Callers drop the

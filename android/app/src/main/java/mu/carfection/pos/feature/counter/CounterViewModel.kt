@@ -467,7 +467,15 @@ class CounterViewModel @Inject constructor(
             // Only invoices with money actually owed: a zero-total (or fully settled)
             // issued invoice has nothing to collect — offering it opened a Rs 0.00
             // payment pad that could never succeed.
-            val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
+            // A FAILED fetch is not an empty till list. Swallowing it into emptyList() is how a
+            // broken query read as "nothing awaiting payment" while real money was owed — the
+            // cashier had no way to tell the difference. Say so instead.
+            val billsResult = runCatching { api.fetchOutstandingInvoices() }
+            billsResult.exceptionOrNull()?.let { e ->
+                local.value = local.value.copy(listBusy = false, error = "Couldn't load the bills — ${e.uiMessage()}")
+                return@launch
+            }
+            val bills = billsResult.getOrDefault(emptyList())
                 .filter { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) > 0 }
                 // TO COLLECT means collect NOW. A draft belongs here only when it is a job's
                 // bill and that car is finished — a bill opened mid-service so the counter
