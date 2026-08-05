@@ -1018,7 +1018,15 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             if (s.signed) "client signed" else if (s.jobId != null) "accepted" else null,
                         ))
                         if (work) add(FlowStepUi("Job", if (s.jobId != null) FlowState.DONE else FlowState.TODO, s.jobId?.let { "on the board" }))
-                        add(FlowStepUi("Invoice", if (s.createdInvoiceRef != null || s.billed) FlowState.DONE else FlowState.TODO, s.createdInvoiceRef ?: if (s.billed) "issued" else null))
+                        // A saved bill is not issued, so the step is not done — but it is not
+                        // nothing either, and leaving the caption blank was the strip agreeing
+                        // with the rest of the screen that the extras had gone nowhere.
+                        add(FlowStepUi(
+                            "Invoice",
+                            if (s.createdInvoiceRef != null || s.billed) FlowState.DONE else FlowState.TODO,
+                            s.createdInvoiceRef
+                                ?: if (s.billed) "issued" else if (s.bills.any { it.isDraft }) "bill open" else null,
+                        ))
                     }.withCurrent(),
                 )
                 s.error?.let { Text(it, color = Danger, fontSize = 12.sp) }
