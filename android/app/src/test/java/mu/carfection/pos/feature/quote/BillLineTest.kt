@@ -50,6 +50,25 @@ class BillLineTest {
     }
 
     /**
+     * The trap that printed Rs 17,391.30 against a Rs 20,000 shelf price.
+     *
+     * `unitCents` is ALWAYS the net the ledger stores, whatever the operator typed — so
+     * anything putting a line's money on screen has to gross it back up. The quote's ALSO
+     * ON THEIR BILL section did `qty × unitCents` and showed the customer's Rs 20,000
+     * bottle as Rs 17,391.30.
+     */
+    @Test
+    fun `a shelf-priced line stores the net, so showing it means grossing it back up`() {
+        val shelf = QuoteLine(null, "GM-9704(1600W)", "20000", 15.0, priceIsGross = true)
+        assertEquals(1_739_130L, shelf.unitCents)
+        assertEquals(2_000_000L, mu.carfection.pos.core.money.grossCents(shelf.unitCents, 15.0))
+
+        // …and when the shop quotes net, what was typed IS the net and nothing converts.
+        val net = QuoteLine(null, "GM-9704(1600W)", "17391.30", 15.0, priceIsGross = false)
+        assertEquals(1_739_130L, net.unitCents)
+    }
+
+    /**
      * The bill used to send a thinner payload of its own that hard-coded `description` to
      * null and never sent `unit_label`, so a line written at the counter reached the
      * invoice stripped of what it said it included. It sends what a quote line sends now.

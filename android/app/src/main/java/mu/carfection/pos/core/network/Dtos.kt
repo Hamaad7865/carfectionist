@@ -227,6 +227,9 @@ data class OutstandingInvoiceDto(
     /** The job behind this bill, when there is one — a draft raised while the car is still
      *  in the bay is not something the till should be offering to collect yet. */
     val jobs: JobStatusRefDto? = null,
+    /** The quote this bill was raised from. A draft with no job has no work to wait for, so
+     *  this is what tells a goods-only counter bill apart from an abandoned back-office one. */
+    @SerialName("source_document_id") val sourceDocumentId: String? = null,
     @SerialName("issued_at") val issuedAt: String? = null, // for the payment screen's bill header
     val customers: JobCustomerDto? = null,
     val vehicles: JobVehicleDto? = null,

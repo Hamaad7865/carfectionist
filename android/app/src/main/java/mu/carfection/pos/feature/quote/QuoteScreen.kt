@@ -809,9 +809,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             // signature for something nobody is negotiating. The bill is what they pay, and it
             // is still a draft until they do — so this just adds, with no ceremony at all.
             //
-            // It stays here after the bill is issued. They come back a second time, and an
-            // issued bill is frozen — so the next thing they pick up opens a new one.
-            Box(
+            // It stays here after the bill is issued, to say so. Not on a quote the customer
+            // turned down or one that ran out, though: convert_quote_to_invoice refuses those
+            // outright, so the button could only ever hand back an error.
+            if (s.status != "declined" && s.status != "expired") Box(
                 Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
                     .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
                     .clickable(enabled = !s.busy) { vm.convertToInvoice() }.padding(horizontal = 13.dp),
@@ -1452,12 +1453,14 @@ private fun SignStep(
             }
         }
         if (s.agreedVia != null) {
+            // No weight: weight measures to whatever is left, and what was left is how the
+            // signature pad next door came to be squeezed out of existence. This block sizes
+            // to its own text and the column absorbs the slack below it.
             Column(
-                Modifier.fillMaxWidth().weight(1f).heightIn(min = 120.dp)
+                Modifier.fillMaxWidth().heightIn(min = 120.dp)
                     .background(Inset, RoundedCornerShape(12.dp)).padding(20.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Spacer(Modifier.weight(1f))
                 Text(
                     s.who.ifBlank { "The customer" } + " agreed by " +
                         when (s.agreedVia) { "whatsapp" -> "WhatsApp"; "phone" -> "phone"; else -> "email" },
@@ -1468,8 +1471,8 @@ private fun SignStep(
                         "Tap Signing here instead if they are in front of you.",
                     fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, lineHeight = 19.sp, color = TextMuted,
                 )
-                Spacer(Modifier.weight(1f))
             }
+            Spacer(Modifier.weight(1f))
         } else {
             // The pad used to take "whatever room is left" at the bottom of this column, under
             // the recap, the channel chips, the totals and the actions. On a real quote that
@@ -1699,7 +1702,7 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
             // price they signed — but this is where the counter looks for them, so this is where
             // they are listed, under their own heading and on their own bill.
             val extras = s.bills.flatMap { it.extras }
-            if (extras.isNotEmpty()) BillExtrasSection(s, extras)
+            if (extras.isNotEmpty()) BillExtrasSection(s, vm, extras)
         }
 
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
@@ -1723,7 +1726,9 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
  * added go", so they are shown here, marked for what they are.
  */
 @Composable
-private fun ColumnScope.BillExtrasSection(s: QuoteState, extras: List<QuoteLine>) {
+private fun ColumnScope.BillExtrasSection(s: QuoteState, vm: QuoteViewModel, extras: List<QuoteLine>) {
+    // Priced exactly as every other line on the screen is — see QuoteViewModel.lineTotals.
+    val t = vm.lineTotals(s, extras)
     Spacer(Modifier.height(4.dp))
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("ALSO ON THEIR BILL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp, color = Accent)
@@ -1733,8 +1738,9 @@ private fun ColumnScope.BillExtrasSection(s: QuoteState, extras: List<QuoteLine>
             fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, color = TextMuted,
         )
     }
-    extras.forEach { l ->
-        val gross = l.qty * (if (s.pricesInclVat) l.unitCents else grossCents(l.unitCents, l.vatRate))
+    extras.forEachIndexed { i, l ->
+        val lineTotal = (t.lineExclCents.getOrNull(i) ?: 0L)
+            .let { net -> if (s.pricesInclVat) grossCents(net, l.vatRate) else net }
         Row(
             Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp))
                 .border(1.dp, AccentLine, RoundedCornerShape(12.dp))
@@ -1748,7 +1754,7 @@ private fun ColumnScope.BillExtrasSection(s: QuoteState, extras: List<QuoteLine>
                     fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
                 )
             }
-            Text(formatMUR(gross), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
+            Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
         }
     }
 }

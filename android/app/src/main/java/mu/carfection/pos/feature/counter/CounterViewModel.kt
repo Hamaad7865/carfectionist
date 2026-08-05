@@ -481,7 +481,16 @@ class CounterViewModel @Inject constructor(
                 // bill and that car is finished — a bill opened mid-service so the counter
                 // could add something to it is not yet a debt, and a draft typed in the back
                 // office and abandoned never was.
-                .filter { it.status != "draft" || it.jobs?.status == "ready" || it.jobs?.status == "delivered" }
+                //
+                // …with one exception: a bill raised from a quote that has NO job on the board.
+                // Goods over the counter have no work to wait for, so there is no later moment
+                // for it to appear — it would simply never be collectable, and the money would
+                // be invisible to the till that has to take it.
+                .filter {
+                    it.status != "draft" ||
+                        it.jobs?.status == "ready" || it.jobs?.status == "delivered" ||
+                        (it.jobId == null && it.sourceDocumentId != null)
+                }
             val paidRaw = runCatching { api.fetchTodayPayments(start) }.getOrDefault(emptyList())
             // PAID TODAY = money that actually stands. A mistake + its reversal
             // cancel out and BOTH disappear (the trail stays in History and the

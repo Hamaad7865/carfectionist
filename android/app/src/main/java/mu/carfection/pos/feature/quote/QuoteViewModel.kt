@@ -1470,8 +1470,18 @@ class QuoteViewModel @Inject constructor(
         if (!billEditable(st, i)) st else st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i })
     }
 
-    fun billTotals(s: QuoteState): DocDiscountTotals = computeDocTotals(
-        s.billLines.map {
+    fun billTotals(s: QuoteState): DocDiscountTotals = lineTotals(s, s.billLines)
+
+    /**
+     * What a set of lines comes to, priced the way this document prices.
+     *
+     * Anything showing money has to go through here. A hand-rolled `qty × unitCents` on the
+     * quote's ALSO ON THEIR BILL section printed Rs 17,391.30 against a Rs 20,000 shelf
+     * price: unitCents is always the NET, and that sum both forgot to gross it up and
+     * ignored the line's discount.
+     */
+    fun lineTotals(s: QuoteState, lines: List<QuoteLine>): DocDiscountTotals = computeDocTotals(
+        lines.map {
             DocLineIn(
                 qty = it.qty.toDouble(), unitCents = it.unitCents,
                 discountKind = if (it.discountMode == DiscountMode.AMT) "amount" else "percent",
