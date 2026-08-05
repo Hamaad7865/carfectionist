@@ -639,7 +639,7 @@ class SaleRepository @Inject constructor(
         var issuedNumber = number
         if (needsIssue) {
             issuedNumber = try {
-                api.issueDocument(invoiceId, "$payKey:issue", sessionId = cashSessionId).number ?: number
+                api.issueDocument(invoiceId, "$payKey:issue", api.salesFloorId(), cashSessionId).number ?: number
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {

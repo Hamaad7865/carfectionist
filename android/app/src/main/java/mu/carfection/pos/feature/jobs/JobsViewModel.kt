@@ -274,7 +274,7 @@ class JobsViewModel @Inject constructor(
                     }
                     api.saveDraft(doc, lines)
                 }
-                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}").number
+                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}", api.salesFloorId()).number
                 else draft.number
             }.onSuccess { n -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${n ?: "Invoice"} created — collect it in Checkout") } }
                 .onFailure { e ->

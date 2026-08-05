@@ -317,6 +317,26 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      *
      * Mirrors the web resolver in apps/web/src/lib/supabase/locations.ts.
      */
+    /**
+     * The sales floor, for anything that debits stock.
+     *
+     * Every bill this app issues comes off the shop floor, because that is where the goods
+     * physically are — whether the customer picked one up at the counter or the workshop
+     * fitted it. Only the walk-in sale used to say so; a quote's bill and a job's bill left
+     * it null, which the RPC reads as the tenant default (the Warehouse). So a bottle taken
+     * off the shelf was debited to a warehouse it had never been in, and the count the till
+     * shows — the sales floor's — never moved.
+     *
+     * Cached for the process, and it NEVER throws: a lookup that fails must not stop a sale,
+     * so it falls back to null and the RPC's own default.
+     */
+    @Volatile private var salesFloorCache: String? = null
+
+    suspend fun salesFloorId(): String? {
+        salesFloorCache?.let { return it }
+        return runCatching { fetchShopLocationId() }.getOrNull()?.also { salesFloorCache = it }
+    }
+
     suspend fun fetchShopLocationId(): String? {
         val locs = client.postgrest.from("stock_locations")
             .select(Columns.raw("id, name, is_default, is_sales_floor, is_active"))
