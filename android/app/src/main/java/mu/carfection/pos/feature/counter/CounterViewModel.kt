@@ -865,7 +865,7 @@ class CounterViewModel @Inject constructor(
                         // moment it becomes a real invoice. deliver_on_account refuses a draft
                         // outright — and rightly: you cannot owe money on a document that was
                         // never issued.
-                        if (bill.status == "draft") api.issueDocument(bill.id, "$saleKey:issue", api.salesFloorId(), s.till?.id)
+                        if (bill.status == "draft") api.issueDocument(bill.id, "$saleKey:issue", sessionId = s.till?.id)
                         api.deliverOnAccount(bill.id)
                     } catch (e: CancellationException) {
                         throw e

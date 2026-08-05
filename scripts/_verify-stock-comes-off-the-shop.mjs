@@ -1,9 +1,12 @@
-// Rolled-back check: a bill takes its goods off the SALES FLOOR.
+// Rolled-back check: a bill takes its goods off the SALES FLOOR — including when the
+// caller names no location at all.
 //
-// Only the walk-in sale ever said which location it was selling from. A quote's bill and a
-// job's bill passed null, which issue_document reads as the tenant default — the Warehouse.
-// So a bottle a customer lifted off the shop shelf was debited to a warehouse it had never
-// been in, and the count the till actually shows (the sales floor's) never moved.
+// This exists because I got it backwards. PosApi.issueDocument's comment said a null
+// location "coalesces to the tenant default (Warehouse)", so I concluded every bill that
+// was not a walk-in had been debiting the wrong shelf. It never was: issue_document's own
+// coalesce puts the sales floor FIRST and reaches is_default only in a one-location shop.
+// The comment was stale; the code was right. This pins the behaviour so the next person
+// reading that comment can check it in ten seconds instead of believing it.
 //
 // Runs as `authenticated` impersonating the owner, then ROLLS BACK — nothing persists.
 import pg from "pg";
@@ -66,7 +69,8 @@ try {
     }],
   );
 
-  await c.query("select * from public.issue_document($1::uuid, $2::uuid, $3, null)", [bill, shop.id, `probe:${bill}`]);
+  // The case that matters: NO location named, exactly as a quote's or job's bill issues.
+  await c.query("select * from public.issue_document($1::uuid, null, $2, null)", [bill, `probe:${bill}`]);
 
   const moves = (await c.query(
     "select location_id, qty, ref_type from public.stock_movements where ref_id = $1",
@@ -74,7 +78,7 @@ try {
   )).rows;
 
   check("the sale moved stock", moves.length > 0, "true");
-  check("off the sales floor", moves.every((m) => m.location_id === shop.id), "true");
+  check("off the sales floor, with nothing passed", moves.every((m) => m.location_id === shop.id), "true");
   check("and none off the default location", moves.some((m) => m.location_id === fallback?.id), "false");
   check("two off the shelf", moves.reduce((n, m) => n + Number(m.qty), 0), -2);
 
@@ -84,6 +88,24 @@ try {
     [product.id, shop.id],
   )).rows[0].q;
   console.log(`  · ${product.name} now nets ${onFloor} on the sales floor (inside this transaction)`);
+
+  // …and naming the floor explicitly, as the walk-in sale does, lands in the same place.
+  const bill2 = await saveDraft(
+    {
+      id: null, doc_type: "invoice", customer_id: customer, vehicle_id: null, template_id: null,
+      template_overrides: {}, valid_until: null, due_date: null, origin: "standalone",
+      discount_kind: null, discount_value: 0,
+    },
+    [{
+      product_id: product.id, title: product.name, description: null, description_richtext: null,
+      unit_label: null, qty: 1, unit_price: Number(product.selling_price), discount_pct: 0,
+      discount_kind: "percent", discount_amount: 0, vat_rate: Number(product.vat_rate ?? 15),
+      sort_order: 0, line_kind: null,
+    }],
+  );
+  await c.query("select * from public.issue_document($1::uuid, $2::uuid, $3, null)", [bill2, shop.id, `probe:${bill2}`]);
+  const named = (await c.query("select location_id from public.stock_movements where ref_id = $1", [bill2])).rows;
+  check("naming the floor lands in the same place", named.every((m) => m.location_id === shop.id), "true");
 } finally {
   await c.query("rollback");
   await c.end();

@@ -1226,7 +1226,7 @@ class QuoteViewModel @Inject constructor(
                     val goodsInvoice = if (!hasService(s)) {
                         runCatching {
                             val inv = api.convertQuoteToInvoice(quoteId)
-                            if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", api.salesFloorId())
+                            if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
                             inv
                         }.getOrNull()
                     } else null
@@ -1274,7 +1274,7 @@ class QuoteViewModel @Inject constructor(
                 val depositInvoice = if (s.depositCents > 0) {
                     runCatching {
                         val inv = api.convertQuoteToInvoice(quoteId)
-                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", api.salesFloorId())
+                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
                         inv.id
                     }.getOrNull()
                 } else null
@@ -1538,7 +1538,7 @@ class QuoteViewModel @Inject constructor(
                 val saved = api.saveDraft(doc, billLinesJson(s))
                 // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
                 // key spent on the void one would refuse its replacement for ever.
-                if (issue) api.issueDocument(saved.id, "inv:${saved.id}", api.salesFloorId()) else saved
+                if (issue) api.issueDocument(saved.id, "inv:${saved.id}") else saved
             }.onSuccess { doc ->
                 _s.update {
                     it.copy(

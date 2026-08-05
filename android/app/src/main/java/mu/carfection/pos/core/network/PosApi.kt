@@ -317,26 +317,6 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      *
      * Mirrors the web resolver in apps/web/src/lib/supabase/locations.ts.
      */
-    /**
-     * The sales floor, for anything that debits stock.
-     *
-     * Every bill this app issues comes off the shop floor, because that is where the goods
-     * physically are — whether the customer picked one up at the counter or the workshop
-     * fitted it. Only the walk-in sale used to say so; a quote's bill and a job's bill left
-     * it null, which the RPC reads as the tenant default (the Warehouse). So a bottle taken
-     * off the shelf was debited to a warehouse it had never been in, and the count the till
-     * shows — the sales floor's — never moved.
-     *
-     * Cached for the process, and it NEVER throws: a lookup that fails must not stop a sale,
-     * so it falls back to null and the RPC's own default.
-     */
-    @Volatile private var salesFloorCache: String? = null
-
-    suspend fun salesFloorId(): String? {
-        salesFloorCache?.let { return it }
-        return runCatching { fetchShopLocationId() }.getOrNull()?.also { salesFloorCache = it }
-    }
-
     suspend fun fetchShopLocationId(): String? {
         val locs = client.postgrest.from("stock_locations")
             .select(Columns.raw("id, name, is_default, is_sales_floor, is_active"))
@@ -834,9 +814,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     /**
      * Assigns the gapless INV number + fires sale stock movements. Idempotent.
-     * [stockLocationId] is the location the sale debits — counter sales pass the Shop;
-     * null lets the RPC coalesce to the tenant default (Warehouse), which is what the
-     * workshop quote→invoice / job→invoice paths want.
+     *
+     * [stockLocationId] is the location the sale debits. Passing NULL is not "the warehouse":
+     * issue_document's own coalesce puts the sales floor first and reaches is_default only in
+     * a one-location shop, so a counter sale (which names the floor) and a quote or job bill
+     * (which names nothing) come off the SAME shelf.
+     *
+     * This comment used to say the opposite, and I believed it instead of reading the
+     * function — then told the owner their stock had been coming off the wrong location and
+     * shipped a "fix" that changed nothing. scripts/_verify-stock-comes-off-the-shop.mjs pins
+     * the real behaviour, both with and without a location named.
      */
     // [sessionId] is the service that rang the ticket — it is what puts the sale under
     // "Service 2" on the cash-up. A ticket issued with no till (a job billed in the
