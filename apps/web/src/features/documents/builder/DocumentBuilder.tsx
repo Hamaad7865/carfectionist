@@ -27,9 +27,10 @@ import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } fro
 import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import type { SaveDraftInput } from "@/features/documents/payload";
-import type { BuilderContext } from "@/lib/supabase/queries/builder";
+import type { BuilderContext, BuilderCustomer } from "@/lib/supabase/queries/builder";
 import { reducer, toSaveDraftLines, type BuilderState } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
+import { NewCustomerButton } from "./NewCustomerButton";
 import { btn } from "@/components/ui/button";
 
 // UUID keys so the builder's line keys can never collide with those minted
@@ -89,6 +90,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [openDesc, setOpenDesc] = useState<string | null>(null); // which line's description is being edited
   const [catKind, setCatKind] = useState<"all" | "service" | "product">("all");
   const [custQuery, setCustQuery] = useState("");
+  // Customers created from the "New" button live here until a reload folds them
+  // into ctx.customers — so the one just made is selectable and shows in the preview.
+  const [createdCustomers, setCreatedCustomers] = useState<BuilderCustomer[]>([]);
   const [adName, setAdName] = useState("");
   const [adPrice, setAdPrice] = useState("");
   // Work or goods — asked every time a line is typed by hand, because nothing else can
@@ -109,7 +113,13 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const serverRef = useRef<{ docId: string | null; revision: number }>({ docId: initial.docId, revision: initial.revision });
 
   const readOnly = state.status !== "draft";
-  const customer = ctx.customers.find((c) => c.id === state.customerId);
+  // Merge in customers created this session, newest first, without duplicating any
+  // that a later reload has already pulled into ctx.customers.
+  const allCustomers = useMemo(() => {
+    const known = new Set(ctx.customers.map((c) => c.id));
+    return [...createdCustomers.filter((c) => !known.has(c.id)), ...ctx.customers];
+  }, [ctx.customers, createdCustomers]);
+  const customer = allCustomers.find((c) => c.id === state.customerId);
 
   const doSave = useCallback((): Promise<string | null> => {
     const run = async (): Promise<string | null> => {
@@ -230,7 +240,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const filtered = ctx.products
     .filter((p) => (catKind === "all" || p.kind === catKind) && p.name.toLowerCase().includes(catQuery.toLowerCase()))
     .slice(0, catQuery ? 8 : 12);
-  const custFiltered = ctx.customers.filter((c) => c.name.toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8);
+  const custFiltered = allCustomers.filter((c) => c.name.toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8);
 
   function addAdhoc() {
     // Clamp at zero like MoneyField — a typed "-500" must not build a negative-total
@@ -362,15 +372,27 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                 </div>
               ) : (
                 <>
-                  <div className="relative">
-                    <Search size={16} className="absolute left-3.5 top-3.5 text-faint" />
-                    <input
-                      value={custQuery}
-                      onChange={(e) => setCustQuery(e.target.value)}
-                      disabled={readOnly}
-                      placeholder="Search customer by name…"
-                      className={`${inputCls} pl-[38px]`}
-                    />
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search size={16} className="absolute left-3.5 top-3.5 text-faint" />
+                      <input
+                        value={custQuery}
+                        onChange={(e) => setCustQuery(e.target.value)}
+                        disabled={readOnly}
+                        placeholder="Search customer by name…"
+                        className={`${inputCls} pl-[38px]`}
+                      />
+                    </div>
+                    {!readOnly && (
+                      <NewCustomerButton
+                        defaultName={custQuery}
+                        onCreated={(c) => {
+                          setCreatedCustomers((cs) => [c, ...cs]);
+                          dispatch({ type: "setCustomer", customerId: c.id });
+                          setCustQuery("");
+                        }}
+                      />
+                    )}
                   </div>
                   {custQuery && (
                     <div className="mt-2 flex flex-col gap-1.5">
@@ -384,7 +406,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                           <span className="grid size-6 place-items-center rounded-[7px] bg-[rgba(43,140,255,0.14)] text-link"><Plus size={14} strokeWidth={2.6} /></span>
                         </button>
                       ))}
-                      {custFiltered.length === 0 && <div className="px-3 py-2 text-[12px] text-faint">No customer matches.</div>}
+                      {custFiltered.length === 0 && <div className="px-3 py-2 text-[12px] text-faint">No match — tap “New” to add “{custQuery}”.</div>}
                     </div>
                   )}
                 </>
