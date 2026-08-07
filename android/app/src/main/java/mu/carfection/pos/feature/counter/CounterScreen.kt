@@ -1743,6 +1743,14 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         d.customer.takeIf { it.isNotBlank() }?.let {
             Text("Customer : $it", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, textAlign = TextAlign.Center)
         }
+        // A business client's own fiscal numbers, under their name — mirrors ReceiptText.render,
+        // so the screen slip and the printed slip never disagree.
+        d.customerBrn?.takeIf { it.isNotBlank() }?.let {
+            Text("BRN : $it", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        }
+        d.customerVatNo?.takeIf { it.isNotBlank() }?.let {
+            Text("VAT No : " + it.removePrefix("VAT").trim(), color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        }
         DashRule()
         // ── items: Qty | Designation | UP | Total ───────────────────────────────
         if (d.lines.isNotEmpty()) {

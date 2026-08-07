@@ -41,6 +41,8 @@ const reference = (over: Partial<ReceiptData> = {}): ReceiptData => ({
   cashier: "ANSHIKA",
   customerName: "Walk-in customer",
   customerEmail: null,
+  customerBrn: "",
+  customerVatNo: "",
   lines: [
     line({ title: "HANGING CAR DIFFU", unitInclCents: 173800, fullInclCents: 173800, totalInclCents: 112970, discountInclCents: 60830, discountPct: 35, discountLabel: "35%" }),
     line({ title: "SAVORE CARD AIR FR", unitInclCents: 49500, fullInclCents: 49500, totalInclCents: 42075, discountInclCents: 7425, discountPct: 15, discountLabel: "15%" }),
@@ -194,6 +196,30 @@ describe("tender rows", () => {
 
   it("stamps a void invoice", () => {
     expect(render({ voided: true })).toContain(">VOID<");
+  });
+});
+
+describe("a business client's fiscal identity", () => {
+  it("prints the client's BRN and VAT number directly under their name", () => {
+    const html = render({ customerName: "ACME Ltd", customerBrn: "C12345678", customerVatNo: "VAT20345678" });
+    // Under the customer, above the items — the buyer's block, not the issuer's footer.
+    const seen = order(html, "Customer : ACME Ltd", "BRN : C12345678", "VAT No : 20345678", "Designation");
+    expect(seen).toEqual([...seen].sort((a, b) => a - b));
+  });
+
+  it("strips a leading VAT prefix from the client's number, like the footer does", () => {
+    const html = render({ customerVatNo: "VAT20345678" });
+    expect(html).toContain("VAT No : 20345678");
+    expect(html).not.toContain("VAT No : VAT20345678");
+  });
+
+  it("omits both lines for a walk-in or an individual who carries neither", () => {
+    // The footer still carries the ISSUER's own BRN/VAT — scope the check to the buyer's
+    // identity block, between their name and the items.
+    const html = render({ customerName: "Jane Doe", customerBrn: "", customerVatNo: "" });
+    const block = html.slice(html.indexOf("Customer : Jane Doe"), html.indexOf("Designation"));
+    expect(block).not.toContain("BRN");
+    expect(block).not.toContain("VAT");
   });
 });
 

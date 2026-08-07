@@ -44,7 +44,7 @@ export interface DocumentA4Props {
     phone: string;
     vatNo: string;
   };
-  billTo: { name: string; country: string };
+  billTo: { name: string; country: string; brn?: string; vatNo?: string };
   lines: DocLineView[];
   subtotalCents: number;      // pre-order-discount ex-VAT sum (the Subtotal row)
   discountCents?: number;     // ex-VAT reduction from an order discount (> 0 shows a row)
@@ -270,6 +270,10 @@ export function DocumentA4(props: DocumentA4Props) {
             <div style={s.boxHeading}>{noun} For</div>
             <div style={s.boxName}>{billTo.name || "—"}</div>
             <BoxLine value={billTo.country} />
+            {/* A business client's own fiscal numbers — printed only when the client carries
+                them, so an individual's box stays name + country as before. */}
+            {billTo.brn ? <BoxLine label="BRN:" value={billTo.brn} /> : null}
+            {billTo.vatNo ? <BoxLine label="VAT NUMBER:" value={billTo.vatNo} /> : null}
           </div>
         </div>
 

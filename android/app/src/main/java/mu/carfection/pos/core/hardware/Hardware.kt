@@ -82,6 +82,10 @@ data class ReceiptDoc(
     val dateTime: String, // display, e.g. "10 Jul 2026 15:04"
     val cashier: String,
     val customer: String,
+    /** The CLIENT's own fiscal identity, printed under their name for a business customer.
+     *  Blank/null for a walk-in or individual — the slip then omits the lines. */
+    val customerBrn: String? = null,
+    val customerVatNo: String? = null,
     val lines: List<ReceiptLine>,
     // Σ of the lines at FULL price, VAT-inclusive — i.e. before any discount, line or basket.
     // Subtotal − Discount = TOTAL always holds, so the customer can see what they saved.
@@ -237,6 +241,11 @@ object ReceiptText {
         d.customer.takeIf { it.isNotBlank() }?.let { name ->
             wrap("Customer : $name", w).forEach { appendLine(center(it, w)) }
         }
+        // A business client's own fiscal numbers, directly under their name — the buyer's BRN/VRN
+        // a VAT invoice must carry, as distinct from the issuer's in the footer. Same VAT-prefix
+        // normalisation as the footer, so "VAT20345678" states "20345678".
+        d.customerBrn?.takeIf { it.isNotBlank() }?.let { appendLine(center("BRN : $it", w)) }
+        d.customerVatNo?.takeIf { it.isNotBlank() }?.let { appendLine(center("VAT No : " + it.removePrefix("VAT").trim(), w)) }
         appendLine(rule(w))
 
         if (d.lines.isNotEmpty()) {

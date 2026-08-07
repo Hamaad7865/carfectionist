@@ -84,6 +84,26 @@ describe("DocumentA4 — invoice fiscal lock", () => {
   });
 });
 
+describe("DocumentA4 — a business client's fiscal identity", () => {
+  it("prints the client's BRN and VAT number in the For box", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} billTo={{ name: "ACME Ltd", country: "Mauritius", brn: "C99887766", vatNo: "VAT55667788" }} />,
+    );
+    expect(html).toContain("C99887766");
+    expect(html).toContain("VAT55667788");
+  });
+
+  it("leaves the For box as name + country for an individual with neither", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} billTo={{ name: "Jean-Pierre Laval", country: "Mauritius" }} />,
+    );
+    // The client half never invents a label the client doesn't have a value for.
+    const forBox = html.slice(html.indexOf("Jean-Pierre Laval"));
+    expect(forBox).not.toContain("BRN:");
+    expect(forBox).not.toContain("VAT NUMBER:");
+  });
+});
+
 describe("DocumentA4 — client acceptance stamp", () => {
   it("renders the signature block when accepted", () => {
     const html = renderToStaticMarkup(

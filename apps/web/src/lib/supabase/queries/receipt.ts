@@ -121,6 +121,10 @@ export interface ReceiptData {
   cashier: string;
   customerName: string;
   customerEmail: string | null; // prefills the "email receipt" dialog
+  /** The CLIENT's own fiscal identity — printed under their name for a business customer.
+   *  Empty for a walk-in or an individual, who carry neither; the slip then omits the lines. */
+  customerBrn: string;
+  customerVatNo: string;
   lines: ReceiptLine[];
   subtotalInclCents: number;   // the lines at FULL price, VAT-inclusive (PRE-discount)
   subtotalCents: number;       // ex-VAT taxable base
@@ -247,7 +251,7 @@ export async function getReceiptPublic(id: string): Promise<ReceiptData | null> 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> {
-  const { data: doc } = await sb.from("documents").select("*, customers(name, email)").eq("id", id).maybeSingle();
+  const { data: doc } = await sb.from("documents").select("*, customers(name, email, brn, vat_number)").eq("id", id).maybeSingle();
   if (!doc) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
@@ -401,6 +405,10 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     // pieces of paper have to read the same.
     customerName: d.customers?.name ?? "Walk-in",
     customerEmail: d.customers?.email ?? null,
+    // The frozen bill-to snapshot is the fiscal truth for an issued invoice; a not-yet-issued
+    // draft/quote has no snapshot, so it falls back to the live customer record.
+    customerBrn: String(d.bill_to_brn ?? d.customers?.brn ?? "").trim(),
+    customerVatNo: String(d.bill_to_vat_number ?? d.customers?.vat_number ?? "").trim(),
     lines: rLines,
     subtotalInclCents,
     subtotalCents,

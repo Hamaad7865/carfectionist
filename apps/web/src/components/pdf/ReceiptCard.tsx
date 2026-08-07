@@ -61,6 +61,9 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
   })();
   // Stored as "VAT28070619"; the slip states the number itself under its own label.
   const vatNumber = r.vatNo.replace(/^VAT[\s:]*/i, "").trim();
+  // The client's own VAT number, normalised the same way — printed under their name when the
+  // sale is to a business (a walk-in or individual carries neither and the lines are dropped).
+  const customerVatNumber = r.customerVatNo.replace(/^VAT[\s:]*/i, "").trim();
 
   return (
     <div
@@ -122,6 +125,10 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
         {/* Who it was for — "Walk-in" when nobody was named, never blank. Matches the
             tablet's slip, which prints this line under the timestamp. */}
         {r.customerName && <div>Customer : {r.customerName}</div>}
+        {/* A business client's own fiscal identity, directly under their name — the buyer's
+            BRN/VRN a VAT invoice must carry, as distinct from the issuer's in the footer. */}
+        {r.customerBrn && <div>BRN : {r.customerBrn}</div>}
+        {customerVatNumber && <div>VAT No : {customerVatNumber}</div>}
       </div>
 
       {dash}

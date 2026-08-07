@@ -23,6 +23,10 @@ export interface BuilderCustomer {
   country: string;
   email: string | null;
   phone: string | null;
+  /** A business client's own fiscal numbers — null for an individual. Previewed on the A4 the
+   *  same way the printed/emailed PDF prints them. */
+  brn: string | null;
+  vatNo: string | null;
 }
 export interface BuilderContext {
   createdBy: string;
@@ -53,7 +57,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
     sb.from("products").select("id, name, selling_price, vat_rate, is_stocked, kind, photo_path").eq("is_active", true).order("kind").order("name"),
-    sb.from("customers").select("id, name, country, email, phone").order("name"),
+    sb.from("customers").select("id, name, country, email, phone, brn, vat_number").order("name"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -101,6 +105,8 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       country: c.country === "MU" ? "Mauritius" : (c.country ?? "Mauritius"),
       email: c.email ?? null,
       phone: c.phone ?? null,
+      brn: c.brn ?? null,
+      vatNo: c.vat_number ?? null,
     })),
   };
 }

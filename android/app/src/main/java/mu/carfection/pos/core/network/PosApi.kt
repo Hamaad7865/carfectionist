@@ -953,7 +953,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     private val SALE_COLS =
         "id, number, doc_type, status, issued_at, total_incl, vat_total, amount_paid, " +
             "customers(name, phone, email), creator:app_users!documents_created_by_fkey(display_name), " +
-            "bill_no, " +
+            "bill_no, bill_to_brn, bill_to_vat_number, " +
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount), " +
             "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"
 

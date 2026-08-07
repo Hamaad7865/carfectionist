@@ -286,6 +286,10 @@ data class SaleHistoryDto(
     @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
     // Internal order reference for the slip's "Bill" line — not the fiscal series.
     @SerialName("bill_no") val billNo: Long? = null,
+    // The CLIENT's fiscal identity, frozen onto the document when it was issued — printed under
+    // their name for a business customer. Null for a walk-in or an individual.
+    @SerialName("bill_to_brn") val billToBrn: String? = null,
+    @SerialName("bill_to_vat_number") val billToVatNumber: String? = null,
     val customers: JobCustomerDto? = null,
     val creator: JobTechDto? = null,
     @SerialName("document_lines") val lines: List<SaleHistoryLineDto> = emptyList(),

@@ -114,6 +114,38 @@ class ReceiptTextTest {
         }
     }
 
+    /** A business client's own BRN/VAT ride directly under their name, above the items —
+     *  the buyer's fiscal identity, kept apart from the issuer's in the footer. */
+    @Test
+    fun `a business client's BRN and VAT print under the customer name`() {
+        val out = ReceiptText.render(
+            referenceDoc().copy(customer = "ACME Ltd", customerBrn = "C12345678", customerVatNo = "VAT20345678"), 48,
+        )
+        val custAt = out.indexOf("Customer : ACME Ltd")
+        val brnAt = out.indexOf("BRN : C12345678")
+        val vatAt = out.indexOf("VAT No : 20345678")
+        val itemsAt = out.indexOf("Designation")
+        assertTrue("customer then BRN", custAt in 0 until brnAt)
+        assertTrue("BRN then VAT", brnAt < vatAt)
+        assertTrue("client block sits above the items", vatAt in 0 until itemsAt)
+    }
+
+    @Test
+    fun `the client VAT number is stated without its stored VAT prefix`() {
+        val out = ReceiptText.render(referenceDoc().copy(customerVatNo = "VAT20345678"), 48)
+        assertTrue(out.contains("VAT No : 20345678"))
+        assertFalse(out.contains("VAT No : VAT20345678"))
+    }
+
+    @Test
+    fun `a walk-in with no fiscal numbers prints neither client line`() {
+        // The footer still carries the ISSUER's BRN/VAT — scope the check to the buyer's block.
+        val out = ReceiptText.render(referenceDoc().copy(customer = "Walk-in", customerBrn = null, customerVatNo = null), 48)
+        val block = out.substring(out.indexOf("Customer : Walk-in"), out.indexOf("Designation"))
+        assertFalse("no client BRN", block.contains("BRN"))
+        assertFalse("no client VAT", block.contains("VAT"))
+    }
+
     /**
      * Emphasis, matching the studio's slip: the numbers that identify the sale, each item,
      * the money the customer pays, and the thank-you. The discount sub-lines, the column

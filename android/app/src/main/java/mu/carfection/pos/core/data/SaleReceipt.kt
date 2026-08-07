@@ -99,6 +99,10 @@ fun saleReceiptDoc(
         }.getOrDefault(h.issuedAt?.take(10) ?: "—"),
         cashier = h.creator?.displayName?.replace(Regex("\\s*\\(.*\\)$"), "") ?: "—",
         customer = h.customers?.name ?: "Walk-in",
+        // The client's own fiscal identity — the frozen bill-to snapshot, printed under their name
+        // for a business customer. Blank for a walk-in/individual, so the slip omits the lines.
+        customerBrn = h.billToBrn?.trim().orEmpty(),
+        customerVatNo = h.billToVatNumber?.trim().orEmpty(),
         lines = positives.map { receiptLineOf(it) },
         // The lines at FULL price — so "Subtotal − Discount = TOTAL" states what was saved.
         subtotalCents = positives.sumOf { receiptLineOf(it).grossInclCents },

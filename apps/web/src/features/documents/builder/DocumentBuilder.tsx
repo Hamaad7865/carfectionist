@@ -198,6 +198,8 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       createdBy: ctx.createdBy,
       customerName: customer?.name ?? "",
       customerCountry: customer?.country ?? "Mauritius",
+      customerBrn: customer?.brn ?? "",
+      customerVatNo: customer?.vatNo ?? "",
       terms: ctx.templateTerms,
       assets: ctx.assets,
       pricesInclVat: ctx.pricesInclVat,

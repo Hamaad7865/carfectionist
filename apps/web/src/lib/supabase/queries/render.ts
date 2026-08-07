@@ -83,7 +83,7 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
   const sb = sbOverride ?? (await createClient());
   const { data: doc } = await sb
     .from("documents")
-    .select("*, customers(name, country)")
+    .select("*, customers(name, country, brn, vat_number)")
     .eq("id", id)
     .maybeSingle();
   if (!doc) return null;
@@ -163,6 +163,10 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
     billTo: {
       name: d.bill_to_name ?? d.customers?.name ?? "",
       country: d.customers?.country === "MU" ? "Mauritius" : (d.customers?.country ?? "Mauritius"),
+      // Frozen bill-to snapshot first (the fiscal truth once issued), else the live customer for
+      // a draft. Empty for an individual — the "For" box then omits the lines.
+      brn: String(d.bill_to_brn ?? d.customers?.brn ?? "").trim(),
+      vatNo: String(d.bill_to_vat_number ?? d.customers?.vat_number ?? "").trim(),
     },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
