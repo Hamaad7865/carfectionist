@@ -9,7 +9,8 @@ import { FormError } from "@/components/ui/form";
 import { formatMUR, parseMoneyInput } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 import { powerOffAction } from "./actions";
-import { openTillAction } from "@/features/cash/actions";
+import { openTillAction, reopenTodayAction } from "@/features/cash/actions";
+import { isDayClosed } from "@/features/cash/day-closed";
 import type { PosDevice } from "@/lib/supabase/queries/pos-devices";
 import { btn } from "@/components/ui/button";
 
@@ -97,13 +98,28 @@ function OpenTillInline() {
   const [floatStr, setFloatStr] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
 
-  async function openTill() {
+  async function openTill(float = floatStr) {
     setError(null);
     setBusy(true);
-    const r = await openTillAction({ openingFloatCents: parseMoneyInput(floatStr) ?? 0 });
+    const r = await openTillAction({ openingFloatCents: parseMoneyInput(float) ?? 0 });
     setBusy(false);
     if (r.ok) { setFloatStr(""); router.refresh(); } else setError(r.error);
+  }
+
+  /**
+   * Unseal the day, then open the till in the same gesture — whoever pressed "Open till"
+   * wants a till, not a trading day, and stopping halfway leaves them looking at the
+   * button they just pressed wondering what changed.
+   */
+  async function reopenAndOpen() {
+    setBusy(true);
+    const r = await reopenTodayAction({ reason });
+    if (!r.ok) { setBusy(false); setError(r.error); return; }
+    setBusy(false);
+    setReason("");
+    await openTill();
   }
 
   return (
@@ -111,10 +127,34 @@ function OpenTillInline() {
       <FormError error={error} />
       <div className="flex gap-2">
         <input className={`${field} flex-1`} value={floatStr} onChange={(e) => setFloatStr(e.target.value)} inputMode="decimal" placeholder="Opening float (Rs)" />
-        <button onClick={openTill} disabled={busy} className="grad-brand shadow-brand h-10 shrink-0 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
+        <button onClick={() => openTill()} disabled={busy} className="grad-brand shadow-brand h-10 shrink-0 rounded-[11px] px-4 text-[13px] font-bold text-white disabled:opacity-60">
           {busy ? "Opening…" : "Open till"}
         </button>
       </div>
+      {/* The server has just said to reopen the day. Offer that here, against the refusal. */}
+      {isDayClosed(error) && (
+        <div className="mt-3 rounded-[11px] border border-line-2 bg-sub p-3">
+          <p className="text-[12.5px] text-ink-2">
+            The day was cashed up. Reopening it resumes trading on the same day — today&apos;s Z stays as it is,
+            and closing again cuts a fresh one that supersedes it.
+          </p>
+          <div className="mt-2 flex gap-2">
+            <input
+              className={`${field} flex-1`}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Why (kept on the day's record)"
+            />
+            <button
+              onClick={reopenAndOpen}
+              disabled={busy || reason.trim() === ""}
+              className={btn("subtle", "md")}
+            >
+              {busy ? "Reopening…" : "Reopen the day"}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

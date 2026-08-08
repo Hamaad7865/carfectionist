@@ -1152,6 +1152,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     suspend fun closeDay(dayId: String): ZReportDto =
         client.postgrest.rpc("close_day", buildJsonObject { put("p_day_id", dayId) }).decodeAs()
 
+    /**
+     * The way back in after [closeDay] — for the customer who walks in after the shop has
+     * cashed up. Owner/manager only, and the reason is kept on the day's audit trail.
+     *
+     * Deliberately takes no day id: the server resolves "today" from the Mauritius
+     * calendar. A tablet's clock (or a UTC date) would pick the wrong day near midnight,
+     * and reopening the WRONG day is how yesterday's sealed Z quietly comes back to life.
+     */
+    suspend fun reopenToday(reason: String): TradingDayDto =
+        client.postgrest.rpc("reopen_today", buildJsonObject { put("p_reason", reason) }).decodeAs()
+
     // ── Till Z-report (Clôture de période) ────────────────────────────────────
     /** Every payment of a till session with its document, lines and product categories. */
     suspend fun fetchSessionPayments(sessionId: String): List<ZPaymentDto> =

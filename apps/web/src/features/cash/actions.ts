@@ -24,6 +24,26 @@ export async function openTillAction(input: z.infer<typeof openSchema>): Promise
   return { ok: true };
 }
 
+const reopenSchema = z.object({ reason: z.string().trim().min(1) });
+/**
+ * Unseal today's day after it was cashed up, so a late customer can still be served.
+ * Owner/manager only — the same gate the RPC enforces, checked here too so the refusal
+ * costs no round-trip. The reason is mandatory and lands on the day's audit trail.
+ */
+export async function reopenTodayAction(input: z.infer<typeof reopenSchema>): Promise<Result> {
+  await requireRole("owner", "manager");
+  const p = reopenSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Say why the day is being reopened — it goes on the day's record." };
+  const sb = await createClient();
+  try {
+    await rpc.reopenToday(sb, p.data.reason);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  revalidatePath("/reports");
+  return { ok: true };
+}
+
 const closeSchema = z.object({ id: z.string(), countedCents: z.number().int().nonnegative() });
 export async function closeTillAction(input: z.infer<typeof closeSchema>): Promise<Result> {
   await requireRole(...ROLES);

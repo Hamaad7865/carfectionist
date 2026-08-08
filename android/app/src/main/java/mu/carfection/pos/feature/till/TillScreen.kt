@@ -102,6 +102,9 @@ data class TillUiState(
     val serviceNo: Int = 1,
     val closeChoiceOpen: Boolean = false,    // "Cloture de periode": service or day?
     val confirmDay: Boolean = false,         // "day closure is final"
+    // ── reopening a sealed day ──────────────────────────────────────────────
+    val reopenOpen: Boolean = false,         // the "why are we reopening?" dialog
+    val reopenError: String? = null,         // shown inside that dialog, not behind it
     val z: mu.carfection.pos.core.network.ZReportDto? = null, // the slip, once cut
     val bizName: String = "Carfectionist",   // for the "Sale modes" line
     // ── emailing the Z ──────────────────────────────────────────────────────
@@ -119,6 +122,23 @@ data class TillUiState(
  */
 internal fun dayToSeal(justCutZ: mu.carfection.pos.core.network.ZReportDto, alsoDay: Boolean): String? =
     if (alsoDay) justCutZ.tradingDayId else null
+
+/**
+ * Is this the till being refused because the day was sealed — the one refusal a reopen
+ * actually fixes?
+ *
+ * Matches `app.open_trading_day`, which names the date: "the day of 2026-08-08 is closed
+ * — reopen it before taking any more money". Deliberately narrower than "is closed": a
+ * stale till from yesterday, a quotation-only device and a closed session each refuse
+ * with their own wording and their own fix, and offering to reopen the day for those
+ * would send the cashier down a road that cannot help them. `app.assert_day_open`'s
+ * "the day is closed — no more entries or transactions are possible" is excluded on the
+ * same grounds: it fires mid-sale, on another screen, where this button does not exist.
+ */
+internal fun isDayClosed(error: String?): Boolean =
+    error != null &&
+        error.contains("is closed", ignoreCase = true) &&
+        error.contains("reopen it", ignoreCase = true)
 
 @HiltViewModel
 class TillViewModel @Inject constructor(
@@ -172,6 +192,34 @@ class TillViewModel @Inject constructor(
             runCatching { till.open(cents) }
                 .onSuccess { _s.value = _s.value.copy(busy = false, session = it); _justOpened.value = true }
                 .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
+        }
+    }
+
+    // ── Reopening a day that was sealed too early ────────────────────────────
+    fun openReopenPrompt() { _s.value = _s.value.copy(reopenOpen = true, reopenError = null) }
+    fun cancelReopen() { _s.value = _s.value.copy(reopenOpen = false, reopenError = null) }
+
+    /**
+     * Unseal the day, then open the till in the same gesture. The cashier asked for a
+     * till, not for a trading day — stopping at the reopen would leave them staring at
+     * the same "Open till" button they just pressed, wondering what changed.
+     *
+     * [floatText] is whatever is already typed in the float box, so the reopen does not
+     * throw the count away.
+     */
+    fun reopenToday(reason: String, floatText: String) {
+        if (reason.isBlank()) {
+            _s.value = _s.value.copy(reopenError = "Say why the day is being reopened — it goes on the day's record.")
+            return
+        }
+        _s.value = _s.value.copy(busy = true, reopenError = null)
+        viewModelScope.launch {
+            runCatching { till.reopenToday(reason.trim()) }
+                .onSuccess {
+                    _s.value = _s.value.copy(busy = false, reopenOpen = false, error = null)
+                    open(floatText)
+                }
+                .onFailure { _s.value = _s.value.copy(busy = false, reopenError = it.uiMessage()) }
         }
     }
 
@@ -425,6 +473,15 @@ fun TillScreen(
                         OutlinedTextField(floatText, { floatText = it }, label = { Text("Opening float (Rs)") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
                         s.error?.let { Text(it, color = Danger, fontSize = 13.sp) }
                         BigButton(if (s.busy) "Opening…" else "Open till", enabled = !s.busy) { viewModel.open(floatText) }
+                        // The server has just told them to reopen the day. Put the way to
+                        // do it here, against that sentence — this is where they are stuck.
+                        if (isDayClosed(s.error)) {
+                            Text(
+                                "The day was cashed up. A manager can reopen it to serve a late customer — the till then opens as the next service, and closing again cuts a fresh Z.",
+                                color = TextSecondary, fontSize = 13.sp,
+                            )
+                            MinorButton("Reopen the day", enabled = !s.busy) { viewModel.openReopenPrompt() }
+                        }
                     }
                 }
                 else -> {
@@ -491,6 +548,16 @@ fun TillScreen(
                 onOk = { viewModel.closeNow(countText, note, alsoDay = true) },
             )
         }
+    }
+
+    // ── The way back in, when the day was cashed up too early ────────────────
+    if (s.reopenOpen) {
+        ReopenDayDialog(
+            busy = s.busy,
+            error = s.reopenError,
+            onCancel = viewModel::cancelReopen,
+            onOk = { reason -> viewModel.reopenToday(reason, floatText) },
+        )
     }
 
     // ── The slip ─────────────────────────────────────────────────────────────
@@ -609,6 +676,57 @@ private fun ClosePeriodDialog(
     }
 }
 
+/**
+ * Why is a sealed day being opened again? The server insists on an answer and keeps it on
+ * the day's audit trail, so the box is the whole dialog — there is nothing else to decide.
+ */
+@Composable
+private fun ReopenDayDialog(
+    busy: Boolean,
+    error: String?,
+    onCancel: () -> Unit,
+    onOk: (String) -> Unit,
+) {
+    var reason by remember { mutableStateOf("") }
+    Dialog(onDismissRequest = onCancel) {
+        Column(
+            Modifier.width(440.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Reopen the day", color = TextPrimary, fontFamily = Condensed, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+            Text(
+                "Today's Z stays exactly as it is. Trading resumes on the same day, and closing again cuts a fresh Z that supersedes it.",
+                color = TextSecondary, fontSize = 13.5.sp,
+            )
+            OutlinedTextField(
+                reason, { reason = it },
+                label = { Text("Why (kept on the day's record)") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            error?.let { Text(it, color = Danger, fontSize = 13.sp) }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable(enabled = !busy, onClick = onCancel),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Cancel", color = TextSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold) }
+                Box(
+                    Modifier.weight(1f).height(50.dp)
+                        .background(if (busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                        .clickable(enabled = !busy) { onOk(reason) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (busy) "Reopening…" else "Reopen the day",
+                        color = if (busy) TextSecondary else AccentInk,
+                        fontSize = 15.sp, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+    }
+}
+
 /** The day is final. Say so plainly before it is. */
 @Composable
 private fun ConfirmDayDialog(onCancel: () -> Unit, onOk: () -> Unit) {
@@ -619,7 +737,7 @@ private fun ConfirmDayDialog(onCancel: () -> Unit, onOk: () -> Unit) {
         ) {
             Text("Close the day", color = TextPrimary, fontFamily = Condensed, fontSize = 21.sp, fontWeight = FontWeight.Bold)
             Text(
-                "Day closure is final: no more sales, payments or refunds today. Reopening it needs your PIN.",
+                "Day closure is final: no more sales, payments or refunds today. A manager can reopen the day if someone still walks in.",
                 color = Danger, fontSize = 14.sp, fontWeight = FontWeight.SemiBold,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {

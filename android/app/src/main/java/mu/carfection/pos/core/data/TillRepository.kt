@@ -108,4 +108,11 @@ class TillRepository @Inject constructor(
 
     /** Seals the day — nothing more can be taken until it is reopened. */
     suspend fun closeDay(dayId: String) = api.closeDay(dayId).also { _current.value = null; remember(null) }
+
+    /**
+     * Unseals today's day so a late customer can still be served. Owner/manager only.
+     * Touches no cached session — the till is still closed afterwards, and opening one
+     * is a separate, counted act.
+     */
+    suspend fun reopenToday(reason: String) = api.reopenToday(reason)
 }

@@ -253,6 +253,19 @@ export const openCashSession = (sb: Client, deviceId: string, openingFloat: numb
 export const closeCashSession = (sb: Client, id: string, closingCount: number) =>
   callRpc<{ id: string; variance: string }>(sb, "close_cash_session", { p_id: id, p_closing_count: closingCount });
 
+/**
+ * Unseals today's trading day so a late customer can still be served. Owner/manager only,
+ * and the reason lands on the day's audit trail.
+ *
+ * Takes no day id on purpose: the server resolves "today" from the Mauritius calendar, so
+ * neither a browser's clock nor the DB's UTC date can pick yesterday and quietly bring a
+ * sealed Z back to life.
+ */
+export const reopenToday = (sb: Client, reason: string) =>
+  callRpc<{ id: string; business_date: string; status: string; reopened_count: number }>(
+    sb, "reopen_today", { p_reason: reason },
+  );
+
 export const dispatchTransfer = (sb: Client, id: string) =>
   callRpc<{ id: string }>(sb, "dispatch_transfer", { p_id: id });
 

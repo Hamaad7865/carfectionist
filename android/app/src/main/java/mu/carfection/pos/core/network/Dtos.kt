@@ -596,6 +596,18 @@ data class CashSessionDto(
     @SerialName("service_no") val serviceNo: Int? = null,
 )
 
+/**
+ * A trading day. [status] is 'open' or 'closed'; a closed day takes no more money until
+ * it is reopened, and [reopenedCount] says how many times that has happened.
+ */
+@Serializable
+data class TradingDayDto(
+    val id: String,
+    @SerialName("business_date") val businessDate: String,
+    val status: String,
+    @SerialName("reopened_count") val reopenedCount: Int = 0,
+)
+
 /** A Z report — the frozen "Clôture de période". Its totals never change. */
 @Serializable
 data class ZReportDto(
