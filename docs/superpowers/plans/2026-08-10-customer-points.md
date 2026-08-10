@@ -18,7 +18,17 @@
 
 **Why a tender and not a discount.** Redeeming points against a body polish would, as a discount, be a discount on a service — which rule 1 of the same brief forbids. As a tender it is money arriving by another route: `total_incl` and the VAT snapshot are unchanged, the fiscal core needs no edits, and the Z-report gains a line. This is the standard voucher treatment: revenue is recognised in full and the points liability is settled.
 
-**`ALTER TYPE … ADD VALUE` needs its own migration file.** PostgreSQL will not let a newly added enum value be *used* in the transaction that adds it, and `supabase db push` runs each migration file in its own transaction. So Task 1 adds `points` to `payment_method` and does nothing else. Any file that references `'points'::payment_method` must sort after it.
+**Applying a migration — do NOT use `npm run db:push`.** It is broken repo-wide: 13 pairs of migration files share an identical timestamp prefix, which is the Supabase CLI's version and the primary key of `supabase_migrations.schema_migrations`. That table tracks 21 of the 108 files and is stuck at `20260710000001`, so the CLI re-applies from there and dies on a duplicate key. Apply one file at a time instead:
+
+```bash
+node scripts/db-exec.mjs supabase/migrations/<the file this task created>.sql
+```
+
+Leave the bookkeeping table alone — do not hand-write rows into `schema_migrations` to "catch it up". That is production state.
+
+**`ALTER TYPE … ADD VALUE` needs its own migration file and its own run.** PostgreSQL will not let a newly added enum value be *used* in the transaction that adds it, and `db-exec.mjs` sends a whole file as one statement batch — one transaction. So Task 1 adds `points` to `payment_method` and does nothing else, and it must be applied and committed before any file that references `'points'` is run.
+
+**Two tenants share this database:** `Carfectionist` (`1111…0001`, the real shop) and `Carfectionist Sandbox` (`2222…0002`). A query that forgets to scope by tenant double-counts. The probes impersonate the owner, so they scope themselves; ad-hoc queries must not forget.
 
 **`record_payment` is the hook for both halves.** It already detects full settlement (`v_paid >= v_doc.total_incl`) — that is where earning belongs. It already branches on method for the cash/non-cash split — that is where spending belongs. Splice it; do not retype it (see `supabase/migrations/20260802000010_issue_document_replays_before_it_guards.sql` for what retyping cost last time).
 
@@ -26,7 +36,7 @@
 
 **`expected_cash` sums only `method = 'cash'`,** so a points payment cannot distort a drawer count. Confirm, don't assume.
 
-**Running things:** `npm run db:push` from the repo root; `node scripts/_verify-<name>.mjs` for probes (they roll back); `npm test --workspace web` for Vitest. Database scripts need the sandbox disabled. The owner's auth uid for probes is `0eb870dc-ef5b-400a-8744-859c999a1b1b`.
+**Running things:** `node scripts/_verify-<name>.mjs` for probes (they roll back); `npm test --workspace web` for Vitest. Database scripts need the sandbox disabled. The owner's auth uid for probes is `0eb870dc-ef5b-400a-8744-859c999a1b1b`.
 
 ---
 
@@ -104,7 +114,7 @@ alter type payment_method add value if not exists 'points';
 - [ ] **Step 3: Push and confirm**
 
 ```bash
-npm run db:push && node scripts/q.mjs "select enumlabel from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='payment_method' order by e.enumsortorder"
+node scripts/db-exec.mjs supabase/migrations/20260811000010_points_are_a_way_of_paying.sql && node scripts/q.mjs "select enumlabel from pg_enum e join pg_type t on t.oid=e.enumtypid where t.typname='payment_method' order by e.enumsortorder"
 ```
 
 Expected: five labels, ending in `points`.
@@ -293,7 +303,7 @@ create policy points_ledger_read on public.customer_points_ledger
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-points.mjs
+node scripts/db-exec.mjs supabase/migrations/20260811000020_a_customer_keeps_a_points_balance.sql && node scripts/_verify-points.mjs
 ```
 
 Expected: every check `✓`, exit 0.
@@ -477,7 +487,7 @@ end $$;
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-points.mjs
+node scripts/db-exec.mjs supabase/migrations/20260811000030_a_settled_bill_earns_its_points.sql && node scripts/_verify-points.mjs
 ```
 
 Expected: every check `✓`, exit 0.
@@ -650,7 +660,7 @@ end $$;
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-points.mjs
+node scripts/db-exec.mjs supabase/migrations/20260811000040_points_can_settle_a_bill.sql && node scripts/_verify-points.mjs
 ```
 
 Expected: every check `✓`, exit 0.
@@ -810,7 +820,7 @@ end $$;
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-points.mjs
+node scripts/db-exec.mjs supabase/migrations/20260811000050_reversing_gives_the_points_back.sql && node scripts/_verify-points.mjs
 ```
 
 Expected: every check `✓`, exit 0.

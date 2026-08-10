@@ -12,13 +12,14 @@ Four rules the owner asked for, on 2026-08-10:
 
 ## What the shop has today
 
-The catalogue holds 795 active products. All 102 service rows sit in the single
+Two tenants share the database: `Carfectionist`, the real shop, and
+`Carfectionist Sandbox`. Each holds 51 active services, all in the single
 category `CAR WASH EXPERTS`, which covers both real washes (`WASH & VACUUM
 {HATCHBACK,SEDAN,SUV,4X4/VAN}`, `TOUCHLESS FOAM WASH`, `VACUUM ONLY SUV`) and
-detailing work costing up to Rs 16,000 (`BODY POLISH`, `CERAMIC PACK`,
-`DIAMOND`, `GOLD`, `FULL STEAM VALETTING`, `LEATHER DETAILING`). Nothing in the
-data separates a wash from a polish, so rule 2 needs a tag that does not exist
-yet.
+detailing work costing up to Rs 16,000 (`3 MONTHS PROTECTION (BODY POLISH)`,
+`CERAMIC PACK`, `DIAMOND`, `GOLD`, `FULL STEAM VALETTING`, `LEATHER DETAILING`).
+Nothing in the data separates a wash from a polish, so rule 2 needs a tag that
+does not exist yet.
 
 Three rows are goods wearing `kind='service'` — `SPONGE`, `WHEEL BRUSH`,
 `SET 2 SOFT BRUSH`. Rule 1 would freeze them by accident.
@@ -333,10 +334,6 @@ value be *used* in the transaction that adds it); earning and spending in
 
 ## Deliberately not in scope
 
-- **The duplicated catalogue.** Every one of the 51 distinct services exists
-  twice (102 rows). Tagging carwash means ticking both copies, and a cashier
-  searching `WASH & VACUUM SEDAN` sees two identical entries. This wants a
-  separate dedupe, not a rider on this work.
 - Points expiry, tiers, and customer-facing balance notifications.
 - Any change to the other reversal paths (`void_quote`, `void_certificate`,
   `cancel_job`, reopening a day), which stay at `owner|manager`.

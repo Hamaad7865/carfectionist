@@ -20,7 +20,17 @@
 
 **Long functions are spliced, not retyped.** `issue_document` and `save_draft` have been edited by many migrations. Retyping a body from an older migration silently reverted a live fix once already — see the warning in `supabase/migrations/20260802000010_issue_document_replays_before_it_guards.sql`. Modify them with `pg_get_functiondef` + `replace()` inside a `do $$ … $$` block, and raise an exception if the anchor text is not found.
 
-**Running migrations:** `npm run db:push` from the repo root. Migrations live in `supabase/migrations/` and are applied in filename order.
+**Applying a migration — do NOT use `npm run db:push`.** It is broken repo-wide and always has been: 13 pairs of migration files share an identical timestamp prefix, which is the Supabase CLI's version and the primary key of `supabase_migrations.schema_migrations`. That table tracks 21 of the 108 files and is stuck at `20260710000001`, so the CLI re-applies from there and dies on a duplicate key. The live schema is far ahead of it.
+
+This project applies migrations one file at a time:
+
+```bash
+node scripts/db-exec.mjs supabase/migrations/<the file this task created>.sql
+```
+
+Each task below names its file. Leave the bookkeeping table alone — do not hand-write rows into `schema_migrations` to "catch it up"; that is production state, and repairing 13 historical collisions is a separate job nobody has asked for.
+
+**Two tenants share this database:** `Carfectionist` (`1111…0001`, the real shop) and `Carfectionist Sandbox` (`2222…0002`). Each holds its own 51 active services. A query that forgets to scope by tenant returns 102 and looks like a duplicated catalogue — it is not. The probes impersonate the owner, so `app.current_tenant_id()` scopes them correctly; ad-hoc queries must scope themselves.
 
 **Running a probe:** `node scripts/_verify-<name>.mjs`. These open a transaction, impersonate the owner, assert, and always `rollback`. Nothing persists.
 
@@ -184,7 +194,7 @@ comment on column public.products.discount_policy is
 - [ ] **Step 4: Push and re-run the probe**
 
 ```bash
-npm run db:push && node scripts/_verify-discount-allowance.mjs
+node scripts/db-exec.mjs supabase/migrations/20260810000010_a_product_says_how_it_may_be_discounted.sql && node scripts/_verify-discount-allowance.mjs
 ```
 
 Expected: all three checks `✓`, exit 0.
@@ -314,7 +324,7 @@ end $$;
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-discount-allowance.mjs
+node scripts/db-exec.mjs supabase/migrations/20260810000020_a_discount_carries_its_reason.sql && node scripts/_verify-discount-allowance.mjs
 ```
 
 Expected: `✓ documents.discount_reason exists` and `✓ save_draft stores the reason`.
@@ -522,7 +532,7 @@ grant  execute on function app.record_owner_override(uuid, text, text, text, uui
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-owner-override.mjs
+node scripts/db-exec.mjs supabase/migrations/20260810000030_an_owner_can_raise_the_ceiling.sql && node scripts/_verify-owner-override.mjs
 ```
 
 Expected: all checks `✓`, exit 0.
@@ -722,7 +732,7 @@ end $$;
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-discount-allowance.mjs
+node scripts/db-exec.mjs supabase/migrations/20260810000040_every_line_has_a_discount_allowance.sql && node scripts/_verify-discount-allowance.mjs
 ```
 
 Expected: every check `✓`, exit 0. The `actual is exactly zero` check is the important one — if it reports `0.01` or similar, the gross derivation has drifted and must be fixed before going further.
@@ -884,7 +894,7 @@ end $$;
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-discount-allowance.mjs
+node scripts/db-exec.mjs supabase/migrations/20260810000050_issuing_checks_the_allowance.sql && node scripts/_verify-discount-allowance.mjs
 ```
 
 Expected: every check `✓`, exit 0.
@@ -1112,7 +1122,7 @@ end $$;
 - [ ] **Step 4: Push and re-run**
 
 ```bash
-npm run db:push && node scripts/_verify-owner-reversal.mjs
+node scripts/db-exec.mjs supabase/migrations/20260810000060_only_the_owner_reverses_money.sql && node scripts/_verify-owner-reversal.mjs
 ```
 
 Expected: every check `✓`, exit 0.
@@ -1768,13 +1778,17 @@ The rules do nothing until the owner's carwash items are tagged. Confirm which t
 before writing:
 
 ```bash
-node scripts/q.mjs "select id, name from products where is_active and kind='service' and (name ilike '%wash%' or name ilike '%vacuum%') order by name"
+node scripts/q.mjs "select p.id, b.trading_name, p.name from products p join business_settings b on b.id = p.tenant_id where p.is_active and p.kind='service' and (p.name ilike '%wash%' or p.name ilike '%vacuum%') order by b.trading_name, p.name"
 ```
 
-Expected: `TOUCHLESS FOAM WASH`, `TOUCHLESS FOAM WASH SEDAN`, `VACUUM ONLY SUV`, and the
-four `WASH & VACUUM` rows — each appearing **twice**, because every service in the
-catalogue is duplicated. Tag every row the query returns, then hand the list to the owner
-to confirm before relying on it.
+Expected seven names per tenant: `TOUCHLESS FOAM WASH`, `TOUCHLESS FOAM WASH SEDAN`,
+`VACUUM ONLY SUV`, and the four `WASH & VACUUM` sizes — once under `Carfectionist` and
+once under `Carfectionist Sandbox`. Those are two tenants, **not** a duplicated catalogue;
+scope the query and the rows come out singly.
+
+Tag the real tenant's rows so the shop's rules bite, and the sandbox's too so testing
+behaves the same. Hand the list to the owner to confirm before relying on it — a service
+they consider a wash but is not on this list will be frozen by rule 1.
 
 - [ ] **Step 4: Commit anything outstanding and report**
 
