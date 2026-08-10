@@ -195,6 +195,70 @@ try {
   ]);
   msg = await tryGuard(svcDisc.id);
   check("an override covering Rs 115 of Rs 200 approved lets the same document through", msg, null);
+
+  // ── issuing: run in the SANDBOX tenant ──────────────────────────────────────
+  // issue_document refuses everything while the shop's trading day is closed, and
+  // it is closed. Reopening the real shop's day to run a test is not a thing a
+  // probe should do. The sandbox tenant exists for exactly this (20260804000060)
+  // and has no trading day today, so app.assert_day_open passes there.
+  const SANDBOX_AUTH = "b729191b-1159-4d46-88c7-3c9aceb5e664"; // TEST Sandbox (owner)
+  await c.query("select set_config('request.jwt.claims', $1, true)", [
+    JSON.stringify({ sub: SANDBOX_AUTH, role: "authenticated" }),
+  ]);
+  const sbTenant = (await c.query("select app.current_tenant_id() as t")).rows[0].t;
+  check("the sandbox is a different tenant from the shop", sbTenant !== tenant, true);
+
+  const sbCustomer = (await c.query(
+    "select id from public.customers where tenant_id = $1 order by created_at limit 1", [sbTenant],
+  )).rows[0].id;
+  const sbProduct = async (policy, kind) => (await c.query(
+    "insert into public.products (tenant_id, name, kind, selling_price, discount_policy) values ($1,$2,$3,1000,$4) returning id",
+    [sbTenant, `probe ${policy} ${kind}`, kind, policy],
+  )).rows[0].id;
+  const sbSvc = await sbProduct("inherit", "service");
+  const sbWash = await sbProduct("carwash", "service");
+  const sbGoods = await sbProduct("inherit", "product");
+
+  // Reports the ACTUAL outcome, never a bare boolean — a refusal for the wrong
+  // reason must not read the same as the refusal being tested for.
+  const issuing = async (lines, docOver = {}) => {
+    const d = (await c.query("select * from public.save_draft($1::jsonb, $2::jsonb, null)", [
+      JSON.stringify({ ...doc, id: null, customer_id: sbCustomer, discount_reason: null, ...docOver }),
+      JSON.stringify(lines.map((l, i) => ({ ...l, sort_order: i }))),
+    ])).rows[0];
+    let out;
+    await c.query("savepoint i");
+    try {
+      out = (await c.query("select status from public.issue_document($1::uuid, null, null, null)", [d.id])).rows[0].status;
+    } catch (e) { out = e.message; }
+    await c.query("rollback to savepoint i");
+    return out;
+  };
+  // Collapses an expected refusal to a short token, but leaves any OTHER message
+  // intact so it shows up in the failure line instead of hiding behind `false`.
+  const asRefusal = (out, want, token) => (out.includes(want) ? token : out);
+
+  console.log("▸ issuing is where the rule bites");
+  check("a service refuses a discount",
+    asRefusal(await issuing([line(sbSvc, { discount_pct: 10 })]), "discount exceeds allowance", "over allowance"),
+    "over allowance");
+  check("a carwash refuses 6%",
+    asRefusal(await issuing([line(sbWash, { discount_pct: 6 })], { discount_reason: "why" }), "discount exceeds allowance", "over allowance"),
+    "over allowance");
+  check("a carwash at 5% still needs a reason",
+    asRefusal(await issuing([line(sbWash, { discount_pct: 5 })]), "a reason is required", "needs a reason"),
+    "needs a reason");
+  check("the order discount cannot outrun the lines",
+    asRefusal(await issuing([line(sbSvc), line(sbGoods)], { discount_kind: "amount", discount_value: 2000, discount_reason: "x" }), "discount exceeds allowance", "over allowance"),
+    "over allowance");
+
+  console.log("▸ and what it lets through");
+  check("a carwash at 5% WITH a reason issues",
+    await issuing([line(sbWash, { discount_pct: 5 })], { discount_reason: "regular customer" }), "issued");
+  check("an ordinary undiscounted bill still issues",
+    await issuing([line(sbGoods)]), "issued");
+  check("a discount covered entirely by goods lines needs no reason",
+    await issuing([line(sbSvc), line(sbGoods)], { discount_kind: "amount", discount_value: 100 }), "issued");
 } finally {
   await c.query("rollback");
   await c.end();
