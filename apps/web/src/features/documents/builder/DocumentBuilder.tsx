@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
 import dynamic from "next/dynamic";
-import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink, ChevronUp, ChevronDown, Copy, AlignLeft } from "lucide-react";
+import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink, ChevronUp, ChevronDown, Copy, AlignLeft, KeyRound } from "lucide-react";
 import { richToPlainText } from "@/lib/rich/plain";
 
 /**
@@ -31,6 +31,7 @@ import type { BuilderContext, BuilderCustomer } from "@/lib/supabase/queries/bui
 import { reducer, toSaveDraftLines, type BuilderState } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
 import { NewCustomerButton } from "./NewCustomerButton";
+import { OwnerOverrideDialog } from "@/features/documents/OwnerOverrideDialog";
 import { btn } from "@/components/ui/button";
 
 // UUID keys so the builder's line keys can never collide with those minted
@@ -101,6 +102,13 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const [zoom, setZoom] = useState(1);
   const [fitMode, setFitMode] = useState(true);
   const [issueKey] = useState(() => crypto.randomUUID()); // idempotent Issue (per document mount)
+  // The owner's on-the-spot approval for THIS document only. Plain state, not a
+  // ref or anything persisted — <DocumentBuilder key={docId|"new"}> remounts on
+  // every document (see sales/new and sales/[id]/edit), so navigating to a
+  // different document starts this at null again with no extra plumbing.
+  const [approvedMaxCents, setApprovedMaxCents] = useState<number | null>(null);
+  const [overrideDialogDocId, setOverrideDialogDocId] = useState<string | null>(null);
+  const [askOwnerBusy, setAskOwnerBusy] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
   const stateRef = useRef(state);
   stateRef.current = state;
@@ -179,6 +187,18 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     else dispatch({ type: "saveError", error: res.error });
   }
 
+  // "Ask the owner": the way out of the disabled-Issue dead end. The override
+  // the RPC records is pinned to a document id (app.assert_discount_allowed
+  // re-reads it by ref_id), so a never-yet-saved draft needs a real one before
+  // the dialog can open — flush the same doSave() chain Issue itself uses, so
+  // this can't race an in-flight autosave or hand the dialog a stale id.
+  async function askOwner() {
+    setAskOwnerBusy(true);
+    const id = await doSave();
+    setAskOwnerBusy(false);
+    if (id) setOverrideDialogDocId(id);
+  }
+
   // One assembly, shared by the totals and the discount-allowance math below — a line's
   // policy rides beside the fields computeTotals already wanted.
   const lineInputs = state.lines.map((l) => ({
@@ -195,9 +215,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   // The database is the authority (app.assert_discount_allowed, raised from inside
   // issue_document) — this mirrors it so the builder can clamp an input and explain
   // the limit before the cashier fills a basket they will not be allowed to issue.
-  const allowance = computeAllowance(lineInputs, docDiscount);
-  // Owner approval is the next task's job (A10) — until that exists, going over the
-  // ceiling has no escape route from here but the owner themselves.
+  // approvedMaxCents comes from the "Ask the owner" dialog below: an owner's PIN,
+  // checked server-side, raises the ceiling for this document only — see askOwner().
+  const allowance = computeAllowance(lineInputs, docDiscount, approvedMaxCents);
   const discountBlockReason = allowance.overCeiling
     ? `This discount is over the ${formatMUR(allowance.ceilingCents)} allowed on this ${state.docType} — ask the owner.`
     : allowance.reasonRequired && !state.docDiscountReason.trim()
@@ -335,6 +355,20 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
               }}
             />
           )
+        )}
+        {/* The disabled Issue button below explains the ceiling; this is the way
+            out of it — an owner's PIN, checked server-side, without signing the
+            cashier out or anyone becoming an owner. Also clears the quote-send
+            block above, since both read the same discountBlockReason. */}
+        {!readOnly && allowance.overCeiling && (
+          <button
+            onClick={askOwner}
+            disabled={askOwnerBusy}
+            title="An owner's PIN can approve this discount for this document"
+            className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[12.5px] font-semibold text-link hover:border-brand disabled:opacity-60"
+          >
+            <KeyRound size={15} /> {askOwnerBusy ? "Saving…" : "Ask the owner"}
+          </button>
         )}
         {!readOnly && (
           <button
@@ -869,6 +903,16 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
           </div>
         )}
       </div>
+
+      {overrideDialogDocId && (
+        <OwnerOverrideDialog
+          documentId={overrideDialogDocId}
+          docType={state.docType}
+          requestedCents={allowance.actualCents}
+          onClose={() => setOverrideDialogDocId(null)}
+          onApproved={(cents) => { setApprovedMaxCents(cents); setOverrideDialogDocId(null); }}
+        />
+      )}
     </div>
   );
 }

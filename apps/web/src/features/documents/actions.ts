@@ -516,3 +516,39 @@ export async function archiveDocumentAction(documentId: string): Promise<ActionR
 export async function restoreDocumentAction(documentId: string): Promise<ActionResult<null>> {
   return setArchived(documentId, false);
 }
+
+// ── Owner override ───────────────────────────────────────────────────────────
+// The "Ask the owner" dialog's picker. Unlike /api/pos/roster (device-key
+// gated, for the tablet's login screen, which has no session yet), a web
+// caller already has one — au_select's RLS policy scopes app_users reads to
+// the caller's own tenant, so a plain authenticated read is enough.
+//
+// Cannot filter by pin_hash the way /api/pos/roster does: that route runs on
+// the service-role client, which bypasses column grants entirely. `authenticated`
+// has INSERT/UPDATE on pin_hash (set_staff_pin needs it) but deliberately no
+// SELECT on it at all — confirmed live: `.not("pin_hash","is",null)` here made
+// the WHOLE query fail with "permission denied for table app_users", because
+// Postgres requires SELECT on any column a query so much as filters by, not
+// just ones it projects. So an owner with no PIN set can still appear in this
+// list; picking them just surfaces a clean "no_pin" refusal from the RPC
+// instead of a wrong PIN — see OwnerOverrideDialog's pinErrorCopy().
+
+export interface ApprovingOwner {
+  appUserId: string;
+  displayName: string;
+}
+
+export async function getApprovingOwnersAction(): Promise<ActionResult<ApprovingOwner[]>> {
+  await requireRole(...WRITE_ROLES);
+  const sb = await createClient();
+  const { data, error } = await sb
+    .from("app_users")
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .select("id, display_name" as any)
+    .eq("role", "owner")
+    .eq("is_active", true)
+    .order("display_name");
+  if (error) return { ok: false, error: error.message };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return { ok: true, data: ((data ?? []) as any[]).map((o) => ({ appUserId: o.id, displayName: o.display_name })) };
+}

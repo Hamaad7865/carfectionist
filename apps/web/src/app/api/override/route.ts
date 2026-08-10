@@ -1,0 +1,129 @@
+import { createAdminClient } from "@/lib/supabase/admin";
+import { getSessionContext } from "@/lib/auth/session";
+
+// The owner's on-the-spot approval, from the cashier's own screen: the owner
+// picks their name, types their PIN, and app.record_owner_override — reached
+// through the public.record_owner_override door (app is not a PostgREST-
+// exposed schema on this project, see 20260810000070) — checks it server-side
+// with the same lockout-guarded verify_staff_pin the tablet login uses.
+// Nobody is signed out and nobody becomes an owner: this only ever produces a
+// row that a LATER rpc (app.assert_discount_allowed, reverse_payment,
+// create_and_issue_credit_note) re-reads for itself. This route decides
+// nothing about who the owner is — it just carries the PIN to the one
+// function that does, and classifies its answer into an HTTP status.
+export const dynamic = "force-dynamic";
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+}
+
+// Whoever can build/issue a document may ASK for an override — the RPC is
+// what actually gate-keeps on the PIN and the approver's own role.
+const CALLER_ROLES = ["owner", "manager", "cashier"];
+
+const UUID_RE = /^[0-9a-f-]{36}$/i;
+const PIN_RE = /^[0-9]{4}$/;
+
+interface OverrideRequestBody {
+  appUserId?: unknown;
+  pin?: unknown;
+  kind?: unknown;
+  refType?: unknown;
+  refId?: unknown;
+  reason?: unknown;
+  maxDiscountCents?: unknown;
+}
+
+export async function POST(req: Request) {
+  const session = await getSessionContext();
+  if (!session) return json({ error: "unauthorized" }, 401);
+  if (!CALLER_ROLES.includes(session.role)) return json({ error: "forbidden" }, 403);
+
+  let body: OverrideRequestBody;
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: "bad_request" }, 400);
+  }
+
+  const appUserId = typeof body.appUserId === "string" ? body.appUserId : "";
+  const pin = typeof body.pin === "string" ? body.pin : "";
+  const kind = body.kind === "discount" || body.kind === "reversal" ? body.kind : null;
+  const refType = body.refType === "document" || body.refType === "payment" ? body.refType : null;
+  const refId = typeof body.refId === "string" ? body.refId : "";
+  const reason = typeof body.reason === "string" ? body.reason.trim() : "";
+
+  if (!UUID_RE.test(appUserId)) return json({ error: "bad_request" }, 400);
+  if (!PIN_RE.test(pin)) return json({ error: "bad_request" }, 400);
+  if (!kind) return json({ error: "bad_request" }, 400);
+  if (!refType) return json({ error: "bad_request" }, 400);
+  if (!UUID_RE.test(refId)) return json({ error: "bad_request" }, 400);
+  if (!reason) return json({ error: "bad_request" }, 400);
+
+  // owner_overrides.scope is read back in RUPEES by app.assert_discount_allowed
+  // (scope->>'max_discount_incl'), but every money value that reaches this
+  // route from the browser is CENTS, same as everywhere else in this app.
+  // Get this ÷100 backwards (or drop it) and an owner's "up to Rs 500" turns
+  // into "up to Rs 50,000" the next time the ceiling is checked. `discount`
+  // is the only kind that carries a figure — a reversal override is a single-
+  // use yes/no, consumed by app.require_owner_or_override, not a ceiling.
+  let scope: Record<string, number> = {};
+  if (kind === "discount") {
+    const raw = body.maxDiscountCents;
+    if (typeof raw !== "number" || !Number.isFinite(raw) || !Number.isInteger(raw) || raw < 0) {
+      return json({ error: "bad_request" }, 400);
+    }
+    scope = { max_discount_incl: raw / 100 };
+  }
+
+  const admin = createAdminClient();
+
+  // Defence in depth: app.record_owner_override is service-role-only and has
+  // no notion of "the caller's tenant" — it trusts whoever holds the service
+  // key to have already scoped appUserId sensibly. The dialog only ever offers
+  // owners from the caller's own tenant (RLS-scoped app_users read), so this
+  // only bites a hand-crafted request — but without it, any known app_user_id
+  // from ANY tenant would still reach verify_staff_pin's lockout counter,
+  // turning this route into a cross-tenant PIN-guessing dial.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: target } = await (admin as any)
+    .from("app_users")
+    .select("tenant_id")
+    .eq("id", appUserId)
+    .maybeSingle();
+  if (!target || target.tenant_id !== session.tenantId) return json({ error: "not_owner" }, 401);
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (admin as any).rpc("record_owner_override", {
+    p_app_user_id: appUserId,
+    p_pin: pin,
+    p_kind: kind,
+    p_ref_type: refType,
+    p_ref_id: refId,
+    p_reason: reason,
+    p_scope: scope,
+  });
+
+  if (error) {
+    const msg = String(error.message ?? "");
+    // A wrong/locked PIN, or "this account can't approve", is the caller's
+    // problem, not ours — the owner just needs to try again, or the dialog
+    // needs to hand the device to an actual owner. Never echo the PIN, the raw
+    // Postgres text, or anything service-key-shaped back to the browser.
+    const pinMatch = /owner PIN rejected \(([^)]*)\)/i.exec(msg);
+    if (pinMatch) return json({ error: "pin_rejected", reason: pinMatch[1] || "invalid" }, 401);
+    if (/only the owner can approve|unknown approver/i.test(msg)) return json({ error: "not_owner" }, 401);
+    if (/requires a reason/i.test(msg)) return json({ error: "bad_request" }, 400);
+    return json({ error: "server_error" }, 500);
+  }
+
+  return json({
+    override: {
+      id: data.id,
+      kind: data.kind,
+      refType: data.ref_type,
+      refId: data.ref_id,
+      createdAt: data.created_at,
+    },
+  });
+}
