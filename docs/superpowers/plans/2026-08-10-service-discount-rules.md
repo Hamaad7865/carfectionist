@@ -1661,7 +1661,86 @@ git commit -m "feat(pos): the tablet gives away no more than the web does"
 
 ---
 
-## Task 12: Prove the whole thing together
+## Task 12: Android ↔ web parity gate
+
+Neither surface is the "main" one. A cashier rings the same sale on the tablet at the
+NEOSTRA till and on the web at the back office, and a rule that only one of them enforces
+is not a rule. This task is a gate, not a cleanup — do not proceed to Task 13 with a red
+row in the table.
+
+The tablet already has **both** discount levels: per line (`SaleRepository.kt:66`,
+`DiscountMode.PCT|AMT`) and per order (`SaleRepository.kt:96-97`,
+`orderDiscountKind`/`orderDiscountValue`, computed in `core/money/Money.kt:83` as
+`orderDiscountInclCents`). So every row below applies to both.
+
+- [ ] **Step 1: Walk the table and mark each cell**
+
+| Capability | Web | Android |
+|---|---|---|
+| Line discount clamped to the line's allowance | `DocumentBuilder.tsx:547-565` | `QuoteScreen.kt:658-680`, `CounterScreen.kt` |
+| A `none` service shows a disabled control, same wording | `DocumentBuilder.tsx` | `QuoteScreen.kt`, `CounterScreen.kt` |
+| A `carwash` line caps at 5% | `CARWASH_MAX_PCT` | `CARWASH_MAX_PCT` |
+| Order discount capped by the document ceiling | `DocumentBuilder.tsx:735-755` | `SaleRepository.kt` order-discount path |
+| Ceiling shown as help text, same wording | `DocumentBuilder.tsx` | `QuoteScreen.kt:963` totals block |
+| Reason field appears on the same condition | `reasonRequired` | `reasonRequired` |
+| Reason reaches the RPC as `discount_reason` | `payload.ts` | `SaleRepository.kt:378` doc payload |
+| Owner override dialog: picker, PIN, reason | `OwnerOverrideDialog.tsx` | tablet equivalent |
+| Override result re-enables issuing | `DocumentBuilder.tsx` | `QuoteViewModel`/`CounterViewModel` |
+| Same refusal wording surfaced to the cashier | error text from the RPC | error text from the RPC |
+
+- [ ] **Step 2: Prove the two allowance modules agree, on the same numbers**
+
+The web and Kotlin modules are separate implementations of one rule, so they can drift
+silently. Assert the identical fixtures in both, and confirm the outputs match:
+
+```bash
+npm test --workspace web -- allowance
+```
+
+```bash
+cd android && ./gradlew testDebugUnitTest --tests "*AllowanceTest*"
+```
+
+Both suites must contain the same nine cases with the same expected integers
+(115_000-cent line, 5_750-cent carwash allowance, 0 on an undiscounted qty-3 line). If a
+case exists on one side only, add it to the other — a missing case *is* the drift.
+
+- [ ] **Step 3: Confirm the shared authority is genuinely shared**
+
+Both clients must be advisory only; the refusal itself comes from the database. Prove no
+path skips it:
+
+```bash
+node scripts/q.mjs "select proname from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and proname in ('issue_document','save_draft') and position('assert_discount_allowed' in pg_get_functiondef(p.oid)) > 0"
+```
+
+Expected: exactly `issue_document`. `save_draft` must **not** appear — a draft is allowed
+to hold an over-limit discount so the cashier can go and fetch approval.
+
+- [ ] **Step 4: Exercise the same bill on both surfaces**
+
+Ring an identical basket — one carwash service plus one product — on the web preview and
+on the emulator, and confirm both:
+
+1. clamp a 6% carwash discount to 5%;
+2. demand a reason before issuing;
+3. offer the owner override at the same threshold, not one rupee apart.
+
+On the emulator, dump the UI tree and tap matched bounds. Never tap coordinates read off
+a screenshot — that session is signed in and its taps are real transactions.
+
+- [ ] **Step 5: Record the result**
+
+Write the completed table into the commit message. If a row cannot be made green, stop
+and report which surface is behind rather than marking the task done.
+
+```bash
+git commit --allow-empty -m "test(parity): the tablet and the web give away the same amount"
+```
+
+---
+
+## Task 13: Prove the whole thing together
 
 - [ ] **Step 1: Run every probe**
 

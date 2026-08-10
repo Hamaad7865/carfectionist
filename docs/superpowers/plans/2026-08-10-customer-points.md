@@ -1072,7 +1072,72 @@ git commit -m "feat(points): the receipt states what was earned, on both surface
 
 ---
 
-## Task 9: Prove the whole thing together
+## Task 9: Android ↔ web parity gate
+
+A customer who earns points at the tablet till and spends them at the back office must
+see one balance and one story. This is a gate — do not proceed to Task 10 with a red row.
+
+- [ ] **Step 1: Walk the table and mark each cell**
+
+| Capability | Web | Android |
+|---|---|---|
+| Points tender offered when the bill names a customer | payment UI | payment pad |
+| Tender hidden when there is no customer | payment UI | payment pad |
+| Balance and its rupee value shown at the tender | `pointsValueCents` | `pointsValueCents` |
+| Amount capped at `min(outstanding, balance value)` | payment UI | payment pad |
+| Sent as `method: 'points'`, no external reference | payment call | `SaleRepository.kt` payment path |
+| Points earned printed on the receipt, same wording | `ReceiptCard.tsx` | `ReceiptText`/`ReceiptPaper` |
+| Running balance printed, same wording | `ReceiptCard.tsx` | `ReceiptText`/`ReceiptPaper` |
+| Same refusal wording on an overdraft | error from the RPC | error from the RPC |
+
+- [ ] **Step 2: Prove the receipts are identical, not merely similar**
+
+The receipt-parity rule is strict: the tablet slip and the web receipt must read the same,
+word for word, and both change in the same commit. Put the same fixture through both and
+diff the points lines:
+
+```bash
+npm test --workspace web -- ReceiptCard
+```
+
+```bash
+cd android && ./gradlew testDebugUnitTest --tests "*ReceiptTextTest*"
+```
+
+Read the two expected strings side by side. `Points earned: 11` on one and
+`Points: +11` on the other is a **failure**, not a nuance.
+
+- [ ] **Step 3: Prove the arithmetic agrees**
+
+`apps/web/src/lib/points.ts` and its Kotlin counterpart are two implementations of one
+rule. Assert the same fixtures in both — including the two that pin the rounding:
+`pointsEarned` floors (Rs 99 earns 0) and `pointsToSpend` ceils (Rs 50.50 costs 51 points).
+A case present on one side only is drift.
+
+- [ ] **Step 4: Earn on one surface, spend on the other**
+
+The real proof. On the emulator, ring and settle a bill for a named customer. Then on the
+web, open that customer and confirm the balance rose by the expected number, and pay part
+of a second bill with those points. Confirm the ledger tells one story:
+
+```bash
+node scripts/q.mjs "select created_at, delta, reason, ref_type from customer_points_ledger order by created_at desc limit 10"
+```
+
+Dump the UI tree and tap matched bounds on the emulator — its session is live.
+
+- [ ] **Step 5: Record the result**
+
+Write the completed table into the commit message. If a row cannot be made green, stop and
+report which surface is behind.
+
+```bash
+git commit --allow-empty -m "test(parity): points read the same on the tablet and the web"
+```
+
+---
+
+## Task 10: Prove the whole thing together
 
 - [ ] **Step 1: Run the probe and both unit suites**
 
