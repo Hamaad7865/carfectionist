@@ -28,14 +28,22 @@ import mu.carfection.pos.core.rich.isBulletsOnly
 import mu.carfection.pos.core.rich.parseRichDoc
 import mu.carfection.pos.core.rich.richDocToJson
 import mu.carfection.pos.core.rich.richToPlainText
+import mu.carfection.pos.core.money.Allowance
+import mu.carfection.pos.core.money.AllowanceLineInput
+import mu.carfection.pos.core.money.DiscountPolicy
+import mu.carfection.pos.core.money.DocDiscount
 import mu.carfection.pos.core.money.DocDiscountTotals
 import mu.carfection.pos.core.money.DocLineIn
 import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.centsToRupees
+import mu.carfection.pos.core.money.computeAllowance
 import mu.carfection.pos.core.money.computeDocTotals
+import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
+import mu.carfection.pos.core.money.policyOf
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteLineDto
@@ -85,12 +93,27 @@ data class QuoteLine(
     // say what a line with no product behind it is. Null on a catalogue line: the product's
     // own kind answers, and copying it here would only let the two drift.
     val lineKind: String? = null,
+    // 'none' | 'carwash' | 'free' — the most this line may be discounted (Allowance.kt#policyOf).
+    // Resolved when the line is added or reopened, not read live from the catalogue: a product
+    // whose policy changes after the line was picked must not silently reprice a basket the
+    // cashier already built — same reason unitCents is a snapshot, not a live lookup.
+    val discountPolicy: DiscountPolicy = "none",
 ) {
     val unitCents: Long get() {
         val typed = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
         return if (priceIsGross) netFromGrossCents(typed, vatRate) else typed
     }
-    val discountAmtCents: Long get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceAtLeast(0)
+
+    /** This line as the allowance module wants it — qty/price/policy are all it needs. */
+    private val allowanceInput: AllowanceLineInput
+        get() = AllowanceLineInput(qty.toDouble(), unitCents, vatRate, discountPolicy)
+
+    /** Rs discount as TYPED, VAT-inclusive. Clamped to [lineAllowanceCents] on a carwash line,
+     *  so a typed figure can never ask for more than the owner's 5% rule permits. */
+    val discountAmtCents: Long get() {
+        val typed = (parseMoneyToCents(discountAmtText) ?: 0L).coerceAtLeast(0)
+        return if (discountPolicy == "carwash") typed.coerceAtMost(lineAllowanceCents(allowanceInput)) else typed
+    }
 }
 
 /**
@@ -106,22 +129,31 @@ data class QuoteLine(
  * One copy, because the bill reads lines too and its own hand-rolled version quietly
  * dropped description, richtext and unit_label — which save_draft then wrote back as
  * nulls the next time the basket was opened.
+ *
+ * [products] is the synced catalogue cache — QUOTE_LINE_COLUMNS carries no product join,
+ * so the line's policy is resolved the same way the DB resolves it at
+ * app.document_discount_limits: the product this line names, looked up locally.
  */
-fun storedLine(l: QuoteLineDto, gross: Boolean): QuoteLine = QuoteLine(
-    productId = l.productId,
-    title = l.title,
-    priceText = centsToPlainText(rupeesToCents(l.unitPrice).let { net -> if (gross) grossCents(net, l.vatRate) else net }),
-    priceIsGross = gross,
-    vatRate = l.vatRate,
-    qty = l.qty.toInt().coerceAtLeast(1),
-    discountMode = if (l.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
-    discountPct = l.discountPct.toInt(),
-    discountAmtText = if (l.discountKind == "amount" && l.discountAmount > 0) centsToPlainText(rupeesToCents(l.discountAmount)) else "",
-    lineKind = l.lineKind,
-    description = l.description,
-    richJson = l.descriptionRichtext,
-    unitLabel = l.unitLabel.orEmpty(),
-)
+fun storedLine(l: QuoteLineDto, gross: Boolean, products: List<ProductEntity>): QuoteLine {
+    val product = products.firstOrNull { it.id == l.productId }
+    val effectiveKind = l.lineKind ?: product?.kind ?: "service"
+    return QuoteLine(
+        productId = l.productId,
+        title = l.title,
+        priceText = centsToPlainText(rupeesToCents(l.unitPrice).let { net -> if (gross) grossCents(net, l.vatRate) else net }),
+        priceIsGross = gross,
+        vatRate = l.vatRate,
+        qty = l.qty.toInt().coerceAtLeast(1),
+        discountMode = if (l.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
+        discountPct = l.discountPct.toInt(),
+        discountAmtText = if (l.discountKind == "amount" && l.discountAmount > 0) centsToPlainText(rupeesToCents(l.discountAmount)) else "",
+        lineKind = l.lineKind,
+        discountPolicy = policyOf(product?.discountPolicy, effectiveKind),
+        description = l.description,
+        richJson = l.descriptionRichtext,
+        unitLabel = l.unitLabel.orEmpty(),
+    )
+}
 
 fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
     if (l.productId != null) put("product_id", l.productId) else put("product_id", JsonNull)
@@ -174,11 +206,11 @@ fun billLineEditable(index: Int, quotedCount: Int, lineCount: Int) =
     index >= quotedCount && index >= 0 && index < lineCount
 
 /** A line at a given price in cents — keeps the constructor call sites readable. */
-fun quoteLine(productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1, gross: Boolean = false): QuoteLine =
+fun quoteLine(productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1, gross: Boolean = false, discountPolicy: DiscountPolicy = "none"): QuoteLine =
     QuoteLine(
         productId, title,
         centsToPlainText(if (gross) grossCents(unitCents, vatRate) else unitCents),
-        vatRate, qty, priceIsGross = gross,
+        vatRate, qty, priceIsGross = gross, discountPolicy = discountPolicy,
     )
 
 data class QuoteState(
@@ -225,6 +257,8 @@ data class QuoteState(
     // basket (order-level) discount — % of the inclusive total, or Rs off (VAT-inclusive)
     val basketMode: DiscountMode = DiscountMode.PCT,
     val basketText: String = "",
+    // Why — required once the discount reaches into a carwash allowance (Allowance.kt).
+    val discountReason: String = "",
     val technicians: List<TechnicianDto> = emptyList(),
     /** The lines panel, open over the screen from the right. The summary keeps the column;
      *  the lines get a surface with room to open one and work on it. */
@@ -245,6 +279,10 @@ data class QuoteState(
     val billLines: List<QuoteLine> = emptyList(),
     /** Lines that came from the quote — priced and agreed, so they are not re-priced here. */
     val billQuotedCount: Int = 0,
+    /** The bill is its OWN document (a different id from the quote), so its discount_reason
+     *  is its own too — a carwash line added at the counter needs its own justification,
+     *  separate from whatever the quote itself was discounted for. */
+    val billDiscountReason: String = "",
     /** The board asked for this quote's bill. Held until its lines arrive — billing before
      *  they do would raise an invoice for a quote this screen has not finished reading. */
     val pendingBillOnOpen: Boolean = false,
@@ -415,7 +453,7 @@ class QuoteViewModel @Inject constructor(
             // not ride into this fresh one — it would raise a deposit invoice and stamp a job
             // ETA this customer never agreed to (audit #7).
             estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
-            basketMode = DiscountMode.PCT, basketText = "", query = "",
+            basketMode = DiscountMode.PCT, basketText = "", discountReason = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = h, jobId = null,
             // bills too: the last quote's invoice showing on a brand-new one is not a
@@ -530,7 +568,7 @@ class QuoteViewModel @Inject constructor(
             lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null,
             estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT,
             depositAmtText = "", depositPending = false,
-            basketMode = DiscountMode.PCT, basketText = "", query = "",
+            basketMode = DiscountMode.PCT, basketText = "", discountReason = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
             intake = null, jobId = null, hasIntake = false, signed = false, billed = false, bills = emptyList(),
             customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
@@ -614,6 +652,10 @@ class QuoteViewModel @Inject constructor(
                     q.discountKind == "percent" && q.discountValue > 0 -> q.discountValue.toInt().toString()
                     else -> ""
                 },
+                // Restored, not reset: re-saving an untouched discount must not silently wipe
+                // the reason it was given — discount_reason is sent on every save (same rule
+                // as discount_kind, just above), so an empty local value would clear it.
+                discountReason = q.discountReason.orEmpty(),
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
@@ -634,7 +676,7 @@ class QuoteViewModel @Inject constructor(
             runCatching { api.fetchQuoteLines(q.id) }
                 .onSuccess { ls ->
                     _s.update { st ->
-                        st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat) })
+                        st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat, st.products) })
                     }
                 }
                 .onFailure { e -> _s.update { it.copy(error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})") } }
@@ -688,7 +730,7 @@ class QuoteViewModel @Inject constructor(
         if (!editable(st)) return@update st
         val i = st.lines.indexOfFirst { it.productId == p.id }
         val lines = if (i >= 0) st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
-        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat)
+        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind))
         st.copy(lines = lines)
     }
 
@@ -705,6 +747,7 @@ class QuoteViewModel @Inject constructor(
             lines = st.lines + QuoteLine(
                 null, name.trim(), centsToPlainText(priceCents), vatRate,
                 priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
+                discountPolicy = policyOf(null, if (isService) "service" else "product"),
             ),
         )
     }
@@ -812,6 +855,58 @@ class QuoteViewModel @Inject constructor(
         },
         orderKind = docDiscountKind(s), orderPct = basketPct(s).toDouble(), orderAmtInclCents = basketAmtCents(s),
     )
+
+    // ── discount allowance — the tablet's mirror of app.document_discount_limits ─────────────
+    // The database is the authority (app.assert_discount_allowed, raised from inside
+    // issue_document) — this exists so the builder can clamp an input and explain the limit
+    // before the cashier fills a basket the server will not be allowed to issue, and so an
+    // offline sale is never queued only to fail the same guard on replay.
+
+    private fun QuoteLine.toAllowanceInput() = AllowanceLineInput(
+        qty = qty.toDouble(), unitCents = unitCents, vatRatePct = vatRate, policy = discountPolicy,
+        discountKind = if (discountMode == DiscountMode.AMT) "amount" else "percent",
+        discountPct = discountPct.toDouble(),
+        discountAmountCents = if (discountMode == DiscountMode.AMT) discountAmtCents else 0L,
+    )
+
+    /** The basket discount in the CENTS the allowance module wants — [docDiscountValue] is
+     *  rupees, built for the rupee-native RPC transport. */
+    private fun allowanceDocDiscount(s: QuoteState): DocDiscount? = when (docDiscountKind(s)) {
+        "percent" -> DocDiscount("percent", basketPct(s).toDouble())
+        "amount" -> DocDiscount("amount", basketAmtCents(s).toDouble())
+        else -> null
+    }
+
+    fun allowance(s: QuoteState): Allowance = computeAllowance(s.lines.map { it.toAllowanceInput() }, allowanceDocDiscount(s))
+
+    /** Why the accept/issue action is dead, when the reason is the discount and not something else. */
+    fun discountBlockReason(s: QuoteState): String? {
+        val a = allowance(s)
+        return when {
+            a.overCeiling -> "This discount is over the ${formatMUR(a.ceilingCents)} allowed on this quote — ask the owner."
+            a.reasonRequired && s.discountReason.isBlank() -> "Add a reason for this discount before issuing."
+            else -> null
+        }
+    }
+
+    fun setDiscountReason(r: String) = _s.update { it.copy(discountReason = r) }
+
+    // The bill is its own document — convert_quote_to_invoice copies the quote's order
+    // discount onto it (see [lineTotals]'s own note), so the same figure applies here too;
+    // its LINES are its own, since a carwash item added at the counter is a fresh line the
+    // quote never saw.
+    fun billAllowance(s: QuoteState): Allowance = computeAllowance(s.billLines.map { it.toAllowanceInput() }, allowanceDocDiscount(s))
+
+    fun billDiscountBlockReason(s: QuoteState): String? {
+        val a = billAllowance(s)
+        return when {
+            a.overCeiling -> "This discount is over the ${formatMUR(a.ceilingCents)} allowed on this bill — ask the owner."
+            a.reasonRequired && s.billDiscountReason.isBlank() -> "Add a reason for this discount before issuing."
+            else -> null
+        }
+    }
+
+    fun setBillDiscountReason(r: String) = _s.update { it.copy(billDiscountReason = r) }
 
     // Turning it off drops any crew already picked — accept_quote has nowhere to put them,
     // and the picker itself is hidden while this is off, so a stale pick could only survive
@@ -1187,7 +1282,7 @@ class QuoteViewModel @Inject constructor(
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)) }
+            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason) }
                 .onSuccess { d -> _s.update { it.copy(busy = false, quoteId = d.id, savedRef = d.number ?: "Draft saved") } }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
@@ -1199,6 +1294,11 @@ class QuoteViewModel @Inject constructor(
         if (s.busy) return // double-tap on a fresh quote = two quotes -> two jobs
         val cid = s.customerId ?: return
         if (s.status == "draft" && !s.linesLoaded) { _s.update { it.copy(error = "Items still loading — wait a moment before accepting.") }; return }
+        // The database is the authority (app.assert_discount_allowed, raised from inside
+        // issue_document) — this mirrors it so the discount is refused HERE rather than after
+        // the client has signed, and so an offline accept is never queued only to fail the
+        // same guard on replay. The UI disables this button on the same condition.
+        discountBlockReason(s)?.let { reason -> _s.update { it.copy(error = reason) }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
@@ -1211,7 +1311,7 @@ class QuoteViewModel @Inject constructor(
                 // quote is frozen — save_draft refuses "cannot edit an issued document" —
                 // so it converts as-is; the RPC is idempotent and hands back the same job.
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 // Signed, but the work is not starting today — no job, no card on the board.
                 // "Create job" on this quote raises it whenever the customer comes back.
@@ -1335,12 +1435,12 @@ class QuoteViewModel @Inject constructor(
             runCatching {
                 // same freeze rule as accept: only drafts can be re-saved
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val draft = api.convertQuoteToInvoice(quoteId)
                 // Already issued (by the board, say) — nothing to add to, hand it back as it stands.
                 if (draft.status != null && draft.status != "draft") return@runCatching Pair(draft, emptyList<QuoteLine>())
-                Pair(draft, api.fetchQuoteLines(draft.id).map { storedLine(it, _s.value.pricesInclVat) })
+                Pair(draft, api.fetchQuoteLines(draft.id).map { storedLine(it, _s.value.pricesInclVat, _s.value.products) })
                 // Raising the bill accepts the quote on the server too (convert_quote_to_invoice,
                 // 20260804000010) — carry that here, or the screen keeps offering to re-save and
                 // re-bill a draft the server no longer has.
@@ -1391,7 +1491,7 @@ class QuoteViewModel @Inject constructor(
             else cur.copy(
                 bills = cur.bills.map { b ->
                     if (b.id != bill.id) b
-                    else b.copy(extras = lines.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat) })
+                    else b.copy(extras = lines.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat, cur.products) })
                 },
             )
         }
@@ -1399,7 +1499,7 @@ class QuoteViewModel @Inject constructor(
 
     fun addToBill(p: ProductEntity) = _s.update { st ->
         if (!st.billOpen) st else st.copy(
-            billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat),
+            billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind)),
         )
     }
 
@@ -1410,6 +1510,7 @@ class QuoteViewModel @Inject constructor(
             billLines = st.billLines + QuoteLine(
                 null, name.trim(), centsToPlainText(priceCents), vatRate,
                 priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
+                discountPolicy = policyOf(null, if (isService) "service" else "product"),
             ),
         )
     }
@@ -1501,7 +1602,7 @@ class QuoteViewModel @Inject constructor(
     /** Back out of the bill without issuing it. The quote's own draft invoice stays on the
      *  server — convert_quote_to_invoice is idempotent, so billing again returns the same
      *  one — and a second bill was never a document in the first place. */
-    fun closeBill() = _s.update { it.copy(billOpen = false, billLinesOpen = false, billLines = emptyList(), billDocId = null) }
+    fun closeBill() = _s.update { it.copy(billOpen = false, billLinesOpen = false, billLines = emptyList(), billDocId = null, billDiscountReason = "") }
 
     /**
      * Put what they are taking on the bill, and leave it there.
@@ -1525,6 +1626,10 @@ class QuoteViewModel @Inject constructor(
         val cid = s.customerId ?: return
         if (s.busy) return
         if (s.billLines.isEmpty()) { _s.update { it.copy(error = "Nothing on this bill") }; return }
+        // Saving is a draft either way (see the class doc above) and may hold an over-limit
+        // discount so the cashier can go and fetch approval; ISSUING is the fiscal gate, so
+        // only that path is blocked here — same split as issue_document vs save_draft.
+        if (issue) billDiscountBlockReason(s)?.let { reason -> _s.update { it.copy(error = reason) }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
@@ -1534,6 +1639,12 @@ class QuoteViewModel @Inject constructor(
                     if (s.vehicleId != null) put("vehicle_id", s.vehicleId) else put("vehicle_id", JsonNull)
                     // No `origin`: convert_quote_to_invoice already stamped where this bill
                     // came from, and save_draft overwrites the column when it is sent.
+                    // discount_kind/value are deliberately NOT sent — the bill carries whatever
+                    // convert_quote_to_invoice copied from the quote, and save_draft leaves them
+                    // alone when the payload doesn't mention them (see lineTotals' own note).
+                    // The reason IS sent: it is this document's own, for lines added here.
+                    val reason = s.billDiscountReason.trim()
+                    if (reason.isEmpty()) put("discount_reason", JsonNull) else put("discount_reason", reason)
                 }
                 val saved = api.saveDraft(doc, billLinesJson(s))
                 // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
@@ -1586,10 +1697,12 @@ class QuoteViewModel @Inject constructor(
         val cid = s.customerId ?: run { _s.update { it.copy(sendError = "No customer on this quote") }; return }
         if (s.quoteId == null && !s.linesLoaded) { _s.update { it.copy(sendError = "Items still loading — wait a moment.") }; return }
         if (s.quoteId == null && s.lines.isEmpty()) { _s.update { it.copy(sendError = "Add a line before sending.") }; return }
+        // Sending issues the draft on the way out (same gate as Accept) — see discountBlockReason.
+        discountBlockReason(s)?.let { reason -> _s.update { it.copy(sendError = reason) }; return }
         _s.update { it.copy(sendBusy = true, sendError = null, sendDone = null) }
         viewModelScope.launch {
             val saved = runCatching {
-                if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s)).id
+                if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason).id
                 else s.quoteId ?: error("This quote hasn't been saved yet")
             }.getOrElse { e ->
                 _s.update { it.copy(sendBusy = false, sendError = e.uiMessage()) }

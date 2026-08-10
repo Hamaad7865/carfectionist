@@ -20,6 +20,8 @@ data class ProductEntity(
     val category: String?, // checkout/stock category rail
     val lowStockThreshold: Double?, // null = default
     val photoPath: String? = null, // product-photos bucket object path; null = no reference photo
+    // 'inherit' | 'none' | 'carwash' | 'free' — see core/money/Allowance.kt#policyOf.
+    val discountPolicy: String = "inherit",
 ) {
     /** Business rule: blank = 10, hard cap 20 (mirrors the DB check + web form). */
     val effectiveLowStock: Int

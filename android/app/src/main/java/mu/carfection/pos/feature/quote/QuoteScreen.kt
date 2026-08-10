@@ -50,6 +50,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -82,8 +83,10 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import mu.carfection.pos.core.money.AllowanceLineInput
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentLine
@@ -348,12 +351,31 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                 Spacer(Modifier.weight(1f))
                 Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
             }
+            // The bill is its own document (see QuoteState.billDiscountReason) — a carwash
+            // line added at the counter needs its own ceiling and its own reason, separate
+            // from whatever the quote itself carried.
+            val billAllowance = vm.billAllowance(s)
+            val billBlockReason = vm.billDiscountBlockReason(s)
+            if (billAllowance.actualCents > 0) {
+                Text(
+                    "Up to ${formatMUR(billAllowance.ceilingCents)} may be discounted on this bill.",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                )
+            }
+            if (billAllowance.reasonRequired) {
+                FilledInput(
+                    value = s.billDiscountReason, onValueChange = vm::setBillDiscountReason,
+                    placeholder = "Why — e.g. regular customer, repeat wash",
+                    modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = InsetAlt, fontFamily = Barlow, fontSize = 12.5.sp,
+                )
+            }
+            billBlockReason?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Danger) }
             s.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontSize = 12.sp) }
-            // Saving is the default, and it does NOT issue. The car is still in the workshop
-            // and the customer is still walking around — issuing on every trip to the counter
-            // is how one visit became three invoices. One bill, kept as a draft, collected at
-            // Checkout when the work is done. Settling here and now is the other button.
+            // Saving is the default, and it does NOT issue — so it does not check the discount
+            // block either (a draft may hold an over-limit discount so the cashier can go and
+            // fetch approval). Issuing is the fiscal gate: that button alone checks it.
             val ready = !s.busy && s.billLines.isNotEmpty()
+            val issueReady = ready && billBlockReason == null
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) vm.closeBill() }
                 Box(
@@ -372,15 +394,15 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
             if (s.takesPayments) {
                 Box(
                     Modifier.fillMaxWidth().height(46.dp)
-                        .background(if (ready) AccentSoft else InsetAlt, RoundedCornerShape(13.dp))
-                        .border(1.dp, if (ready) AccentLine else Color(0x17101A24), RoundedCornerShape(13.dp))
-                        .clickable(enabled = ready) { vm.issueTheBill() },
+                        .background(if (issueReady) AccentSoft else InsetAlt, RoundedCornerShape(13.dp))
+                        .border(1.dp, if (issueReady) AccentLine else Color(0x17101A24), RoundedCornerShape(13.dp))
+                        .clickable(enabled = issueReady) { vm.issueTheBill() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
                         "They are paying now — issue & collect",
                         fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
-                        color = if (ready) Accent else TextMuted,
+                        color = if (issueReady) Accent else TextMuted,
                     )
                 }
             }
@@ -655,30 +677,45 @@ private fun LineCard(
                 Box(Modifier.size(40.dp).background(Color(0x1FD63A3A), RoundedCornerShape(10.dp)).clickable { ops.remove(i) }, contentAlignment = Alignment.Center) { Text("✕", color = Danger, fontFamily = Barlow, fontSize = 15.sp) }
             }
             LineDescription(l, i) { rows -> ops.setBullets(i, rows) }
-            // discount: % presets or a typed Rs amount (VAT-inclusive, like the DB)
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // discount: % presets or a typed Rs amount (VAT-inclusive, like the DB).
+            // The owner's rule (2026-08-10): a service gives nothing away; a carwash goes to
+            // 5% and only with a reason. See core/money/Allowance.kt.
+            val discountDisabled = l.discountPolicy == "none"
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.alpha(if (discountDisabled) 0.5f else 1f)) {
                 listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
                     val on = l.discountMode == m
-                    Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { ops.setDiscMode(i, m) }.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
+                    Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable(enabled = !discountDisabled) { ops.setDiscMode(i, m) }.padding(horizontal = 11.dp), contentAlignment = Alignment.Center) {
                         Text(lb, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
                     }
                 }
                 Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
                 if (l.discountMode == DiscountMode.PCT) {
-                    listOf(0, 5, 10, 15, 20).forEach { d ->
+                    val presets = if (l.discountPolicy == "carwash") listOf(0, 5) else listOf(0, 5, 10, 15, 20)
+                    presets.forEach { d ->
                         val on = l.discountPct == d
-                        Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { ops.setDiscPct(i, d) }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable(enabled = !discountDisabled) { ops.setDiscPct(i, d) }.padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
                             Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary)
                         }
                     }
                     Spacer(Modifier.weight(1f))
                 } else {
                     FilledInput(
-                        value = l.discountAmtText, onValueChange = { ops.setDiscAmt(i, it) },
+                        value = l.discountAmtText, onValueChange = { if (!discountDisabled) ops.setDiscAmt(i, it) },
                         placeholder = "Rs off (incl. VAT)", modifier = Modifier.weight(1f), height = 40.dp,
                         radius = 10.dp, bg = CardBg, fontFamily = Mono, fontSize = 13.5.sp,
                     )
                 }
+            }
+            if (discountDisabled) {
+                Text(
+                    "This service is not discounted — ask the owner",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                )
+            } else if (l.discountPolicy == "carwash") {
+                Text(
+                    "Up to ${formatMUR(lineAllowanceCents(AllowanceLineInput(l.qty.toDouble(), l.unitCents, l.vatRate, l.discountPolicy)))} may be discounted on this line.",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                )
             }
         }
     }
@@ -984,6 +1021,29 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     Spacer(Modifier.weight(1f))
                     if (t.orderDiscountInclCents > 0) Text("−" + formatMUR(t.orderDiscountInclCents), fontFamily = Mono, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = Success)
                 }
+                // The database is the authority (app.assert_discount_allowed, raised from
+                // inside issue_document) — this mirrors it so the builder can clamp an input
+                // and explain the limit before the cashier fills a basket the server will not
+                // be allowed to issue, and so an offline accept is never queued only to fail
+                // the same guard on replay.
+                val allowance = vm.allowance(s)
+                val discountBlockReason = vm.discountBlockReason(s)
+                if (vm.editable(s) && allowance.actualCents > 0) {
+                    Text(
+                        "Up to ${formatMUR(allowance.ceilingCents)} may be discounted on this bill.",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                    )
+                }
+                if (vm.editable(s) && allowance.reasonRequired) {
+                    FilledInput(
+                        value = s.discountReason, onValueChange = vm::setDiscountReason,
+                        placeholder = "Why — e.g. regular customer, repeat wash",
+                        modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = InsetAlt, fontFamily = Barlow, fontSize = 12.5.sp,
+                    )
+                }
+                if (vm.editable(s) && discountBlockReason != null) {
+                    Text(discountBlockReason, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Danger)
+                }
                 TotalLine(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(t.vatCents), TextSecondary)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
                     Text("TOTAL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp, color = TextPrimary)
@@ -1187,10 +1247,11 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             }
                         } else {
                             OutlineBtn("Back", Modifier.weight(1f), 52) { if (!s.busy) acceptStep = 0 }
+                            val signReady = !s.busy && (signed || s.agreedVia != null) && discountBlockReason == null
                             Box(
                                 Modifier.weight(1.6f).height(52.dp)
-                                    .background(if (s.busy || !(signed || s.agreedVia != null)) InsetAlt else Accent, RoundedCornerShape(13.dp))
-                                    .clickable(enabled = !s.busy && (signed || s.agreedVia != null)) {
+                                    .background(if (signReady) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                                    .clickable(enabled = signReady) {
                                         vm.create(
                                             if (s.agreedVia != null) null
                                             else strokesToPng(strokes.toList(), padSize.width, padSize.height, strokePx),
@@ -1212,7 +1273,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                         else -> "Create job"
                                     },
                                     fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                                    color = if (s.busy || !agreed) TextMuted else AccentInk,
+                                    color = if (signReady) AccentInk else TextMuted,
                                 )
                             }
                         }

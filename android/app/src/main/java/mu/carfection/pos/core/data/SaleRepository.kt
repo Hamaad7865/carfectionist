@@ -5,16 +5,20 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.database.ProductEntity
+import mu.carfection.pos.core.money.AllowanceLineInput
+import mu.carfection.pos.core.money.DiscountPolicy
 import mu.carfection.pos.core.money.DocLineIn
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.centsToRupees
 import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.netWithinGross
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.pctOfCents
+import mu.carfection.pos.core.money.policyOf
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.network.NewCustomerDto
 import mu.carfection.pos.core.network.PosApi
@@ -51,12 +55,27 @@ data class CartLine(
     val lineGrossCents: Long get() = grossCents(lineExclCents, product.vatRatePct)
 
     /**
+     * 'none' | 'carwash' | 'free' — the most this line may be discounted, from the product's
+     * own discount_policy (an ad-hoc line's synthetic product carries kind="adhoc", which
+     * — like a real service — is neither 'product' nor 'consumable', so [policyOf] withholds
+     * a discount the same way it would for a service with no stated kind at all).
+     */
+    val discountPolicy: DiscountPolicy
+        get() = policyOf(product.discountPolicy, product.kind)
+
+    /**
      * Rs discount in cents as TYPED — i.e. VAT-inclusive, what comes off the bill, matching the
      * basket discount and the web's order discount. Clamped to the line's gross, so a line can
-     * never go negative.
+     * never go negative — and, on a carwash line, to [lineAllowanceCents], so a typed figure can
+     * never ask for more than the owner's 5% rule permits.
      */
     val discountAmtCents: Long
-        get() = (parseMoneyToCents(discountAmtText) ?: 0L).coerceIn(0L, lineGrossCents)
+        get() {
+            val typed = (parseMoneyToCents(discountAmtText) ?: 0L).coerceIn(0L, lineGrossCents)
+            if (discountPolicy != "carwash") return typed
+            val cap = lineAllowanceCents(AllowanceLineInput(qty, product.sellingPriceCents, product.vatRatePct, discountPolicy))
+            return typed.coerceAtMost(cap)
+        }
 
     /** This line as one document row: [DocLineIn] is the DB's own line-discount arithmetic. */
     val docLine: DocLineIn
@@ -67,6 +86,18 @@ data class CartLine(
             discountPct = discountPct.toDouble(),
             discountAmtInclCents = if (discountMode == DiscountMode.AMT) discountAmtCents else 0L,
             vatRatePct = product.vatRatePct,
+        )
+
+    /** This line as the allowance module wants it — the same fields [docLine] assembles. */
+    val allowanceInput: AllowanceLineInput
+        get() = AllowanceLineInput(
+            qty = qty,
+            unitCents = product.sellingPriceCents,
+            vatRatePct = product.vatRatePct,
+            policy = discountPolicy,
+            discountKind = if (discountMode == DiscountMode.AMT) "amount" else "percent",
+            discountPct = discountPct.toDouble(),
+            discountAmountCents = if (discountMode == DiscountMode.AMT) discountAmtCents else 0L,
         )
 
     companion object { const val ADHOC_PREFIX = "adhoc:" }
@@ -90,11 +121,16 @@ data class SaleLineSpec(
 /**
  * The cart as one saveable draft: the rows, plus the basket discount carried on the DOCUMENT.
  * [orderDiscountValue] is a percentage for "percent" and RUPEES for "amount".
+ *
+ * [discountReason] rides along so an offline capture can replay it: app.assert_discount_allowed
+ * re-checks the reason at issue time exactly as it did when the cashier typed it, and a sale
+ * captured with a reason on file must not lose it just because the network was down.
  */
 data class SaleDraft(
     val specs: List<SaleLineSpec>,
     val orderDiscountKind: String?,
     val orderDiscountValue: Double,
+    val discountReason: String? = null,
 )
 
 /**
@@ -116,6 +152,7 @@ fun expandSaleLines(
     basketMode: DiscountMode = DiscountMode.PCT,
     basketPct: Int = 0,
     basketAmtCents: Long = 0,
+    discountReason: String? = null,
 ): SaleDraft {
     val specs = cart.map { l ->
         SaleLineSpec(
@@ -143,7 +180,7 @@ fun expandSaleLines(
         "amount" -> centsToRupees(basketAmtCents)
         else -> 0.0
     }
-    return SaleDraft(specs, kind, value)
+    return SaleDraft(specs, kind, value, discountReason?.trim()?.takeUnless { it.isEmpty() })
 }
 
 enum class PayMethod(val rpcValue: String?, val label: String) {
@@ -223,6 +260,13 @@ private val DETERMINISTIC_ISSUE_REJECTIONS = listOf(
     "cannot issue a document with no lines",
     "an invoice requires a customer",
     "insufficient privileges",
+    // app.assert_discount_allowed (20260810000040/50) — the tablet's own discount clamp is
+    // meant to stop these before a sale is ever queued (see Allowance.kt and the discount
+    // guards in QuoteScreen/CounterScreen), so reaching the server at all here means the
+    // policy changed, or a price drifted, between the till and this replay. Either way,
+    // retrying identically will never succeed — the cashier has to ring it again.
+    "discount exceeds allowance",
+    "a reason is required for a carwash discount",
 )
 
 internal fun isDeterministicRejection(e: Throwable): Boolean {
@@ -265,6 +309,10 @@ class SaleRepository @Inject constructor(
         basketPct: Int = 0,
         basketAmtCents: Long = 0,
         comment: String? = null, // internal note; stored on the invoice, never on the receipt
+        // Why — required once the discount reaches into a carwash allowance. See Allowance.kt;
+        // the tablet clamps and blocks Record payment before this is ever missing, but it still
+        // has to travel to save_draft as discount_reason so issue_document's own check agrees.
+        discountReason: String? = null,
         // The retry path: a previous attempt already ISSUED this sale's invoice (the
         // pendingSettle held its id). Skip draft+issue — re-issuing was impossible anyway
         // (each retry minted a new draft, and the idempotency guard rightly refused it,
@@ -277,7 +325,7 @@ class SaleRepository @Inject constructor(
         if (method == PayMethod.CREDIT) requireNotNull(customerId) { "Pick a customer for a credit sale." }
 
         val issued = issueWalkInInvoice(
-            expandSaleLines(cart, basketMode, basketPct, basketAmtCents),
+            expandSaleLines(cart, basketMode, basketPct, basketAmtCents, discountReason),
             customerId, null, walkInName, cashSessionId, saleKey, comment,
         )
         val totalCents = issued.totalCents
@@ -378,6 +426,12 @@ class SaleRepository @Inject constructor(
             if (draftDiscountKind == null) put("discount_kind", kotlinx.serialization.json.JsonNull)
             else put("discount_kind", draftDiscountKind)
             put("discount_value", draftDiscountValue)
+            // Same "always sent" rule as discount_kind above, and for the same reason: a
+            // cashier who typed a reason and then cleared it must actually clear it, not
+            // have save_draft's absent-key branch quietly keep the old one.
+            val reason = draftSale.discountReason?.trim()
+            if (reason.isNullOrEmpty()) put("discount_reason", kotlinx.serialization.json.JsonNull)
+            else put("discount_reason", reason)
         }
         val lines = buildJsonArray {
             draftSale.specs.forEachIndexed { i, sp ->
@@ -443,6 +497,7 @@ class SaleRepository @Inject constructor(
         basketPct: Int = 0,
         basketAmtCents: Long = 0,
         comment: String? = null,
+        discountReason: String? = null,
         knownInvoiceId: String? = null,
     ): SaleResult {
         val issued = if (knownInvoiceId != null) {
@@ -451,7 +506,7 @@ class SaleRepository @Inject constructor(
             IssuedInvoice(inv.id, inv.number, rupeesToCents(inv.totalIncl))
         } else {
             issueWalkInInvoice(
-                expandSaleLines(cart, basketMode, basketPct, basketAmtCents),
+                expandSaleLines(cart, basketMode, basketPct, basketAmtCents, discountReason),
                 customerId, null, walkInName, cashSessionId, saleKey, comment,
             )
         }

@@ -55,8 +55,11 @@ interface OutboxDao {
  * dropping this table would destroy the only record that a customer paid.
  * v3 adds the operator to that row: with offline sign-in, the person who rang the sale is
  * no longer necessarily the account the replay runs under.
+ * v4 adds the discount reason: a carwash discount given offline must replay with the same
+ * reason app.assert_discount_allowed saw when the cashier typed it, or the replay is refused
+ * for a reason that was never missing in the first place.
  */
-@Database(entities = [OutboxOp::class, OfflineSaleRow::class], version = 3, exportSchema = false)
+@Database(entities = [OutboxOp::class, OfflineSaleRow::class], version = 4, exportSchema = false)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
     abstract fun offlineSaleDao(): OfflineSaleDao
@@ -104,5 +107,12 @@ val OUTBOX_MIGRATION_2_3 = object : Migration(2, 3) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `offline_sales` ADD COLUMN `operatorId` TEXT")
         db.execSQL("ALTER TABLE `offline_sales` ADD COLUMN `operatorName` TEXT")
+    }
+}
+
+/** v3 → v4: the discount reason. Additive — a nullable column, nothing rewritten. */
+val OUTBOX_MIGRATION_3_4 = object : Migration(3, 4) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `offline_sales` ADD COLUMN `discountReason` TEXT")
     }
 }

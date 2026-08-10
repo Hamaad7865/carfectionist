@@ -24,6 +24,9 @@ data class ProductDto(
     // product-photos is a PUBLIC bucket (see the web's productPhotoUrl) — this is a bare object
     // path, and the full URL is built locally so it survives being cached offline unsigned.
     @SerialName("photo_path") val photoPath: String? = null,
+    // 'inherit' | 'none' | 'carwash' | 'free' — how much of this line may be discounted.
+    // See core/money/Allowance.kt#policyOf, the tablet's mirror of app.document_discount_limits.
+    @SerialName("discount_policy") val discountPolicy: String = "inherit",
 )
 
 @Serializable
@@ -119,6 +122,7 @@ data class QuoteRowDto(
     @SerialName("job_id") val jobId: String? = null, // the job this quote was converted into, if any
     @SerialName("discount_kind") val discountKind: String? = null, // order-level: percent | amount | null
     @SerialName("discount_value") val discountValue: FlexDouble = 0.0, // % 0..100, or Rs (VAT-inclusive)
+    @SerialName("discount_reason") val discountReason: String? = null,
     // Flow strip: did this quote start at reception, and has the client signed?
     val intake: kotlinx.serialization.json.JsonElement? = null,
     @SerialName("accepted_signature") val acceptedSignature: kotlinx.serialization.json.JsonElement? = null,

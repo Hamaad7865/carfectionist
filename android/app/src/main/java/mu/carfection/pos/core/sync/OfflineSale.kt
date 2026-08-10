@@ -58,6 +58,9 @@ data class OfflineSaleRow(
     val linesJson: String,
     val orderDiscountKind: String? = null,
     val orderDiscountValue: Double = 0.0,
+    /** Why — required once the discount reaches into a carwash allowance (Allowance.kt). Frozen
+     *  here so a replay carries the same reason app.assert_discount_allowed saw at sale time. */
+    val discountReason: String? = null,
     val tendersJson: String,
     /** Client-computed, by the same arithmetic the DB uses. Reconciled against the server total on replay. */
     val totalCents: Long,

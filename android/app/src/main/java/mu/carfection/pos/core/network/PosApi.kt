@@ -25,7 +25,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Reads (catalogue sync; RLS scopes everything to the tenant) ──────────
     suspend fun fetchProducts(): List<ProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, kind, selling_price, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path")) {
+            .select(Columns.raw("id, name, kind, selling_price, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy")) {
                 filter { eq("is_active", true) }
             }
             .decodeList()
@@ -192,7 +192,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, intake, accepted_signature, invoices:documents!source_document_id(id, number, doc_type, status, total_incl), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, invoices:documents!source_document_id(id, number, doc_type, status, total_incl), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(120) // deep enough that the search bar reaches past the last few days
@@ -702,6 +702,8 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         lines: JsonArray,
         discountKind: String? = null, // order-level: "percent" | "amount" | null (none)
         discountValue: Double = 0.0, // % 0..100, or Rs (VAT-inclusive)
+        // Why — required once the discount reaches into a carwash allowance (Allowance.kt).
+        discountReason: String? = null,
     ): SavedDoc {
         val doc = buildJsonObject {
             if (existingId != null) put("id", existingId)
@@ -713,6 +715,10 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             // (save_draft preserves them only when the keys are absent).
             if (discountKind != null) put("discount_kind", discountKind) else put("discount_kind", JsonNull)
             put("discount_value", discountValue)
+            // Same "always present" rule — an untouched reason must not survive a save the
+            // builder no longer states one for, and a cleared one must actually clear.
+            val reason = discountReason?.trim()
+            if (reason.isNullOrEmpty()) put("discount_reason", JsonNull) else put("discount_reason", reason)
         }
         return client.postgrest.rpc("save_draft", buildJsonObject {
             put("p_doc", doc); put("p_lines", lines); put("p_expected_rev", JsonNull)

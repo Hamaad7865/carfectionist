@@ -34,11 +34,15 @@ import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
 import mu.carfection.pos.core.hardware.ReceiptPrinter
 import mu.carfection.pos.core.hardware.ReceiptVatGroup
+import mu.carfection.pos.core.money.Allowance
+import mu.carfection.pos.core.money.DocDiscount
 import mu.carfection.pos.core.money.DocDiscountTotals
 import mu.carfection.pos.core.money.DocTotals
+import mu.carfection.pos.core.money.computeAllowance
 import mu.carfection.pos.core.money.computeDocTotals
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.computeTotals
+import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.netFromGrossCents
@@ -78,6 +82,8 @@ data class CounterUiState(
     // basket-level discount (applies after line discounts; emitted as negative lines)
     val basketMode: DiscountMode = DiscountMode.PCT,
     val basketText: String = "",
+    // Why — required once the discount reaches into a carwash allowance (Allowance.kt).
+    val discountReason: String = "",
     // Priced by the DB's OWN discount arithmetic, so the footer, the pay panel and the slip all
     // read one figure and it is the figure the server will store.
     val docTotals: DocDiscountTotals = computeDocTotals(emptyList(), null, 0.0, 0),
@@ -177,7 +183,7 @@ data class CounterUiState(
     /** What is still unallocated — the split's running balance. */
     val splitBalanceCents: Long get() = dueCents - allocatedCents
     /** The split is ready when its rows sum EXACTLY to the bill and a till is open. */
-    val splitCanRecord: Boolean get() = !busy && till != null && dueCents > 0 && allocatedCents == dueCents
+    val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueCents
 
     /** Does the current single entry satisfy its method's rules (till, tender, customer)? */
     private val entryValid: Boolean
@@ -188,7 +194,7 @@ data class CounterUiState(
         }
 
     val canRecord: Boolean
-        get() = !busy && (collect != null || cart.isNotEmpty()) && when (method) {
+        get() = !busy && discountBlockReason == null && (collect != null || cart.isNotEmpty()) && when (method) {
             PayMethod.CREDIT -> dueCents > 0 && entryValid
             // A COLLECT may take a partial (a deposit); a WALK-IN must be settled in full.
             else -> payCents > 0 && entryValid && (collect != null || payCents == dueCents)
@@ -214,6 +220,27 @@ data class CounterUiState(
     // ── basket discount, derived from the raw input ─────────────────────────────
     val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
     val basketAmtCents: Long get() = if (basketMode == DiscountMode.AMT) (parseMoneyToCents(basketText) ?: 0L).coerceAtLeast(0) else 0
+
+    /**
+     * The tablet's mirror of app.document_discount_limits — the same arithmetic
+     * [computeAllowance] runs on the quote builder. Advisory only: issue_document is the
+     * real gate, but a sale blocked here never reaches it, so a rejection it would raise
+     * is never queued offline either (see SaleRepository.DETERMINISTIC_ISSUE_REJECTIONS).
+     */
+    val allowance: Allowance
+        get() = computeAllowance(
+            cart.map { it.allowanceInput },
+            docDiscount = orderDiscountKind?.let { DocDiscount(it, if (it == "percent") basketPct.toDouble() else basketAmtCents.toDouble()) },
+            approvedMaxCents = null, // the owner-override dialog is a later task; this stays a hard block until then
+        )
+
+    /** Why Record payment is dead, when the reason is the discount and not the till/basket. */
+    val discountBlockReason: String?
+        get() = when {
+            allowance.overCeiling -> "This discount is over the ${formatMUR(allowance.ceilingCents)} allowed on this bill — ask the owner."
+            allowance.reasonRequired && discountReason.isBlank() -> "Add a reason for this discount before issuing."
+            else -> null
+        }
 
     /**
      * Every figure below comes from ONE call to the DB's own discount arithmetic
@@ -300,9 +327,10 @@ internal const val SETTLE_LOCK_NOTICE = "Finish or cancel this sale before chang
  */
 internal fun CounterUiState.withCart(cart: List<CartLine>): CounterUiState {
     if (pendingSettle != null) return copy(notice = SETTLE_LOCK_NOTICE)
-    // Emptying the cart ends the ticket, so the whole-sale discount goes with it. Otherwise a
-    // discount typed for one walk-in silently re-prices the next basket built on this screen.
-    val s = if (cart.isEmpty() && this.cart.isNotEmpty()) copy(basketMode = DiscountMode.PCT, basketText = "") else this
+    // Emptying the cart ends the ticket, so the whole-sale discount — and why it was given —
+    // goes with it. Otherwise a discount (or its reason) typed for one walk-in silently
+    // re-prices, or pre-justifies, the next basket built on this screen.
+    val s = if (cart.isEmpty() && this.cart.isNotEmpty()) copy(basketMode = DiscountMode.PCT, basketText = "", discountReason = "") else this
     val priced = s.copy(cart = cart, error = null)
     return priced.copy(
         docTotals = computeDocTotals(
@@ -818,7 +846,7 @@ class CounterViewModel @Inject constructor(
                         cart = s.cart, tenders = allTenders, customerId = s.customerId, walkInName = s.customerText,
                         cashSessionId = s.till?.id, saleKey = saleKey,
                         basketMode = s.basketMode, basketPct = s.basketPct, basketAmtCents = s.basketAmtCents,
-                        comment = s.comment, knownInvoiceId = s.pendingSettle?.invoiceId,
+                        comment = s.comment, discountReason = s.discountReason, knownInvoiceId = s.pendingSettle?.invoiceId,
                     )
                 }
                 // Rebuild the slip from the server invoice — it now carries every tender row.
@@ -1087,6 +1115,9 @@ class CounterViewModel @Inject constructor(
         local.value = s.withBasket(s.basketMode, text.filter { c -> c.isDigit() || c == '.' })
     }
 
+    /** Why — required once the discount reaches into a carwash allowance (Allowance.kt). */
+    fun setDiscountReason(t: String) { local.value = local.value.copy(discountReason = t) }
+
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {
         val s = local.value
         val next = s.withCart(f(s.cart))
@@ -1297,6 +1328,7 @@ class CounterViewModel @Inject constructor(
                     basketPct = s.basketPct,
                     basketAmtCents = s.basketAmtCents,
                     comment = s.comment,
+                    discountReason = s.discountReason,
                     // Retry of a settle that already issued: go straight to the payment.
                     knownInvoiceId = s.pendingSettle?.invoiceId,
                 )
@@ -1391,7 +1423,7 @@ class CounterViewModel @Inject constructor(
                 val cachedId = s.customerId
                     ?: allCustomers.firstOrNull { it.name.equals(typed.ifBlank { WALK_IN_CUSTOMER }, ignoreCase = true) }?.id
                 val mintedId = if (cachedId == null) UUID.randomUUID().toString() else null
-                val draft = expandSaleLines(s.cart, s.basketMode, s.basketPct, s.basketAmtCents)
+                val draft = expandSaleLines(s.cart, s.basketMode, s.basketPct, s.basketAmtCents, s.discountReason)
 
                 val row = offlineSales.capture(
                     saleKey = saleKey,
@@ -1412,6 +1444,7 @@ class CounterViewModel @Inject constructor(
                             (t.tenderedCents - t.amountCents).coerceAtLeast(0) else 0L
                     },
                     comment = s.comment.trim().takeUnless { it.isEmpty() },
+                    discountReason = draft.discountReason,
                     // The replay may run under a different account (offline sign-in never
                     // mints tokens) — record who actually rang it.
                     operatorId = session.operatorId,

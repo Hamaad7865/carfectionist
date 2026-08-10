@@ -23,6 +23,7 @@ import mu.carfection.pos.core.sync.CapturedSaleReplayer
 import mu.carfection.pos.core.sync.ConnectivityObserver
 import mu.carfection.pos.core.sync.OUTBOX_MIGRATION_1_2
 import mu.carfection.pos.core.sync.OUTBOX_MIGRATION_2_3
+import mu.carfection.pos.core.sync.OUTBOX_MIGRATION_3_4
 import mu.carfection.pos.core.sync.OfflineSaleDao
 import mu.carfection.pos.core.sync.OnlineSignal
 import mu.carfection.pos.core.sync.OutboxDao
@@ -79,7 +80,7 @@ object AppModule {
     @Singleton
     fun outboxDatabase(@ApplicationContext ctx: Context): OutboxDatabase =
         Room.databaseBuilder(ctx, OutboxDatabase::class.java, "outbox.db")
-            .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3)
+            .addMigrations(OUTBOX_MIGRATION_1_2, OUTBOX_MIGRATION_2_3, OUTBOX_MIGRATION_3_4)
             .build()
 
     @Provides fun outboxDao(db: OutboxDatabase): OutboxDao = db.outboxDao()

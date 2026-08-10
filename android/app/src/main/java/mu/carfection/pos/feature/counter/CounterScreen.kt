@@ -87,6 +87,7 @@ import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
@@ -308,31 +309,53 @@ fun CounterScreen(
                                     contentAlignment = Alignment.Center,
                                 ) { Text("✕", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
                             }
-                            if (l.expanded) Row(
+                            // The owner's rule (2026-08-10): a service gives nothing away; a carwash
+                            // goes to 5% and only with a reason. See core/money/Allowance.kt.
+                            val discountDisabled = l.discountPolicy == "none"
+                            if (l.expanded) Column(
                                 Modifier.fillMaxWidth().padding(start = 11.dp, end = 11.dp, bottom = 9.dp),
-                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
-                                StepBtn("−") { viewModel.setQty(l.product.id, l.qty - 1) }
-                                Text(l.qty.toInt().toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1, textAlign = TextAlign.Center)
-                                StepBtn("+") { viewModel.setQty(l.product.id, l.qty + 1) }
-                                Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
-                                ModeToggle(l.discountMode) { viewModel.setLineDiscountMode(l.product.id, it) }
-                                if (l.discountMode == DiscountMode.PCT) {
-                                    listOf(0, 5, 10, 15, 20).forEach { d ->
-                                        val on = l.discountPct == d
-                                        Box(
-                                            Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp)).clickable { viewModel.setDiscount(l.product.id, d) }.padding(horizontal = 10.dp),
-                                            contentAlignment = Alignment.Center,
-                                        ) { Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
+                                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    StepBtn("−") { viewModel.setQty(l.product.id, l.qty - 1) }
+                                    Text(l.qty.toInt().toString(), Modifier.width(30.dp), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextPrimary, maxLines = 1, textAlign = TextAlign.Center)
+                                    StepBtn("+") { viewModel.setQty(l.product.id, l.qty + 1) }
+                                    Box(Modifier.width(1.dp).height(24.dp).background(Color(0x1F101A24)))
+                                    Box(Modifier.alpha(if (discountDisabled) 0.5f else 1f)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            ModeToggle(l.discountMode, enabled = !discountDisabled) { viewModel.setLineDiscountMode(l.product.id, it) }
+                                            if (l.discountMode == DiscountMode.PCT) {
+                                                val presets = if (l.discountPolicy == "carwash") listOf(0, 5) else listOf(0, 5, 10, 15, 20)
+                                                presets.forEach { d ->
+                                                    val on = l.discountPct == d
+                                                    Box(
+                                                        Modifier.height(34.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, if (on) AccentLine else Color(0x17101A24), RoundedCornerShape(9.dp))
+                                                            .clickable(enabled = !discountDisabled) { viewModel.setDiscount(l.product.id, d) }.padding(horizontal = 10.dp),
+                                                        contentAlignment = Alignment.Center,
+                                                    ) { Text(if (d == 0) "0%" else "$d%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
+                                                }
+                                            } else {
+                                                FilledInput(
+                                                    value = l.discountAmtText, onValueChange = { if (!discountDisabled) viewModel.setLineDiscountAmt(l.product.id, it) },
+                                                    placeholder = "0.00", modifier = Modifier.width(120.dp), height = 34.dp, radius = 9.dp, bg = CardBg, fontSize = 13.sp,
+                                                )
+                                                Text("off", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp)
+                                            }
+                                            Spacer(Modifier.weight(1f))
+                                        }
                                     }
-                                } else {
-                                    FilledInput(
-                                        value = l.discountAmtText, onValueChange = { viewModel.setLineDiscountAmt(l.product.id, it) },
-                                        placeholder = "0.00", modifier = Modifier.width(120.dp), height = 34.dp, radius = 9.dp, bg = CardBg, fontSize = 13.sp,
-                                    )
-                                    Text("off", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp)
                                 }
-                                Spacer(Modifier.weight(1f))
+                                if (discountDisabled) {
+                                    Text(
+                                        "This service is not discounted — ask the owner",
+                                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                                    )
+                                } else if (l.discountPolicy == "carwash") {
+                                    Text(
+                                        "Up to ${formatMUR(lineAllowanceCents(l.allowanceInput))} may be discounted on this line.",
+                                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                                    )
+                                }
                             }
                         }
                     }
@@ -361,6 +384,23 @@ fun CounterScreen(
                         val shownDisc = if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
                         if (shownDisc > 0) Text("−" + formatMUR(shownDisc), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                     }
+                    // The database is the authority (app.assert_discount_allowed) — this mirrors
+                    // it so the ticket clamps and explains before Record payment even opens the
+                    // pad, and before a sale that would fail the guard is ever queued offline.
+                    if (s.allowance.actualCents > 0) {
+                        Text(
+                            "Up to ${formatMUR(s.allowance.ceilingCents)} may be discounted on this bill.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                        )
+                    }
+                    if (s.allowance.reasonRequired) {
+                        FilledInput(
+                            value = s.discountReason, onValueChange = viewModel::setDiscountReason,
+                            placeholder = "Why — e.g. regular customer, repeat wash",
+                            modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = Inset, fontSize = 12.5.sp,
+                        )
+                    }
+                    s.discountBlockReason?.let { Text(it, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
                     TotalRow(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
                     TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -368,13 +408,14 @@ fun CounterScreen(
                         Text(formatMUR(s.totals.totalCents), color = Warning, fontFamily = Condensed, fontSize = 30.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                     }
                     s.error?.takeUnless { s.padOpen }?.let { Text(it, color = Danger, fontSize = 12.sp) }
+                    val payReady = s.cart.isNotEmpty() && s.discountBlockReason == null
                     Box(
                         Modifier.fillMaxWidth().height(56.dp)
-                            .background(if (s.cart.isEmpty()) InsetAlt else Accent, RoundedCornerShape(14.dp))
-                            .clickable(enabled = s.cart.isNotEmpty()) { viewModel.openPad() },
+                            .background(if (payReady) Accent else InsetAlt, RoundedCornerShape(14.dp))
+                            .clickable(enabled = payReady) { viewModel.openPad() },
                         contentAlignment = Alignment.Center,
                     ) {
-                        Text("Record payment", color = if (s.cart.isEmpty()) TextMuted else AccentInk, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
+                        Text("Record payment", color = if (payReady) AccentInk else TextMuted, fontSize = 16.5.sp, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -442,12 +483,12 @@ private fun StepBtn(t: String, onClick: () -> Unit) =
 
 /** Mini % / Rs switch used by both the line editor and the basket discount row. */
 @Composable
-private fun ModeToggle(mode: DiscountMode, h: Dp = 34.dp, onPick: (DiscountMode) -> Unit) {
+private fun ModeToggle(mode: DiscountMode, h: Dp = 34.dp, enabled: Boolean = true, onPick: (DiscountMode) -> Unit) {
     Row(Modifier.height(h).background(InsetAlt, RoundedCornerShape(9.dp)).border(1.dp, Color(0x17101A24), RoundedCornerShape(9.dp))) {
         listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, label) ->
             val on = mode == m
             Box(
-                Modifier.fillMaxHeight().background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(9.dp)).clickable { onPick(m) }.padding(horizontal = 10.dp),
+                Modifier.fillMaxHeight().background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(9.dp)).clickable(enabled = enabled) { onPick(m) }.padding(horizontal = 10.dp),
                 contentAlignment = Alignment.Center,
             ) { Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = if (on) Accent else TextSecondary) }
         }
