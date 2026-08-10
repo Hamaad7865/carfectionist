@@ -1,0 +1,21 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Carfectionist — points are a way of paying.
+--
+-- The owner's rule 4 (2026-08-10). Spending points is a TENDER, not a discount:
+-- the bill total and the VAT snapshot are untouched, so a customer can put
+-- points against a Rs 16,000 body polish without tripping rule 1, which says a
+-- service is never discounted. Revenue is recognised in full and the points
+-- liability is settled — the ordinary voucher treatment.
+--
+-- Treating redemption as a discount was the alternative, and it was rejected:
+-- it would have reduced the taxable base, collided head-on with the rule the
+-- previous nine migrations exist to enforce, and forced every discount guard to
+-- learn an exception. A tender needs the fiscal core to change nothing at all.
+--
+-- THIS FILE DOES NOTHING ELSE, ON PURPOSE. PostgreSQL refuses to let a newly
+-- added enum value be USED in the transaction that added it, and db-exec sends a
+-- whole file as one statement batch — one transaction. Everything that writes
+-- 'points' lives in a later file, applied separately.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+alter type payment_method add value if not exists 'points';
