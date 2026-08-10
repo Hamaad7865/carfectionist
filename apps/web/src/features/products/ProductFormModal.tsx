@@ -12,10 +12,12 @@ import { btn } from "@/components/ui/button";
 
 const KINDS = ["service", "product", "consumable"] as const;
 const UNITS = ["piece", "ml", "l", "g", "kg", "m2", "service"] as const;
+const DISCOUNT_POLICIES = ["inherit", "carwash", "none", "free"] as const;
 
 type PForm = {
   name: string; sku: string; description: string;
   kind: (typeof KINDS)[number]; category: string; unit: (typeof UNITS)[number];
+  discountPolicy: (typeof DISCOUNT_POLICIES)[number];
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
   isStocked: boolean; threshold: string; isActive: boolean; photoPath: string;
 };
@@ -30,6 +32,8 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number,
   kind: (p?.kind as PForm["kind"]) ?? defaultKind ?? "consumable",
   category: p?.category ?? "",
   unit: (p?.unit as PForm["unit"]) ?? "piece",
+  // A new product hasn't earned an exception yet — the owner ticks one on later.
+  discountPolicy: (p?.discountPolicy as PForm["discountPolicy"]) ?? "inherit",
   sellingPrice: p ? (inclVat ? grossPrice(p, vatDefault) : String(p.sellingPrice)) : "",
   costPrice: p ? String(p.costPrice) : "",
   vatRate: p?.vatRatePct != null ? String(p.vatRatePct) : "",
@@ -91,6 +95,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
       kind: f.kind,
       category: f.category,
       unit: f.unit,
+      discountPolicy: f.discountPolicy,
       // selling_price is stored VAT-exclusive; convert if the user entered a gross price.
       sellingPrice: netFromGross != null ? netFromGross.toFixed(2) : f.sellingPrice,
       costPrice: f.costPrice,
@@ -159,6 +164,14 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
             </select>
           </Field>
         </div>
+        <Field label="Discount">
+          <select className={inputCls} value={f.discountPolicy} onChange={(e) => set("discountPolicy", e.target.value as PForm["discountPolicy"])}>
+            <option value="inherit">Follow the kind — a service gives nothing away</option>
+            <option value="carwash">Carwash — up to 5%, with a reason</option>
+            <option value="none">Never discounted</option>
+            <option value="free">No limit</option>
+          </select>
+        </Field>
         <div className="grid grid-cols-3 gap-3">
           <Field label={priceInclVat ? "Sell price (incl. VAT)" : "Sell price (excl. VAT)"} hint="Rupees"><input className={inputCls} value={f.sellingPrice} onChange={(e) => set("sellingPrice", e.target.value)} inputMode="decimal" placeholder="0.00" /></Field>
           <Field label="Cost price" hint="Rupees"><input className={inputCls} value={f.costPrice} onChange={(e) => set("costPrice", e.target.value)} inputMode="decimal" placeholder="0.0000" /></Field>

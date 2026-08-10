@@ -13,6 +13,8 @@ export interface InventoryRow {
   kind: string;
   category: string | null;
   unit: string;
+  /** How much of this line may be discounted: inherit | none | carwash | free. */
+  discountPolicy: string;
   barcode: string | null;
   /** The stored object path (product-photos bucket) — kept for the form to re-save it as-is. */
   photoPath: string | null;
@@ -52,7 +54,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
   const makeProdQ = () => {
     let q = sb
       .from("products")
-      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active, photo_path");
+      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active, photo_path, discount_policy");
     if (!includeArchived) q = q.eq("is_active", true);
     return q.order("category").order("name");
   };
@@ -97,6 +99,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
       kind: p.kind,
       category: p.category ?? null,
       unit: p.unit,
+      discountPolicy: p.discount_policy,
       barcode: p.barcode,
       photoPath: p.photo_path ?? null,
       photoUrl: productPhotoUrl(p.photo_path),
