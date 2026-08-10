@@ -3,7 +3,7 @@
 // followed by a bank transfer reads "Bank", not "Split" (the owner's Cashmag
 // expectation). "Split" is reserved for sales genuinely settled across
 // several methods.
-const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank" };
+const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank", points: "Points" };
 
 export function methodLabelFor(payments: { method: string; amount?: number | string | null }[]): string {
   const net = new Map<string, number>();

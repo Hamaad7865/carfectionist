@@ -5,6 +5,7 @@ import { CustomerDialog } from "@/features/contacts/CustomerDialog";
 import { CustomerList } from "@/features/contacts/CustomerList";
 import { ImportExport } from "@/features/dataio/ImportExport";
 import { VehiclesEditor } from "@/features/contacts/VehiclesEditor";
+import { PointsPanel } from "@/features/contacts/PointsPanel";
 import { SuppliersPanel } from "@/features/contacts/SuppliersPanel";
 import { WaOptOutToggle } from "@/features/contacts/WaOptOutToggle";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -81,6 +82,10 @@ export default async function ContactsPage({
 
               <div className="px-[22px] pb-2">
                 <VehiclesEditor customerId={sel.id} vehicles={sel.vehicles} />
+              </div>
+
+              <div className="px-[22px] pb-2">
+                <PointsPanel balance={sel.pointsBalance} pointValueRupees={sel.pointValueRupees} history={sel.pointsHistory} />
               </div>
 
               <div className="px-[22px] pb-[22px] pt-3.5">

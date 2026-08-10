@@ -39,6 +39,11 @@ export interface DocumentDetail {
   customerPhone: string | null;
   /** The account behind the invoice — what a statement of account is FOR. */
   customerId: string | null;
+  /** null when there is no customer — the Points tender only ever offers itself
+   *  on a bill that names one (customer_points_ledger.customer_id is NOT NULL). */
+  customerPointsBalance: number | null;
+  /** What one point is worth right now (business_settings.point_value_rupees). */
+  pointValueRupees: number;
   subtotalCents: number;        // ex-VAT taxable base (post-discount)
   grossSubtotalCents: number;   // sum of line amounts (pre-order-discount)
   orderDiscountCents: number;   // whole-sale discount, ex-VAT
@@ -88,7 +93,7 @@ export interface DocumentDetail {
 
 export async function getDocumentDetail(id: string): Promise<DocumentDetail | null> {
   const sb = await createClient();
-  const { data: doc } = await sb.from("documents").select("*, customers(name, email, phone)").eq("id", id).maybeSingle();
+  const { data: doc } = await sb.from("documents").select("*, customers(name, email, phone, points_balance)").eq("id", id).maybeSingle();
   if (!doc) return null;
 
   const [{ data: lines }, { data: payments }, { data: bs }] = await Promise.all([
@@ -96,7 +101,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     // work on it belongs on the jobs board, a products-only one is a straight sale.
     sb.from("document_lines").select("*, products(kind)").eq("document_id", id).order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
-    sb.from("business_settings").select("prices_vat_exclusive").limit(1).maybeSingle(),
+    sb.from("business_settings").select("prices_vat_exclusive, point_value_rupees").limit(1).maybeSingle(),
   ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inclVat = (bs as any)?.prices_vat_exclusive === false;
@@ -189,6 +194,9 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     customerEmail: d.customers?.email ?? null,
     customerPhone: d.customers?.phone ?? null,
     customerId: d.customer_id ?? null,
+    customerPointsBalance: d.customer_id != null ? Number(d.customers?.points_balance ?? 0) : null,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pointValueRupees: Number((bs as any)?.point_value_rupees ?? 1),
     subtotalCents,
     grossSubtotalCents,
     orderDiscountCents,

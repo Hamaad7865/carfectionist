@@ -175,7 +175,7 @@ export const createJob = (sb: Client, a: CreateJobArgs) =>
 
 export interface RecordPaymentArgs {
   invoiceId: string;
-  method: "cash" | "card" | "juice" | "bank_transfer";
+  method: "cash" | "card" | "juice" | "bank_transfer" | "points";
   amount: number; // rupees
   tendered?: number | null;
   externalRef?: string | null;

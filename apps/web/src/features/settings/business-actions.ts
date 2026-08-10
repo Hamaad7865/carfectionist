@@ -25,6 +25,17 @@ const schema = z.object({
     const n = typeof v === "number" ? v : parseFloat(v);
     return Number.isFinite(n) && n >= 0 ? n : 15;
   }),
+  // Mirrors business_settings' own CHECK constraints (20260811000020): earning may be
+  // switched off at zero, but never negative; a point must always be worth something,
+  // or spend_points has nothing to divide by.
+  pointsPer100: z.union([z.number(), z.string()]).transform((v) => {
+    const n = typeof v === "number" ? v : parseFloat(v);
+    return Number.isFinite(n) && n >= 0 ? n : 1;
+  }),
+  pointValueRupees: z.union([z.number(), z.string()]).transform((v) => {
+    const n = typeof v === "number" ? v : parseFloat(v);
+    return Number.isFinite(n) && n > 0 ? n : 1;
+  }),
 });
 
 export async function saveBusinessProfileAction(input: z.input<typeof schema>): Promise<Result> {
@@ -46,6 +57,8 @@ export async function saveBusinessProfileAction(input: z.input<typeof schema>): 
       bank_account_number: p.data.bankAccountNumber,
       bank_name: p.data.bankName,
       vat_rate: p.data.vatRate,
+      points_per_100: p.data.pointsPer100,
+      point_value_rupees: p.data.pointValueRupees,
     })
     .eq("id", ctx.tenantId);
   if (error) return { ok: false, error: error.message };

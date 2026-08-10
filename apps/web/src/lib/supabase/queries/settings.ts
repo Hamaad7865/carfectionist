@@ -18,6 +18,10 @@ export interface BusinessProfile {
   pricesVatInclusive: boolean;
   quoteSeries: string;
   invoiceSeries: string;
+  /** Points earned per Rs 100 of a settled sale (customer_points_ledger, 20260811000020). */
+  pointsPer100: number;
+  /** What one point is worth when a customer spends it. */
+  pointValueRupees: number;
 }
 
 export async function getBusinessProfile(): Promise<BusinessProfile | null> {
@@ -42,6 +46,8 @@ export async function getBusinessProfile(): Promise<BusinessProfile | null> {
     pricesVatInclusive: d.prices_vat_exclusive === false,
     quoteSeries: `${d.quote_prefix}… · next ${d.quote_next_number}`,
     invoiceSeries: `${d.invoice_prefix}… · next ${d.invoice_next_number}`,
+    pointsPer100: Number(d.points_per_100 ?? 1),
+    pointValueRupees: Number(d.point_value_rupees ?? 1),
   };
 }
 

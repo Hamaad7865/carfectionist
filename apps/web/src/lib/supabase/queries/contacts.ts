@@ -34,12 +34,25 @@ export interface CustomerSummary {
   isCompany: boolean;
   vehicleCount: number;
   outstandingCents: number;
+  pointsBalance: number;
+}
+export interface PointsLedgerEntry {
+  id: string;
+  delta: number;
+  reason: string; // 'earned' | 'redeemed' | 'adjusted' | 'reversed'
+  note: string | null;
+  createdAt: string;
 }
 export interface CustomerDetail extends CustomerSummary {
   spendCents: number;
   waOptOut: boolean;
   vehicles: ContactVehicle[];
   history: ContactDoc[];
+  /** What one point is worth right now (business_settings.point_value_rupees) —
+   *  rides along with the customer so the panel needs no second fetch. */
+  pointValueRupees: number;
+  /** Newest first — every movement, same order as the ledger's own index. */
+  pointsHistory: PointsLedgerEntry[];
 }
 export interface SupplierRow {
   id: string;
@@ -60,11 +73,12 @@ export interface ContactsData {
 
 export async function getContacts(selectedId?: string): Promise<ContactsData> {
   const sb = await createClient();
-  const [custRes, vehRes, docRes, supRes] = await Promise.all([
-    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, is_company, wa_opt_out").order("name"),
+  const [custRes, vehRes, docRes, supRes, bsRes] = await Promise.all([
+    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, is_company, wa_opt_out, points_balance").order("name"),
     sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes, is_active, is_coated"),
     sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at"),
     sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
+    sb.from("business_settings").select("point_value_rupees").limit(1).maybeSingle(),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -98,6 +112,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     isCompany: c.is_company ?? false,
     vehicleCount: vehicles.filter((v) => v.customer_id === c.id).length,
     outstandingCents: outstandingByCust.get(c.id) ?? 0,
+    pointsBalance: c.points_balance ?? 0,
   }));
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -107,6 +122,14 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
   let selected: CustomerDetail | null = null;
   if (selId) {
     const base = customers.find((c) => c.id === selId)!;
+    // Scoped to the one customer being viewed, unlike vehicles/docs above (fetched for
+    // everyone so the list can show counts) — nothing else on this page needs another
+    // customer's ledger, and it can grow one row per invoice plus every reversal.
+    const { data: ledgerRows } = await sb
+      .from("customer_points_ledger")
+      .select("id, delta, reason, note, created_at")
+      .eq("customer_id", selId)
+      .order("created_at", { ascending: false });
     selected = {
       ...base,
       spendCents: spendByCust.get(selId) ?? 0,
@@ -124,6 +147,16 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
           date: d.issue_date ?? (d.created_at as string).slice(0, 10),
           totalCents: rupeesToCents(Number(d.total_incl)),
         })),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pointValueRupees: Number((bsRes.data as any)?.point_value_rupees ?? 1),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pointsHistory: ((ledgerRows ?? []) as any[]).map((l) => ({
+        id: l.id,
+        delta: Number(l.delta),
+        reason: l.reason,
+        note: l.note,
+        createdAt: l.created_at,
+      })),
     };
   }
 

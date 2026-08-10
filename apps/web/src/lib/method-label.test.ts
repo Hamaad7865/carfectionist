@@ -17,6 +17,9 @@ describe("methodLabelFor", () => {
   it("single method", () => {
     expect(methodLabelFor([{ method: "card", amount: 5445 }])).toBe("Card");
   });
+  it("points is its own label, not left showing the raw method", () => {
+    expect(methodLabelFor([{ method: "points", amount: 5000 }])).toBe("Points");
+  });
   it("everything reversed → back to unpaid dash", () => {
     expect(methodLabelFor([{ method: "cash", amount: 100 }, { method: "cash", amount: -100 }])).toBe("—");
   });

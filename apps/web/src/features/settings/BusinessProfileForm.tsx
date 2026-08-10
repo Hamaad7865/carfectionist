@@ -11,6 +11,7 @@ type BForm = {
   legalName: string; tradingName: string; brn: string; vatNumber: string;
   email: string; phone: string; address: string;
   bankAccountName: string; bankAccountNumber: string; bankName: string; vatRate: string;
+  pointsPer100: string; pointValueRupees: string;
 };
 const seed = (b: BusinessProfile): BForm => ({
   legalName: b.legalName ?? "",
@@ -24,6 +25,8 @@ const seed = (b: BusinessProfile): BForm => ({
   bankAccountNumber: b.bankAccountNumber ?? "",
   bankName: b.bankName ?? "",
   vatRate: String(b.vatRate),
+  pointsPer100: String(b.pointsPer100),
+  pointValueRupees: String(b.pointValueRupees),
 });
 
 export function BusinessProfileForm({ profile }: { profile: BusinessProfile }) {
@@ -80,6 +83,13 @@ export function BusinessProfileForm({ profile }: { profile: BusinessProfile }) {
         <div className="grid grid-cols-2 gap-3">
           <Field label="Bank"><input className={inputCls} value={f.bankName} onChange={set("bankName")} /></Field>
           <Field label="VAT rate %" hint="Default tax rate on lines"><input className={inputCls} value={f.vatRate} onChange={set("vatRate")} inputMode="decimal" /></Field>
+        </div>
+      </Section>
+
+      <Section title="Loyalty points">
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Points per Rs 100" hint="Earned on a settled sale"><input className={inputCls} value={f.pointsPer100} onChange={set("pointsPer100")} inputMode="decimal" /></Field>
+          <Field label="A point is worth (Rs)" hint="Used when a customer spends points"><input className={inputCls} value={f.pointValueRupees} onChange={set("pointValueRupees")} inputMode="decimal" /></Field>
         </div>
       </Section>
 

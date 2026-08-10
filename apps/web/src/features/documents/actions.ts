@@ -59,7 +59,7 @@ export async function issueDocumentAction(input: z.infer<typeof issueSchema>): P
 
 const recordPaymentSchema = z.object({
   invoiceId: z.string(),
-  method: z.enum(["cash", "card", "juice", "bank_transfer"]),
+  method: z.enum(["cash", "card", "juice", "bank_transfer", "points"]),
   amountCents: z.number().int().positive(),
   tenderedCents: z.number().int().nullable().optional(),
   externalRef: z.string().nullable().optional(),
