@@ -1257,13 +1257,17 @@ export interface Allowance {
   reasonRequired: boolean;
 }
 
-/** The effective policy of a line: an explicit product policy, else its kind. */
+/**
+ * The effective policy of a line. An explicit product policy wins; 'inherit'
+ * defers to the kind. An unknown kind reads as a service, which is the safer
+ * default — it withholds a discount rather than granting one.
+ */
 export function policyOf(
   productPolicy: string | null | undefined,
   effectiveKind: string | null | undefined,
 ): DiscountPolicy {
   if (productPolicy && productPolicy !== 'inherit') return productPolicy as DiscountPolicy;
-  return effectiveKind === 'service' || !effectiveKind ? 'none' : 'free';
+  return effectiveKind === 'product' || effectiveKind === 'consumable' ? 'free' : 'none';
 }
 
 function grossInclCents(l: AllowanceLineInput): number {
