@@ -36,12 +36,27 @@ try {
   )).rows[0];
 
   console.log("▸ an owner's PIN records an override");
-  const row = (await c.query(
-    "select * from app.record_owner_override($1::uuid, '4321', 'discount', 'document', $2::uuid, 'goodwill', $3::jsonb)",
-    [owner.id, doc.id, JSON.stringify({ max_discount_incl: 500 })],
-  )).rows[0];
-  check("it is stamped with the approver", row.approved_by, owner.id);
-  check("it states a ceiling, not a yes", row.scope.max_discount_incl, 500);
+  // The RPC answers with jsonb {ok, override} rather than the row — a rejected
+  // PIN has to come back as a value, not an exception, or the raise rolls back
+  // the attempt counter and the lockout never engages (20260810000080).
+  const call = async (pin, reason = "goodwill", scope = { max_discount_incl: 500 }) =>
+    (await c.query(
+      "select app.record_owner_override($1::uuid, $2, 'discount', 'document', $3::uuid, $4, $5::jsonb) as r",
+      [owner.id, pin, doc.id, reason, JSON.stringify(scope)],
+    )).rows[0].r;
+
+  const ok = await call("4321");
+  check("it reports success", ok.ok, true);
+  check("it is stamped with the approver", ok.override.approved_by, owner.id);
+  check("it states a ceiling, not a yes", ok.override.scope.max_discount_incl, 500);
+
+  console.log("▸ a wrong PIN answers, it does not throw");
+  const bad = await call("0000");
+  check("ok is false", bad.ok, false);
+  check("and it says why", bad.reason, "bad_pin");
+  // The whole point of answering rather than raising: the attempt is counted.
+  const attempts = (await c.query("select pin_attempts from public.app_users where id=$1", [owner.id])).rows[0].pin_attempts;
+  check("the guess was counted against the account", Number(attempts) > 0, true);
 
   console.log("▸ what it refuses");
   const refuses = async (label, sql, params) => {
@@ -54,7 +69,8 @@ try {
     check(label, msg !== "accepted", true);
     return msg;
   };
-  await refuses("a wrong PIN", "select app.record_owner_override($1::uuid,'0000','discount','document',$2::uuid,'x','{}'::jsonb)", [owner.id, doc.id]);
+  // A wrong PIN is checked above — it ANSWERS rather than raising. What still
+  // raises is a caller mistake: an approver who is not an owner, or no reason.
   if (other) {
     await refuses("a correct PIN belonging to a non-owner", "select app.record_owner_override($1::uuid,'4321','discount','document',$2::uuid,'x','{}'::jsonb)", [other.id, doc.id]);
   }

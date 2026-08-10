@@ -181,21 +181,26 @@ export async function POST(req: Request) {
     return json({ error: "server_error" }, 500);
   }
 
-  // record_owner_override returns a composite (public.owner_overrides), and
-  // PostgREST hands a single-row composite back array-wrapped. Reading data.id
-  // off the array gave undefined for every field, so this body was going out as
-  // {"override":{}}. Harmless — both callers only check the status — but wrong,
-  // and the same unwrap already guards getSessionContext for the same reason.
+  // A REJECTED PIN COMES BACK HERE, NOT IN `error`. record_owner_override
+  // answers {ok:false, reason} rather than raising, because raising would roll
+  // back the attempt counter verify_staff_pin had just incremented and hand the
+  // guesser a free try (see 20260810000080). So the soft answer has to be
+  // classified — without this, a refusal falls through and is reported to the
+  // cashier as an approval, which is the worst possible direction to fail in.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const row = (Array.isArray(data) ? data[0] : data) as any;
+  const result = (Array.isArray(data) ? data[0] : data) as any;
+  if (!result?.ok) {
+    return json({ error: "pin_rejected", reason: result?.reason ?? "invalid" }, 401);
+  }
 
+  const row = result.override ?? {};
   return json({
     override: {
-      id: row?.id,
-      kind: row?.kind,
-      refType: row?.ref_type,
-      refId: row?.ref_id,
-      createdAt: row?.created_at,
+      id: row.id,
+      kind: row.kind,
+      refType: row.ref_type,
+      refId: row.ref_id,
+      createdAt: row.created_at,
     },
   });
 }
