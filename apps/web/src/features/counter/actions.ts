@@ -159,6 +159,9 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
         origin: "standalone",
         discount_kind: p.data.orderDiscountKind ?? null,
         discount_value: p.data.orderDiscountKind === "amount" ? (p.data.orderDiscountValue ?? 0) / 100 : (p.data.orderDiscountValue ?? 0),
+        // The counter has no reason-collecting UI (a quick shelf sale, not the document
+        // builder) — issue_document still enforces the allowance and refuses if one's owed.
+        discount_reason: null,
       },
       rpcLines,
       null,

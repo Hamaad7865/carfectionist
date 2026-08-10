@@ -20,7 +20,7 @@ const RichEditor = dynamic(() => import("./RichEditor"), {
     <div className="rounded-[9px] border border-line-2 bg-sub px-3 py-4 text-[12px] text-faint">Loading editor…</div>
   ),
 });
-import { computeTotals, computeLineTotals, formatMUR, parseMoneyInput, grossCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
+import { computeTotals, computeLineTotals, computeAllowance, lineAllowanceCents, policyOf, CARWASH_MAX_PCT, formatMUR, parseMoneyInput, grossCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
@@ -40,7 +40,7 @@ const newKey = () => crypto.randomUUID();
 // Signature of the editable content — used to detect edits made WHILE a save is
 // in flight, so saveOk doesn't clear dirty and silently drop them.
 const editSig = (st: BuilderState) =>
-  JSON.stringify({ l: st.lines, c: st.customerId, d: st.docType, sc: st.sectionConfig, cf: st.customFields, cm: st.comment, dk: st.docDiscountKind, dv: st.docDiscountValue });
+  JSON.stringify({ l: st.lines, c: st.customerId, d: st.docType, sc: st.sectionConfig, cf: st.customFields, cm: st.comment, dk: st.docDiscountKind, dv: st.docDiscountValue, dr: st.docDiscountReason });
 
 /**
  * A money text field that keeps a local editing buffer so a transient "1500."
@@ -128,7 +128,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       const startSig = editSig(s);
       dispatch({ type: "saveStart" });
       const payload: SaveDraftInput = {
-        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, comment: s.comment, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue },
+        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, comment: s.comment, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue, discountReason: s.docDiscountReason },
         lines: toSaveDraftLines(s.lines),
         expectedRev: serverRef.current.docId ? serverRef.current.revision : null,
       };
@@ -151,12 +151,13 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (state.status !== "draft" || !state.dirty) return;
     const t = setTimeout(() => void doSave(), 1200);
     return () => clearTimeout(t);
-  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.comment, state.status, state.docDiscountKind, state.docDiscountValue, doSave]);
+  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.comment, state.status, state.docDiscountKind, state.docDiscountValue, state.docDiscountReason, doSave]);
 
   async function onIssue() {
     const s = stateRef.current;
     if (s.lines.length === 0) return dispatch({ type: "saveError", error: "Add at least one line before issuing." });
     if (s.docType === "invoice" && !s.customerId) return dispatch({ type: "saveError", error: "An invoice requires a customer." });
+    if (discountBlockReason) return dispatch({ type: "saveError", error: discountBlockReason });
     setBusy(true);
     const id = await doSave();
     if (!id) return setBusy(false);
@@ -178,10 +179,30 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     else dispatch({ type: "saveError", error: res.error });
   }
 
-  const totals = computeTotals(
-    state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct })),
-    state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null,
-  );
+  // One assembly, shared by the totals and the discount-allowance math below — a line's
+  // policy rides beside the fields computeTotals already wanted.
+  const lineInputs = state.lines.map((l) => ({
+    qty: l.qty,
+    unitCents: l.unitCents,
+    discountPct: l.discountPct,
+    discountKind: l.discountKind,
+    discountAmountCents: l.discountAmountCents,
+    vatRatePct: l.vatRatePct,
+    policy: l.discountPolicy,
+  }));
+  const docDiscount = state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null;
+  const totals = computeTotals(lineInputs, docDiscount);
+  // The database is the authority (app.assert_discount_allowed, raised from inside
+  // issue_document) — this mirrors it so the builder can clamp an input and explain
+  // the limit before the cashier fills a basket they will not be allowed to issue.
+  const allowance = computeAllowance(lineInputs, docDiscount);
+  // Owner approval is the next task's job (A10) — until that exists, going over the
+  // ceiling has no escape route from here but the owner themselves.
+  const discountBlockReason = allowance.overCeiling
+    ? `This discount is over the ${formatMUR(allowance.ceilingCents)} allowed on this ${state.docType} — ask the owner.`
+    : allowance.reasonRequired && !state.docDiscountReason.trim()
+      ? "Add a reason for this discount before issuing."
+      : null;
   // Quoting gross: state the subtotal and discount at shelf price, each line at its own rate,
   // so Subtotal − Discount = Total still reads correctly. VAT becomes "of which".
   const subtotalShown = ctx.pricesInclVat
@@ -251,7 +272,8 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (!adName.trim()) return;
     // Typed as the shelf price when the shop quotes gross — store the net the ledger adds VAT to.
     const cents = ctx.pricesInclVat ? netFromGrossCents(typed, 15) : typed;
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: adKind } });
+    // No product to ask, so the row's own Service/Product control decides the allowance too.
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind), vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -292,19 +314,35 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             in the middle of its "sent ✓". The save is flushed first — the autosave
             debounce means the newest line may not have reached the server yet. */}
         {state.docType === "quote" && state.docId && (!readOnly || state.number) && (
-          <DocumentShareBar
-            documentId={state.docId}
-            number={state.number}
-            onBeforeSend={async () => !!(await doSave())}
-            onSent={(issued) => {
-              if (!issued) return;
-              dispatch({ type: "issued", number: issued.number, status: issued.status });
-              router.refresh();
-            }}
-          />
+          !readOnly && discountBlockReason ? (
+            // Sending a draft quote issues it on the way out (same path as the Issue
+            // button), so it hits the same DB refusal — block it here instead.
+            <span
+              title={discountBlockReason}
+              className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[12.5px] font-semibold text-faint"
+            >
+              Can&rsquo;t send — {discountBlockReason}
+            </span>
+          ) : (
+            <DocumentShareBar
+              documentId={state.docId}
+              number={state.number}
+              onBeforeSend={async () => !!(await doSave())}
+              onSent={(issued) => {
+                if (!issued) return;
+                dispatch({ type: "issued", number: issued.number, status: issued.status });
+                router.refresh();
+              }}
+            />
+          )
         )}
         {!readOnly && (
-          <button onClick={onIssue} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center gap-2 rounded-[10px] px-[18px] font-display text-[13px] font-extrabold text-white disabled:opacity-60">
+          <button
+            onClick={onIssue}
+            disabled={busy || !!discountBlockReason}
+            title={discountBlockReason ?? undefined}
+            className="grad-brand shadow-brand flex h-[38px] items-center gap-2 rounded-[10px] px-[18px] font-display text-[13px] font-extrabold text-white disabled:opacity-60"
+          >
             {busy ? "Working…" : `Issue ${state.docType}`}
             <ArrowRight size={16} />
           </button>
@@ -447,7 +485,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         key={p.id}
                         onClick={() => {
                           // From the catalogue: the product's own kind answers, so this stays null.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: p.vatRatePct, lineKind: null } });
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind), vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -504,6 +542,13 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   const net = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct }).exclCents;
                   const descOpen = openDesc === l.key;
                   const summary = l.rich ? richToPlainText(l.rich) : l.description;
+                  // What this line's own discount control may give away — the database's
+                  // app.document_discount_limits computes the same ceiling from the product join.
+                  const lineDiscountDisabled = l.discountPolicy === "none";
+                  const linePctMax = l.discountPolicy === "carwash" ? CARWASH_MAX_PCT : 100;
+                  const lineAmtMax = l.discountPolicy === "carwash"
+                    ? lineAllowanceCents({ qty: l.qty, unitCents: l.unitCents, vatRatePct: l.vatRatePct, policy: l.discountPolicy, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents })
+                    : Infinity;
                   return (
                     <div key={l.key} className="rounded-[11px] border border-line bg-card">
                     <div className="flex flex-wrap items-center gap-2.5 px-3 py-2.5">
@@ -544,23 +589,28 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         VAT
                       </button>
                       {!readOnly && (
-                        <div className="flex items-center rounded-[7px] border border-line-2 bg-sub" title="Line discount (% or Rs off)">
+                        <div
+                          className={`flex items-center rounded-[7px] border border-line-2 bg-sub ${lineDiscountDisabled ? "opacity-50" : ""}`}
+                          title={lineDiscountDisabled ? "This service is not discounted — ask the owner" : "Line discount (% or Rs off)"}
+                        >
                           <button
+                            disabled={lineDiscountDisabled}
                             onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 } })}
-                            className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint"
+                            className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint disabled:cursor-not-allowed"
                           >
                             {l.discountKind === "amount" ? "Rs" : "%"}
                           </button>
                           <input
+                            disabled={lineDiscountDisabled}
                             value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")}
                             onChange={(e) =>
                               l.discountKind === "amount"
-                                ? dispatch({ type: "patchLine", key: l.key, patch: { discountAmountCents: Math.max(0, parseMoneyInput(e.target.value) ?? 0) } })
-                                : dispatch({ type: "patchLine", key: l.key, patch: { discountPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) } })
+                                ? dispatch({ type: "patchLine", key: l.key, patch: { discountAmountCents: Math.min(lineAmtMax, Math.max(0, parseMoneyInput(e.target.value) ?? 0)) } })
+                                : dispatch({ type: "patchLine", key: l.key, patch: { discountPct: Math.min(linePctMax, Math.max(0, parseFloat(e.target.value) || 0)) } })
                             }
                             inputMode="decimal"
                             placeholder="disc"
-                            className="h-7 w-11 bg-transparent pr-1.5 text-right text-[11px] text-body outline-none placeholder:text-faint"
+                            className="h-7 w-11 bg-transparent pr-1.5 text-right text-[11px] text-body outline-none placeholder:text-faint disabled:cursor-not-allowed"
                           />
                         </div>
                       )}
@@ -753,6 +803,23 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   />
                 </div>
               </div>
+            )}
+            {!readOnly && allowance.actualCents > 0 && (
+              <p className="mb-2 text-[11px] text-faint">
+                Up to {formatMUR(allowance.ceilingCents)} may be discounted on this bill.
+              </p>
+            )}
+            {!readOnly && allowance.reasonRequired && (
+              <input
+                value={state.docDiscountReason}
+                onChange={(e) => dispatch({ type: "setDiscountReason", reason: e.target.value })}
+                required
+                placeholder="Why — e.g. regular customer, repeat wash"
+                className="mb-2 h-9 w-full rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12.5px] text-ink outline-none placeholder:text-faint focus:border-brand"
+              />
+            )}
+            {!readOnly && discountBlockReason && (
+              <p className="mb-2 text-[11px] font-semibold text-rose">{discountBlockReason}</p>
             )}
             <div className="flex justify-between py-1 text-muted"><span>Subtotal</span><span className="num text-ink">{formatMUR(subtotalShown)}</span></div>
             {discountShown > 0 && (

@@ -19,6 +19,7 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
     lines: draft.lines.map((l) => ({ key: newKey(), ...l })),
     docDiscountKind: draft.docDiscountKind,
     docDiscountValue: draft.docDiscountValue,
+    docDiscountReason: draft.docDiscountReason,
     sectionConfig: draft.sectionConfig,
     customFields: draft.customFields,
     comment: draft.comment,

@@ -14,6 +14,7 @@ const base: BuilderState = {
   lines: [line("a", "Decontamination"), line("b", "Waterspot"), line("c", "Diamondbrite")],
   docDiscountKind: null,
   docDiscountValue: 0,
+  docDiscountReason: "",
   sectionConfig: {},
   customFields: [],
   comment: "",
@@ -85,6 +86,28 @@ describe("duplicateLine", () => {
   });
 });
 
+describe("setDiscountReason", () => {
+  it("sets the reason", () => {
+    const s = reducer(base, { type: "setDiscountReason", reason: "regular customer" });
+    expect(s.docDiscountReason).toBe("regular customer");
+  });
+
+  it("marks the document dirty so a reason typed on its own still autosaves", () => {
+    expect(reducer(base, { type: "setDiscountReason", reason: "repeat wash" }).dirty).toBe(true);
+  });
+});
+
+describe("blankLine", () => {
+  it("gives a freshly typed line the policy its default kind allows", () => {
+    // A hand-typed line has no product, so its own lineKind decides (policyOf(null,
+    // lineKind)). blankLine() defaults lineKind to "service", which is why a brand
+    // new ad-hoc line starts undiscountable until the row's own Service/Product
+    // control says otherwise.
+    expect(blankLine().lineKind).toBe("service");
+    expect(blankLine().discountPolicy).toBe("none");
+  });
+});
+
 describe("toSaveDraftLines", () => {
   it("carries the description and the unit into the save payload", () => {
     // The builder used to hand-list the payload fields and simply forgot these two,
@@ -98,11 +121,13 @@ describe("toSaveDraftLines", () => {
 
   it("carries every editable field a line has", () => {
     // The generic guard: add a field to BuilderLine and forget the payload, and this
-    // fails. `key` is the only client-side-only field.
+    // fails. `key` and `discountPolicy` are the only client-side-only fields —
+    // discountPolicy is re-derived by the database itself from the product join
+    // (app.document_discount_limits), so it is never document content.
     const line = blankLine();
     const out = toSaveDraftLines([line]);
     const carried = new Set(Object.keys(out[0]));
-    const missing = Object.keys(line).filter((k) => k !== "key" && !carried.has(k));
+    const missing = Object.keys(line).filter((k) => k !== "key" && k !== "discountPolicy" && !carried.has(k));
     expect(missing).toEqual([]);
   });
 });

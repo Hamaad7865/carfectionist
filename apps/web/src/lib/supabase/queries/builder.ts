@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { rupeesToCents } from "@/lib/money";
+import { rupeesToCents, policyOf, type DiscountPolicy } from "@/lib/money";
 import { getSessionContext } from "@/lib/auth/session";
 import { resolveDocAssets, type DocAssets } from "@/lib/pdf/assets";
 import { productPhotoUrl } from "@/lib/supabase/storage";
@@ -15,6 +15,8 @@ export interface CatalogueProduct {
   vatRatePct: number;
   isStocked: boolean;
   kind: string;
+  /** How much of this product may be discounted: inherit | none | carwash | free. */
+  discountPolicy: string;
   photoUrl: string | null;
 }
 export interface BuilderCustomer {
@@ -56,7 +58,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
   const [bsRes, tmplRes, prodRes, custRes] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
-    sb.from("products").select("id, name, selling_price, vat_rate, is_stocked, kind, photo_path").eq("is_active", true).order("kind").order("name"),
+    sb.from("products").select("id, name, selling_price, vat_rate, is_stocked, kind, photo_path, discount_policy").eq("is_active", true).order("kind").order("name"),
     sb.from("customers").select("id, name, country, email, phone, brn, vat_number").order("name"),
   ]);
 
@@ -96,6 +98,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       vatRatePct: p.vat_rate != null ? Number(p.vat_rate) : defaultVat,
       isStocked: p.is_stocked,
       kind: p.kind,
+      discountPolicy: p.discount_policy,
       photoUrl: productPhotoUrl(p.photo_path),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -121,6 +124,7 @@ export interface LoadedDraft {
   revision: number;
   docDiscountKind: "percent" | "amount" | null;
   docDiscountValue: number; // percent: % ; amount: Cents (VAT-inclusive)
+  docDiscountReason: string;
   sectionConfig: Partial<SectionFlags>;
   customFields: { label: string; value: string }[];
   comment: string;
@@ -135,6 +139,7 @@ export interface LoadedDraft {
     discountPct: number;
     discountKind: "percent" | "amount";
     discountAmountCents: number;
+    discountPolicy: DiscountPolicy;
     vatRatePct: number;
     lineKind: "service" | "product" | null;
   }[];
@@ -146,7 +151,9 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
   if (!doc) return null;
   const { data: lines } = await sb
     .from("document_lines")
-    .select("*")
+    // products(discount_policy, kind) rides along so a reopened line clamps its discount
+    // the same way a freshly added one does — the same join app.document_discount_limits uses.
+    .select("*, products(discount_policy, kind)")
     .eq("document_id", id)
     .order("sort_order");
 
@@ -164,6 +171,7 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     revision: d.revision,
     docDiscountKind: d.discount_kind ?? null,
     docDiscountValue: d.discount_kind === "amount" ? rupeesToCents(Number(d.discount_value)) : Number(d.discount_value ?? 0),
+    docDiscountReason: d.discount_reason ?? "",
     sectionConfig: flags as Partial<SectionFlags>,
     customFields: Array.isArray(cf) ? (cf as { label: string; value: string }[]) : [],
     comment: d.comment ?? "",
@@ -179,6 +187,9 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
       discountPct: Number(l.discount_pct),
       discountKind: (l.discount_kind ?? "percent") as "percent" | "amount",
       discountAmountCents: rupeesToCents(Number(l.discount_amount ?? 0)),
+      // A catalogue line's product answers; an ad-hoc line's own line_kind does — the
+      // same fallback app.document_discount_limits computes server-side.
+      discountPolicy: policyOf(l.products?.discount_policy ?? null, l.line_kind ?? l.products?.kind ?? "service"),
       vatRatePct: Number(l.vat_rate),
       // Only a hand-typed line ever stated one; a catalogue line reads null and
       // lets its product answer.

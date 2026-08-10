@@ -43,6 +43,7 @@ export const draftDocSchema = z.object({
   comment: z.string().nullable().optional(), // internal note; never on a receipt/PDF
   discountKind: z.enum(["percent", "amount"]).nullable().optional(),
   discountValue: z.number().min(0).optional(), // percent: %, amount: Cents (VAT-inclusive)
+  discountReason: z.string().optional(), // why — required once the discount reaches a carwash allowance
 }).superRefine((d, ctx) => {
   // Order percent discount is bounded like the line-level one — an uncapped value
   // would drive an issued invoice's totals negative.
@@ -74,6 +75,8 @@ export function toRpcDoc(doc: SaveDraftInput["doc"]): RpcDraftDoc {
     discount_kind: doc.discountKind ?? null,
     // amount is held in cents above the seam; the DB wants rupees (VAT-inclusive)
     discount_value: doc.discountKind === "amount" ? (doc.discountValue ?? 0) / 100 : (doc.discountValue ?? 0),
+    // "" arrives whenever no reason was typed; save_draft's own nullif('') turns that into null.
+    discount_reason: doc.discountReason ?? null,
   };
 }
 

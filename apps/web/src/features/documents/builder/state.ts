@@ -1,5 +1,6 @@
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
 import type { DiscountKind } from "@/lib/money/totals";
+import { policyOf, type DiscountPolicy } from "@/lib/money/allowance";
 import type { RichDoc } from "@/lib/rich/types";
 
 export interface BuilderLine {
@@ -16,6 +17,11 @@ export interface BuilderLine {
   discountPct: number;
   discountKind: DiscountKind;      // 'percent' uses discountPct; 'amount' uses discountAmountCents
   discountAmountCents: number;     // VAT-inclusive Rs off, in cents
+  /** How much of this line may be discounted — 'none' | 'carwash' | 'free'. A catalogue
+   *  line reads its product's policy; an ad-hoc line has no product, so its own lineKind
+   *  decides (policyOf(null, lineKind)). UI-only: the database re-derives this itself from
+   *  the product join (app.document_discount_limits), so it never rides the save payload. */
+  discountPolicy: DiscountPolicy;
   vatRatePct: number;
   // What the line IS — stated only on an ad-hoc line, because nothing else can say.
   // A catalogue line leaves it null: products.kind is the better answer, and copying it
@@ -34,6 +40,9 @@ export interface BuilderState {
   lines: BuilderLine[];
   docDiscountKind: DiscountKind | null;  // null = no order discount
   docDiscountValue: number;              // percent: % ; amount: Cents (VAT-inclusive)
+  /** Why a discount reaching into a service/carwash allowance was given — one box per
+   *  document, read back by app.assert_discount_allowed. "" = none typed yet. */
+  docDiscountReason: string;
   sectionConfig: Partial<SectionFlags>;
   customFields: { label: string; value: string }[];
   comment: string; // internal note — shown in Sales list + invoice screen, never on a receipt/PDF
@@ -54,6 +63,9 @@ export function newKey(): string {
  * dropped on the way to the server while every unit test still passed, because the
  * tests called the conversion directly with a tree the builder never supplied.
  * state.test.ts now asserts that every field of a BuilderLine except `key` arrives.
+ * `discountPolicy` is the other exception: it is UI-only, re-derived by the database
+ * itself from the product join (app.document_discount_limits), so it is never document
+ * content and never rides this payload.
  */
 export function toSaveDraftLines(lines: BuilderLine[]) {
   return lines.map((l) => ({
@@ -75,7 +87,7 @@ export function toSaveDraftLines(lines: BuilderLine[]) {
 export function blankLine(): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.
-  return { key: newKey(), productId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, vatRatePct: 15, lineKind: "service" };
+  return { key: newKey(), productId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, "service"), vatRatePct: 15, lineKind: "service" };
 }
 
 export type BuilderAction =
@@ -87,6 +99,7 @@ export type BuilderAction =
   | { type: "moveLine"; key: string; by: -1 | 1 }
   | { type: "duplicateLine"; key: string }
   | { type: "setDocDiscount"; kind: DiscountKind | null; value: number }
+  | { type: "setDiscountReason"; reason: string }
   | { type: "setSection"; key: keyof SectionFlags; value: boolean }
   | { type: "addCustomField"; field?: { label: string; value: string } }
   | { type: "patchCustomField"; index: number; patch: Partial<{ label: string; value: string }> }
@@ -136,6 +149,8 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
     }
     case "setDocDiscount":
       return touched({ ...state, docDiscountKind: action.kind, docDiscountValue: action.value });
+    case "setDiscountReason":
+      return touched({ ...state, docDiscountReason: action.reason });
     case "setSection":
       return touched({ ...state, sectionConfig: { ...state.sectionConfig, [action.key]: action.value } });
     case "addCustomField":
