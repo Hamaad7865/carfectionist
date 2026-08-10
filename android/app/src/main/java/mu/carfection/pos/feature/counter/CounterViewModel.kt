@@ -226,9 +226,15 @@ data class CounterUiState(
      * [computeAllowance] runs on the quote builder. Advisory only: issue_document is the
      * real gate, but a sale blocked here never reaches it, so a rejection it would raise
      * is never queued offline either (see SaleRepository.DETERMINISTIC_ISSUE_REJECTIONS).
+     *
+     * Empty while [collect] is set: collectOn() does not clear [cart] (a walk-in built and
+     * abandoned for a TO COLLECT bill stays in memory), and a collect settles an ALREADY-issued
+     * invoice with no cart of its own — dueCents already reads the bill, not the cart, for
+     * exactly this reason. Without this guard a stale cart's discount could block a payment
+     * that has nothing to do with it.
      */
     val allowance: Allowance
-        get() = computeAllowance(
+        get() = if (collect != null) computeAllowance(emptyList(), null) else computeAllowance(
             cart.map { it.allowanceInput },
             docDiscount = orderDiscountKind?.let { DocDiscount(it, if (it == "percent") basketPct.toDouble() else basketAmtCents.toDouble()) },
             approvedMaxCents = null, // the owner-override dialog is a later task; this stays a hard block until then
