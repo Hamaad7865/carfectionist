@@ -183,15 +183,16 @@ after-insert trigger on the ledger. The ledger is the truth; the column is the
 fast read. `app.forbid_mutation` guards the ledger against update and delete,
 matching the convention already used for append-only tables.
 
-Rates:
+Rates, both on `business_settings`:
 
-- `points_earn_rates (tenant_id, category text, points_per_100 numeric)` —
-  primary key `(tenant_id, category)`, keyed on `products.category`, per the
-  owner's choice of per-category rates.
-- `business_settings.points_per_100_default numeric not null default 1` — the
-  fallback for an uncategorised product or an ad-hoc line.
-- `business_settings.point_value_rupees numeric not null default 1.00` — what a
-  point is worth when spent.
+- `points_per_100 numeric not null default 1` — points earned per Rs 100 of a
+  sale.
+- `point_value_rupees numeric not null default 1.00` — what a point is worth
+  when spent.
+
+One rate for the whole shop, not a table keyed on category: the earn is a
+property of the sale, not of what happened to be on it. A cashier can answer
+"how many points do I get?" from the total on the screen.
 
 ### Earning
 
@@ -199,21 +200,19 @@ Computed inside `record_payment`, at the point it already detects
 `v_paid >= v_doc.total_incl` — an invoice earns once, when it is settled in
 full, and only if it names a customer.
 
-Each line contributes its inclusive share of `total_incl` at its category's
-rate. The share paid *with points* earns nothing:
+The base is the sale total. The share settled *with points* earns nothing:
 
 ```
-line_incl       = line_total_excl + line_vat          -- post line discount
-line_share_incl = total_incl * line_incl / Σ line_incl -- absorbs the order discount
-factor          = (total_incl − points_paid_on_this_invoice) / total_incl
-points          = floor( Σ ( line_share_incl * factor / 100 * rate(line.category) ) )
+earning_base = total_incl − points_paid_on_this_invoice
+points       = floor( earning_base / 100 * points_per_100 )
 ```
 
-Apportioning by share rather than reading each line's own total is what makes
-the order discount reduce the points earned in proportion, instead of being
-ignored. `rate(line.category)` falls back to
-`business_settings.points_per_100_default` for an ad-hoc line or an
-uncategorised product.
+`total_incl` is already net of every discount, so a discounted sale earns on
+what the customer actually paid. Excluding the points-settled share is what
+stops a balance being recycled — paying with points and re-earning on the same
+money would let a customer top themselves up indefinitely.
+
+The lines are not consulted at all.
 
 One ledger row per invoice, `reason='earned'`, `ref_type='document'`.
 
@@ -288,7 +287,7 @@ Android app gets the same calculation in Kotlin.
   reason field appears when the discount reaches into a carwash allowance; an
   "Owner approval" dialog appears above the ceiling.
 - Customer page: points balance and ledger.
-- Settings: per-category earn rates, point value.
+- Settings: the earn rate and the point value.
 - Payment UI: a Points tender showing the customer's balance.
 - Z-report: a Points line in the means-of-payment split.
 
@@ -313,9 +312,9 @@ to accept the write.
 - `scripts/_verify-owner-override.mjs` — a non-owner PIN is refused; an owner PIN
   raises the ceiling to the approved figure and no further; editing the document
   upward after approval still refuses; an override lets a reversal through.
-- `scripts/_verify-points.mjs` — earning fires once on full settlement, honours
-  per-category rates, and ignores the points-paid portion; redeeming debits the
-  ledger and refuses an overdraft; reversing a payment returns the points and
+- `scripts/_verify-points.mjs` — earning fires once on full settlement, earns on
+  the discounted total, and ignores the points-settled portion; redeeming debits
+  the ledger and refuses an overdraft; reversing a payment returns the points and
   unwinds the earn.
 - Vitest for `allowance.ts`, including the canonical VAT vector
   (77,200 / 11,580 / 88,780) proving the undiscounted path is untouched.
@@ -327,7 +326,7 @@ to accept the write.
 `documents.discount_reason`; `owner_overrides` + the approval route; guards in
 `save_draft` and `issue_document`; the reversal tightening; web and tablet UI.
 
-**Phase B — rule 4.** The ledger, balance and rate tables; the `points` enum
+**Phase B — rule 4.** The ledger, the balance and the two rate settings; the `points` enum
 value and its usage (separate migrations — PostgreSQL will not let a new enum
 value be *used* in the transaction that adds it); earning and spending in
 `record_payment`; reversal handling; UI, settings and receipts.
