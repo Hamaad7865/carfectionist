@@ -1,14 +1,22 @@
-// Rolled-back verification for 20260811000020 (ledger, balance, rates) and
-// 20260811000030 (a settled bill earns its points).
+// Rolled-back verification for 20260811000020 (ledger, balance, rates),
+// 20260811000030 (a settled bill earns its points) and 20260811000040
+// (points can settle a bill).
 //
-// Spending and reversal are the NEXT task — this only proves storage and
-// earning: the ledger is append-only truth, customers.points_balance is a
-// trigger-derived cache of it (never written directly), earning follows
+// Storage and earning: the ledger is append-only truth, customers.points_balance
+// is a trigger-derived cache of it (never written directly), earning follows
 // total_incl at one flat shop-wide rate, fires once on FULL settlement (not
 // per part-payment — flooring fragments would lose points to rounding), nets
 // out whatever the same invoice already collected in points (so a balance
 // cannot top itself up), and is idempotent under a retried or replayed award
 // via the ledger's unique partial index.
+//
+// Spending: a points payment is a TENDER — total_incl and the VAT snapshot
+// never move, only how the bill gets settled — and gets its own branch ahead
+// of record_payment's external-reference else-branch, because the ledger row
+// it writes IS the reference. The rupee cost rounds UP (ceil), never down, so
+// the shop is never out of pocket for a fraction of a point. Still gated on
+// an open till like every other method (20260716000040): a points payment is
+// real settlement the cash-up has to see.
 //
 // Runs as `authenticated` impersonating first the shop owner (Anesh), then —
 // for anything that must ISSUE a document — the sandbox tenant's owner: the
@@ -243,6 +251,153 @@ try {
     [draftNoCust.id],
   )).rows[0].n;
   check("no ledger row for a document with no customer", noCustEarn, 0);
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 20260811000040 — points can settle a bill (spending)
+  // 20260811000050 — reversing gives the points back (unwinding)
+  // Still impersonating SANDBOX_AUTH, on the same open sandbox till as above.
+  // ─────────────────────────────────────────────────────────────────────────
+  const sbOwner = (await c.query(
+    "select id from public.app_users where tenant_id=$1 and role='owner' and is_active limit 1", [sbTenant],
+  )).rows[0].id;
+
+  // Seeds a points balance directly on the ledger — same reason as check 2's
+  // seeding above: customer_points_ledger has no INSERT policy for
+  // `authenticated`, every real write goes through a SECURITY DEFINER RPC.
+  const seedPoints = async (customerId, delta) => {
+    await c.query("set local role postgres");
+    await c.query(
+      `insert into public.customer_points_ledger (tenant_id, customer_id, delta, reason, ref_type, ref_id, created_by)
+       values ($1,$2,$3,'adjusted',null,null,$4)`,
+      [sbTenant, customerId, delta, sbOwner],
+    );
+    await asUser(SANDBOX_AUTH);
+  };
+  const balanceOf = async (customerId) =>
+    (await c.query("select points_balance from public.customers where id=$1", [customerId])).rows[0].points_balance;
+
+  console.log("▸ 8. spending: Rs 50 of points costs 50 points at the default rate");
+  const spendRates = (await c.query(
+    "select point_value_rupees from public.business_settings where id=$1", [sbTenant],
+  )).rows[0];
+  check("sandbox point_value_rupees is still the default 1.00", Number(spendRates.point_value_rupees), 1.00);
+
+  const spendCust = (await c.query(
+    "insert into public.customers (tenant_id, name) values ($1,'Points Spend Probe') returning id",
+    [sbTenant],
+  )).rows[0].id;
+  await seedPoints(spendCust, 50);
+  check("seeded balance before spending", await balanceOf(spendCust), 50);
+
+  const spendDraft = (await c.query(
+    "select * from public.save_draft($1::jsonb, $2::jsonb, null)",
+    [JSON.stringify({ doc_type: "invoice", customer_id: spendCust }), JSON.stringify([mkLine({})])],
+  )).rows[0];
+  const spendInv = (await c.query("select * from public.issue_document($1::uuid, null, null, null)", [spendDraft.id])).rows[0];
+  check("spend invoice total_incl before any payment", spendInv.total_incl, "1150.00");
+
+  const spendPay = (await c.query(
+    "select * from public.record_payment($1::uuid, 'points'::payment_method, 50, null, null, $2::uuid, null, null)",
+    [spendInv.id, till.id],
+  )).rows[0];
+  check("50 rupees of points costs exactly 50 points off the balance", await balanceOf(spendCust), 0);
+  const spendLedgerRow = (await c.query(
+    "select delta from public.customer_points_ledger where ref_type='document' and ref_id=$1 and reason='redeemed'",
+    [spendInv.id],
+  )).rows[0];
+  check("the redeemed ledger row is -50", spendLedgerRow.delta, -50);
+
+  console.log("▸ 9. spending is a tender: total_incl does not move, amount_paid counts it");
+  const spendDocAfter = (await c.query(
+    "select total_incl, amount_paid, status from public.documents where id=$1", [spendInv.id],
+  )).rows[0];
+  check("total_incl is unchanged by a points payment", spendDocAfter.total_incl, "1150.00");
+  check("amount_paid counts the points payment", Number(spendDocAfter.amount_paid), 50);
+  check("the bill is partly paid (settled by a tender), not discounted down", spendDocAfter.status, "partly_paid");
+
+  console.log('▸ 10. an overdraft is refused with "not enough points"');
+  let overdraftOutcome = "accepted";
+  await c.query("savepoint sod");
+  try {
+    await c.query(
+      "select * from public.record_payment($1::uuid, 'points'::payment_method, 10, null, null, $2::uuid, null, null)",
+      [spendInv.id, till.id],
+    );
+  } catch (e) { overdraftOutcome = e.message; }
+  await c.query("rollback to savepoint sod");
+  console.log(`    actual message: ${overdraftOutcome}`);
+  check(
+    "a points payment beyond the balance is refused",
+    asRefusal(overdraftOutcome, "not enough points", "refused: not enough points"),
+    "refused: not enough points",
+  );
+
+  console.log("▸ 11. a points payment on a bill with no customer is refused");
+  // Same structural reason as check 7's earning equivalent above: documents'
+  // check constraint means an ISSUED invoice can never have a null
+  // customer_id, so this is proven directly against app.spend_points on a
+  // DRAFT (where a null customer is legal) — exactly as record_payment's new
+  // points-branch calls it internally.
+  const spendNoCustDraft = (await c.query(
+    "select * from public.save_draft($1::jsonb, $2::jsonb, null)",
+    [JSON.stringify({ doc_type: "invoice", customer_id: null }), JSON.stringify([mkLine({ title: "Walk-in, no account, points" })])],
+  )).rows[0];
+  check("the draft really has no customer", spendNoCustDraft.customer_id, null);
+  let noCustSpendOutcome = "accepted";
+  await c.query("set local role postgres");
+  await c.query("savepoint snocust");
+  try {
+    await c.query("select app.spend_points($1::uuid, 10)", [spendNoCustDraft.id]);
+  } catch (e) { noCustSpendOutcome = e.message; }
+  await c.query("rollback to savepoint snocust");
+  await asUser(SANDBOX_AUTH);
+  console.log(`    actual message: ${noCustSpendOutcome}`);
+  check(
+    "a points payment with no customer on the bill is refused",
+    asRefusal(noCustSpendOutcome, "needs a customer on the bill", "refused: needs a customer on the bill"),
+    "refused: needs a customer on the bill",
+  );
+
+  console.log("▸ 12. ceil rounding: at point_value_rupees = 1, Rs 50.50 costs 51 points");
+  const roundCust = (await c.query(
+    "insert into public.customers (tenant_id, name) values ($1,'Points Rounding Probe') returning id",
+    [sbTenant],
+  )).rows[0].id;
+  await seedPoints(roundCust, 60);
+  const roundDraft = (await c.query(
+    "select * from public.save_draft($1::jsonb, $2::jsonb, null)",
+    [JSON.stringify({ doc_type: "invoice", customer_id: roundCust }), JSON.stringify([mkLine({})])],
+  )).rows[0];
+  const roundInv = (await c.query("select * from public.issue_document($1::uuid, null, null, null)", [roundDraft.id])).rows[0];
+  await c.query(
+    "select * from public.record_payment($1::uuid, 'points'::payment_method, 50.50, null, null, $2::uuid, null, null)",
+    [roundInv.id, till.id],
+  );
+  check("Rs 50.50 rounds UP to 51 points, not floored to 50", await balanceOf(roundCust), 9); // 60 seeded - 51 spent
+  const roundLedgerRow = (await c.query(
+    "select delta from public.customer_points_ledger where ref_type='document' and ref_id=$1 and reason='redeemed'",
+    [roundInv.id],
+  )).rows[0];
+  check("the redeemed ledger row is exactly -51", roundLedgerRow.delta, -51);
+
+  console.log("▸ 13. the drawer is unaffected: expected_cash sums only method='cash'");
+  const drawerBefore = (await c.query(
+    `select cs.opening_float,
+            (select coalesce(sum(amount),0) from public.payments where booked_session_id=cs.id and method='cash') as cash_sum,
+            (select coalesce(sum(amount),0) from public.payments where booked_session_id=cs.id and method='points') as points_sum,
+            (select coalesce(sum(amount),0) from public.till_movements where cash_session_id=cs.id) as moves_sum
+       from public.cash_sessions cs where cs.id=$1`,
+    [till.id],
+  )).rows[0];
+  const pointsOnTill = Number(drawerBefore.points_sum);
+  check("there is real points money booked to this till (else the check below proves nothing)", pointsOnTill > 0, true);
+  const wantExpected = Number(drawerBefore.opening_float) + Number(drawerBefore.cash_sum) + Number(drawerBefore.moves_sum);
+  await c.query("savepoint sclose");
+  const closed = (await c.query("select expected_cash from public.close_cash_session($1::uuid, 0)", [till.id])).rows[0];
+  check(`expected_cash counts cash only — Rs ${pointsOnTill} of points sat on this same till`, Number(closed.expected_cash), wantExpected);
+  await c.query("rollback to savepoint sclose");
+  const tillStillOpen = (await c.query("select status from public.cash_sessions where id=$1", [till.id])).rows[0].status;
+  check("the till is still open after rolling the close back", tillStillOpen, "open");
 
   await c.query("rollback");
   console.log(`\n${failures === 0 ? "✓ ALL CHECKS PASSED" : `✗ ${failures} CHECK(S) FAILED`} (rolled back — nothing persisted)`);
