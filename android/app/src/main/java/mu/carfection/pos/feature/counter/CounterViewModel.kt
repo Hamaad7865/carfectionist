@@ -41,6 +41,7 @@ import mu.carfection.pos.core.money.DocTotals
 import mu.carfection.pos.core.money.computeAllowance
 import mu.carfection.pos.core.money.computeDocTotals
 import mu.carfection.pos.core.money.LineInput
+import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
@@ -53,12 +54,16 @@ import kotlinx.serialization.json.put
 import mu.carfection.pos.core.network.CashSessionDto
 import mu.carfection.pos.core.network.JobServiceDetailDto
 import mu.carfection.pos.core.network.OutstandingInvoiceDto
+import mu.carfection.pos.core.network.OverrideApi
+import mu.carfection.pos.core.network.OverrideOutcome
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.data.billRef
 import mu.carfection.pos.core.data.saleReceiptDoc
 import mu.carfection.pos.core.network.SaleHistoryDto
 import mu.carfection.pos.core.network.SaleHistoryLineDto
 import mu.carfection.pos.core.network.TodayPaymentDto
+import mu.carfection.pos.core.network.UserNameDto
+import mu.carfection.pos.core.network.pinErrorCopy
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneOffset
@@ -143,6 +148,29 @@ data class CounterUiState(
     // cashier can see the invoice number each one was finally given.
     val offlineSales: List<mu.carfection.pos.core.sync.OfflineSaleRow> = emptyList(),
     val heldOpen: Boolean = false,
+
+    // ── "Ask the owner": on-the-spot PIN approval when a discount is over its ceiling ──
+    // Mirrors the web's OwnerOverrideDialog and the quote builder's own copy of this same
+    // machinery — see QuoteViewModel. The counter sale has no document row yet when this
+    // can be tapped (it drafts+issues in one go at Record payment), so the override names
+    // the sale's own DETERMINISTIC id (SaleRepository.draftIdFor(saleKey)) ahead of time;
+    // issue_document is later called under that exact same id, so assert_discount_allowed
+    // finds the approval waiting for it.
+    /** Fed into computeAllowance's third argument (see [allowance] below) — never
+     *  re-derived from the RPC's rupee round trip. Reset the instant the cart empties
+     *  (see [withCart]), same moment saleKey itself rotates, so an approval can never
+     *  leak onto the next sale. */
+    val approvedMaxCents: Long? = null,
+    val overrideOpen: Boolean = false,
+    val overrideOwners: List<UserNameDto>? = null, // null = loading
+    val overrideOwnersError: String? = null,
+    val overrideOwnerId: String? = null,
+    val overridePin: String = "",
+    val overrideReason: String = "",
+    val overrideAmountText: String = "",
+    val overrideBusy: Boolean = false,
+    val overrideError: String? = null,
+    val overrideDone: Boolean = false,
 ) {
     /** Sales the server has not seen — money the books are still missing. */
     val heldSales: List<mu.carfection.pos.core.sync.OfflineSaleRow>
@@ -237,7 +265,7 @@ data class CounterUiState(
         get() = if (collect != null) computeAllowance(emptyList(), null) else computeAllowance(
             cart.map { it.allowanceInput },
             docDiscount = orderDiscountKind?.let { DocDiscount(it, if (it == "percent") basketPct.toDouble() else basketAmtCents.toDouble()) },
-            approvedMaxCents = null, // the owner-override dialog is a later task; this stays a hard block until then
+            approvedMaxCents = approvedMaxCents,
         )
 
     /** Why Record payment is dead, when the reason is the discount and not the till/basket. */
@@ -333,10 +361,14 @@ internal const val SETTLE_LOCK_NOTICE = "Finish or cancel this sale before chang
  */
 internal fun CounterUiState.withCart(cart: List<CartLine>): CounterUiState {
     if (pendingSettle != null) return copy(notice = SETTLE_LOCK_NOTICE)
-    // Emptying the cart ends the ticket, so the whole-sale discount — and why it was given —
-    // goes with it. Otherwise a discount (or its reason) typed for one walk-in silently
-    // re-prices, or pre-justifies, the next basket built on this screen.
-    val s = if (cart.isEmpty() && this.cart.isNotEmpty()) copy(basketMode = DiscountMode.PCT, basketText = "", discountReason = "") else this
+    // Emptying the cart ends the ticket, so the whole-sale discount — and why it was given,
+    // and any owner override taken out for it — all go with it. Otherwise a discount (or its
+    // reason, or an approval) from one walk-in silently re-prices, or pre-justifies, or
+    // covers, the next basket built on this screen. Same moment CounterViewModel rotates
+    // saleKey (mutateCart), which is what the override's own document id is derived from.
+    val s = if (cart.isEmpty() && this.cart.isNotEmpty())
+        copy(basketMode = DiscountMode.PCT, basketText = "", discountReason = "", approvedMaxCents = null, overrideOpen = false)
+    else this
     val priced = s.copy(cart = cart, error = null)
     return priced.copy(
         docTotals = computeDocTotals(
@@ -417,6 +449,7 @@ class CounterViewModel @Inject constructor(
     private val collectBus: mu.carfection.pos.core.data.CollectBus,
     private val offlineSales: mu.carfection.pos.core.sync.OfflineSaleRepository,
     private val connectivity: mu.carfection.pos.core.sync.ConnectivityObserver,
+    private val overrideApi: OverrideApi,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(CounterUiState())
@@ -1123,6 +1156,76 @@ class CounterViewModel @Inject constructor(
 
     /** Why — required once the discount reaches into a carwash allowance (Allowance.kt). */
     fun setDiscountReason(t: String) { local.value = local.value.copy(discountReason = t) }
+
+    // ── "Ask the owner" — the tablet's side of OwnerOverrideDialog.tsx (counter copy;
+    // QuoteViewModel carries the quote/bill copy of the same machinery) ────────────────
+
+    /** This sale's deterministic document id, stable for as long as the cart keeps the
+     *  current saleKey. Named here rather than after Record payment, because the override
+     *  has to exist BEFORE issue_document names the same id — see the class doc above. */
+    private fun currentSaleRefId(): String = SaleRepository.draftIdFor(saleKey)
+
+    fun askOwner() {
+        val s = local.value
+        val requested = s.allowance.actualCents
+        local.value = s.copy(
+            overrideOpen = true, overrideOwnerId = null, overridePin = "", overrideReason = "",
+            overrideAmountText = if (requested > 0) centsToPlainText(requested) else "",
+            overrideBusy = false, overrideError = null, overrideDone = false,
+        )
+        loadOverrideOwners()
+    }
+
+    private var overrideOwnersLoaded = false
+
+    private fun loadOverrideOwners() {
+        if (overrideOwnersLoaded) return
+        viewModelScope.launch {
+            runCatching { api.fetchApprovingOwners() }
+                .onSuccess { list -> overrideOwnersLoaded = true; local.value = local.value.copy(overrideOwners = list, overrideOwnersError = null) }
+                .onFailure { e -> local.value = local.value.copy(overrideOwnersError = e.uiMessage()) }
+        }
+    }
+
+    fun closeOverrideDialog() { local.value = local.value.copy(overrideOpen = false) }
+    fun pickOverrideOwner(id: String) { local.value = local.value.copy(overrideOwnerId = id, overrideError = null) }
+    fun setOverridePin(p: String) { local.value = local.value.copy(overridePin = p.filter(Char::isDigit).take(4), overrideError = null) }
+    fun setOverrideReason(r: String) { local.value = local.value.copy(overrideReason = r) }
+    fun setOverrideAmountText(t: String) { local.value = local.value.copy(overrideAmountText = t.filter { c -> c.isDigit() || c == '.' }) }
+
+    fun submitOverride() {
+        val s = local.value
+        val ownerId = s.overrideOwnerId ?: return
+        val cents = parseMoneyToCents(s.overrideAmountText)?.takeIf { it > 0 } ?: return
+        if (s.overridePin.length != 4 || s.overrideReason.isBlank()) return
+        val refId = currentSaleRefId()
+        local.value = local.value.copy(overrideBusy = true, overrideError = null)
+        viewModelScope.launch {
+            val result = overrideApi.requestOverride(
+                appUserId = ownerId, pin = s.overridePin, kind = "discount", refType = "document",
+                refId = refId, reason = s.overrideReason.trim(), maxDiscountCents = cents,
+            )
+            // Win or lose, the PIN just typed has done its job — it is never held longer than
+            // the one request it rode in on.
+            local.value = local.value.copy(overridePin = "")
+            when (result) {
+                is OverrideOutcome.Approved -> {
+                    local.value = local.value.copy(overrideBusy = false, overrideDone = true, approvedMaxCents = cents)
+                    // Let the "approved" flourish be seen, then close on its own — mirrors the
+                    // web dialog's 1.6s auto-close so the cashier isn't left clicking anything
+                    // with the owner still standing there.
+                    kotlinx.coroutines.delay(1600)
+                    if (local.value.overrideDone) closeOverrideDialog()
+                }
+                is OverrideOutcome.PinRejected ->
+                    local.value = local.value.copy(overrideBusy = false, overrideError = pinErrorCopy(result.reason))
+                OverrideOutcome.NotOwner ->
+                    local.value = local.value.copy(overrideBusy = false, overrideError = "That didn't check out as an owner — try again.")
+                is OverrideOutcome.Failed ->
+                    local.value = local.value.copy(overrideBusy = false, overrideError = result.message)
+            }
+        }
+    }
 
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {
         val s = local.value

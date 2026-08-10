@@ -72,6 +72,7 @@ import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.ui.FlowState
 import mu.carfection.pos.ui.FlowStepUi
 import mu.carfection.pos.ui.FlowStrip
+import mu.carfection.pos.ui.OwnerOverrideDialog
 import mu.carfection.pos.ui.withCurrent
 import mu.carfection.pos.core.rich.parseRichDoc
 import mu.carfection.pos.core.rich.richToPlainText
@@ -220,6 +221,20 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     if (s.declineOpen) DeclineQuoteDialog(s, viewModel)
     if (s.datePickerOpen) StartDatePicker(s, viewModel)
     if (s.timePickerOpen) StartTimePicker(s, viewModel)
+    // "Ask the owner": one dialog, either target — see QuoteViewModel.openOverride.
+    if (s.overrideTarget != null) {
+        val forBill = s.overrideTarget == "bill"
+        OwnerOverrideDialog(
+            docLabel = if (forBill) "bill" else "quote",
+            requestedCents = if (forBill) viewModel.billAllowance(s).actualCents else viewModel.allowance(s).actualCents,
+            owners = s.overrideOwners, ownersError = s.overrideOwnersError, ownerId = s.overrideOwnerId,
+            pin = s.overridePin, reason = s.overrideReason, amountText = s.overrideAmountText,
+            busy = s.overrideBusy, error = s.overrideError, done = s.overrideDone,
+            onPickOwner = viewModel::pickOverrideOwner, onPinChange = viewModel::setOverridePin,
+            onReasonChange = viewModel::setOverrideReason, onAmountChange = viewModel::setOverrideAmountText,
+            onDismiss = viewModel::closeOverrideDialog, onSubmit = viewModel::submitOverride,
+        )
+    }
 }
 
 @Composable
@@ -369,7 +384,15 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                     modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = InsetAlt, fontFamily = Barlow, fontSize = 12.5.sp,
                 )
             }
-            billBlockReason?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Danger) }
+            billBlockReason?.let {
+                Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Danger)
+                if (billAllowance.overCeiling) {
+                    Text(
+                        "Ask the owner →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Accent,
+                        modifier = Modifier.clickable { vm.askOwnerForBill() },
+                    )
+                }
+            }
             s.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontSize = 12.sp) }
             // Saving is the default, and it does NOT issue — so it does not check the discount
             // block either (a draft may hold an over-limit discount so the cashier can go and
@@ -1043,6 +1066,16 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 }
                 if (vm.editable(s) && discountBlockReason != null) {
                     Text(discountBlockReason, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Danger)
+                    // The disabled Sign/Accept button below explains the ceiling; this is the
+                    // way out of it — an owner's PIN, checked server-side, without signing the
+                    // cashier out or anyone becoming an owner.
+                    if (allowance.overCeiling) {
+                        Text(
+                            if (s.askOwnerBusy) "Saving…" else "Ask the owner →",
+                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Accent,
+                            modifier = Modifier.clickable(enabled = !s.askOwnerBusy) { vm.askOwnerForQuote() },
+                        )
+                    }
                 }
                 TotalLine(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(t.vatCents), TextSecondary)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {

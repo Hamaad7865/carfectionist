@@ -45,11 +45,15 @@ import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.policyOf
 import mu.carfection.pos.core.money.rupeesToCents
+import mu.carfection.pos.core.network.OverrideApi
+import mu.carfection.pos.core.network.OverrideOutcome
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteLineDto
 import mu.carfection.pos.core.network.QuoteRowDto
 import mu.carfection.pos.core.network.SendOutcome
 import mu.carfection.pos.core.network.TechnicianDto
+import mu.carfection.pos.core.network.UserNameDto
+import mu.carfection.pos.core.network.pinErrorCopy
 import mu.carfection.pos.core.network.uiMessage
 import java.time.Instant
 import java.time.LocalDate
@@ -345,6 +349,34 @@ data class QuoteState(
     // False while an existing quote's lines are (re)loading or failed to load —
     // guards Save/Accept from persisting an empty basket over the real lines.
     val linesLoaded: Boolean = true,
+
+    // ── "Ask the owner": on-the-spot PIN approval when a discount is over its ceiling ──
+    // Mirrors the web's OwnerOverrideDialog — same wording, same round trip through
+    // /api/override. Scoped to ONE target at a time: the quote's own discount, or the
+    // bill's (a different document — see billDiscountReason above).
+    /** null = closed. "quote" | "bill" = which allowance the dialog is approving. */
+    val overrideTarget: String? = null,
+    /** The figure an owner approved for the QUOTE, fed into computeAllowance's third
+     *  argument (see [QuoteViewModel.allowance]) — never re-derived from the RPC's rupee
+     *  round trip. Reset whenever this screen moves to a DIFFERENT quote (newQuote /
+     *  openQuote), so an approval can never leak onto a document it was not given for. */
+    val approvedMaxCents: Long? = null,
+    /** Same, for the BILL — its own document, its own approval. Reset whenever the bill
+     *  closes or a fresh one is raised, so it never survives past the visit it was given for. */
+    val billApprovedMaxCents: Long? = null,
+    val overrideOwners: List<UserNameDto>? = null, // null = loading
+    val overrideOwnersError: String? = null,
+    val overrideOwnerId: String? = null,
+    val overridePin: String = "",
+    val overrideReason: String = "",
+    val overrideAmountText: String = "",
+    val overrideBusy: Boolean = false,
+    val overrideError: String? = null,
+    val overrideDone: Boolean = false,
+    /** Flushing a never-yet-saved quote to a real id before the dialog can open — the
+     *  same reason the web's askOwner() calls doSave() first. Only used for target="quote";
+     *  the bill already has a real id by the time it can be opened at all. */
+    val askOwnerBusy: Boolean = false,
 )
 
 /** A quote whose car was handed over — or whose job was CANCELLED — is finished
@@ -394,6 +426,7 @@ class QuoteViewModel @Inject constructor(
     private val billQuoteBus: mu.carfection.pos.core.data.BillQuoteBus,
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
     private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
+    private val overrideApi: OverrideApi,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
     val state = _s.asStateFlow()
@@ -573,6 +606,9 @@ class QuoteViewModel @Inject constructor(
             intake = null, jobId = null, hasIntake = false, signed = false, billed = false, bills = emptyList(),
             customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
             pickerOpen = true, pickQuery = "", pickResults = emptyList(), pickVehicles = emptyList(),
+            // A fresh quote is a different document — an approval taken out for whatever was
+            // open before must not silently cover this one's discount too.
+            overrideTarget = null, approvedMaxCents = null, askOwnerBusy = false,
         )
     }
 
@@ -656,6 +692,9 @@ class QuoteViewModel @Inject constructor(
                 // the reason it was given — discount_reason is sent on every save (same rule
                 // as discount_kind, just above), so an empty local value would clear it.
                 discountReason = q.discountReason.orEmpty(),
+                // Opening a DIFFERENT quote — any override dialog/approval belonged to whatever
+                // was open before and must not follow across to this one's discount.
+                overrideTarget = null, approvedMaxCents = null, askOwnerBusy = false,
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
@@ -877,7 +916,8 @@ class QuoteViewModel @Inject constructor(
         else -> null
     }
 
-    fun allowance(s: QuoteState): Allowance = computeAllowance(s.lines.map { it.toAllowanceInput() }, allowanceDocDiscount(s))
+    fun allowance(s: QuoteState): Allowance =
+        computeAllowance(s.lines.map { it.toAllowanceInput() }, allowanceDocDiscount(s), s.approvedMaxCents)
 
     /** Why the accept/issue action is dead, when the reason is the discount and not something else. */
     fun discountBlockReason(s: QuoteState): String? {
@@ -895,7 +935,8 @@ class QuoteViewModel @Inject constructor(
     // discount onto it (see [lineTotals]'s own note), so the same figure applies here too;
     // its LINES are its own, since a carwash item added at the counter is a fresh line the
     // quote never saw.
-    fun billAllowance(s: QuoteState): Allowance = computeAllowance(s.billLines.map { it.toAllowanceInput() }, allowanceDocDiscount(s))
+    fun billAllowance(s: QuoteState): Allowance =
+        computeAllowance(s.billLines.map { it.toAllowanceInput() }, allowanceDocDiscount(s), s.billApprovedMaxCents)
 
     fun billDiscountBlockReason(s: QuoteState): String? {
         val a = billAllowance(s)
@@ -907,6 +948,102 @@ class QuoteViewModel @Inject constructor(
     }
 
     fun setBillDiscountReason(r: String) = _s.update { it.copy(billDiscountReason = r) }
+
+    // ── "Ask the owner" — the tablet's side of OwnerOverrideDialog.tsx ──────────────────
+    // One dialog, two possible targets (see overrideTarget): the quote's own discount, or
+    // the bill's — a separate document with its own ceiling and its own approval.
+
+    /** Opens the dialog for the QUOTE. A never-yet-saved draft has no id for the override
+     *  to name, so this flushes a save first — the same reason the web's askOwner() calls
+     *  doSave() before it will open OwnerOverrideDialog. */
+    fun askOwnerForQuote() {
+        val s = _s.value
+        if (s.askOwnerBusy) return
+        if (s.status != "draft" || s.quoteId != null) { openOverride("quote"); return }
+        val cid = s.customerId ?: return
+        _s.update { it.copy(askOwnerBusy = true) }
+        viewModelScope.launch {
+            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason) }
+                .onSuccess { d ->
+                    _s.update { it.copy(askOwnerBusy = false, quoteId = d.id, savedRef = d.number ?: it.savedRef) }
+                    openOverride("quote")
+                }
+                .onFailure { e -> _s.update { it.copy(askOwnerBusy = false, error = e.uiMessage()) } }
+        }
+    }
+
+    /** The bill already has a real id (convertToInvoice's draft) by the time it can be open
+     *  at all, so this never needs to flush anything first. */
+    fun askOwnerForBill() {
+        if (_s.value.billDocId != null) openOverride("bill")
+    }
+
+    private fun openOverride(target: String) {
+        _s.update { s ->
+            val requested = if (target == "bill") billAllowance(s).actualCents else allowance(s).actualCents
+            s.copy(
+                overrideTarget = target, overrideOwnerId = null, overridePin = "", overrideReason = "",
+                overrideAmountText = if (requested > 0) centsToPlainText(requested) else "",
+                overrideBusy = false, overrideError = null, overrideDone = false,
+            )
+        }
+        loadOverrideOwners()
+    }
+
+    private var overrideOwnersLoaded = false
+
+    private fun loadOverrideOwners() {
+        if (overrideOwnersLoaded) return
+        viewModelScope.launch {
+            runCatching { api.fetchApprovingOwners() }
+                .onSuccess { list -> overrideOwnersLoaded = true; _s.update { it.copy(overrideOwners = list, overrideOwnersError = null) } }
+                .onFailure { e -> _s.update { it.copy(overrideOwnersError = e.uiMessage()) } }
+        }
+    }
+
+    fun closeOverrideDialog() = _s.update { it.copy(overrideTarget = null) }
+    fun pickOverrideOwner(id: String) = _s.update { it.copy(overrideOwnerId = id, overrideError = null) }
+    fun setOverridePin(p: String) = _s.update { it.copy(overridePin = p.filter(Char::isDigit).take(4), overrideError = null) }
+    fun setOverrideReason(r: String) = _s.update { it.copy(overrideReason = r) }
+    fun setOverrideAmountText(t: String) = _s.update { it.copy(overrideAmountText = moneyText(t)) }
+
+    fun submitOverride() {
+        val s = _s.value
+        val target = s.overrideTarget ?: return
+        val ownerId = s.overrideOwnerId ?: return
+        val cents = parseMoneyToCents(s.overrideAmountText)?.takeIf { it > 0 } ?: return
+        val refId = (if (target == "bill") s.billDocId else s.quoteId) ?: return
+        if (s.overridePin.length != 4 || s.overrideReason.isBlank()) return
+        _s.update { it.copy(overrideBusy = true, overrideError = null) }
+        viewModelScope.launch {
+            val outcome = overrideApi.requestOverride(
+                appUserId = ownerId, pin = s.overridePin, kind = "discount", refType = "document",
+                refId = refId, reason = s.overrideReason.trim(), maxDiscountCents = cents,
+            )
+            // Win or lose, the PIN just typed has done its job — it is never held longer than
+            // the one request it rode in on.
+            _s.update { it.copy(overridePin = "") }
+            when (outcome) {
+                is OverrideOutcome.Approved -> {
+                    _s.update {
+                        val approved = it.copy(overrideBusy = false, overrideDone = true)
+                        if (target == "bill") approved.copy(billApprovedMaxCents = cents) else approved.copy(approvedMaxCents = cents)
+                    }
+                    // Let the "approved" flourish be seen, then close on its own — mirrors the
+                    // web dialog's 1.6s auto-close so the cashier isn't left clicking anything
+                    // with the owner still standing there.
+                    kotlinx.coroutines.delay(1600)
+                    if (_s.value.overrideDone) closeOverrideDialog()
+                }
+                is OverrideOutcome.PinRejected ->
+                    _s.update { it.copy(overrideBusy = false, overrideError = pinErrorCopy(outcome.reason)) }
+                OverrideOutcome.NotOwner ->
+                    _s.update { it.copy(overrideBusy = false, overrideError = "That didn't check out as an owner — try again.") }
+                is OverrideOutcome.Failed ->
+                    _s.update { it.copy(overrideBusy = false, overrideError = outcome.message) }
+            }
+        }
+    }
 
     // Turning it off drops any crew already picked — accept_quote has nowhere to put them,
     // and the picker itself is hidden while this is off, so a stale pick could only survive
@@ -1469,6 +1606,12 @@ class QuoteViewModel @Inject constructor(
                             // that are frozen. Counting the WHOLE draft would freeze the extras
                             // added on an earlier visit too, and they are still only a draft.
                             billQuotedCount = minOf(it.lines.size, lines.size),
+                            // billDocId just (re)bound to draft.id — an approval taken out for a
+                            // PRIOR visit's bill (already closed, see closeBill) must not be read
+                            // as covering this one. When draft.id is the SAME still-draft bill
+                            // reopened mid-visit, closeBill already cleared this, so there is
+                            // nothing to lose; when it differs, this is exactly the reset needed.
+                            billApprovedMaxCents = null,
                         )
                     }
                 }
@@ -1602,7 +1745,14 @@ class QuoteViewModel @Inject constructor(
     /** Back out of the bill without issuing it. The quote's own draft invoice stays on the
      *  server — convert_quote_to_invoice is idempotent, so billing again returns the same
      *  one — and a second bill was never a document in the first place. */
-    fun closeBill() = _s.update { it.copy(billOpen = false, billLinesOpen = false, billLines = emptyList(), billDocId = null, billDiscountReason = "") }
+    fun closeBill() = _s.update {
+        it.copy(
+            billOpen = false, billLinesOpen = false, billLines = emptyList(), billDocId = null, billDiscountReason = "",
+            // The bill just closed is the document this was approved for — clear it rather
+            // than risk it surviving onto a bill raised on a later visit under the same quote.
+            billApprovedMaxCents = null, overrideTarget = if (it.overrideTarget == "bill") null else it.overrideTarget,
+        )
+    }
 
     /**
      * Put what they are taking on the bill, and leave it there.
@@ -1655,6 +1805,7 @@ class QuoteViewModel @Inject constructor(
                     it.copy(
                         busy = false, billOpen = false, billLinesOpen = false,
                         billLines = emptyList(), billDocId = null, billQuotedCount = 0,
+                        billApprovedMaxCents = null, // this bill is done; nothing to carry forward
                         billed = it.billed || issue,
                         // Only an issued bill takes over the screen. A saved one says so where
                         // the operator was looking for it: on the quote, beside the totals.

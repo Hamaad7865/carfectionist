@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
@@ -20,6 +21,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -44,6 +47,10 @@ fun FilledInput(
     fontFamily: FontFamily = Barlow,
     fontSize: TextUnit = 15.sp,
     leadingSearch: Boolean = false,
+    // A PIN field (OwnerOverrideDialog's "owner's PIN") masks what's typed and asks for
+    // the numeric IME — everything else keeps the plain text field it always had.
+    masked: Boolean = false,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
 ) {
     val shape = RoundedCornerShape(radius)
     BasicTextField(
@@ -52,6 +59,8 @@ fun FilledInput(
         singleLine = true,
         textStyle = TextStyle(color = TextPrimary, fontFamily = fontFamily, fontSize = fontSize),
         cursorBrush = SolidColor(Accent),
+        visualTransformation = if (masked) PasswordVisualTransformation() else VisualTransformation.None,
+        keyboardOptions = keyboardOptions,
         modifier = modifier.height(height).background(bg, shape).border(1.dp, Color(0x1F101A24), shape),
     ) { inner ->
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {

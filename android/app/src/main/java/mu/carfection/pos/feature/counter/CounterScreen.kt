@@ -94,6 +94,7 @@ import mu.carfection.pos.core.money.rupeesToCents
 import androidx.compose.ui.platform.LocalConfiguration
 import mu.carfection.pos.ui.COMPACT_BREAKPOINT_DP
 import mu.carfection.pos.ui.FilledInput
+import mu.carfection.pos.ui.OwnerOverrideDialog
 import mu.carfection.pos.ui.theme.Barlow
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
@@ -400,7 +401,18 @@ fun CounterScreen(
                             modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = Inset, fontSize = 12.5.sp,
                         )
                     }
-                    s.discountBlockReason?.let { Text(it, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp) }
+                    s.discountBlockReason?.let {
+                        Text(it, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp)
+                        // The disabled Record payment button below explains the ceiling; this is
+                        // the way out of it — an owner's PIN, checked server-side, without
+                        // signing the cashier out or anyone becoming an owner.
+                        if (s.allowance.overCeiling) {
+                            Text(
+                                "Ask the owner →", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                                modifier = Modifier.clickable { viewModel.askOwner() },
+                            )
+                        }
+                    }
                     TotalRow(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
                     TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
@@ -471,6 +483,18 @@ fun CounterScreen(
     }
     if (s.historyOpen) HistoryDialog(s, viewModel)
     if (s.heldOpen) HeldSalesDialog(s, viewModel)
+    if (s.overrideOpen) {
+        OwnerOverrideDialog(
+            docLabel = "sale",
+            requestedCents = s.allowance.actualCents,
+            owners = s.overrideOwners, ownersError = s.overrideOwnersError, ownerId = s.overrideOwnerId,
+            pin = s.overridePin, reason = s.overrideReason, amountText = s.overrideAmountText,
+            busy = s.overrideBusy, error = s.overrideError, done = s.overrideDone,
+            onPickOwner = viewModel::pickOverrideOwner, onPinChange = viewModel::setOverridePin,
+            onReasonChange = viewModel::setOverrideReason, onAmountChange = viewModel::setOverrideAmountText,
+            onDismiss = viewModel::closeOverrideDialog, onSubmit = viewModel::submitOverride,
+        )
+    }
     s.viewDoc?.let { doc -> ViewReceiptDialog(doc, onPrint = viewModel::printViewDoc, onClose = viewModel::closeViewDoc) }
     s.notice?.let { Notice(it, onGone = viewModel::clearNotice) }
 }

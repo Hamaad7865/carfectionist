@@ -682,6 +682,21 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     /**
+     * Who the "Ask the owner" dialog may offer — active owners of THIS tenant, RLS-scoped
+     * the same way [fetchTechnicians] is. Mirrors the web's getApprovingOwnersAction: never
+     * filters on pin_hash (authenticated has no SELECT grant on that column at all — see the
+     * web action's own note), so an owner with no PIN set can still appear and picking them
+     * surfaces a clean "no_pin" refusal from /api/override instead of a wrong-PIN one.
+     */
+    suspend fun fetchApprovingOwners(): List<UserNameDto> =
+        client.postgrest.from("app_users")
+            .select(Columns.raw("id, display_name")) {
+                filter { eq("role", "owner"); eq("is_active", true) }
+                order("display_name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList()
+
+    /**
      * Discard a DRAFT document, lines and all.
      *
      * Safe by construction rather than by trust: the doc_delete RLS policy already allows a

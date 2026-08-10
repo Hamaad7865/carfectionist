@@ -296,6 +296,18 @@ class SaleRepository @Inject constructor(
     private val api: PosApi,
     private val catalog: CatalogRepository,
 ) {
+    companion object {
+        /**
+         * The deterministic draft/invoice id a counter sale will be issued under, derived
+         * from its [saleKey] — the SAME formula [issueWalkInInvoice] uses, factored out so
+         * an "Ask the owner" override taken out before the draft is ever saved still names
+         * the exact document issue_document will later produce. No I/O, pure function of
+         * the key, safe to call from a ViewModel with no repository instance at hand.
+         */
+        fun draftIdFor(saleKey: String): String =
+            UUID.nameUUIDFromBytes("carfection:draft:$saleKey".toByteArray()).toString()
+    }
+
     suspend fun completeSale(
         cart: List<CartLine>,
         method: PayMethod,
@@ -409,7 +421,7 @@ class SaleRepository @Inject constructor(
         // The draft id is DETERMINISTIC per sale: a retry re-locks the SAME draft row
         // (save_draft upserts by id), so failed attempts litter no orphan drafts and the
         // issue replay's same-document check lines up instead of refusing forever.
-        val draftId = UUID.nameUUIDFromBytes("carfection:draft:$saleKey".toByteArray()).toString()
+        val draftId = draftIdFor(saleKey)
         val draftSale = draft
         val draftDiscountKind = draftSale.orderDiscountKind
         val draftDiscountValue = draftSale.orderDiscountValue

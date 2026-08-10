@@ -1,3 +1,4 @@
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSessionContext } from "@/lib/auth/session";
 
@@ -21,6 +22,46 @@ function json(body: unknown, status = 200): Response {
 // what actually gate-keeps on the PIN and the approver's own role.
 const CALLER_ROLES = ["owner", "manager", "cashier"];
 
+interface Caller {
+  role: string;
+  tenantId: string;
+}
+
+/**
+ * Who is asking — from EITHER the browser's session cookie or the tablet's Bearer
+ * token, same two-transport split as /api/documents/[id]/send. The cookie path is
+ * untouched (getSessionContext() reads no header, so trying it first changes nothing
+ * for the browser); the Bearer path binds an RLS client to the token, exactly like the
+ * tablet's other calls, so the role/tenant read below runs as the signed-in operator,
+ * never as the service role.
+ */
+async function resolveCaller(req: Request): Promise<Caller | null> {
+  const session = await getSessionContext();
+  if (session) return { role: session.role, tenantId: session.tenantId };
+
+  const auth = req.headers.get("authorization") ?? "";
+  const token = auth.startsWith("Bearer ") ? auth.slice(7) : null;
+  if (!token) return null;
+
+  const sb = createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${token}` } }, auth: { persistSession: false, autoRefreshToken: false } },
+  );
+  const { data: me } = await sb.auth.getUser(token);
+  if (!me?.user) return null;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: appUser } = await (sb as any)
+    .from("app_users")
+    .select("role, tenant_id")
+    .eq("auth_user_id", me.user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!appUser) return null;
+  return { role: appUser.role as string, tenantId: appUser.tenant_id as string };
+}
+
 const UUID_RE = /^[0-9a-f-]{36}$/i;
 const PIN_RE = /^[0-9]{4}$/;
 
@@ -35,9 +76,9 @@ interface OverrideRequestBody {
 }
 
 export async function POST(req: Request) {
-  const session = await getSessionContext();
-  if (!session) return json({ error: "unauthorized" }, 401);
-  if (!CALLER_ROLES.includes(session.role)) return json({ error: "forbidden" }, 403);
+  const caller = await resolveCaller(req);
+  if (!caller) return json({ error: "unauthorized" }, 401);
+  if (!CALLER_ROLES.includes(caller.role)) return json({ error: "forbidden" }, 403);
 
   let body: OverrideRequestBody;
   try {
@@ -91,7 +132,7 @@ export async function POST(req: Request) {
     .select("tenant_id")
     .eq("id", appUserId)
     .maybeSingle();
-  if (!target || target.tenant_id !== session.tenantId) return json({ error: "not_owner" }, 401);
+  if (!target || target.tenant_id !== caller.tenantId) return json({ error: "not_owner" }, 401);
 
   // The PIN is checked HERE FIRST, in its own round trip, and that is not
   // belt-and-braces — it is the only thing that makes the lockout work.
