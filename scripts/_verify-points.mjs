@@ -1,6 +1,6 @@
 // Rolled-back verification for 20260811000020 (ledger, balance, rates),
-// 20260811000030 (a settled bill earns its points) and 20260811000040
-// (points can settle a bill).
+// 20260811000030 (a settled bill earns its points), 20260811000040 (points
+// can settle a bill) and 20260811000050 (reversing gives the points back).
 //
 // Storage and earning: the ledger is append-only truth, customers.points_balance
 // is a trigger-derived cache of it (never written directly), earning follows
@@ -17,6 +17,14 @@
 // the shop is never out of pocket for a fraction of a point. Still gated on
 // an open till like every other method (20260716000040): a points payment is
 // real settlement the cash-up has to see.
+//
+// Unwinding: reversing a payment that was ITSELF paid in points gives those
+// points back; reversing ANY payment that drops a bill back below settled
+// takes back what that settlement earned, so paying and un-paying cannot
+// print points for free. Both are compensating 'reversed' ledger rows, never
+// an edit or delete (the ledger is append-only), and both are idempotent the
+// same way earning is: a re-run finds its own prior compensating row and
+// does nothing.
 //
 // Runs as `authenticated` impersonating first the shop owner (Anesh), then —
 // for anything that must ISSUE a document — the sandbox tenant's owner: the
@@ -398,6 +406,64 @@ try {
   await c.query("rollback to savepoint sclose");
   const tillStillOpen = (await c.query("select status from public.cash_sessions where id=$1", [till.id])).rows[0].status;
   check("the till is still open after rolling the close back", tillStillOpen, "open");
+
+  console.log("▸ 14. reversing a points payment returns exactly those points");
+  check("balance right before the reversal (all 50 spent, the overdraft attempt was rolled back)", await balanceOf(spendCust), 0);
+  await c.query(
+    "select * from public.reverse_payment($1::uuid, 'points probe: give the points back', $2::uuid)",
+    [spendPay.id, till.id],
+  );
+  check("reversing the points payment gives back exactly the 50 it took", await balanceOf(spendCust), 50);
+  const reversedPayRow = (await c.query(
+    "select delta from public.customer_points_ledger where ref_type='payment' and ref_id=$1 and reason='reversed'",
+    [spendPay.id],
+  )).rows[0];
+  check("the compensating ledger row is +50", reversedPayRow.delta, 50);
+
+  console.log("▸ 15. reversing a cash payment that drops a bill below settled removes the earned points");
+  const earnRevCust = (await c.query(
+    "insert into public.customers (tenant_id, name) values ($1,'Points Earn-Reversal Probe') returning id",
+    [sbTenant],
+  )).rows[0].id;
+  const earnRevDraft = (await c.query(
+    "select * from public.save_draft($1::jsonb, $2::jsonb, null)",
+    [JSON.stringify({ doc_type: "invoice", customer_id: earnRevCust }), JSON.stringify([mkLine({})])],
+  )).rows[0];
+  const earnRevInv = (await c.query("select * from public.issue_document($1::uuid, null, null, null)", [earnRevDraft.id])).rows[0];
+  const earnRevPay = (await c.query(
+    "select * from public.record_payment($1::uuid, 'cash'::payment_method, 1150, 1150, null, $2::uuid, null, null)",
+    [earnRevInv.id, till.id],
+  )).rows[0];
+  check("the bill earned its 11 points before anything is reversed", await balanceOf(earnRevCust), 11);
+
+  await c.query(
+    "select * from public.reverse_payment($1::uuid, 'points probe: un-earn on reversal', $2::uuid)",
+    [earnRevPay.id, till.id],
+  );
+  check("reversing the only (now unsettling) payment drops the balance back to 0", await balanceOf(earnRevCust), 0);
+  const earnReversedRow = (await c.query(
+    "select delta from public.customer_points_ledger where ref_type='document' and ref_id=$1 and reason='reversed'",
+    [earnRevInv.id],
+  )).rows[0];
+  check("the compensating ledger row is -11, undoing exactly what was earned", earnReversedRow.delta, -11);
+
+  console.log("▸ 16. an unwind is idempotent — reversing does not double-credit");
+  await c.query("set local role postgres");
+  await c.query("select app.unwind_points_for_payment($1::uuid)", [earnRevPay.id]);
+  await c.query("select app.unwind_points_for_payment($1::uuid)", [spendPay.id]);
+  await asUser(SANDBOX_AUTH);
+  check("retrying the cash-earn unwind leaves the balance at 0, not -11 again", await balanceOf(earnRevCust), 0);
+  check("retrying the points-spend unwind leaves the balance at 50, not 100", await balanceOf(spendCust), 50);
+  const earnReversedCount = (await c.query(
+    "select count(*)::int n from public.customer_points_ledger where ref_type='document' and ref_id=$1 and reason='reversed'",
+    [earnRevInv.id],
+  )).rows[0].n;
+  check("still exactly one 'reversed' document row, not two", earnReversedCount, 1);
+  const spendReversedCount = (await c.query(
+    "select count(*)::int n from public.customer_points_ledger where ref_type='payment' and ref_id=$1 and reason='reversed'",
+    [spendPay.id],
+  )).rows[0].n;
+  check("still exactly one 'reversed' payment row, not two", spendReversedCount, 1);
 
   await c.query("rollback");
   console.log(`\n${failures === 0 ? "✓ ALL CHECKS PASSED" : `✗ ${failures} CHECK(S) FAILED`} (rolled back — nothing persisted)`);
