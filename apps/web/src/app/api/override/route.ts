@@ -93,6 +93,29 @@ export async function POST(req: Request) {
     .maybeSingle();
   if (!target || target.tenant_id !== session.tenantId) return json({ error: "not_owner" }, 401);
 
+  // The PIN is checked HERE FIRST, in its own round trip, and that is not
+  // belt-and-braces — it is the only thing that makes the lockout work.
+  //
+  // record_owner_override verifies the PIN too, but it RAISES on a bad one, and
+  // a plpgsql exception rolls back the whole call — including the attempt-counter
+  // UPDATE that verify_staff_pin had just made inside it. Measured: after a wrong
+  // PIN through that path, pin_attempts was still 0. A 4-digit secret with a
+  // silently-reverted lockout is a 10,000-guess dial, which would have undone the
+  // point of rule 3.
+  //
+  // A separate call is a separate transaction, so the increment commits. The RPC
+  // still verifies for itself afterwards — it must never trust a caller's word on
+  // the PIN, service key or not.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: pinCheck, error: pinErr } = await (admin as any).rpc("verify_staff_pin", {
+    p_app_user_id: appUserId,
+    p_pin: pin,
+  });
+  if (pinErr) return json({ error: "server_error" }, 500);
+  if (!pinCheck?.ok) {
+    return json({ error: "pin_rejected", reason: pinCheck?.reason ?? "invalid" }, 401);
+  }
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data, error } = await (admin as any).rpc("record_owner_override", {
     p_app_user_id: appUserId,
