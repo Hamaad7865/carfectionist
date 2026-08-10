@@ -49,6 +49,31 @@ try {
   } catch { refused = "yes"; }
   await c.query("rollback to savepoint s1");
   check("a nonsense policy is refused", refused, "yes");
+
+  console.log("▸ a discount carries the reason it was given");
+  const hasReason = (await c.query(
+    `select 1 from information_schema.columns
+      where table_schema='public' and table_name='documents' and column_name='discount_reason'`,
+  )).rowCount;
+  check("documents.discount_reason exists", hasReason, 1);
+
+  const customer = (await c.query(
+    "select id from public.customers where tenant_id = $1 order by created_at limit 1", [tenant],
+  )).rows[0].id;
+  const doc = {
+    id: null, doc_type: "quote", customer_id: customer, vehicle_id: null, template_id: null,
+    template_overrides: {}, valid_until: null, due_date: null, origin: "standalone",
+    discount_kind: null, discount_value: 0, discount_reason: "regular customer",
+  };
+  const saved = (await c.query("select * from public.save_draft($1::jsonb, $2::jsonb, null)", [
+    JSON.stringify(doc),
+    JSON.stringify([{
+      product_id: null, title: "Wash", description: null, qty: 1, unit_price: 1000,
+      discount_pct: 0, discount_kind: "percent", discount_amount: 0, vat_rate: 15,
+      sort_order: 0, line_kind: "service",
+    }]),
+  ])).rows[0];
+  check("save_draft stores the reason", saved.discount_reason, "regular customer");
 } finally {
   await c.query("rollback");
   await c.end();
