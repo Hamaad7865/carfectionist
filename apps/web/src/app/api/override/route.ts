@@ -181,13 +181,21 @@ export async function POST(req: Request) {
     return json({ error: "server_error" }, 500);
   }
 
+  // record_owner_override returns a composite (public.owner_overrides), and
+  // PostgREST hands a single-row composite back array-wrapped. Reading data.id
+  // off the array gave undefined for every field, so this body was going out as
+  // {"override":{}}. Harmless — both callers only check the status — but wrong,
+  // and the same unwrap already guards getSessionContext for the same reason.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const row = (Array.isArray(data) ? data[0] : data) as any;
+
   return json({
     override: {
-      id: data.id,
-      kind: data.kind,
-      refType: data.ref_type,
-      refId: data.ref_id,
-      createdAt: data.created_at,
+      id: row?.id,
+      kind: row?.kind,
+      refType: row?.ref_type,
+      refId: row?.ref_id,
+      createdAt: row?.created_at,
     },
   });
 }
