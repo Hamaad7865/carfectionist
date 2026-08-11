@@ -493,18 +493,24 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     }.getOrNull()
 
     /**
-     * Points THIS document's own settlement earned — the ledger's own 'earned' row for it
-     * (app.award_points_for_invoice, 20260811000030), never recomputed client-side. At most
-     * one row exists (idx_points_ledger_one_earn_per_doc), but this sums defensively rather
-     * than assume it.
+     * Points THIS document's own settlement earned, or NULL if the answer could not be
+     * fetched — the ledger's own 'earned' rows for it (app.award_points_for_invoice),
+     * never recomputed client-side. Summed rather than assumed to be one row: a bill that
+     * was reversed and re-paid legitimately carries more than one (20260811000070).
+     *
+     * getOrNull, NOT getOrDefault(0). A network blip, or an RLS read that runs before the
+     * session is ready, is indistinguishable from "earned nothing" — and 0 is not null, so
+     * the slip printed "Points earned : 0 pts" beside a real balance and handed that to the
+     * customer. The receipt already drops both lines when the figure is genuinely unknown;
+     * it only needed to be told that it is.
      */
-    suspend fun pointsEarnedForDocument(documentId: String): Int = runCatching {
+    suspend fun pointsEarnedForDocument(documentId: String): Int? = runCatching {
         client.postgrest.from("customer_points_ledger")
             .select(Columns.raw("delta")) {
                 filter { eq("ref_type", "document"); eq("ref_id", documentId); eq("reason", "earned") }
             }
             .decodeList<PointsDeltaDto>().sumOf { it.delta }
-    }.getOrDefault(0)
+    }.getOrNull()
 
     /** The internal order reference for a just-issued sale — the slip's "Bill" line. */
     suspend fun billNoFor(documentId: String): Long? = runCatching {

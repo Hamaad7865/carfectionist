@@ -1113,45 +1113,7 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
         // Tapping only arms them; nothing is debited until Take, and tapping again takes
         // them back off. One-tap-and-done was the alternative and was rejected: reversals
         // are owner-only since rule 3, so a stray finger would mean fetching the owner.
-        s.applyPointsCents?.let { worth ->
-            val armed = s.pointsAppliedCents > 0
-            Box(
-                Modifier.fillMaxWidth().requiredHeight(56.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (armed) AccentSoft else Inset)
-                    .border(1.5.dp, if (armed) AccentLine else Hairline, RoundedCornerShape(12.dp))
-                    .clickable { vm.toggleApplyPoints() }
-                    .padding(horizontal = 14.dp),
-                contentAlignment = Alignment.CenterStart,
-            ) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text(
-                            if (armed) formatMUR(s.pointsAppliedCents) + " in points off this bill"
-                            else s.pointsCustomerLabel + " has " + formatMUR(s.pointsWorthCents) + " in points",
-                            color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
-                        )
-                        Text(
-                            if (armed) {
-                                // Kept short on purpose: this column is narrow and the longer
-                                // wording ("stays on their balance") was being clipped mid-word.
-                                val kept = (s.pointsWorthCents - s.pointsAppliedCents).coerceAtLeast(0)
-                                formatMUR(s.dueAfterPointsCents) + " left to pay" +
-                                    (if (kept > 0) " · " + formatMUR(kept) + " kept" else "") +
-                                    " · tap to undo"
-                            } else "Tap to choose how much of it to use",
-                            color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
-                            maxLines = 2,
-                        )
-                    }
-                    Text(
-                        if (armed) "APPLIED" else "APPLY",
-                        color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp,
-                    )
-                }
-            }
-            Spacer(Modifier.height(14.dp))
-        }
+        PointsBar(s, vm)
         Text("MEANS OF PAYMENT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1238,6 +1200,62 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
     }
 }
 
+/**
+ * The customer's points, offered above whichever pay mode is showing.
+ *
+ * Points are NOT one of the tiles below, and used to be. They behave like a voucher: they
+ * come off the total and the methods settle whatever is left. As a tile they were a RIVAL
+ * to Cash — to spend Rs 5.00 you took Rs 5.00 in points and then went round the pad a
+ * second time for the rest.
+ *
+ * Tapping only arms them; nothing is debited until the money is taken, and tapping again
+ * takes them back off. One-tap-and-done was the alternative and was rejected: reversals
+ * are owner-only since rule 3, so a stray finger would mean fetching the owner.
+ *
+ * Rendered by BOTH pay modes on purpose — see the note at the SplitAllocation call site.
+ */
+@Composable
+private fun PointsBar(s: CounterUiState, vm: CounterViewModel) {
+    s.applyPointsCents ?: return
+    val armed = s.pointsAppliedCents > 0
+    Box(
+        Modifier.fillMaxWidth().requiredHeight(56.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (armed) AccentSoft else Inset)
+            .border(1.5.dp, if (armed) AccentLine else Hairline, RoundedCornerShape(12.dp))
+            .clickable { vm.toggleApplyPoints() }
+            .padding(horizontal = 14.dp),
+        contentAlignment = Alignment.CenterStart,
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    if (armed) formatMUR(s.pointsAppliedCents) + " in points off this bill"
+                    else s.pointsCustomerLabel + " has " + formatMUR(s.pointsWorthCents) + " in points",
+                    color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
+                )
+                Text(
+                    if (armed) {
+                        // Kept short on purpose: this column is narrow and the longer
+                        // wording ("stays on their balance") was being clipped mid-word.
+                        val kept = (s.pointsWorthCents - s.pointsAppliedCents).coerceAtLeast(0)
+                        formatMUR(s.dueAfterPointsCents) + " left to pay" +
+                            (if (kept > 0) " · " + formatMUR(kept) + " kept" else "") +
+                            " · tap to undo"
+                    } else "Tap to choose how much of it to use",
+                    color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                    maxLines = 2,
+                )
+            }
+            Text(
+                if (armed) "APPLIED" else "APPLY",
+                color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp,
+            )
+        }
+    }
+    Spacer(Modifier.height(14.dp))
+}
+
 /** Split bill: an allocation table — an amount per method — plus a numpad and Record. */
 @Composable
 private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
@@ -1246,6 +1264,12 @@ private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
         Modifier.weight(1f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(18.dp),
         verticalArrangement = Arrangement.spacedBy(11.dp),
     ) {
+        // Here too, not only in single-method mode. Applied points used to VANISH on
+        // tapping Split bill — the bar lived only in SingleMethodPay while
+        // pointsAppliedCents stayed set, so the rows had to add up to a total the cashier
+        // could no longer see, and the points could not be taken back off. The only way
+        // out was to toggle Split off again, which nothing said.
+        PointsBar(s, vm)
         Text("HOW IS THE CUSTOMER PAYING?", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
         SPLIT_METHODS.forEach { m ->
             val focused = s.splitFocus == m

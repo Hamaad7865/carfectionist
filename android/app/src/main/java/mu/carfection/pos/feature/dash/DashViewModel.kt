@@ -105,11 +105,24 @@ class DashViewModel @Inject constructor(private val api: PosApi) : ViewModel() {
         val paymentsTodayCount = (payByDay[today] ?: emptyList()).size
 
         // ── mix today ──
-        val MC = mapOf("cash" to 0xFF1FA361L, "card" to 0xFF2A6FDBL, "juice" to 0xFFC17A00L, "bank_transfer" to 0xFF7C5CE8L)
-        val labels = mapOf("cash" to "Cash", "card" to "Card", "juice" to "Juice (MCB)", "bank_transfer" to "Bank transfer")
+        // Points are a tender and belong here. mixTotal already sums EVERY method taken, so
+        // omitting the points row did not merely hide a line — it made the percentages stop
+        // adding up to 100 on the owner's own dashboard, with nothing to say why.
+        val MC = mapOf(
+            "cash" to 0xFF1FA361L, "card" to 0xFF2A6FDBL, "juice" to 0xFFC17A00L,
+            "bank_transfer" to 0xFF7C5CE8L, "points" to 0xFF9B59B6L,
+        )
+        val labels = mapOf(
+            "cash" to "Cash", "card" to "Card", "juice" to "Juice (MCB)",
+            "bank_transfer" to "Bank transfer", "points" to "Points",
+        )
         val mixMap = (payByDay[today] ?: emptyList()).groupBy { it.method }.mapValues { (_, ps) -> ps.sumOf { cents(it.amount) } }
         val mixTotal = mixMap.values.sum().coerceAtLeast(1L)
-        val mix = listOf("cash", "card", "juice", "bank_transfer").map { m ->
+        // The four cash-like methods always show, so the card keeps its shape on a quiet
+        // day. Anything else — points today, whatever is added later — joins only once it
+        // has actually been taken, rather than silently skewing the split.
+        val CORE = listOf("cash", "card", "juice", "bank_transfer")
+        val mix = (CORE + mixMap.keys.filterNot { it in CORE }.sorted()).map { m ->
             val v = mixMap[m] ?: 0L
             MixRow(labels[m] ?: m, formatMUR(v), (v * 100 / mixTotal).toInt(), MC[m] ?: 0xFF8494A3L)
         }

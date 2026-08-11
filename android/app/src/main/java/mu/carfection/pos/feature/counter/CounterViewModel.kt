@@ -251,7 +251,11 @@ data class CounterUiState(
     // Against what is LEFT after points, not the bill — a split settles the rest.
     val splitBalanceCents: Long get() = dueAfterPointsCents - allocatedCents
     /** The split is ready when its rows sum EXACTLY to the bill and a till is open. */
-    val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueAfterPointsCents > 0 && allocatedCents == dueAfterPointsCents
+    // `dueCents > 0` guards against settling an empty bill. It has to be the BILL, not what
+    // is left after points: a bill the points cover outright leaves dueAfterPointsCents at
+    // zero, and requiring that to be positive made Take permanently dead with nothing
+    // saying why.
+    val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueAfterPointsCents
 
     /**
      * Does this sale name a REAL customer — one the cashier picked or the bill was already
