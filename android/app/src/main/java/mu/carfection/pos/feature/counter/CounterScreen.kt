@@ -1115,12 +1115,15 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
                         )
                         Text(
                             if (armed) {
+                                // Kept short on purpose: this column is narrow and the longer
+                                // wording ("stays on their balance") was being clipped mid-word.
                                 val kept = (s.pointsWorthCents - s.pointsAppliedCents).coerceAtLeast(0)
                                 formatMUR(s.dueAfterPointsCents) + " left to pay" +
-                                    (if (kept > 0) " · " + formatMUR(kept) + " stays on their balance" else "") +
-                                    " — tap to undo"
+                                    (if (kept > 0) " · " + formatMUR(kept) + " kept" else "") +
+                                    " · tap to undo"
                             } else "Tap to choose how much of it to use",
                             color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                            maxLines = 2,
                         )
                     }
                     Text(

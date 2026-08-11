@@ -226,8 +226,17 @@ data class CounterUiState(
         }
 
     /** Money still owed after this entry lands — what stays in TO COLLECT. */
-    val balanceAfterCents: Long get() = (dueCents - payCents).coerceAtLeast(0)
-    val isPartPayment: Boolean get() = collect != null && payCents in 1 until dueCents
+    /**
+     * What is still owed once this Take lands — counting the points, which are part of
+     * the same settle.
+     *
+     * Without pointsAppliedCents here, a Rs 10,100.01 bill with Rs 100 of points on it and
+     * Rs 10,000.01 in the cash box read "Balance Rs 100.00" and offered "Take Rs 10,000.01
+     * — Rs 100.00 left", as though the customer still owed the amount their points had
+     * just covered. Both tenders are recorded by the one press; nothing is left.
+     */
+    val balanceAfterCents: Long get() = (dueCents - pointsAppliedCents - payCents).coerceAtLeast(0)
+    val isPartPayment: Boolean get() = collect != null && (pointsAppliedCents + payCents) in 1 until dueCents
 
     val tenderCents: Long? get() = if (tenderText.isBlank()) null else parseMoneyToCents(tenderText)
     val effectiveTenderCents: Long get() = tenderCents ?: payCents // pad opens "exact"
