@@ -1035,6 +1035,24 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         // deposit, so show what's been paid and the balance actually being settled now.
                         val invoiceTotalCents = s.collect?.let { rupeesToCents(it.totalIncl) } ?: s.dueCents
                         val paidAlreadyCents = s.collect?.let { rupeesToCents(it.amountPaid) } ?: 0L
+                        // A BASKET discount belongs on the bill the customer is reading.
+                        //
+                        // The lines above show rowGrossCents, which carries each line's OWN discount
+                        // but not the basket one — that is applied at document level and apportioned
+                        // across VAT groups, so it lands on no single line. Without this row a
+                        // Rs 880.00 line sat directly above a Rs 836.00 total with nothing to explain
+                        // the difference, which is exactly the "the bill doesn't add up to what they
+                        // are being charged" failure the line rendering above was already fixed for.
+                        val basketOffCents = if (s.collect != null) 0L
+                            else if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
+                        if (basketOffCents > 0) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                Spacer(Modifier.weight(1f))
+                                Text("− ${formatMUR(basketOffCents)}", color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                            }
+                            Spacer(Modifier.height(8.dp))
+                        }
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Text("Total incl. tax", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp)
                             Spacer(Modifier.weight(1f))
