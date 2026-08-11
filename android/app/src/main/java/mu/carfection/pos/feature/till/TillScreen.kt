@@ -106,6 +106,7 @@ data class TillUiState(
     val reopenOpen: Boolean = false,         // the "why are we reopening?" dialog
     val reopenError: String? = null,         // shown inside that dialog, not behind it
     val z: mu.carfection.pos.core.network.ZReportDto? = null, // the slip, once cut
+    val defaultFloatCents: Long = 0,         // owner's prefill for the opening-float box
     val bizName: String = "Carfectionist",   // for the "Sale modes" line
     // ── emailing the Z ──────────────────────────────────────────────────────
     val emailOpen: Boolean = false,
@@ -151,6 +152,14 @@ class TillViewModel @Inject constructor(
 ) : ViewModel() {
     private val _s = MutableStateFlow(TillUiState())
     val state = _s.asStateFlow()
+
+    init {
+        // The owner's default opening float, live — prefilled into the float box so a cashier
+        // usually just taps Open. Defaults to 0 (box stays empty) until one is set.
+        viewModelScope.launch {
+            catalog.defaultOpeningFloatFlow.collect { rupees -> _s.value = _s.value.copy(defaultFloatCents = rupeesToCents(rupees)) }
+        }
+    }
 
     /**
      * Latched only by the Open-till button — not by `load()` finding an existing session, or
@@ -384,6 +393,11 @@ fun TillScreen(
 ) {
     val s by viewModel.state.collectAsState()
     var floatText by remember { mutableStateOf("") }
+    // Seed the float box from the owner's default the moment it arrives — but only while the
+    // box is still untouched, so the seed never overwrites what a cashier is typing.
+    LaunchedEffect(s.defaultFloatCents) {
+        if (floatText.isBlank() && s.defaultFloatCents > 0) floatText = centsToPlainText(s.defaultFloatCents)
+    }
     var countText by remember { mutableStateOf("") }
     // Set the moment the cashier types in the count field — after that the seed never touches it.
     var countEdited by remember { mutableStateOf(false) }

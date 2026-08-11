@@ -155,6 +155,10 @@ data class CounterUiState(
     // stamped onto each CartLine so a line resolves its policy the same way the DB does.
     val carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
     val policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
+    // May a low item still be sold once its shop stock hits zero (business_settings.
+    // allow_negative_stock)? On (default): the cashier confirms once and sells anyway. Off:
+    // the sale is blocked before it can go negative — no "sell anyway" is offered.
+    val allowNegativeStock: Boolean = true,
     // The named customer's CURRENT points balance — derived in `state` from whichever source
     // has one: the collect bill's own embed, or the walk-in cart's picked customer in the
     // synced cache. 0 when nobody is named (the Points tender is not offered then anyway).
@@ -664,6 +668,9 @@ class CounterViewModel @Inject constructor(
                 local.value = s.copy(policyDefaults = defs, cart = s.cart.map { it.copy(policyDefaults = defs) })
             }
         }
+        viewModelScope.launch {
+            catalog.allowNegativeStockFlow.collect { on -> local.value = local.value.copy(allowNegativeStock = on) }
+        }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
@@ -684,6 +691,7 @@ class CounterViewModel @Inject constructor(
             pricesInclVat = cur.pricesInclVat, pointValueRupees = cur.pointValueRupees,
             pointsEnabled = cur.pointsEnabled,
             carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
+            allowNegativeStock = cur.allowNegativeStock,
         )
     }
 
@@ -1303,7 +1311,10 @@ class CounterViewModel @Inject constructor(
 
     fun add(p: ProductEntity) {
         val target = (local.value.cart.firstOrNull { it.product.id == p.id }?.qty ?: 0.0) + 1
-        if (needsOversellPrompt(p, target)) { local.value = local.value.copy(oversell = OversellPrompt(p, target)); return }
+        if (needsOversellPrompt(p, target)) {
+            if (!local.value.allowNegativeStock) { local.value = local.value.copy(notice = oversellBlockedNotice(p)); return }
+            local.value = local.value.copy(oversell = OversellPrompt(p, target)); return
+        }
         mutateCart { cart ->
             val i = cart.indexOfFirst { it.product.id == p.id }
             if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = it[i].qty + 1) }
@@ -1314,6 +1325,7 @@ class CounterViewModel @Inject constructor(
     fun setQty(productId: String, qty: Double) {
         val cur = local.value.cart.firstOrNull { it.product.id == productId }
         if (cur != null && qty > cur.qty && needsOversellPrompt(cur.product, qty)) {
+            if (!local.value.allowNegativeStock) { local.value = local.value.copy(notice = oversellBlockedNotice(cur.product)); return }
             local.value = local.value.copy(oversell = OversellPrompt(cur.product, qty)); return
         }
         mutateCart { cart ->
@@ -1327,6 +1339,12 @@ class CounterViewModel @Inject constructor(
         if (!p.isStocked) return false // services / ad-hoc lines don't track stock
         if (local.value.cart.firstOrNull { it.product.id == p.id }?.oversellOk == true) return false
         return (local.value.onHand[p.id] ?: 0) - targetQty < 0
+    }
+
+    /** The hard-stop message when the owner has switched negative-stock sales off. */
+    private fun oversellBlockedNotice(p: ProductEntity): String {
+        val have = local.value.onHand[p.id] ?: 0
+        return "${p.name} has $have in stock — the shop does not allow selling past that."
     }
 
     /** "Sell anyway" — apply the held quantity and stop asking for this product this sale. */
@@ -1955,6 +1973,7 @@ class CounterViewModel @Inject constructor(
             // day, and offer them again on the next ticket after they were switched off.
             pointValueRupees = cur.pointValueRupees, pointsEnabled = cur.pointsEnabled,
             carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
+            allowNegativeStock = cur.allowNegativeStock,
         )
         refreshTill()
     }
