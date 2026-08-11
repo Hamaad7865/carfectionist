@@ -737,7 +737,7 @@ private fun LineCard(
                 )
             } else if (l.discountPolicy == "carwash") {
                 Text(
-                    "Up to ${formatMUR(lineAllowanceCents(AllowanceLineInput(l.qty.toDouble(), l.unitCents, l.vatRate, l.discountPolicy)))} may be discounted on this line.",
+                    "Up to ${formatMUR(lineAllowanceCents(AllowanceLineInput(l.qty.toDouble(), l.unitCents, l.vatRate, l.discountPolicy), l.carwashPct))} may be discounted on this line.",
                     fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
                 )
             }

@@ -30,6 +30,9 @@ import mu.carfection.pos.core.rich.richDocToJson
 import mu.carfection.pos.core.rich.richToPlainText
 import mu.carfection.pos.core.money.Allowance
 import mu.carfection.pos.core.money.AllowanceLineInput
+import mu.carfection.pos.core.money.CARWASH_MAX_PCT
+import mu.carfection.pos.core.money.DEFAULT_POLICIES
+import mu.carfection.pos.core.money.PolicyDefaults
 import mu.carfection.pos.core.money.DiscountPolicy
 import mu.carfection.pos.core.money.DocDiscount
 import mu.carfection.pos.core.money.DocDiscountTotals
@@ -102,6 +105,12 @@ data class QuoteLine(
     // whose policy changes after the line was picked must not silently reprice a basket the
     // cashier already built — same reason unitCents is a snapshot, not a live lookup.
     val discountPolicy: DiscountPolicy = "none",
+    // The owner's live discount rules, stamped when the line is added or reopened and
+    // re-stamped on a settings sync (QuoteViewModel). Defaulted to the constants so a
+    // copy() that forgets them, or a test that omits them, clamps exactly as before —
+    // the same shape CartLine carries on the counter.
+    val carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
+    val policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
 ) {
     val unitCents: Long get() {
         val typed = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
@@ -116,7 +125,7 @@ data class QuoteLine(
      *  so a typed figure can never ask for more than the owner's 5% rule permits. */
     val discountAmtCents: Long get() {
         val typed = (parseMoneyToCents(discountAmtText) ?: 0L).coerceAtLeast(0)
-        return if (discountPolicy == "carwash") typed.coerceAtMost(lineAllowanceCents(allowanceInput)) else typed
+        return if (discountPolicy == "carwash") typed.coerceAtMost(lineAllowanceCents(allowanceInput, carwashPct)) else typed
     }
 }
 
@@ -138,7 +147,13 @@ data class QuoteLine(
  * so the line's policy is resolved the same way the DB resolves it at
  * app.document_discount_limits: the product this line names, looked up locally.
  */
-fun storedLine(l: QuoteLineDto, gross: Boolean, products: List<ProductEntity>): QuoteLine {
+fun storedLine(
+    l: QuoteLineDto,
+    gross: Boolean,
+    products: List<ProductEntity>,
+    carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
+    policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
+): QuoteLine {
     val product = products.firstOrNull { it.id == l.productId }
     val effectiveKind = l.lineKind ?: product?.kind ?: "service"
     return QuoteLine(
@@ -152,7 +167,9 @@ fun storedLine(l: QuoteLineDto, gross: Boolean, products: List<ProductEntity>): 
         discountPct = l.discountPct.toInt(),
         discountAmtText = if (l.discountKind == "amount" && l.discountAmount > 0) centsToPlainText(rupeesToCents(l.discountAmount)) else "",
         lineKind = l.lineKind,
-        discountPolicy = policyOf(product?.discountPolicy, effectiveKind),
+        discountPolicy = policyOf(product?.discountPolicy, effectiveKind, policyDefaults),
+        carwashPct = carwashPct,
+        policyDefaults = policyDefaults,
         description = l.description,
         richJson = l.descriptionRichtext,
         unitLabel = l.unitLabel.orEmpty(),
@@ -210,17 +227,28 @@ fun billLineEditable(index: Int, quotedCount: Int, lineCount: Int) =
     index >= quotedCount && index >= 0 && index < lineCount
 
 /** A line at a given price in cents — keeps the constructor call sites readable. */
-fun quoteLine(productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1, gross: Boolean = false, discountPolicy: DiscountPolicy = "none"): QuoteLine =
+fun quoteLine(
+    productId: String?, title: String, unitCents: Long, vatRate: Double, qty: Int = 1, gross: Boolean = false,
+    discountPolicy: DiscountPolicy = "none",
+    carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
+    policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
+): QuoteLine =
     QuoteLine(
         productId, title,
         centsToPlainText(if (gross) grossCents(unitCents, vatRate) else unitCents),
         vatRate, qty, priceIsGross = gross, discountPolicy = discountPolicy,
+        carwashPct = carwashPct, policyDefaults = policyDefaults,
     )
 
 data class QuoteState(
     // The shop quotes VAT-inclusive shelf prices — show/accept gross. Display only; the
     // lines still save the net unit_price the ledger adds VAT to.
     val pricesInclVat: Boolean = false,
+    // The owner's live discount rules (business_settings, 20260812000010), loaded like
+    // pricesInclVat. The cap feeds computeAllowance; the defaults are stamped onto each
+    // line so it resolves its policy the way the DB does.
+    val carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
+    val policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
     val loading: Boolean = true,
     val mode: QuoteMode = QuoteMode.LIST,
     val quotes: List<QuoteRowDto> = emptyList(),
@@ -446,6 +474,19 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch {
             catalog.pricesInclVatFlow.collect { incl -> _s.update { it.copy(pricesInclVat = incl) } }
         }
+        // The owner's discount cap and per-kind defaults, live. On a change the open
+        // builder AND bill lines are re-stamped, so a basket already on screen clamps by
+        // the new rule rather than waiting for a fresh quote — mirrors the counter.
+        viewModelScope.launch {
+            catalog.carwashPctFlow.collect { pct ->
+                _s.update { it.copy(carwashPct = pct, lines = it.lines.map { l -> l.copy(carwashPct = pct) }, billLines = it.billLines.map { l -> l.copy(carwashPct = pct) }) }
+            }
+        }
+        viewModelScope.launch {
+            catalog.policyDefaultsFlow.collect { defs ->
+                _s.update { it.copy(policyDefaults = defs, lines = it.lines.map { l -> l.copy(policyDefaults = defs) }, billLines = it.billLines.map { l -> l.copy(policyDefaults = defs) }) }
+            }
+        }
         loadQuotes()
         loadTechnicians()
         collectBillRequests()
@@ -469,6 +510,11 @@ class QuoteViewModel @Inject constructor(
                     technicians = _s.value.technicians,
                     takesPayments = _s.value.takesPayments,
                     pricesInclVat = _s.value.pricesInclVat,
+                    // Shop-wide, and the flows feeding them only re-emit on an owner change —
+                    // so drop them here and the pad clamps at the default cap for up to four
+                    // minutes (same reasoning as pricesInclVat above).
+                    carwashPct = _s.value.carwashPct,
+                    policyDefaults = _s.value.policyDefaults,
                 )
             }
         }
@@ -715,7 +761,7 @@ class QuoteViewModel @Inject constructor(
             runCatching { api.fetchQuoteLines(q.id) }
                 .onSuccess { ls ->
                     _s.update { st ->
-                        st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat, st.products) })
+                        st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat, st.products, st.carwashPct, st.policyDefaults) })
                     }
                 }
                 .onFailure { e -> _s.update { it.copy(error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})") } }
@@ -769,7 +815,7 @@ class QuoteViewModel @Inject constructor(
         if (!editable(st)) return@update st
         val i = st.lines.indexOfFirst { it.productId == p.id }
         val lines = if (i >= 0) st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
-        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind))
+        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind, st.policyDefaults), carwashPct = st.carwashPct, policyDefaults = st.policyDefaults)
         st.copy(lines = lines)
     }
 
@@ -786,7 +832,8 @@ class QuoteViewModel @Inject constructor(
             lines = st.lines + QuoteLine(
                 null, name.trim(), centsToPlainText(priceCents), vatRate,
                 priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
-                discountPolicy = policyOf(null, if (isService) "service" else "product"),
+                discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
+                carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
             ),
         )
     }
@@ -917,7 +964,7 @@ class QuoteViewModel @Inject constructor(
     }
 
     fun allowance(s: QuoteState): Allowance =
-        computeAllowance(s.lines.map { it.toAllowanceInput() }, allowanceDocDiscount(s), s.approvedMaxCents)
+        computeAllowance(s.lines.map { it.toAllowanceInput() }, allowanceDocDiscount(s), s.approvedMaxCents, s.carwashPct)
 
     /** Why the accept/issue action is dead, when the reason is the discount and not something else. */
     fun discountBlockReason(s: QuoteState): String? {
@@ -936,7 +983,7 @@ class QuoteViewModel @Inject constructor(
     // its LINES are its own, since a carwash item added at the counter is a fresh line the
     // quote never saw.
     fun billAllowance(s: QuoteState): Allowance =
-        computeAllowance(s.billLines.map { it.toAllowanceInput() }, allowanceDocDiscount(s), s.billApprovedMaxCents)
+        computeAllowance(s.billLines.map { it.toAllowanceInput() }, allowanceDocDiscount(s), s.billApprovedMaxCents, s.carwashPct)
 
     fun billDiscountBlockReason(s: QuoteState): String? {
         val a = billAllowance(s)
@@ -1588,7 +1635,7 @@ class QuoteViewModel @Inject constructor(
                 val draft = api.convertQuoteToInvoice(quoteId)
                 // Already issued (by the board, say) — nothing to add to, hand it back as it stands.
                 if (draft.status != null && draft.status != "draft") return@runCatching Pair(draft, emptyList<QuoteLine>())
-                Pair(draft, api.fetchQuoteLines(draft.id).map { storedLine(it, _s.value.pricesInclVat, _s.value.products) })
+                Pair(draft, api.fetchQuoteLines(draft.id).map { storedLine(it, _s.value.pricesInclVat, _s.value.products, _s.value.carwashPct, _s.value.policyDefaults) })
                 // Raising the bill accepts the quote on the server too (convert_quote_to_invoice,
                 // 20260804000010) — carry that here, or the screen keeps offering to re-save and
                 // re-bill a draft the server no longer has.
@@ -1645,7 +1692,7 @@ class QuoteViewModel @Inject constructor(
             else cur.copy(
                 bills = cur.bills.map { b ->
                     if (b.id != bill.id) b
-                    else b.copy(extras = lines.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat, cur.products) })
+                    else b.copy(extras = lines.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat, cur.products, cur.carwashPct, cur.policyDefaults) })
                 },
             )
         }
@@ -1653,7 +1700,7 @@ class QuoteViewModel @Inject constructor(
 
     fun addToBill(p: ProductEntity) = _s.update { st ->
         if (!st.billOpen) st else st.copy(
-            billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind)),
+            billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind, st.policyDefaults), carwashPct = st.carwashPct, policyDefaults = st.policyDefaults),
         )
     }
 
@@ -1664,7 +1711,8 @@ class QuoteViewModel @Inject constructor(
             billLines = st.billLines + QuoteLine(
                 null, name.trim(), centsToPlainText(priceCents), vatRate,
                 priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
-                discountPolicy = policyOf(null, if (isService) "service" else "product"),
+                discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
+                carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
             ),
         )
     }
