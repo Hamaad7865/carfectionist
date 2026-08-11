@@ -75,6 +75,25 @@ describe('computeAllowance', () => {
     expect(computeAllowance([line({ discountPct: 5 })], null).reasonRequired).toBe(false);
   });
 
+  it('lets a carwash at exactly 5% sit on its ceiling, at any line count', () => {
+    // The bug this pins: the allowance used to be 5% OF THE GROSS, a cent less
+    // than what a 5% discount actually removes once the discounted net and its
+    // VAT are each rounded. One line hid inside the guard's 1-cent tolerance;
+    // two did not — 135.02 against 135.00 — so a customer with two cars was
+    // refused the discount the shop is expressly allowed to give.
+    // TOUCHLESS FOAM WASH SEDAN: Rs 1,173.91 net, Rs 1,350.00 gross.
+    const wash = () => line({ policy: 'carwash', unitCents: 117_391, discountPct: 5 });
+    for (const n of [1, 2, 3, 5]) {
+      const r = computeAllowance(Array.from({ length: n }, wash), null);
+      expect(r.actualCents).toBe(r.ceilingCents);
+      expect(r.overCeiling).toBe(false);
+    }
+  });
+
+  it('still refuses a carwash above 5%', () => {
+    expect(computeAllowance([line({ policy: 'carwash', unitCents: 117_391, discountPct: 6 })], null).overCeiling).toBe(true);
+  });
+
   it('flags a discount past the ceiling', () => {
     expect(computeAllowance([line({ policy: 'none', discountPct: 10 })], null).overCeiling).toBe(true);
   });

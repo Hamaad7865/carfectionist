@@ -120,4 +120,26 @@ class AllowanceTest {
     fun `does not ask for a reason once an owner has approved`() {
         assertFalse(computeAllowance(listOf(line(policy = "carwash", discountPct = 5.0)), null, 5_750L).reasonRequired)
     }
+
+    @Test
+    fun `lets a carwash at exactly 5 percent sit on its ceiling, at any line count`() {
+        // The bug this pins: the allowance used to be 5% OF THE GROSS, a cent less
+        // than what a 5% discount actually removes once the discounted net and its
+        // VAT are each rounded. One line hid inside the guard's 1-cent tolerance;
+        // two did not — 135.02 against 135.00 — so a customer with two cars was
+        // refused the discount the shop is expressly allowed to give.
+        // TOUCHLESS FOAM WASH SEDAN: Rs 1,173.91 net, Rs 1,350.00 gross.
+        for (n in listOf(1, 2, 3, 5)) {
+            val lines = List(n) { line(unitCents = 117_391L, policy = "carwash", discountPct = 5.0) }
+            val r = computeAllowance(lines, null)
+            assertEquals("$n line(s) at 5% must land on the ceiling", r.ceilingCents, r.actualCents)
+            assertFalse(r.overCeiling)
+        }
+    }
+
+    @Test
+    fun `still refuses a carwash above 5 percent`() {
+        val r = computeAllowance(listOf(line(unitCents = 117_391L, policy = "carwash", discountPct = 6.0)), null)
+        assertTrue(r.overCeiling)
+    }
 }

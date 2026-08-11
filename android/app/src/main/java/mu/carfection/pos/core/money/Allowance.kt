@@ -80,11 +80,27 @@ private fun netInclCents(l: AllowanceLineInput): Long {
 }
 
 /** The most a single line may be discounted, in VAT-inclusive cents. */
+/** What a line's net comes to at a given percentage off, rounded as the DB rounds. */
+private fun netInclAtPct(l: AllowanceLineInput, pct: Double): Long {
+    val excl = roundHalfAwayFromZero(l.qty * l.unitCents * (1 - pct / 100.0))
+    return excl + roundHalfAwayFromZero((excl * l.vatRatePct) / 100)
+}
+
+/**
+ * The most a single line may be discounted, in VAT-inclusive cents.
+ *
+ * A carwash's allowance is what a 5% discount GENUINELY removes — not 5% of the
+ * gross. The two differ by about a cent per line, because the discounted net and
+ * its VAT are each rounded. Measuring it the other way made a 5% line exceed its
+ * own ceiling by a cent: one line's tolerance hid that, two lines' did not, and a
+ * customer with two cars was refused the discount the shop is expressly allowed
+ * to give. See 20260811000060.
+ */
 fun lineAllowanceCents(l: AllowanceLineInput): Long {
     val gross = grossInclCents(l)
     return when (l.policy) {
         "free" -> gross
-        "carwash" -> roundHalfAwayFromZero(gross * CARWASH_MAX_PCT / 100.0)
+        "carwash" -> maxOf(gross - netInclAtPct(l, CARWASH_MAX_PCT.toDouble()), 0L)
         else -> 0L
     }
 }

@@ -69,11 +69,26 @@ function netInclCents(l: AllowanceLineInput): number {
   return excl + roundHalfAwayFromZero((excl * l.vatRatePct) / 100);
 }
 
-/** The most a single line may be discounted, in VAT-inclusive cents. */
+/** What a line's net comes to at a given percentage off, rounded as the DB rounds. */
+function netInclAtPct(l: AllowanceLineInput, pct: number): number {
+  const excl = roundHalfAwayFromZero(l.qty * l.unitCents * (1 - pct / 100));
+  return excl + roundHalfAwayFromZero((excl * l.vatRatePct) / 100);
+}
+
+/**
+ * The most a single line may be discounted, in VAT-inclusive cents.
+ *
+ * A carwash's allowance is what a 5% discount GENUINELY removes — not 5% of the
+ * gross. The two differ by about a cent per line, because the discounted net and
+ * its VAT are each rounded. Measuring it the other way made a 5% line exceed its
+ * own ceiling by a cent: one line's tolerance hid that, two lines' did not, and a
+ * customer with two cars was refused the discount the shop is expressly allowed
+ * to give. See 20260811000060.
+ */
 export function lineAllowanceCents(l: AllowanceLineInput): number {
   const gross = grossInclCents(l);
   if (l.policy === 'free') return gross;
-  if (l.policy === 'carwash') return roundHalfAwayFromZero((gross * CARWASH_MAX_PCT) / 100);
+  if (l.policy === 'carwash') return Math.max(gross - netInclAtPct(l, CARWASH_MAX_PCT), 0);
   return 0;
 }
 
