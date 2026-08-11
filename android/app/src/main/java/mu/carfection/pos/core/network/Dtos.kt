@@ -552,6 +552,10 @@ data class BusinessSettingsDto(
     // What one point is worth when spent (20260811000020) — the Points tender's cap
     // (pointsValueCents) needs it; the earn rate stays server-side only.
     @SerialName("point_value_rupees") val pointValueRupees: FlexDouble = 1.0,
+    // The programme's off switch (20260811000090). Defaults to TRUE like the column: a
+    // tablet that cannot read the field keeps the shop's current behaviour rather than
+    // silently withdrawing a tender the counter is still taking.
+    @SerialName("points_enabled") val pointsEnabled: Boolean = true,
 )
 
 @Serializable

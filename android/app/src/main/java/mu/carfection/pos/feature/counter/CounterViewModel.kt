@@ -143,6 +143,10 @@ data class CounterUiState(
     // What one point is worth when spent (business_settings.point_value_rupees) — a shop-wide
     // setting, loaded once like pricesInclVat, not per-customer.
     val pointValueRupees: Double = 1.0,
+    // Does the shop run a loyalty programme at all (business_settings.points_enabled)? Off:
+    // the pad offers no points bar, because spend_points refuses ("points are switched off")
+    // and a button that can only fail is worse than no button.
+    val pointsEnabled: Boolean = true,
     // The named customer's CURRENT points balance — derived in `state` from whichever source
     // has one: the collect bill's own embed, or the walk-in cart's picked customer in the
     // synced cache. 0 when nobody is named (the Points tender is not offered then anyway).
@@ -272,7 +276,7 @@ data class CounterUiState(
     /** The most a Points tender may take off THIS bill: never more than is owed, and never
      *  more than the balance is worth. Zero when nobody is named — spend_points refuses
      *  outright otherwise ("a points payment needs a customer on the bill", 20260811000040). */
-    val pointsCapCents: Long get() = if (hasNamedCustomer) minOf(dueCents, pointsWorthCents) else 0L
+    val pointsCapCents: Long get() = if (hasNamedCustomer && pointsEnabled) minOf(dueCents, pointsWorthCents) else 0L
 
     /**
      * What the apply-points prompt should offer, or null when there is nothing to offer.
@@ -622,6 +626,19 @@ class CounterViewModel @Inject constructor(
         viewModelScope.launch {
             catalog.pointValueRupeesFlow.collect { rate -> local.value = local.value.copy(pointValueRupees = rate) }
         }
+        // …and so does whether the programme runs at all: switched off in the back office,
+        // the bar leaves the pad on the next sync rather than at the next restart.
+        viewModelScope.launch {
+            catalog.pointsEnabledFlow.collect { on ->
+                // Anything already armed on the open pad comes off with it — settling it
+                // would only earn a refusal from spend_points.
+                local.value = local.value.copy(
+                    pointsEnabled = on,
+                    pointsAppliedCents = if (on) local.value.pointsAppliedCents else 0L,
+                    pointsPickerOpen = local.value.pointsPickerOpen && on,
+                )
+            }
+        }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
@@ -640,6 +657,7 @@ class CounterViewModel @Inject constructor(
         local.value = CounterUiState(
             till = cur.till, bizName = cur.bizName, bizAddress = cur.bizAddress,
             pricesInclVat = cur.pricesInclVat, pointValueRupees = cur.pointValueRupees,
+            pointsEnabled = cur.pointsEnabled,
         )
     }
 
@@ -1898,6 +1916,11 @@ class CounterViewModel @Inject constructor(
         local.value = CounterUiState(
             till = cur.till, mode = cur.mode, bills = cur.bills, paidToday = cur.paidToday,
             bizName = cur.bizName, bizAddress = cur.bizAddress, pricesInclVat = cur.pricesInclVat, // studio identity is not per-sale
+            // Shop-wide, not per-sale — and the flows that feed them only re-emit when the
+            // owner CHANGES a setting, so anything dropped here stays at its default until
+            // then: the pad would quietly price points at Rs 1.00 apiece for the rest of the
+            // day, and offer them again on the next ticket after they were switched off.
+            pointValueRupees = cur.pointValueRupees, pointsEnabled = cur.pointsEnabled,
         )
         refreshTill()
     }

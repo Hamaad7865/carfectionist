@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { Award } from "lucide-react";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { saveBusinessProfileAction } from "./business-actions";
 import type { BusinessProfile } from "@/lib/supabase/queries/settings";
@@ -11,7 +12,7 @@ type BForm = {
   legalName: string; tradingName: string; brn: string; vatNumber: string;
   email: string; phone: string; address: string;
   bankAccountName: string; bankAccountNumber: string; bankName: string; vatRate: string;
-  pointsPer100: string; pointValueRupees: string;
+  pointsEnabled: boolean; pointsPer100: string; pointValueRupees: string;
 };
 const seed = (b: BusinessProfile): BForm => ({
   legalName: b.legalName ?? "",
@@ -25,6 +26,7 @@ const seed = (b: BusinessProfile): BForm => ({
   bankAccountNumber: b.bankAccountNumber ?? "",
   bankName: b.bankName ?? "",
   vatRate: String(b.vatRate),
+  pointsEnabled: b.pointsEnabled,
   pointsPer100: String(b.pointsPer100),
   pointValueRupees: String(b.pointValueRupees),
 });
@@ -91,9 +93,37 @@ export function BusinessProfileForm({ profile }: { profile: BusinessProfile }) {
       </Section>
 
       <Section title="Loyalty points">
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Points per Rs 100" hint="Earned on a settled sale"><input className={inputCls} value={f.pointsPer100} onChange={set("pointsPer100")} inputMode="decimal" /></Field>
-          <Field label="A point is worth (Rs)" hint="Used when a customer spends points"><input className={inputCls} value={f.pointValueRupees} onChange={set("pointValueRupees")} inputMode="decimal" /></Field>
+        {/* The switch the shop actually asked for. It is not the same as a zero rate:
+            zero stops the earning and leaves every balance already given out spendable.
+            Off means off — no earning, no spending, and the tender leaves the pad. */}
+        <div className="flex items-center justify-between rounded-[12px] border border-line px-4 py-3">
+          <div className="flex items-center gap-2.5">
+            <Award size={16} className={f.pointsEnabled ? "text-mint" : "text-faint"} />
+            <div>
+              <div className="text-[12.5px] font-semibold text-body">Loyalty points</div>
+              <div className="text-[11px] text-faint">
+                {f.pointsEnabled
+                  ? "Sales earn points, and customers can spend them at the till"
+                  : "Switched off — no sale earns points and none can be spent. Balances are kept."}
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setF((s) => ({ ...s, pointsEnabled: !s.pointsEnabled })); setSaved(false); }}
+            role="switch"
+            aria-checked={f.pointsEnabled}
+            aria-label="Loyalty points"
+            className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${f.pointsEnabled ? "bg-mint" : "bg-line-2"}`}
+          >
+            <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${f.pointsEnabled ? "left-[22px]" : "left-0.5"}`} />
+          </button>
+        </div>
+        {/* The rates stay visible while off, so turning it back on shows what it returns
+            to — but they take no typing, because nothing they say applies. */}
+        <div className={`grid grid-cols-2 gap-3 ${f.pointsEnabled ? "" : "opacity-50"}`}>
+          <Field label="Points per Rs 100" hint="Earned on a settled sale"><input className={inputCls} value={f.pointsPer100} onChange={set("pointsPer100")} inputMode="decimal" disabled={!f.pointsEnabled} /></Field>
+          <Field label="A point is worth (Rs)" hint="Used when a customer spends points"><input className={inputCls} value={f.pointValueRupees} onChange={set("pointValueRupees")} inputMode="decimal" disabled={!f.pointsEnabled} /></Field>
         </div>
       </Section>
 

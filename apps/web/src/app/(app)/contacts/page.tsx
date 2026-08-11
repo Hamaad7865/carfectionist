@@ -85,7 +85,7 @@ export default async function ContactsPage({
               </div>
 
               <div className="px-[22px] pb-2">
-                <PointsPanel balance={sel.pointsBalance} pointValueRupees={sel.pointValueRupees} history={sel.pointsHistory} />
+                <PointsPanel balance={sel.pointsBalance} pointValueRupees={sel.pointValueRupees} pointsEnabled={sel.pointsEnabled} history={sel.pointsHistory} />
               </div>
 
               <div className="px-[22px] pb-[22px] pt-3.5">

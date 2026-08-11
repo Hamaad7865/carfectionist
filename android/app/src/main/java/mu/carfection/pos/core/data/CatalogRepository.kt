@@ -53,6 +53,7 @@ class CatalogRepository @Inject constructor(
     private val footerKey = stringPreferencesKey("receipt_footer")
     private val inclVatKey = booleanPreferencesKey("prices_incl_vat")
     private val pointValueKey = doublePreferencesKey("point_value_rupees")
+    private val pointsOnKey = booleanPreferencesKey("points_enabled")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -80,6 +81,15 @@ class CatalogRepository @Inject constructor(
      * snapshot would cap a Points tender against a rate the owner has since changed.
      */
     val pointValueRupeesFlow: Flow<Double> = prefs.data.map { it[pointValueKey] ?: 1.0 }
+
+    /**
+     * Does the shop run a loyalty programme at all (business_settings.points_enabled)?
+     * Live, like the rate above: the owner can switch it off from the back office mid-shift,
+     * and the pad must stop offering a tender the server will refuse — without the cashier
+     * having to restart anything. Defaults to ON so a tablet that has never synced the
+     * field keeps taking points exactly as it does today.
+     */
+    val pointsEnabledFlow: Flow<Boolean> = prefs.data.map { it[pointsOnKey] ?: true }
 
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
@@ -110,6 +120,7 @@ class CatalogRepository @Inject constructor(
             it[vatKey] = settings.vatRate
             it[inclVatKey] = !settings.pricesVatExclusive
             it[pointValueKey] = settings.pointValueRupees
+            it[pointsOnKey] = settings.pointsEnabled
             settings.tradingName?.let { n -> it[nameKey] = n }
             settings.brn?.let { v -> it[brnKey] = v }
             settings.vatNumber?.let { v -> it[vatNoKey] = v }

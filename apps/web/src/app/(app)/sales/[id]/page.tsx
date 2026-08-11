@@ -516,6 +516,7 @@ export default async function DocumentDetailPage({
                 invoiceId={doc.id}
                 outstandingCents={doc.outstandingCents}
                 customerId={doc.customerId}
+                pointsEnabled={doc.pointsEnabled}
                 pointsBalance={doc.customerPointsBalance ?? 0}
                 pointValueRupees={doc.pointValueRupees}
               />

@@ -25,6 +25,10 @@ const schema = z.object({
     const n = typeof v === "number" ? v : parseFloat(v);
     return Number.isFinite(n) && n >= 0 ? n : 15;
   }),
+  // The whole programme's off switch (20260811000090). Separate from the rates: a rate of
+  // zero stops the earning but leaves every balance already given out spendable, which is
+  // not the same as "we don't do points".
+  pointsEnabled: z.boolean(),
   // Mirrors business_settings' own CHECK constraints (20260811000020): earning may be
   // switched off at zero, but never negative; a point must always be worth something,
   // or spend_points has nothing to divide by.
@@ -57,6 +61,7 @@ export async function saveBusinessProfileAction(input: z.input<typeof schema>): 
       bank_account_number: p.data.bankAccountNumber,
       bank_name: p.data.bankName,
       vat_rate: p.data.vatRate,
+      points_enabled: p.data.pointsEnabled,
       points_per_100: p.data.pointsPer100,
       point_value_rupees: p.data.pointValueRupees,
     })

@@ -56,6 +56,8 @@ export interface CustomerDetail extends CustomerSummary {
   /** What one point is worth right now (business_settings.point_value_rupees) —
    *  rides along with the customer so the panel needs no second fetch. */
   pointValueRupees: number;
+  /** Whether the shop runs the programme at all (business_settings.points_enabled). */
+  pointsEnabled: boolean;
   /** Newest first — every movement, same order as the ledger's own index. */
   pointsHistory: PointsLedgerEntry[];
 }
@@ -83,7 +85,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes, is_active, is_coated"),
     sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at"),
     sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
-    sb.from("business_settings").select("point_value_rupees").limit(1).maybeSingle(),
+    sb.from("business_settings").select("point_value_rupees, points_enabled").limit(1).maybeSingle(),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,6 +165,8 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
         })),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pointValueRupees: Number((bsRes.data as any)?.point_value_rupees ?? 1),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      pointsEnabled: (bsRes.data as any)?.points_enabled !== false,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       pointsHistory: ((ledgerRows ?? []) as any[]).map((l) => ({
         id: l.id,

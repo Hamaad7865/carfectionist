@@ -44,6 +44,9 @@ export interface DocumentDetail {
   customerPointsBalance: number | null;
   /** What one point is worth right now (business_settings.point_value_rupees). */
   pointValueRupees: number;
+  /** Whether the shop runs a loyalty programme at all (business_settings.points_enabled,
+   *  20260811000090). Off: spend_points refuses, so the tender must not be offered. */
+  pointsEnabled: boolean;
   subtotalCents: number;        // ex-VAT taxable base (post-discount)
   grossSubtotalCents: number;   // sum of line amounts (pre-order-discount)
   orderDiscountCents: number;   // whole-sale discount, ex-VAT
@@ -101,7 +104,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     // work on it belongs on the jobs board, a products-only one is a straight sale.
     sb.from("document_lines").select("*, products(kind)").eq("document_id", id).order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
-    sb.from("business_settings").select("prices_vat_exclusive, point_value_rupees").limit(1).maybeSingle(),
+    sb.from("business_settings").select("prices_vat_exclusive, point_value_rupees, points_enabled").limit(1).maybeSingle(),
   ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const inclVat = (bs as any)?.prices_vat_exclusive === false;
@@ -197,6 +200,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     customerPointsBalance: d.customer_id != null ? Number(d.customers?.points_balance ?? 0) : null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pointValueRupees: Number((bs as any)?.point_value_rupees ?? 1),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    pointsEnabled: (bs as any)?.points_enabled !== false,
     subtotalCents,
     grossSubtotalCents,
     orderDiscountCents,

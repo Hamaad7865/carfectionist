@@ -18,6 +18,10 @@ export interface BusinessProfile {
   pricesVatInclusive: boolean;
   quoteSeries: string;
   invoiceSeries: string;
+  /** The loyalty programme's off switch (20260811000090). Off: bills earn nothing and
+   *  points cannot be spent, on the tablet or here. Balances are kept, and a reversal
+   *  still refunds points taken while it was on. */
+  pointsEnabled: boolean;
   /** Points earned per Rs 100 of a settled sale (customer_points_ledger, 20260811000020). */
   pointsPer100: number;
   /** What one point is worth when a customer spends it. */
@@ -46,6 +50,9 @@ export async function getBusinessProfile(): Promise<BusinessProfile | null> {
     pricesVatInclusive: d.prices_vat_exclusive === false,
     quoteSeries: `${d.quote_prefix}… · next ${d.quote_next_number}`,
     invoiceSeries: `${d.invoice_prefix}… · next ${d.invoice_next_number}`,
+    // Absent only on a client that has not synced the column yet — a shop with points
+    // running must never read as "switched off" and quietly stop earning.
+    pointsEnabled: d.points_enabled !== false,
     pointsPer100: Number(d.points_per_100 ?? 1),
     pointValueRupees: Number(d.point_value_rupees ?? 1),
   };

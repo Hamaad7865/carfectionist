@@ -17,10 +17,14 @@ const REASON_LABEL: Record<string, string> = {
 export function PointsPanel({
   balance,
   pointValueRupees,
+  pointsEnabled = true,
   history,
 }: {
   balance: number;
   pointValueRupees: number;
+  /** The shop's off switch. The history still shows — it is a record of what happened,
+   *  and the balance is kept — but nobody should read a frozen balance as spendable. */
+  pointsEnabled?: boolean;
   history: PointsLedgerEntry[];
 }) {
   const worthCents = pointsValueCents(balance, pointValueRupees);
@@ -42,7 +46,18 @@ export function PointsPanel({
     <>
       <div className="mb-2.5 flex items-center justify-between">
         <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]">Points</div>
+        {!pointsEnabled && (
+          <span className="rounded-full bg-sub px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-faint">
+            Switched off
+          </span>
+        )}
       </div>
+      {!pointsEnabled && (
+        <div className="mb-3 rounded-[11px] border border-line-2 bg-sub px-3 py-2 text-[11.5px] text-muted">
+          The loyalty programme is off. This balance is kept and nothing is lost, but no sale
+          earns points and none can be spent until it is switched back on in Settings.
+        </div>
+      )}
       <div className="mb-3 grid grid-cols-2 gap-3">
         <div className="rounded-[12px] border border-line p-4">
           <div className="text-[11.5px] font-semibold text-muted">Balance</div>

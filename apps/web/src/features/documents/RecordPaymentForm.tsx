@@ -22,6 +22,7 @@ export function RecordPaymentForm({
   invoiceId,
   outstandingCents,
   customerId = null,
+  pointsEnabled = true,
   pointsBalance = 0,
   pointValueRupees = 1,
 }: {
@@ -30,15 +31,18 @@ export function RecordPaymentForm({
   /** The Points tender only offers itself on a bill that names a customer — spend_points
    *  refuses outright otherwise ("a points payment needs a customer on the bill", 20260811000040). */
   customerId?: string | null;
+  /** The shop's off switch (business_settings.points_enabled). Off: spend_points refuses
+   *  with "points are switched off", so the button must not be here to press. */
+  pointsEnabled?: boolean;
   pointsBalance?: number;
   pointValueRupees?: number;
 }) {
   const router = useRouter();
   // The most this balance can put against THIS bill: never more than what is actually
-  // owed, and never more than the balance is worth.
-  // The most this balance can put against THIS bill: never more than what is actually
-  // owed, and never more than the balance is worth.
-  const pointsCapCents = customerId ? Math.min(outstandingCents, pointsValueCents(pointsBalance, pointValueRupees)) : 0;
+  // owed, and never more than the balance is worth — and nothing at all while the
+  // programme is switched off.
+  const pointsCapCents =
+    customerId && pointsEnabled ? Math.min(outstandingCents, pointsValueCents(pointsBalance, pointValueRupees)) : 0;
 
   const [method, setMethod] = useState<string>("cash");
   const [pointsApplied, setPointsApplied] = useState(false);
