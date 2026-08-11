@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -1576,21 +1577,32 @@ private fun SignStep(
             }
             Spacer(Modifier.weight(1f))
         } else {
-            // The pad used to take "whatever room is left" at the bottom of this column, under
-            // the recap, the channel chips, the totals and the actions. On a real quote that
-            // was nothing at all: the customer was being asked to sign on a strip that had been
-            // squeezed out of existence. It opens on top of the screen now, big enough to sign
-            // on properly, and this is the way in — plus a look at what they drew.
+            // THE WAY IN IS A BUTTON, AND ITS HEIGHT IS NOT NEGOTIABLE.
+            //
+            // This was a 96.dp preview box you tapped. On a quote with a few lines it
+            // vanished: this column also carries the recap, the channel chips, the
+            // totals, the discount ceiling, the reason field and the actions, and when
+            // the parent hands it less height than all that needs, the box at the bottom
+            // is what gets crushed. The customer was then looking at a signature section
+            // with no way to sign — reported from the shop floor on 2026-08-11, and the
+            // second time this pad has been squeezed out of existence (see the comment
+            // in the agreedVia branch above).
+            //
+            // A fixed 52.dp button with requiredHeight cannot be compressed by a parent
+            // that is short of room — unlike height(), which is only a preference. The
+            // preview of what they drew is nice to have, so IT takes the squeeze now
+            // instead: it sits above the button and may shrink to nothing without ever
+            // costing anyone the ability to sign.
             var padOpen by remember { mutableStateOf(false) }
-            Box(
-                Modifier.fillMaxWidth().height(96.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(if (signed) Color.White else Inset)
-                    .border(if (signed) 1.dp else 1.5.dp, if (signed) Hairline else AccentLine, RoundedCornerShape(12.dp))
-                    .clickable { padOpen = true },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (signed) {
+            if (signed) {
+                Box(
+                    Modifier.fillMaxWidth().heightIn(min = 0.dp, max = 84.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Color.White)
+                        .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+                        .clickable { padOpen = true },
+                    contentAlignment = Alignment.Center,
+                ) {
                     // What they actually drew, scaled down to fit — proof it was captured,
                     // not a tick that could lie about an empty pad.
                     Canvas(Modifier.fillMaxSize().padding(8.dp)) {
@@ -1614,12 +1626,31 @@ private fun SignStep(
                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted,
                         modifier = Modifier.align(Alignment.BottomEnd).padding(8.dp),
                     )
-                } else {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        Text("Open the signature pad", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
-                        Text("Hand them the tablet — they sign to accept this quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted)
-                    }
                 }
+            }
+
+            // requiredHeight, not height: a parent short of room can shrink the latter.
+            // This is the control that lets a customer accept the quotation at all, so it
+            // does not shrink, and it does not scroll away.
+            Box(
+                Modifier.fillMaxWidth().requiredHeight(52.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (signed) Inset else AccentSoft)
+                    .border(1.5.dp, if (signed) Hairline else AccentLine, RoundedCornerShape(12.dp))
+                    .clickable { padOpen = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (signed) "Sign again" else "Sign here",
+                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                    color = if (signed) TextSecondary else Accent,
+                )
+            }
+            if (!signed) {
+                Text(
+                    "Hand them the tablet — they sign to accept this quotation",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+                )
             }
             Spacer(Modifier.weight(1f))
             if (padOpen) SignaturePadDialog(s, strokes, onPadSize, strokePx, signed) { padOpen = false }
