@@ -119,11 +119,14 @@ export function BusinessProfileForm({ profile }: { profile: BusinessProfile }) {
             <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${f.pointsEnabled ? "left-[22px]" : "left-0.5"}`} />
           </button>
         </div>
-        {/* The rates stay visible while off, so turning it back on shows what it returns
-            to — but they take no typing, because nothing they say applies. */}
-        <div className={`grid grid-cols-2 gap-3 ${f.pointsEnabled ? "" : "opacity-50"}`}>
-          <Field label="Points per Rs 100" hint="Earned on a settled sale"><input className={inputCls} value={f.pointsPer100} onChange={set("pointsPer100")} inputMode="decimal" disabled={!f.pointsEnabled} /></Field>
-          <Field label="A point is worth (Rs)" hint="Used when a customer spends points"><input className={inputCls} value={f.pointValueRupees} onChange={set("pointValueRupees")} inputMode="decimal" disabled={!f.pointsEnabled} /></Field>
+        {/* The rates stay editable whether or not the programme is running: they are what
+            it RETURNS to, and a shop setting next season's rate before switching back on is
+            a perfectly ordinary thing to do. They were briefly disabled-and-dimmed while
+            off, which read as "these are broken" and — worse — could be seen still greyed
+            after switching back on, since nothing about them had changed to redraw them. */}
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Points per Rs 100" hint="Earned on a settled sale"><input className={inputCls} value={f.pointsPer100} onChange={set("pointsPer100")} inputMode="decimal" /></Field>
+          <Field label="A point is worth (Rs)" hint="Used when a customer spends points"><input className={inputCls} value={f.pointValueRupees} onChange={set("pointValueRupees")} inputMode="decimal" /></Field>
         </div>
       </Section>
 
