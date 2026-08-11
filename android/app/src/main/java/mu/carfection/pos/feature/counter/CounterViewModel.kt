@@ -152,6 +152,9 @@ data class CounterUiState(
     val pointsAppliedCents: Long = 0,
     /** The why-was-this-discounted box, opened from the pad's own refusal. */
     val reasonDialogOpen: Boolean = false,
+    /** The how-many-points picker, and what is typed in it. */
+    val pointsPickerOpen: Boolean = false,
+    val pointsPickerText: String = "",
     // The bill panel's real detail for a collect: the invoice's own lines + (for a job) the
     // service performed. Fetched when the pad opens; empty while in flight or for a walk-in.
     val collectLines: List<SaleHistoryLineDto> = emptyList(),
@@ -1497,13 +1500,40 @@ class CounterViewModel @Inject constructor(
      * cover has just changed. Leaving it would show the old figure while payCents had
      * quietly coerced to the new ceiling.
      */
+    /**
+     * The bar's tap. Already applied → take them straight back off; otherwise ask HOW MANY.
+     *
+     * Spending the whole balance every time was the first cut and it was wrong: a customer
+     * with Rs 284 on a Rs 40 wash does not want the lot gone, and one saving for something
+     * bigger wants to spend a part of it. The picker opens on the full amount, so "all of
+     * it" is still one extra tap, but it is now a choice rather than an assumption.
+     */
     fun toggleApplyPoints() {
         if (frozenBySettle()) return
         val s = local.value
-        val applied = if (s.pointsAppliedCents > 0) 0L else s.pointsCapCents
-        if (applied == 0L && s.pointsAppliedCents == 0L) return
+        if (s.pointsAppliedCents > 0) {
+            local.value = s.copy(pointsAppliedCents = 0, payText = "", tenderText = "", splitText = emptyMap(), error = null)
+            return
+        }
+        if (s.pointsCapCents <= 0) return
+        local.value = s.copy(pointsPickerOpen = true, pointsPickerText = centsToPlainText(s.pointsCapCents))
+    }
+
+    fun setPointsPickerText(t: String) {
+        local.value = local.value.copy(pointsPickerText = t.filter { c -> c.isDigit() || c == '.' })
+    }
+
+    fun closePointsPicker() { local.value = local.value.copy(pointsPickerOpen = false) }
+
+    /** Commit the chosen amount. Clamped to what the balance and the bill both allow —
+     *  spend_points is still the authority and refuses anything this lets through wrongly. */
+    fun applyChosenPoints() {
+        val s = local.value
+        val chosen = parseMoneyToCents(s.pointsPickerText)?.coerceIn(0, s.pointsCapCents) ?: return
+        if (chosen <= 0) return
         local.value = s.copy(
-            pointsAppliedCents = applied,
+            pointsAppliedCents = chosen,
+            pointsPickerOpen = false,
             payText = "", tenderText = "", splitText = emptyMap(),
             error = null,
         )

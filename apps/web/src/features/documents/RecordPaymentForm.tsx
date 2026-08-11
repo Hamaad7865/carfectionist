@@ -59,8 +59,15 @@ export function RecordPaymentForm({
    * never move, and spend_points debits the ledger server-side. Applying here only
    * arms them; nothing is taken until Record.
    */
-  const pointsAppliedCents = pointsApplied ? pointsCapCents : 0;
+  // How MUCH of the balance to use — not all of it by default. A customer with Rs 284
+  // saved and a Rs 40 wash in front of them rarely wants the whole lot gone, and one
+  // saving towards something bigger wants to spend a part. The picker opens on the full
+  // amount, so "all of it" stays one click, but it is a choice rather than an assumption.
+  const [pointsText, setPointsText] = useState("");
+  const typedPointsCents = parseMoneyInput(pointsText) ?? 0;
+  const pointsAppliedCents = pointsApplied ? Math.min(Math.max(typedPointsCents, 0), pointsCapCents) : 0;
   const dueAfterPointsCents = Math.max(outstandingCents - pointsAppliedCents, 0);
+  const pointsKeptCents = Math.max(pointsValueCents(pointsBalance, pointValueRupees) - pointsAppliedCents, 0);
 
   const [amount, setAmount] = useState((outstandingCents / 100).toFixed(2));
   const amountCents = parseMoneyInput(amount) ?? 0;
@@ -74,7 +81,18 @@ export function RecordPaymentForm({
   function togglePoints() {
     const next = !pointsApplied;
     setPointsApplied(next);
+    // Opens on the full amount available — spending the lot stays one click.
+    if (next) setPointsText((pointsCapCents / 100).toFixed(2));
     setAmount((Math.max(outstandingCents - (next ? pointsCapCents : 0), 0) / 100).toFixed(2));
+    setTendered("");
+    setError(null);
+  }
+
+  /** Re-typing the points amount changes what the chosen method must cover. */
+  function changePoints(next: string) {
+    setPointsText(next);
+    const cents = Math.min(Math.max(parseMoneyInput(next) ?? 0, 0), pointsCapCents);
+    setAmount((Math.max(outstandingCents - cents, 0) / 100).toFixed(2));
     setTendered("");
     setError(null);
   }
@@ -161,12 +179,46 @@ export function RecordPaymentForm({
             </span>
             <span className="block text-[11.5px] text-muted">
               {pointsApplied
-                ? `${formatMUR(dueAfterPointsCents)} left to pay — click to undo`
-                : `Click to take ${formatMUR(pointsCapCents)} off, then pay the rest`}
+                ? `${formatMUR(dueAfterPointsCents)} left to pay${pointsKeptCents > 0 ? ` · ${formatMUR(pointsKeptCents)} stays on their balance` : ""} — click to undo`
+                : "Click to choose how much of it to use"}
             </span>
           </span>
           <span className="text-[11px] font-bold tracking-[0.06em] text-link">{pointsApplied ? "APPLIED" : "APPLY"}</span>
         </button>
+      )}
+
+      {/* How much — the whole point of asking rather than assuming. Capped at
+          min(what is owed, what the balance is worth); spend_points re-checks. */}
+      {pointsApplied && (
+        <div className="mb-3 rounded-[10px] border border-line-2 bg-sub p-3">
+          <div className="flex items-end gap-2">
+            <label className="block flex-1">
+              <span className={lbl}>Points to use (Rs)</span>
+              <input
+                className={`${field} num text-right`}
+                value={pointsText}
+                onChange={(e) => changePoints(e.target.value)}
+                inputMode="decimal"
+              />
+            </label>
+            <button type="button" onClick={() => changePoints((pointsCapCents / 100).toFixed(2))} className={btn("ghost", "md")}>
+              Use all
+            </button>
+          </div>
+          {typedPointsCents > pointsCapCents && (
+            <p className="mt-2 text-[11.5px] text-amber-ink">
+              Only {formatMUR(pointsCapCents)} can be used here — the rest stays on their balance.
+            </p>
+          )}
+          <div className="mt-2 flex justify-between text-[12px]">
+            <span className="text-muted">Points off this bill</span>
+            <span className="num font-bold text-mint">−{formatMUR(pointsAppliedCents)}</span>
+          </div>
+          <div className="flex justify-between text-[12px]">
+            <span className="text-muted">Left to pay</span>
+            <span className="num font-bold text-ink">{formatMUR(dueAfterPointsCents)}</span>
+          </div>
+        </div>
       )}
 
       <div className="grid grid-cols-2 gap-3">

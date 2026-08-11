@@ -87,6 +87,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.R
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
+import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineAllowanceCents
@@ -439,6 +440,7 @@ fun CounterScreen(
     if (s.padOpen) PaymentPad(s, viewModel)
     // Hosted outside the pad so it sits ABOVE it — asked from the pad's own refusal.
     if (s.reasonDialogOpen) DiscountReasonDialog(s, viewModel)
+    if (s.pointsPickerOpen) PointsPickerDialog(s, viewModel)
     if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
     s.oversell?.let { o ->
         val oh = s.onHand[o.product.id] ?: 0
@@ -667,6 +669,79 @@ private fun DiscountReasonDialog(s: CounterUiState, vm: CounterViewModel) {
                         .clickable(enabled = ok) { vm.closeReasonDialog() },
                     contentAlignment = Alignment.Center,
                 ) { Text("Save reason", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted) }
+            }
+        }
+    }
+}
+
+/**
+ * How many points to put against this bill.
+ *
+ * Opens on the full amount available, so spending the lot stays one tap — but it is a
+ * choice now, not an assumption. A customer with Rs 284 saved and a Rs 40 wash in front
+ * of them rarely wants the whole balance gone.
+ *
+ * The cap is min(what is owed, what the balance is worth): points can never overpay a
+ * bill, and never promise more than the customer holds. spend_points re-checks both
+ * server-side and refuses with its own message if the balance moved meanwhile.
+ */
+@Composable
+private fun PointsPickerDialog(s: CounterUiState, vm: CounterViewModel) {
+    val typed = parseMoneyToCents(s.pointsPickerText) ?: 0L
+    val chosen = typed.coerceIn(0, s.pointsCapCents)
+    val ok = chosen > 0
+    val remaining = (s.dueCents - chosen).coerceAtLeast(0)
+    Dialog(onDismissRequest = vm::closePointsPicker) {
+        Column(
+            Modifier.widthIn(max = 460.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(16.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("How many points?", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+            Text(
+                "${s.pointsCustomerLabel} has ${s.pointsBalance} pts, worth ${formatMUR(s.pointsWorthCents)}. " +
+                    "Up to ${formatMUR(s.pointsCapCents)} can go against this bill.",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary, lineHeight = 17.sp,
+            )
+            Text("AMOUNT (Rs)", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            FilledInput(
+                value = s.pointsPickerText, onValueChange = vm::setPointsPickerText,
+                placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset,
+            )
+            // The whole point of the picker: what comes off, and what is still to pay.
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Points off this bill", color = TextSecondary, fontFamily = Barlow, fontSize = 13.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text("−" + formatMUR(chosen), color = Success, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                Row(Modifier.fillMaxWidth()) {
+                    Text("Left to pay", color = TextSecondary, fontFamily = Barlow, fontSize = 13.sp)
+                    Spacer(Modifier.weight(1f))
+                    Text(formatMUR(remaining), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
+                if (typed > s.pointsCapCents) {
+                    Text(
+                        "Only ${formatMUR(s.pointsCapCents)} can be used here — the rest stays on their balance.",
+                        color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp,
+                    )
+                }
+            }
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(52.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.closePointsPicker() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                Box(
+                    Modifier.weight(1f).height(52.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp))
+                        .clickable { vm.setPointsPickerText(centsToPlainText(s.pointsCapCents)) },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Use all", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Accent) }
+                Box(
+                    Modifier.weight(1.4f).height(52.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                        .clickable(enabled = ok) { vm.applyChosenPoints() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Apply", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted) }
             }
         }
     }
@@ -1031,8 +1106,12 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
                             color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
                         )
                         Text(
-                            if (armed) formatMUR(s.dueAfterPointsCents) + " left to pay — tap to undo"
-                            else "Tap to take " + formatMUR(worth) + " off, then pay the rest",
+                            if (armed) {
+                                val kept = (s.pointsWorthCents - s.pointsAppliedCents).coerceAtLeast(0)
+                                formatMUR(s.dueAfterPointsCents) + " left to pay" +
+                                    (if (kept > 0) " · " + formatMUR(kept) + " stays on their balance" else "") +
+                                    " — tap to undo"
+                            } else "Tap to choose how much of it to use",
                             color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                         )
                     }
