@@ -194,13 +194,27 @@ data class CounterUiState(
     val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
 
     /**
+     * The most this method can take in one go. Every method can cover the whole balance
+     * except POINTS, which can only ever cover what the customer's balance is worth.
+     *
+     * Without this the pad told the cashier the limit and then refused to help: picking
+     * Points left the full bill in the box, printed "Points can cover up to Rs 5.00" in
+     * red underneath, and greyed the button out. Everything about the rule was correct
+     * and the cashier still could not spend the points. Reported from the shop floor,
+     * 2026-08-11.
+     */
+    val methodCeilingCents: Long
+        get() = if (method == PayMethod.POINTS) pointsCapCents else dueCents
+
+    /**
      * What is being taken RIGHT NOW in single-method mode — a deposit, or the lot. Capped at
-     * the balance. Empty = the whole balance, so an untouched walk-in still settles in full.
+     * what the method can actually cover. Empty = that ceiling, so an untouched walk-in
+     * still settles in full, and picking Points fills in what the points are worth.
      */
     val payCents: Long
         get() {
             val typed = if (payText.isBlank()) null else parseMoneyToCents(payText)
-            return (typed ?: dueCents).coerceIn(0, dueCents.coerceAtLeast(0))
+            return (typed ?: methodCeilingCents).coerceIn(0, methodCeilingCents.coerceAtLeast(0))
         }
 
     /** Money still owed after this entry lands — what stays in TO COLLECT. */
@@ -270,10 +284,16 @@ data class CounterUiState(
                 .filter { it > t }.distinct().take(3)
         }
 
-    /** Deposit chips — half or three-quarters of the balance (a collect deposit). */
+    /**
+     * Deposit chips — half or three-quarters of what THIS METHOD can take. Off the
+     * balance for everything except points, where offering Rs 641 against a Rs 5.00
+     * balance is just a button that cannot be pressed.
+     */
     val depositChips: List<Long>
-        get() = if (dueCents <= 0) emptyList()
-        else listOf(dueCents / 2, dueCents / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until dueCents }.distinct()
+        get() = methodCeilingCents.let { ceiling ->
+            if (ceiling <= 0) emptyList()
+            else listOf(ceiling / 2, ceiling / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until ceiling }.distinct()
+        }
 
     // ── basket discount, derived from the raw input ─────────────────────────────
     val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
@@ -1383,7 +1403,21 @@ class CounterViewModel @Inject constructor(
         }
         local.value = st.copy(padOpen = false, collect = null, collectLines = emptyList(), collectJob = null, collectDetailFailed = false)
     }
-    fun setMethod(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(method = m, error = settleError()) }
+    fun setMethod(m: PayMethod) {
+        if (frozenBySettle()) return
+        val s = local.value
+        // Points cap at what the balance is worth; every other method caps at the bill.
+        // Crossing that boundary has to clear a typed figure, or the box goes on showing
+        // Rs 1,277.49 while payCents has quietly coerced it to Rs 5.00 — the number on
+        // screen and the number being taken would disagree.
+        val ceilingChanged = (m == PayMethod.POINTS) != (s.method == PayMethod.POINTS)
+        local.value = s.copy(
+            method = m,
+            payText = if (ceilingChanged) "" else s.payText,
+            tenderText = if (ceilingChanged) "" else s.tenderText,
+            error = settleError(),
+        )
+    }
 
     // ── split bill: the allocation table ────────────────────────────────────────
     /** Open / close the split table. Turning it on clears any single-method entry. */
