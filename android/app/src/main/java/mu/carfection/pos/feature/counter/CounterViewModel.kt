@@ -1038,7 +1038,9 @@ class CounterViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 val result = if (bill != null) {
-                    sales.collectSplit(bill.id, bill.number, allTenders, s.till?.id, saleKey)
+                    // A bill raised when the car was marked ready is still a DRAFT, and a
+                    // draft takes no money — the same rule the single-method collect obeys.
+                    sales.collectSplit(bill.id, bill.number, allTenders, s.till?.id, saleKey, needsIssue = bill.status == "draft")
                 } else {
                     sales.completeSaleSplit(
                         cart = s.cart, tenders = allTenders, customerId = s.customerId, walkInName = s.customerText,

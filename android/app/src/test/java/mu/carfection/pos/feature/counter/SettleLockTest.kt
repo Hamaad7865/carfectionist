@@ -4,6 +4,7 @@ import mu.carfection.pos.core.data.CartLine
 import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.SaleIssueUncertain
 import mu.carfection.pos.core.data.SalePaymentUncertain
+import mu.carfection.pos.core.data.isDeterministicRejection
 import mu.carfection.pos.core.database.ProductEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -107,6 +108,24 @@ class SettleLockTest {
         val edited = failed.withCart(listOf(CartLine(brakePad, 1.0), CartLine(wiper, 1.0)))
         assertEquals(2, edited.cart.size)
         assertNull(edited.notice)
+    }
+
+    /**
+     * Reported from the shop floor: a job bill paid with points showed "The invoice was
+     * issued but the payment didn't confirm", and no retry ever cleared it. Nothing had
+     * been issued — the bill was still a DRAFT, and record_payment refuses a draft
+     * outright. Whatever else is fixed upstream (collectSplit now issues first), that
+     * refusal must read as a plain error and leave the basket live, never as a lost
+     * payment the cashier is told to keep retrying.
+     */
+    @Test
+    fun `a payment refused on an unissued bill is a plain error, not a lost payment`() {
+        val draftRefusal = IllegalStateException("invoice is not open for payment (status draft)")
+        assertTrue(isDeterministicRejection(draftRefusal))
+
+        val failed = cartA().withSettleFailure(draftRefusal)
+        assertNull(failed.pendingSettle) // the basket stays live
+        assertTrue(failed.error!!.contains("not open for payment"))
     }
 
     @Test

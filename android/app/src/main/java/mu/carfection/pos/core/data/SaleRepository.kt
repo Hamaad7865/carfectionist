@@ -278,6 +278,11 @@ private val DETERMINISTIC_ISSUE_REJECTIONS = listOf(
     // retrying identically will never succeed — the cashier has to ring it again.
     "discount exceeds allowance",
     "a reason is required for a carwash discount",
+    // record_payment on a document that is not open for payment (draft, already paid,
+    // cancelled). Nothing was taken, and no retry can change the document's status — so
+    // it must NOT be dressed up as "the invoice was issued but the payment didn't
+    // confirm", which froze the basket around a request the server refuses forever.
+    "not open for payment",
 )
 
 internal fun isDeterministicRejection(e: Throwable): Boolean {
@@ -582,7 +587,25 @@ class SaleRepository @Inject constructor(
         tenders: List<Tender>,
         cashSessionId: String?,
         saleKey: String,
-    ): SaleResult = recordTenders(invoiceId, number, targetCents = null, tenders, cashSessionId, saleKey)
+        /** The bill is still a DRAFT — see [collectOnInvoice]. Issuing is the last thing
+         *  that happens before the money, and it has to happen HERE too: record_payment
+         *  refuses a draft outright ("invoice is not open for payment (status draft)"),
+         *  so a split — or ANY collect carrying points, which takes this same road —
+         *  died on a bill the single-method path settles without complaint. */
+        needsIssue: Boolean = false,
+    ): SaleResult {
+        // Same key the single-method collect issues under, so the two paths replay each
+        // other's issue rather than racing for a second fiscal number.
+        val issuedNumber = if (!needsIssue) number else try {
+            api.issueDocument(invoiceId, "$saleKey:issue", sessionId = cashSessionId).number ?: number
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Nothing charged yet: the bill is still a draft and no drawer has opened.
+            throw e
+        }
+        return recordTenders(invoiceId, issuedNumber, targetCents = null, tenders, cashSessionId, saleKey)
+    }
 
     /**
      * Record a list of tenders against one invoice. When [targetCents] is given (a walk-in, whose
