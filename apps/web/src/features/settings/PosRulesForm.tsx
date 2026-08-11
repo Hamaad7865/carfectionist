@@ -77,7 +77,20 @@ export function PosRulesForm({ rules }: { rules: PosRulesSettings }) {
     setBusy(true);
     const r = await savePosRulesAction(f);
     setBusy(false);
-    if (r.ok) { setSaved(true); router.refresh(); } else setError(r.error);
+    if (r.ok) {
+      // Show what was actually persisted: an out-of-range cap or float snaps server-side,
+      // and the box must not keep displaying the rejected input beside "Saved".
+      setF({
+        carwashPct: String(r.saved.carwashPct),
+        defaultPolicyService: r.saved.defaultPolicyService,
+        defaultPolicyGoods: r.saved.defaultPolicyGoods,
+        defaultOpeningFloat: String(r.saved.defaultOpeningFloat),
+        allowNegativeStock: r.saved.allowNegativeStock,
+        reversalRequiresOwner: r.saved.reversalRequiresOwner,
+      });
+      setSaved(true);
+      router.refresh();
+    } else setError(r.error);
   }
 
   return (

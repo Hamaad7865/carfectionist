@@ -6,7 +6,6 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
 
 const ROLES = ["owner", "manager"] as const;
-type Result = { ok: true } | { ok: false; error: string };
 
 const policy = z.enum(["none", "carwash", "free"]);
 
@@ -28,6 +27,12 @@ const schema = z.object({
   reversalRequiresOwner: z.boolean(),
 });
 
+// The action echoes back the PERSISTED (post-snap) values so the form can show what
+// was actually saved — a "150" cap that snapped to 5 must not sit next to a "Saved"
+// badge still reading 150.
+export type SavedPosRules = z.infer<typeof schema>;
+type Result = { ok: true; saved: SavedPosRules } | { ok: false; error: string };
+
 export async function savePosRulesAction(input: z.input<typeof schema>): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const p = schema.safeParse(input);
@@ -48,5 +53,5 @@ export async function savePosRulesAction(input: z.input<typeof schema>): Promise
   // The builder reads the cap + defaults from these; the sales pages clamp on them.
   revalidatePath("/settings/pos-rules");
   revalidatePath("/sales");
-  return { ok: true };
+  return { ok: true, saved: p.data };
 }
