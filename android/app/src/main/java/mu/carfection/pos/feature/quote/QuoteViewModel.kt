@@ -990,13 +990,24 @@ class QuoteViewModel @Inject constructor(
         loadOverrideOwners()
     }
 
-    private var overrideOwnersLoaded = false
-
+    /**
+     * Fetch the owners who may approve. Re-fetched every time the dialog opens.
+     *
+     * This used to cache on first success and never try again — but an RLS-scoped read
+     * that runs before the session context is ready returns an EMPTY LIST, not an error.
+     * That empty list was cached as "loaded", so the picker had nothing in it and no
+     * error to show, and the dialog sat on "Loading owners…" for the rest of the app's
+     * life: the owner stood there, the cashier tapped Approve, and nothing happened.
+     *
+     * Clearing overrideOwners to null on each open is what makes reopening RETRY rather
+     * than show whatever the last attempt left behind. The query is two columns on an
+     * indexed filter; it does not need caching.
+     */
     private fun loadOverrideOwners() {
-        if (overrideOwnersLoaded) return
+        _s.update { it.copy(overrideOwners = null, overrideOwnersError = null) }
         viewModelScope.launch {
             runCatching { api.fetchApprovingOwners() }
-                .onSuccess { list -> overrideOwnersLoaded = true; _s.update { it.copy(overrideOwners = list, overrideOwnersError = null) } }
+                .onSuccess { list -> _s.update { it.copy(overrideOwners = list, overrideOwnersError = null) } }
                 .onFailure { e -> _s.update { it.copy(overrideOwnersError = e.uiMessage()) } }
         }
     }
