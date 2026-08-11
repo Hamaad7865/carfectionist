@@ -1,6 +1,7 @@
 import { createClient as createSupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { getSessionContext } from "@/lib/auth/session";
+import { readOverrideResult } from "./response";
 
 // The owner's on-the-spot approval, from the cashier's own screen: the owner
 // picks their name, types their PIN, and app.record_owner_override — reached
@@ -187,20 +188,13 @@ export async function POST(req: Request) {
   // guesser a free try (see 20260810000080). So the soft answer has to be
   // classified — without this, a refusal falls through and is reported to the
   // cashier as an approval, which is the worst possible direction to fail in.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result = (Array.isArray(data) ? data[0] : data) as any;
-  if (!result?.ok) {
-    return json({ error: "pin_rejected", reason: result?.reason ?? "invalid" }, 401);
+  //
+  // The reading lives in ./response so it can be tested without a request; the
+  // shape is NOT a bare owner_overrides row, and assuming it was is how this
+  // endpoint spent a while answering {"override":{}} to every approval.
+  const result = readOverrideResult(data);
+  if (!result.ok) {
+    return json({ error: "pin_rejected", reason: result.reason }, 401);
   }
-
-  const row = result.override ?? {};
-  return json({
-    override: {
-      id: row.id,
-      kind: row.kind,
-      refType: row.ref_type,
-      refId: row.ref_id,
-      createdAt: row.created_at,
-    },
-  });
+  return json({ override: result.override });
 }

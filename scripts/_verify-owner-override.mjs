@@ -50,6 +50,17 @@ try {
   check("it is stamped with the approver", ok.override.approved_by, owner.id);
   check("it states a ceiling, not a yes", ok.override.scope.max_discount_incl, 500);
 
+  // The fields /api/override hands back to the caller. The route once read them
+  // off the top level of this answer instead of off .override, so every approval
+  // replied {"override":{}} — invisible, because both callers only check the
+  // status. apps/web/src/app/api/override/response.test.ts pins the same shape;
+  // this is the half that proves the shape is still what the database sends.
+  check("the answer carries the row's id", /^[0-9a-f-]{36}$/i.test(ok.override.id ?? ""), true);
+  check("...its kind", ok.override.kind, "discount");
+  check("...its ref_type", ok.override.ref_type, "document");
+  check("...its ref_id", ok.override.ref_id, doc.id);
+  check("...and its created_at", !!ok.override.created_at, true);
+
   console.log("▸ a wrong PIN answers, it does not throw");
   const bad = await call("0000");
   check("ok is false", bad.ok, false);
