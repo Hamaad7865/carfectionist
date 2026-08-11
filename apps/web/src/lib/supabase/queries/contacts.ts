@@ -42,6 +42,11 @@ export interface PointsLedgerEntry {
   reason: string; // 'earned' | 'redeemed' | 'adjusted' | 'reversed'
   note: string | null;
   createdAt: string;
+  /** The sale this movement came from, when it came from one. Null for an
+   *  adjustment, and for points returned by a reversed payment (ref is the
+   *  payment, not the bill). */
+  docId: string | null;
+  docNumber: string | null;
 }
 export interface CustomerDetail extends CustomerSummary {
   spendCents: number;
@@ -127,9 +132,18 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
     // customer's ledger, and it can grow one row per invoice plus every reversal.
     const { data: ledgerRows } = await sb
       .from("customer_points_ledger")
-      .select("id, delta, reason, note, created_at")
+      .select("id, delta, reason, note, created_at, ref_type, ref_id")
       .eq("customer_id", selId)
       .order("created_at", { ascending: false });
+
+    // Which sale each movement came from. ref_id is polymorphic (a document for an
+    // earn or a redemption, a payment for a returned one), so it carries no foreign
+    // key and cannot be embedded — the document rows are fetched by id instead.
+    const docRefIds = [...new Set((ledgerRows ?? []).filter((l) => l.ref_type === "document").map((l) => l.ref_id))].filter(Boolean) as string[];
+    const { data: refDocs } = docRefIds.length
+      ? await sb.from("documents").select("id, number").in("id", docRefIds)
+      : { data: [] as { id: string; number: string | null }[] };
+    const numberById = new Map((refDocs ?? []).map((d) => [d.id, d.number]));
     selected = {
       ...base,
       spendCents: spendByCust.get(selId) ?? 0,
@@ -156,6 +170,10 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
         reason: l.reason,
         note: l.note,
         createdAt: l.created_at,
+        // The sale this movement belongs to, so the history reads as a story about
+        // bills rather than a column of unattributed numbers.
+        docId: l.ref_type === "document" ? (l.ref_id as string) : null,
+        docNumber: l.ref_type === "document" ? (numberById.get(l.ref_id) ?? null) : null,
       })),
     };
   }

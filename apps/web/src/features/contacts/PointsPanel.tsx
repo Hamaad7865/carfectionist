@@ -24,6 +24,20 @@ export function PointsPanel({
   history: PointsLedgerEntry[];
 }) {
   const worthCents = pointsValueCents(balance, pointValueRupees);
+
+  // What they held AFTER each movement. history arrives newest-first, so row i's
+  // balance is today's less everything that happened after it. Derived, never
+  // stored: the ledger is the only truth here, and a second stored figure is a
+  // second thing that can disagree with it.
+  //
+  // Written without a running mutation on purpose — the React Compiler rejects
+  // one (react-hooks/immutability), and a ledger is short enough that the extra
+  // pass costs nothing.
+  const running = history.map((entry, i) => ({
+    entry,
+    balanceAfter: balance - history.slice(0, i).reduce((sum, e) => sum + e.delta, 0),
+  }));
+
   return (
     <>
       <div className="mb-2.5 flex items-center justify-between">
@@ -45,19 +59,40 @@ export function PointsPanel({
             No points earned yet.
           </div>
         ) : (
-          history.map((l) => (
-            <div key={l.id} className="flex items-center gap-3 border-b border-line px-1 py-2.5 last:border-b-0">
-              <div className="min-w-0 flex-1">
-                <div className="text-[12.5px] font-semibold text-ink">{REASON_LABEL[l.reason] ?? l.reason}</div>
-                {l.note && <div className="truncate text-[11px] text-faint">{l.note}</div>}
-              </div>
-              <span className="num shrink-0 text-[11.5px] text-muted">{muDate(l.createdAt)}</span>
-              <span className={`num w-14 shrink-0 text-right text-[13px] font-bold ${l.delta >= 0 ? "text-mint" : "text-rose"}`}>
-                {l.delta >= 0 ? "+" : ""}
-                {l.delta}
-              </span>
+          <>
+            <div className="flex items-center gap-3 border-b border-line-2 px-1 pb-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-faint">
+              <span className="min-w-0 flex-1">Sale</span>
+              <span className="w-16 shrink-0 text-right">Date</span>
+              <span className="w-12 shrink-0 text-right">Change</span>
+              <span className="w-16 shrink-0 text-right">Balance</span>
             </div>
-          ))
+            {running.map(({ entry: l, balanceAfter }) => (
+              <div key={l.id} className="flex items-center gap-3 border-b border-line px-1 py-2.5 last:border-b-0">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[12.5px] font-semibold text-ink">
+                    {l.docNumber ? (
+                      <a href={`/sales/${l.docId}`} className="text-link hover:underline">
+                        {l.docNumber}
+                      </a>
+                    ) : (
+                      REASON_LABEL[l.reason] ?? l.reason
+                    )}
+                    {l.docNumber && (
+                      <span className="ml-2 text-[11.5px] font-medium text-muted">{REASON_LABEL[l.reason] ?? l.reason}</span>
+                    )}
+                  </div>
+                  {l.note && <div className="truncate text-[11px] text-faint">{l.note}</div>}
+                </div>
+                <span className="num w-16 shrink-0 text-right text-[11.5px] text-muted">{muDate(l.createdAt)}</span>
+                <span className={`num w-12 shrink-0 text-right text-[13px] font-bold ${l.delta >= 0 ? "text-mint" : "text-rose"}`}>
+                  {l.delta >= 0 ? "+" : ""}
+                  {l.delta}
+                </span>
+                {/* What they held after this sale — the accumulation, read down the column. */}
+                <span className="num w-16 shrink-0 text-right text-[12.5px] font-semibold text-body">{balanceAfter}</span>
+              </div>
+            ))}
+          </>
         )}
       </div>
     </>
