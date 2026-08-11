@@ -252,6 +252,21 @@ data class CounterUiState(
      *  outright otherwise ("a points payment needs a customer on the bill", 20260811000040). */
     val pointsCapCents: Long get() = if (hasNamedCustomer) minOf(dueCents, pointsWorthCents) else 0L
 
+    /**
+     * What the apply-points prompt should offer, or null when there is nothing to offer.
+     *
+     * Points hid among six payment tiles, so a cashier had to already know they existed
+     * to spend any. This surfaces the balance at the moment the decision is actually
+     * made — before choosing how to pay — and is null unless a real customer is named,
+     * has points, and the bill has something left to put them against.
+     */
+    val applyPointsCents: Long?
+        get() = pointsCapCents.takeIf { hasNamedCustomer && pointsBalance > 0 && it > 0 }
+
+    /** Who the prompt is about. Falls back rather than printing an empty name. */
+    val pointsCustomerLabel: String
+        get() = (collect?.customers?.name ?: customerText).trim().ifBlank { "This customer" }
+
     /** The means of payment on offer — Points joins the grid only once a real customer is named. */
     val availableMethods: List<PayMethod>
         get() = if (hasNamedCustomer) PayMethod.entries.toList() else PayMethod.entries.filterNot { it == PayMethod.POINTS }

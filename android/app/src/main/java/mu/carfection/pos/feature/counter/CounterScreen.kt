@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -955,6 +956,43 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
     Column(
         Modifier.weight(1f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(18.dp),
     ) {
+        // Points were reachable only by someone who already knew to look for them among
+        // six tiles. This says so out loud, at the moment the cashier is deciding how to
+        // take the money. It SETS UP the payment — selects Points and fills in what the
+        // balance is worth — and deliberately does not take it: reversing a payment is
+        // owner-only now, so a mis-tap that had already debited the ledger would mean
+        // fetching the owner to undo a stray finger.
+        s.applyPointsCents?.let { worth ->
+            val armed = s.method == PayMethod.POINTS
+            Box(
+                Modifier.fillMaxWidth().requiredHeight(56.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(if (armed) AccentSoft else Inset)
+                    .border(1.5.dp, if (armed) AccentLine else Hairline, RoundedCornerShape(12.dp))
+                    .clickable(enabled = !armed) { vm.setMethod(PayMethod.POINTS) }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(
+                            s.pointsCustomerLabel + " has " + formatMUR(s.pointsWorthCents) + " in points",
+                            color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
+                        )
+                        Text(
+                            if (armed) "Applied — press Take to confirm"
+                            else "Tap to put " + formatMUR(worth) + " of it against this bill",
+                            color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
+                        )
+                    }
+                    Text(
+                        if (armed) "APPLIED" else "APPLY",
+                        color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 0.8.sp,
+                    )
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+        }
         Text("MEANS OF PAYMENT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
