@@ -20,7 +20,20 @@ import type { DiscountKind, DocDiscount } from './totals';
 
 export type DiscountPolicy = 'none' | 'carwash' | 'free';
 
+/** The DEFAULT carwash cap and per-kind fallbacks — the values these rules were
+ *  hardcoded to before business_settings could carry them (20260812000010). Every
+ *  function below takes the live values as optional arguments and falls back to
+ *  these, so a caller that has not loaded the owner's settings behaves exactly as
+ *  the shop did before the cap became editable. */
 export const CARWASH_MAX_PCT = 5;
+
+/** What an `inherit` line falls back to, by kind — mirrors the DB's
+ *  default_policy_service / default_policy_goods. */
+export interface PolicyDefaults {
+  service: DiscountPolicy;
+  goods: DiscountPolicy;
+}
+export const DEFAULT_POLICIES: PolicyDefaults = { service: 'none', goods: 'free' };
 
 /** A cent of tolerance, matching app.assert_discount_allowed's 0.01. */
 const TOLERANCE_CENTS = 1;
@@ -51,9 +64,13 @@ export interface Allowance {
 export function policyOf(
   productPolicy: string | null | undefined,
   effectiveKind: string | null | undefined,
+  defaults: PolicyDefaults = DEFAULT_POLICIES,
 ): DiscountPolicy {
   if (productPolicy && productPolicy !== 'inherit') return productPolicy as DiscountPolicy;
-  return effectiveKind === 'product' || effectiveKind === 'consumable' ? 'free' : 'none';
+  // The kind decides which fallback applies — the SAME split app.document_discount_limits
+  // uses: a service (or an unknown/null kind) takes the service default; a product or
+  // consumable takes the goods default.
+  return effectiveKind === 'product' || effectiveKind === 'consumable' ? defaults.goods : defaults.service;
 }
 
 function grossInclCents(l: AllowanceLineInput): number {
@@ -85,10 +102,10 @@ function netInclAtPct(l: AllowanceLineInput, pct: number): number {
  * customer with two cars was refused the discount the shop is expressly allowed
  * to give. See 20260811000060.
  */
-export function lineAllowanceCents(l: AllowanceLineInput): number {
+export function lineAllowanceCents(l: AllowanceLineInput, carwashPct: number = CARWASH_MAX_PCT): number {
   const gross = grossInclCents(l);
   if (l.policy === 'free') return gross;
-  if (l.policy === 'carwash') return Math.max(gross - netInclAtPct(l, CARWASH_MAX_PCT), 0);
+  if (l.policy === 'carwash') return Math.max(gross - netInclAtPct(l, carwashPct), 0);
   return 0;
 }
 
@@ -96,6 +113,7 @@ export function computeAllowance(
   lines: AllowanceLineInput[],
   docDiscount: DocDiscount | null,
   approvedMaxCents?: number | null,
+  carwashPct: number = CARWASH_MAX_PCT,
 ): Allowance {
   let ceiling = 0;
   let free = 0;
@@ -104,7 +122,7 @@ export function computeAllowance(
 
   for (const l of lines) {
     const gross = grossInclCents(l);
-    ceiling += lineAllowanceCents(l);
+    ceiling += lineAllowanceCents(l, carwashPct);
     if (l.policy === 'free') free += gross;
     const net = netInclCents(l);
     lineDisc += Math.max(gross - net, 0);

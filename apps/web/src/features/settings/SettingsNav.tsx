@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const ITEMS = [
   { key: "business", label: "Business profile", href: "/settings" },
+  { key: "pos-rules", label: "POS rules", href: "/settings/pos-rules" },
   { key: "templates", label: "Document template", href: "/settings/templates" },
   { key: "team", label: "Team & roles", href: "/settings/team" },
   { key: "locations", label: "Stock locations", href: "/settings/locations" },

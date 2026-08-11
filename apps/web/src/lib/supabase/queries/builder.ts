@@ -1,5 +1,25 @@
 import { createClient } from "@/lib/supabase/server";
-import { rupeesToCents, policyOf, type DiscountPolicy } from "@/lib/money";
+import { rupeesToCents, policyOf, CARWASH_MAX_PCT, DEFAULT_POLICIES, type DiscountPolicy, type PolicyDefaults } from "@/lib/money";
+
+/** The owner's live discount rules, read from business_settings and handed to the
+ *  builder so its clamp uses the same cap and per-kind fallbacks the DB enforces. */
+export interface PosRules {
+  carwashPct: number;
+  policyDefaults: PolicyDefaults;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function posRulesFrom(bs: any): PosRules {
+  const policy = (v: unknown, fallback: DiscountPolicy): DiscountPolicy =>
+    v === "none" || v === "carwash" || v === "free" ? v : fallback;
+  return {
+    carwashPct: Number.isFinite(Number(bs?.discount_carwash_pct)) ? Number(bs.discount_carwash_pct) : CARWASH_MAX_PCT,
+    policyDefaults: {
+      service: policy(bs?.default_policy_service, DEFAULT_POLICIES.service),
+      goods: policy(bs?.default_policy_goods, DEFAULT_POLICIES.goods),
+    },
+  };
+}
 import { getSessionContext } from "@/lib/auth/session";
 import { resolveDocAssets, type DocAssets } from "@/lib/pdf/assets";
 import { productPhotoUrl } from "@/lib/supabase/storage";
@@ -41,6 +61,7 @@ export interface BuilderContext {
   assets: DocAssets;
   products: CatalogueProduct[];
   customers: BuilderCustomer[];
+  posRules: PosRules;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,6 +92,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
   return {
     createdBy: session?.displayName?.replace(/\s*\(.*\)\s*$/, "").trim() ?? "",
     pricesInclVat: bs.prices_vat_exclusive === false,
+    posRules: posRulesFrom(bs),
     business: {
       tradingName: bs.trading_name ?? "Carfectionist",
       legalName: bs.legal_name ?? "",
@@ -149,6 +171,14 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
   const sb = await createClient();
   const { data: doc } = await sb.from("documents").select("*").eq("id", id).maybeSingle();
   if (!doc) return null;
+  // The owner's per-kind fallbacks, so a reopened inherit line resolves its policy the
+  // same way a fresh one does and the same way the DB re-derives it.
+  const { data: bsRow } = await sb
+    .from("business_settings")
+    .select("default_policy_service, default_policy_goods")
+    .limit(1)
+    .maybeSingle();
+  const policyDefaults = posRulesFrom(bsRow).policyDefaults;
   const { data: lines } = await sb
     .from("document_lines")
     // products(discount_policy, kind) rides along so a reopened line clamps its discount
@@ -189,7 +219,7 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
       discountAmountCents: rupeesToCents(Number(l.discount_amount ?? 0)),
       // A catalogue line's product answers; an ad-hoc line's own line_kind does — the
       // same fallback app.document_discount_limits computes server-side.
-      discountPolicy: policyOf(l.products?.discount_policy ?? null, l.line_kind ?? l.products?.kind ?? "service"),
+      discountPolicy: policyOf(l.products?.discount_policy ?? null, l.line_kind ?? l.products?.kind ?? "service", policyDefaults),
       vatRatePct: Number(l.vat_rate),
       // Only a hand-typed line ever stated one; a catalogue line reads null and
       // lets its product answer.

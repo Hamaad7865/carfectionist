@@ -20,7 +20,7 @@ const RichEditor = dynamic(() => import("./RichEditor"), {
     <div className="rounded-[9px] border border-line-2 bg-sub px-3 py-4 text-[12px] text-faint">Loading editor…</div>
   ),
 });
-import { computeTotals, computeLineTotals, computeAllowance, lineAllowanceCents, policyOf, CARWASH_MAX_PCT, formatMUR, parseMoneyInput, grossCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
+import { computeTotals, computeLineTotals, computeAllowance, lineAllowanceCents, policyOf, formatMUR, parseMoneyInput, grossCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
@@ -217,7 +217,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   // the limit before the cashier fills a basket they will not be allowed to issue.
   // approvedMaxCents comes from the "Ask the owner" dialog below: an owner's PIN,
   // checked server-side, raises the ceiling for this document only — see askOwner().
-  const allowance = computeAllowance(lineInputs, docDiscount, approvedMaxCents);
+  const allowance = computeAllowance(lineInputs, docDiscount, approvedMaxCents, ctx.posRules.carwashPct);
   const discountBlockReason = allowance.overCeiling
     ? `This discount is over the ${formatMUR(allowance.ceilingCents)} allowed on this ${state.docType} — ask the owner.`
     : allowance.reasonRequired && !state.docDiscountReason.trim()
@@ -293,7 +293,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     // Typed as the shelf price when the shop quotes gross — store the net the ledger adds VAT to.
     const cents = ctx.pricesInclVat ? netFromGrossCents(typed, 15) : typed;
     // No product to ask, so the row's own Service/Product control decides the allowance too.
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind), vatRatePct: 15, lineKind: adKind } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -519,7 +519,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         key={p.id}
                         onClick={() => {
                           // From the catalogue: the product's own kind answers, so this stays null.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind), vatRatePct: p.vatRatePct, lineKind: null } });
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -579,9 +579,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   // What this line's own discount control may give away — the database's
                   // app.document_discount_limits computes the same ceiling from the product join.
                   const lineDiscountDisabled = l.discountPolicy === "none";
-                  const linePctMax = l.discountPolicy === "carwash" ? CARWASH_MAX_PCT : 100;
+                  const linePctMax = l.discountPolicy === "carwash" ? ctx.posRules.carwashPct : 100;
                   const lineAmtMax = l.discountPolicy === "carwash"
-                    ? lineAllowanceCents({ qty: l.qty, unitCents: l.unitCents, vatRatePct: l.vatRatePct, policy: l.discountPolicy, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents })
+                    ? lineAllowanceCents({ qty: l.qty, unitCents: l.unitCents, vatRatePct: l.vatRatePct, policy: l.discountPolicy, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents }, ctx.posRules.carwashPct)
                     : Infinity;
                   return (
                     <div key={l.key} className="rounded-[11px] border border-line bg-card">
