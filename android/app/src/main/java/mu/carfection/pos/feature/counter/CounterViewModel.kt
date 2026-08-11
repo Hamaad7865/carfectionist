@@ -1264,8 +1264,13 @@ class CounterViewModel @Inject constructor(
         val code = q.trim()
         val hit = if (code.length >= 4) allProducts.firstOrNull { it.barcode == code } else null
         if (hit != null) {
-            add(hit) // oversell prompt and settle-freeze rules apply exactly as a tap would
-            local.value = local.value.copy(query = "", notice = "Scanned — ${hit.name}")
+            // add() may REFUSE (negative-stock hard stop) or raise an oversell prompt, leaving
+            // its own notice/dialog and NOT ringing the item. Only claim "Scanned" when it
+            // actually reached the cart — otherwise a blocked scan would clobber the block
+            // message with a false success and the cashier would under-ring the sale.
+            local.value =
+                if (add(hit)) local.value.copy(query = "", notice = "Scanned — ${hit.name}")
+                else local.value.copy(query = "")
         } else if (isDocumentRef(code)) {
             // A RECEIPT was scanned, not a product — the slip's barcode carries the document
             // number. Pull the whole sale back up instead of searching the catalogue for a
@@ -1309,17 +1314,21 @@ class CounterViewModel @Inject constructor(
         }
     }
 
-    fun add(p: ProductEntity) {
+    /** Returns true only if the line actually reached the cart. False when the sale was
+     *  refused (negative-stock hard stop) or an oversell prompt was raised instead — the
+     *  scanner path relies on this to avoid reporting a blocked item as "Scanned". */
+    fun add(p: ProductEntity): Boolean {
         val target = (local.value.cart.firstOrNull { it.product.id == p.id }?.qty ?: 0.0) + 1
         if (needsOversellPrompt(p, target)) {
-            if (!local.value.allowNegativeStock) { local.value = local.value.copy(notice = oversellBlockedNotice(p)); return }
-            local.value = local.value.copy(oversell = OversellPrompt(p, target)); return
+            if (!local.value.allowNegativeStock) { local.value = local.value.copy(notice = oversellBlockedNotice(p)); return false }
+            local.value = local.value.copy(oversell = OversellPrompt(p, target)); return false
         }
         mutateCart { cart ->
             val i = cart.indexOfFirst { it.product.id == p.id }
             if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = it[i].qty + 1) }
             else cart + cartLineOf(p, 1.0)
         }
+        return true
     }
 
     fun setQty(productId: String, qty: Double) {
