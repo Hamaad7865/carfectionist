@@ -44,4 +44,8 @@ data class CustomerEntity(
     // without the operator retyping it off the card. Optional/defaulted: every existing
     // call site that only ever had id/name/phone still compiles unchanged.
     val email: String? = null,
+    // The ledger's fast read (customers.points_balance, 20260811000020) — synced the same
+    // way as every other field here, so the payment pad can show a balance and cap the
+    // Points tender without a network round trip of its own.
+    val pointsBalance: Int = 0,
 )

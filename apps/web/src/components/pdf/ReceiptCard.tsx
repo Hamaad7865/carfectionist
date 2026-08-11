@@ -207,6 +207,15 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
           {r.changeCents > 0 && kv("Change :", plain(r.changeCents))}
           {/* The one number a customer leaving a deposit needs to see on the paper. */}
           {r.balanceDueCents > 0 && kv("BALANCE DUE :", plain(r.balanceDueCents), true)}
+          {/* Points earned by this sale, and the running balance after it (rule 4,
+              2026-08-10) — only when the bill actually names a customer. Word for word
+              the same lines as the tablet's slip (ReceiptText.render / ReceiptPaper). */}
+          {r.pointsEarned != null && r.pointsBalanceAfter != null && (
+            <>
+              {kv("Points earned :", `${r.pointsEarned} pts`)}
+              {kv("Points balance :", `${r.pointsBalanceAfter} pts`)}
+            </>
+          )}
           {dash}
         </>
       )}

@@ -52,6 +52,7 @@ class CatalogRepository @Inject constructor(
     private val phoneKey = stringPreferencesKey("phone")
     private val footerKey = stringPreferencesKey("receipt_footer")
     private val inclVatKey = booleanPreferencesKey("prices_incl_vat")
+    private val pointValueKey = doublePreferencesKey("point_value_rupees")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -72,6 +73,13 @@ class CatalogRepository @Inject constructor(
      * first launch after an update showing net prices until the app was reopened.
      */
     val pricesInclVatFlow: Flow<Boolean> = prefs.data.map { it[inclVatKey] ?: false }
+
+    /**
+     * What one point is worth when spent (business_settings.point_value_rupees). Live, for the
+     * same reason [pricesInclVatFlow] is: the settings sync below races the payment pad, and a
+     * snapshot would cap a Points tender against a rate the owner has since changed.
+     */
+    val pointValueRupeesFlow: Flow<Double> = prefs.data.map { it[pointValueKey] ?: 1.0 }
 
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
@@ -101,6 +109,7 @@ class CatalogRepository @Inject constructor(
             it[tenantKey] = settings.id
             it[vatKey] = settings.vatRate
             it[inclVatKey] = !settings.pricesVatExclusive
+            it[pointValueKey] = settings.pointValueRupees
             settings.tradingName?.let { n -> it[nameKey] = n }
             settings.brn?.let { v -> it[brnKey] = v }
             settings.vatNumber?.let { v -> it[vatNoKey] = v }
@@ -135,7 +144,7 @@ class CatalogRepository @Inject constructor(
         }
         if (products.isNotEmpty()) productDao.replaceAll(products)
 
-        val customers = api.fetchCustomers().map { c -> CustomerEntity(c.id, c.name, c.phone) }
+        val customers = api.fetchCustomers().map { c -> CustomerEntity(c.id, c.name, c.phone, pointsBalance = c.pointsBalance) }
         if (customers.isNotEmpty()) customerDao.replaceAll(customers)
     }
 }

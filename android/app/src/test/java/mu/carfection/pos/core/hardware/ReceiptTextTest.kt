@@ -340,6 +340,33 @@ class ReceiptTextTest {
         }
     }
 
+    // ── points earned + the running balance (rule 4, 2026-08-10) ────────────────
+
+    @Test
+    fun `states what this sale earned and the balance after it, when a customer is named`() {
+        val out = ReceiptText.render(referenceDoc().copy(pointsEarned = 11, pointsBalanceAfter = 42), 48)
+        assertTrue("earned label", out.contains("Points earned :"))
+        assertTrue("earned value", out.contains("11 pts"))
+        assertTrue("balance label", out.contains("Points balance :"))
+        assertTrue("balance value", out.contains("42 pts"))
+    }
+
+    @Test
+    fun `prints neither points line for an anonymous walk-in`() {
+        // referenceDoc() sets neither field (the default) — exactly what a sale with no
+        // customer attached leaves them at.
+        val out = render()
+        assertFalse(out.contains("Points earned"))
+        assertFalse(out.contains("Points balance"))
+    }
+
+    @Test
+    fun `a voided reprint states neither points line either`() {
+        val out = ReceiptText.render(referenceDoc().copy(pointsEarned = 11, pointsBalanceAfter = 42, voided = true), 48)
+        assertFalse(out.contains("Points earned"))
+        assertFalse(out.contains("Points balance"))
+    }
+
     @Test
     fun `the studio name is not printed twice when a logo is raster-printed above it`() {
         // The transport prepends the logo image; printing the name too would duplicate it.

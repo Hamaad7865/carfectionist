@@ -62,7 +62,17 @@ fun saleReceiptDoc(
     terminalNo: Int? = null,
     duplicataNo: Int? = null,
     duplicataAt: String? = null,
+    // Points earned on THIS sale (the ledger's own 'earned' row for it — the caller reads
+    // that separately; there is no FK PostgREST can embed it through) and the customer's
+    // running balance after it (rides along on h.customers, added to SALE_COLS). Both are
+    // nulled below unless the bill actually names someone — see [namesCustomer].
+    pointsEarned: Int? = null,
+    pointsBalanceAfter: Int? = null,
 ): ReceiptDoc {
+    // Never the generic WALK_IN_CUSTOMER bucket every anonymous counter sale is billed to
+    // (issueWalkInInvoice) — an anonymous walk-in must print exactly as it does today,
+    // whatever the caller passed in. Checked here, once, rather than trusted to every caller.
+    val namesCustomer = h.customers != null && h.customers.name != WALK_IN_CUSTOMER
     fun incl(l: SaleHistoryLineDto) = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
     val sorted = h.lines.sortedBy { it.sortOrder }
     // Discount lines are stored as negative lines: they are the discount total, not items.
@@ -141,5 +151,9 @@ fun saleReceiptDoc(
                 ReceiptVatGroup(rate, ls.sumOf { rupeesToCents(it.lineTotalExcl) }, ls.sumOf { rupeesToCents(it.lineVat) })
             }
             .sortedByDescending { it.ratePct },
+        // Points earned on this sale, and the customer's running balance after it — only
+        // when the bill actually names one (never the anonymous walk-in bucket).
+        pointsEarned = if (namesCustomer) pointsEarned else null,
+        pointsBalanceAfter = if (namesCustomer) pointsBalanceAfter else null,
     )
 }

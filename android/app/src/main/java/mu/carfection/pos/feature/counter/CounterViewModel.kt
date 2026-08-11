@@ -48,6 +48,7 @@ import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
+import mu.carfection.pos.core.money.pointsValueCents
 import mu.carfection.pos.core.money.rupeesToCents
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -139,6 +140,13 @@ data class CounterUiState(
     // The shop quotes VAT-INCLUSIVE shelf prices — show gross on screen. Prices stay stored
     // net and the totals below stay net + VAT; this only changes what staff read.
     val pricesInclVat: Boolean = false,
+    // What one point is worth when spent (business_settings.point_value_rupees) — a shop-wide
+    // setting, loaded once like pricesInclVat, not per-customer.
+    val pointValueRupees: Double = 1.0,
+    // The named customer's CURRENT points balance — derived in `state` from whichever source
+    // has one: the collect bill's own embed, or the walk-in cart's picked customer in the
+    // synced cache. 0 when nobody is named (the Points tender is not offered then anyway).
+    val pointsBalance: Int = 0,
     // The bill panel's real detail for a collect: the invoice's own lines + (for a job) the
     // service performed. Fetched when the pad opens; empty while in flight or for a walk-in.
     val collectLines: List<SaleHistoryLineDto> = emptyList(),
@@ -213,11 +221,33 @@ data class CounterUiState(
     /** The split is ready when its rows sum EXACTLY to the bill and a till is open. */
     val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueCents
 
+    /**
+     * Does this sale name a REAL customer — one the cashier picked or the bill was already
+     * billed to — as opposed to a fresh walk-in cart nobody has attached anyone to yet?
+     * Same test CREDIT already uses: a typed-but-unselected name doesn't count, because
+     * there is no id yet to look a points balance up against.
+     */
+    val hasNamedCustomer: Boolean
+        get() = (collect == null && customerId != null) || (collect?.customers != null)
+
+    /** What the named customer's points balance is worth right now, in cents. */
+    val pointsWorthCents: Long get() = pointsValueCents(pointsBalance, pointValueRupees)
+
+    /** The most a Points tender may take off THIS bill: never more than is owed, and never
+     *  more than the balance is worth. Zero when nobody is named — spend_points refuses
+     *  outright otherwise ("a points payment needs a customer on the bill", 20260811000040). */
+    val pointsCapCents: Long get() = if (hasNamedCustomer) minOf(dueCents, pointsWorthCents) else 0L
+
+    /** The means of payment on offer — Points joins the grid only once a real customer is named. */
+    val availableMethods: List<PayMethod>
+        get() = if (hasNamedCustomer) PayMethod.entries.toList() else PayMethod.entries.filterNot { it == PayMethod.POINTS }
+
     /** Does the current single entry satisfy its method's rules (till, tender, customer)? */
     private val entryValid: Boolean
         get() = when (method) {
             PayMethod.CASH -> effectiveTenderCents >= payCents && till != null
             PayMethod.CREDIT -> (collect == null && customerId != null) || (collect?.customers != null)
+            PayMethod.POINTS -> till != null && hasNamedCustomer && payCents in 1..pointsCapCents
             else -> till != null // card/juice/bank
         }
 
@@ -425,6 +455,10 @@ internal fun CounterUiState.withSettleFailure(e: Throwable): CounterUiState = wh
  *  - a sale with a PENDING SETTLE may already exist on the server under this sale key.
  *    That one must be retried, never re-rung as a second sale.
  *  - CREDIT takes no money at all, so there is nothing to lose by waiting for the network.
+ *  - POINTS needs the server to check and debit a balance THIS INSTANT — a balance checked
+ *    after the fact is not a check. Queuing a points payment offline could promise a
+ *    customer a redemption their balance can no longer cover by the time it replays, so
+ *    this is refused outright rather than captured (see CounterViewModel.confirm()).
  *  - with no TILL there is no service to file the money against, and `record_payment`
  *    requires one for every method — a captured sale would only block later.
  */
@@ -433,6 +467,7 @@ internal fun canCaptureOffline(s: CounterUiState, online: Boolean): Boolean =
         s.collect == null &&
         s.pendingSettle == null &&
         s.method != PayMethod.CREDIT &&
+        s.method != PayMethod.POINTS &&
         s.till != null &&
         s.cart.isNotEmpty()
 
@@ -476,7 +511,12 @@ class CounterViewModel @Inject constructor(
             val cq = s.customerText.trim().lowercase()
             val matches = if (cq.isEmpty() || s.customerId != null) emptyList()
             else customers.filter { it.name.lowercase().contains(cq) }.take(6)
-            s.copy(products = filtered, categories = cats, catCounts = counts, customerMatches = matches)
+            // A collect bill carries its own (fresher, server-embedded) balance; a walk-in
+            // reads its picked customer's balance off the synced cache. Neither when nobody
+            // is named — the Points tender isn't offered then, so the figure is moot.
+            val pointsBalance = s.collect?.customers?.pointsBalance
+                ?: customers.firstOrNull { it.id == s.customerId }?.pointsBalance ?: 0
+            s.copy(products = filtered, categories = cats, catCounts = counts, customerMatches = matches, pointsBalance = pointsBalance)
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), CounterUiState())
 
     // The whole catalogue, unfiltered — the scanner must find a barcode even while
@@ -507,6 +547,10 @@ class CounterViewModel @Inject constructor(
         viewModelScope.launch {
             catalog.pricesInclVatFlow.collect { incl -> local.value = local.value.copy(pricesInclVat = incl) }
         }
+        // The Points tender's cap moves with the owner's rate — same "live, not a snapshot" rule.
+        viewModelScope.launch {
+            catalog.pointValueRupeesFlow.collect { rate -> local.value = local.value.copy(pointValueRupees = rate) }
+        }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
@@ -522,7 +566,10 @@ class CounterViewModel @Inject constructor(
         // doesn't fall back to the hardcoded name (the ViewModel is activity-scoped; init
         // won't re-run to re-fetch it).
         val cur = local.value
-        local.value = CounterUiState(till = cur.till, bizName = cur.bizName, bizAddress = cur.bizAddress, pricesInclVat = cur.pricesInclVat)
+        local.value = CounterUiState(
+            till = cur.till, bizName = cur.bizName, bizAddress = cur.bizAddress,
+            pricesInclVat = cur.pricesInclVat, pointValueRupees = cur.pointValueRupees,
+        )
     }
 
     // ── checkout list: TO COLLECT + PAID TODAY ─────────────────────────────────
@@ -681,10 +728,16 @@ class CounterViewModel @Inject constructor(
             // Reprints declare themselves: this paper is not the original. The copy number
             // comes from the audit trail, so it keeps counting across reboots and devices.
             val printed = h.id?.let { api.receiptPrintCount(it) } ?: 0
+            // A reprint states the same points lines the original did (saleReceiptDoc itself
+            // withholds them for the anonymous walk-in bucket) — best-effort, like every
+            // other lookup here: a failed read costs the slip a line, never the reprint.
+            val pointsEarned = h.id?.let { runCatching { api.pointsEarnedForDocument(it) }.getOrNull() }
             val doc = saleReceiptDoc(
                 h, catalog.receiptBiz(), catalog.vatDefault().toInt(),
                 duplicataNo = if (printed > 0) printed + 1 else null,
                 duplicataAt = if (printed > 0) java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) else null,
+                pointsEarned = pointsEarned,
+                pointsBalanceAfter = h.customers?.pointsBalance,
             )
             local.value = local.value.copy(viewDoc = doc)
         }
@@ -845,10 +898,21 @@ class CounterViewModel @Inject constructor(
     }
 
     /** The pad's confirm button: split allocation, collect on an invoice, or settle the cart. */
-    fun confirm() = when {
-        local.value.splitMode -> recordSplit()
-        local.value.collect != null -> recordCollect()
-        else -> record()
+    fun confirm() {
+        val s = local.value
+        // The server has to check and debit the balance NOW — a points payment queued for
+        // later replay would be trusting a number that may no longer be true. Say so plainly
+        // and stop, rather than let this fall through to captureOffline (excluded above) and
+        // then fail on a generic network error that doesn't explain why.
+        if (s.method == PayMethod.POINTS && !connectivity.online.value) {
+            local.value = s.copy(error = "Points need a connection to check the balance — try another method while offline.")
+            return
+        }
+        when {
+            s.splitMode -> recordSplit()
+            s.collect != null -> recordCollect()
+            else -> record()
+        }
     }
 
     /**
@@ -891,7 +955,14 @@ class CounterViewModel @Inject constructor(
                 // Rebuild the slip from the server invoice — it now carries every tender row.
                 val receipt = runCatching {
                     api.fetchInvoice(result.invoiceId)?.let {
-                        saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt()).copy(isPayment = bill != null)
+                        // The ledger's own earn row for THIS document — best-effort, like
+                        // ticketNo/terminalNo elsewhere: a failed read costs the slip a line,
+                        // never the sale (already committed by this point).
+                        val pointsEarned = runCatching { api.pointsEarnedForDocument(result.invoiceId) }.getOrNull()
+                        saleReceiptDoc(
+                            it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                            pointsEarned = pointsEarned, pointsBalanceAfter = it.customers?.pointsBalance,
+                        ).copy(isPayment = bill != null)
                     }
                 }.getOrNull()
                 launch {
@@ -980,8 +1051,11 @@ class CounterViewModel @Inject constructor(
                 // items still beats no slip at all.
                 val receipt = runCatching {
                     api.fetchInvoice(bill.id)?.let {
-                        saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt())
-                            .copy(isPayment = true)
+                        val pointsEarned = runCatching { api.pointsEarnedForDocument(bill.id) }.getOrNull()
+                        saleReceiptDoc(
+                            it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                            pointsEarned = pointsEarned, pointsBalanceAfter = it.customers?.pointsBalance,
+                        ).copy(isPayment = true)
                     }
                 }.getOrNull() ?: ReceiptDoc(
                     biz = catalog.receiptBiz(),
@@ -1490,10 +1564,20 @@ class CounterViewModel @Inject constructor(
                     // already committed, so a slow or failed lookup costs the slip a line,
                     // never the sale. Both return null rather than a wrong number.
                     val terminal = api.terminalNo(session.deviceId())
+                    // Points earned + the running balance — gated on s.customerId, the
+                    // cashier's OWN pick, never on whatever customer the sale actually
+                    // resolved to: an untouched walk-in still bills to a real "Walk-in
+                    // customer" row (issueWalkInInvoice) and must print exactly as it did
+                    // before points existed.
+                    val custId = s.customerId
+                    val pointsEarned = if (custId != null) api.pointsEarnedForDocument(result.invoiceId) else null
+                    val pointsBalanceAfter = custId?.let { api.customerPointsBalance(it) }
                     val stamped = receipt.copy(
                         ticketNo = s.till?.id?.let { api.sessionTicketNo(it, result.invoiceId) },
                         billNo = billRef(api.billNoFor(result.invoiceId), terminal),
                         terminalNo = terminal,
+                        pointsEarned = pointsEarned,
+                        pointsBalanceAfter = pointsBalanceAfter,
                     )
                     val printed = runCatching {
                         printer.printDoc(stamped) // prints the moment the sale completes

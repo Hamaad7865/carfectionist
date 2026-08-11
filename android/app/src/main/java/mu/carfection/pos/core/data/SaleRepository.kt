@@ -188,8 +188,19 @@ enum class PayMethod(val rpcValue: String?, val label: String) {
     CARD("card", "Card"),
     JUICE("juice", "Juice"),
     BANK("bank_transfer", "Bank"),
+    // A tender, not a discount (rule 4, 2026-08-10): the ledger row app.spend_points writes
+    // IS the reference, so — like cash — it carries no external one. Offered only when the
+    // bill names a customer; see CounterUiState.hasNamedCustomer.
+    POINTS("points", "Points"),
     CREDIT(null, "Credit"), // on-account: issue only, balance = receivable
 }
+
+/**
+ * Cash and points carry no external reference: cash because there is nothing to cite, points
+ * because the ledger row IS the reference (record_payment's own points branch, 20260811000040).
+ * Card, Juice and a bank transfer cite something outside the till and need one.
+ */
+private fun PayMethod.carriesNoExternalRef() = this == PayMethod.CASH || this == PayMethod.POINTS
 
 data class SaleResult(
     val invoiceId: String,
@@ -353,7 +364,7 @@ class SaleRepository @Inject constructor(
                 method = requireNotNull(method.rpcValue),
                 amountRupees = centsToRupees(totalCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
-                externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                externalRef = if (method.carriesNoExternalRef()) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
                 cashSessionId = cashSessionId,
                 idempotencyKey = "$saleKey:pay",
             )
@@ -610,7 +621,7 @@ class SaleRepository @Inject constructor(
                     method = requireNotNull(t.method.rpcValue),
                     amountRupees = centsToRupees(t.amountCents),
                     tenderedRupees = t.tenderedCents?.let { centsToRupees(it) },
-                    externalRef = if (t.method == PayMethod.CASH) null else (t.ref?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                    externalRef = if (t.method.carriesNoExternalRef()) null else (t.ref?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
                     cashSessionId = cashSessionId,
                     idempotencyKey = "$saleKey:pay:$i",
                 )
@@ -665,7 +676,7 @@ class SaleRepository @Inject constructor(
                 method = requireNotNull(method.rpcValue),
                 amountRupees = centsToRupees(outstandingCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
-                externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                externalRef = if (method.carriesNoExternalRef()) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
                 cashSessionId = cashSessionId,
                 idempotencyKey = "$saleKey:pay",
             )
@@ -724,7 +735,7 @@ class SaleRepository @Inject constructor(
                 method = requireNotNull(method.rpcValue),
                 amountRupees = centsToRupees(amountCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
-                externalRef = if (method == PayMethod.CASH) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                externalRef = if (method.carriesNoExternalRef()) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
                 // ALL methods link to the till session (see completeSale) — device traceability.
                 cashSessionId = cashSessionId,
                 idempotencyKey = "$payKey:collect",

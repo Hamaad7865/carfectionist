@@ -63,6 +63,10 @@ const reference = (over: Partial<ReceiptData> = {}): ReceiptData => ({
   footerNote: "Thank you for visiting.",
   barcodeValue: "INV-0031",
   codeLabel: "INV-0031 · 25072026",
+  // null = no customer named on the bill — the reference sale is a walk-in, same as the
+  // tablet's referenceDoc(). Tests below override both together for a named customer.
+  pointsEarned: null,
+  pointsBalanceAfter: null,
   ...over,
 });
 
@@ -196,6 +200,27 @@ describe("tender rows", () => {
 
   it("stamps a void invoice", () => {
     expect(render({ voided: true })).toContain(">VOID<");
+  });
+});
+
+describe("points earned and the running balance (rule 4, 2026-08-10)", () => {
+  it("states what this sale earned and the balance after it, when a customer is named", () => {
+    const html = render({ pointsEarned: 11, pointsBalanceAfter: 42 });
+    expect(html).toContain("Points earned :");
+    expect(html).toContain("11 pts");
+    expect(html).toContain("Points balance :");
+    expect(html).toContain("42 pts");
+  });
+
+  it("prints neither line for an anonymous walk-in", () => {
+    const html = render({ pointsEarned: null, pointsBalanceAfter: null });
+    expect(html).not.toContain("Points earned");
+    expect(html).not.toContain("Points balance");
+  });
+
+  it("never claims points on a quote or a dead invoice", () => {
+    expect(render({ pointsEarned: 11, pointsBalanceAfter: 42, isInvoice: false })).not.toContain("Points earned");
+    expect(render({ pointsEarned: 11, pointsBalanceAfter: 42, voided: true })).not.toContain("Points earned");
   });
 });
 

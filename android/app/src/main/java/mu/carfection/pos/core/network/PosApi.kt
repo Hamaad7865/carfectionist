@@ -32,12 +32,12 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchCustomers(): List<CustomerDto> =
         client.postgrest.from("customers")
-            .select(Columns.raw("id, name, phone"))
+            .select(Columns.raw("id, name, phone, points_balance"))
             .decodeList()
 
     suspend fun fetchSettings(): BusinessSettingsDto =
         client.postgrest.from("business_settings")
-            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone, receipt_logo_path, receipt_footer_text, prices_vat_exclusive")) { limit(1) }
+            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone, receipt_logo_path, receipt_footer_text, prices_vat_exclusive, point_value_rupees")) { limit(1) }
             .decodeSingle()
 
     /**
@@ -479,6 +479,32 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             if (reason != null) put("p_reason", reason) else put("p_reason", JsonNull)
         })
     }
+
+    /**
+     * A customer's CURRENT points balance — read fresh rather than trusted from the sync
+     * cache, the moment a receipt has to state the balance a payment just left them with.
+     * Null on failure, same convention as the other post-sale lookups below: a slow or
+     * failed read costs the slip a line, never the sale.
+     */
+    suspend fun customerPointsBalance(customerId: String): Int? = runCatching {
+        client.postgrest.from("customers")
+            .select(Columns.raw("points_balance")) { filter { eq("id", customerId) } }
+            .decodeList<CustomerPointsDto>().firstOrNull()?.pointsBalance
+    }.getOrNull()
+
+    /**
+     * Points THIS document's own settlement earned — the ledger's own 'earned' row for it
+     * (app.award_points_for_invoice, 20260811000030), never recomputed client-side. At most
+     * one row exists (idx_points_ledger_one_earn_per_doc), but this sums defensively rather
+     * than assume it.
+     */
+    suspend fun pointsEarnedForDocument(documentId: String): Int = runCatching {
+        client.postgrest.from("customer_points_ledger")
+            .select(Columns.raw("delta")) {
+                filter { eq("ref_type", "document"); eq("ref_id", documentId); eq("reason", "earned") }
+            }
+            .decodeList<PointsDeltaDto>().sumOf { it.delta }
+    }.getOrDefault(0)
 
     /** The internal order reference for a just-issued sale — the slip's "Bill" line. */
     suspend fun billNoFor(documentId: String): Long? = runCatching {
@@ -931,7 +957,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      */
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, jobs!documents_job_id_fkey(status), customers(name), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, jobs!documents_job_id_fkey(status), customers(name, points_balance), vehicles(plate, make, model)")) {
                 // 'draft' belongs here now: a quoted job's bill is raised when the car is
                 // marked ready and left OPEN, so the counter can add whatever the customer
                 // picked up on their way out. It is issued as they pay. Callers drop the
@@ -973,7 +999,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // customer's email/phone to prefill. One shape, two callers (history, and a job's invoice).
     private val SALE_COLS =
         "id, number, doc_type, status, issued_at, total_incl, vat_total, amount_paid, " +
-            "customers(name, phone, email), creator:app_users!documents_created_by_fkey(display_name), " +
+            "customers(name, phone, email, points_balance), creator:app_users!documents_created_by_fkey(display_name), " +
             "bill_no, bill_to_brn, bill_to_vat_number, " +
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount), " +
             "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"

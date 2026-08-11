@@ -127,6 +127,14 @@ data class ReceiptDoc(
      * [invoiceNo]: the moment a real number exists, the real invoice is what reprints.
      */
     val offlineRef: String? = null,
+    /**
+     * Points earned by THIS sale, and the customer's running balance after it (rule 4,
+     * 2026-08-10) — null unless the bill names a real customer, exactly like the web card's
+     * ReceiptData.pointsEarned/pointsBalanceAfter. An anonymous walk-in leaves both null and
+     * prints exactly as it did before points existed.
+     */
+    val pointsEarned: Int? = null,
+    val pointsBalanceAfter: Int? = null,
 ) {
     val footer: String get() = biz.footer
 
@@ -310,6 +318,13 @@ object ReceiptText {
             }
             // The one number a customer leaving a deposit needs to see on the paper.
             if (d.balanceDueCents > 0) appendLine(kv("    BALANCE DUE :", plain(d.balanceDueCents), w))
+            // Points earned by this sale, and the running balance after it — only when the
+            // bill actually names a customer (never the anonymous walk-in). Word for word
+            // the same lines as the web card (ReceiptCard.tsx).
+            if (d.pointsEarned != null && d.pointsBalanceAfter != null) {
+                appendLine(kv("    Points earned :", "${d.pointsEarned} pts", w))
+                appendLine(kv("    Points balance :", "${d.pointsBalanceAfter} pts", w))
+            }
             appendLine(rule(w))
         }
 

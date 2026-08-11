@@ -46,6 +46,7 @@ import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Smartphone
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -957,7 +958,9 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
         Text("MEANS OF PAYMENT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            PayMethod.entries.chunked(2).forEach { row ->
+            // Points joins the grid only once a real customer is named — never the generic
+            // walk-in bucket a fresh cart bills to by default (CounterUiState.hasNamedCustomer).
+            s.availableMethods.chunked(2).forEach { row ->
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     row.forEach { m -> Box(Modifier.weight(1f)) { MethodTile(m, s.method == m) { vm.setMethod(m) } } }
                     if (row.size == 1) Spacer(Modifier.weight(1f))
@@ -1126,6 +1129,7 @@ private fun methodHue(m: PayMethod): Color = when (m) {
     PayMethod.CARD -> Accent
     PayMethod.JUICE -> Color(0xFFE8A400)
     PayMethod.BANK -> Color(0xFF3B5B8C)
+    PayMethod.POINTS -> Color(0xFF9B59B6)
     PayMethod.CREDIT -> Warning
 }
 
@@ -1135,6 +1139,7 @@ private fun methodIcon(m: PayMethod): ImageVector = when (m) {
     PayMethod.CARD -> Icons.Filled.CreditCard        // bank card
     PayMethod.JUICE -> Icons.Filled.Smartphone       // MCB Juice — a phone wallet
     PayMethod.BANK -> Icons.Filled.AccountBalance     // bank transfer
+    PayMethod.POINTS -> Icons.Filled.Star            // loyalty points
     PayMethod.CREDIT -> Icons.Filled.Schedule         // on account — pay later
 }
 
@@ -1233,6 +1238,26 @@ private fun PaymentEntryFields(s: CounterUiState, vm: CounterViewModel) {
                         ) { Text(if (s.busy) "Creating…" else "+ Create \"$typed\"", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                     }
                 }
+            }
+        }
+        // A tender, not a discount (rule 4, 2026-08-10): no external reference — the ledger
+        // row app.spend_points writes IS the reference, same as record_payment's own branch.
+        PayMethod.POINTS -> {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Balance", color = TextSecondary, fontSize = 13.sp)
+                Spacer(Modifier.weight(1f))
+                Text("${s.pointsBalance} pts", color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Worth", color = TextSecondary, fontSize = 13.sp)
+                Spacer(Modifier.weight(1f))
+                Text(formatMUR(s.pointsWorthCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+            }
+            if (s.payCents > s.pointsCapCents) {
+                Text(
+                    "Points can cover up to ${formatMUR(s.pointsCapCents)} of this bill.",
+                    color = Danger, fontSize = 12.5.sp,
+                )
             }
         }
         else -> {
@@ -1864,6 +1889,12 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         // A deposit is only half a story without the half still to pay.
         if (d.balanceDueCents > 0) SlipRow("    BALANCE DUE :", plainSlip(d.balanceDueCents), strong = true)
+        // Points earned by this sale, and the running balance after it — only when the bill
+        // actually names a customer. Mirrors ReceiptText.render word for word.
+        if (d.pointsEarned != null && d.pointsBalanceAfter != null) {
+            SlipRow("    Points earned :", "${d.pointsEarned} pts")
+            SlipRow("    Points balance :", "${d.pointsBalanceAfter} pts")
+        }
         DashRule()
         // ── tax breakdown ───────────────────────────────────────────────────────
         if (d.lines.isNotEmpty()) {

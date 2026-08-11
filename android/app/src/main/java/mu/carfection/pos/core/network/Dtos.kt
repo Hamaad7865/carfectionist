@@ -35,6 +35,9 @@ data class CustomerDto(
     val name: String,
     val phone: String? = null,
     val email: String? = null,
+    // The ledger's fast read (customer_points_ledger via app.apply_points_delta, 20260811000020).
+    // Synced like every other field here — the payment pad reads it straight off the cache.
+    @SerialName("points_balance") val pointsBalance: Int = 0,
 )
 
 @Serializable
@@ -161,7 +164,14 @@ data class FlowCertRefDto(
 
 // ── Jobs board ────────────────────────────────────────────────────────────────
 @Serializable data class ChecklistItemDto(val label: String, val done: Boolean = false)
-@Serializable data class JobCustomerDto(val name: String? = null, val phone: String? = null, val email: String? = null)
+@Serializable data class JobCustomerDto(
+    val name: String? = null,
+    val phone: String? = null,
+    val email: String? = null,
+    // Present only on the embeds that ask for it (the TO COLLECT list, the sale/receipt
+    // columns) — absent elsewhere decodes as null, never a false zero.
+    @SerialName("points_balance") val pointsBalance: Int? = null,
+)
 @Serializable data class JobVehicleDto(
     val plate: String? = null,
     val make: String? = null,
@@ -539,6 +549,9 @@ data class BusinessSettingsDto(
     // this only decides whether the staff-facing screens show net or gross. Defaults to the
     // DB default (true) so a failed fetch keeps today's behaviour rather than inflating prices.
     @SerialName("prices_vat_exclusive") val pricesVatExclusive: Boolean = true,
+    // What one point is worth when spent (20260811000020) — the Points tender's cap
+    // (pointsValueCents) needs it; the earn rate stays server-side only.
+    @SerialName("point_value_rupees") val pointValueRupees: FlexDouble = 1.0,
 )
 
 @Serializable
@@ -664,3 +677,11 @@ data class DeviceOrdinalDto(
 
 @Serializable
 data class BillNoDto(@SerialName("bill_no") val billNo: Long? = null)
+
+/** A customer's CURRENT points balance, read fresh for the receipt's "balance after" line. */
+@Serializable
+data class CustomerPointsDto(@SerialName("points_balance") val pointsBalance: Int = 0)
+
+/** One customer_points_ledger row's delta — used to sum what a single document earned. */
+@Serializable
+data class PointsDeltaDto(val delta: Int = 0)

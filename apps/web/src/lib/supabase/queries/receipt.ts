@@ -142,6 +142,11 @@ export interface ReceiptData {
   footerNote: string;
   barcodeValue: string;
   codeLabel: string;
+  /** Points earned by THIS sale (the ledger's own 'earned' row for it — app.award_points_
+   *  for_invoice, 20260811000030) — null unless the bill names a real customer. */
+  pointsEarned: number | null;
+  /** The customer's CURRENT points balance — the running total after this sale, same rule. */
+  pointsBalanceAfter: number | null;
 }
 
 const METHOD_LABEL: Record<string, string> = { cash: "cash", card: "card", juice: "Juice", bank_transfer: "bank transfer" };
@@ -251,12 +256,12 @@ export async function getReceiptPublic(id: string): Promise<ReceiptData | null> 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> {
-  const { data: doc } = await sb.from("documents").select("*, customers(name, email, brn, vat_number)").eq("id", id).maybeSingle();
+  const { data: doc } = await sb.from("documents").select("*, customers(name, email, brn, vat_number, points_balance)").eq("id", id).maybeSingle();
   if (!doc) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
 
-  const [{ data: lines }, { data: pays }, { data: bs }] = await Promise.all([
+  const [{ data: lines }, { data: pays }, { data: bs }, { data: earnRow }] = await Promise.all([
     // unit_price + the discount columns: the slip prints the FULL unit price in its "UP" column
     // and names what each line saved, and both must come off the STORED discount.
     sb
@@ -266,6 +271,16 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
       .order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
     sb.from("business_settings").select("trading_name, address, brn, vat_number, phone, receipt_footer_text, receipt_logo_path").limit(1).maybeSingle(),
+    // This document's own earn row, if any (award_points_for_invoice, 20260811000030) — at
+    // most one exists (idx_points_ledger_one_earn_per_doc). Harmless to run even when the
+    // bill names no customer; the result is only READ when it does, below.
+    sb
+      .from("customer_points_ledger")
+      .select("delta")
+      .eq("ref_type", "document")
+      .eq("ref_id", id)
+      .eq("reason", "earned")
+      .maybeSingle(),
   ]);
 
   // The operator's name, and the slip's identity block: which sale of the till session this was
@@ -381,6 +396,12 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   const studioName = b.trading_name ?? "Carfectionist";
   const docLabel = d.doc_type === "quote" ? "Quote" : d.doc_type === "credit_note" ? "Credit note" : "Invoice";
 
+  // Points earned on this sale, and the customer's running balance after it — only when the
+  // bill actually names one (mirrors getDocumentDetail's customerPointsBalance, same gate).
+  const namesCustomer = d.customer_id != null;
+  const pointsEarned = namesCustomer ? Number(earnRow?.delta ?? 0) : null;
+  const pointsBalanceAfter = namesCustomer ? Number(d.customers?.points_balance ?? 0) : null;
+
   return {
     studioName,
     logoUrl,
@@ -426,5 +447,7 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     footerNote: (b.receipt_footer_text && String(b.receipt_footer_text).trim()) || DEFAULT_FOOTER,
     barcodeValue,
     codeLabel,
+    pointsEarned,
+    pointsBalanceAfter,
   };
 }
