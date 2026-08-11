@@ -29,6 +29,17 @@ const seed = (b: BusinessProfile): BForm => ({
   pointValueRupees: String(b.pointValueRupees),
 });
 
+// Module scope, not inside the form. Declared during render, React sees a new
+// component TYPE on every pass and remounts the whole subtree rather than
+// updating it — which is what react-hooks/static-components is warning about.
+// It closes over nothing, so this is a pure relocation.
+const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
+  <div className="rounded-[15px] border border-line bg-card p-5">
+    <div className="mb-4 font-display text-[14px] font-bold text-ink-strong">{title}</div>
+    <div className="flex flex-col gap-3">{children}</div>
+  </div>
+);
+
 export function BusinessProfileForm({ profile }: { profile: BusinessProfile }) {
   const router = useRouter();
   const [f, setF] = useState<BForm>(() => seed(profile));
@@ -44,13 +55,6 @@ export function BusinessProfileForm({ profile }: { profile: BusinessProfile }) {
     setBusy(false);
     if (r.ok) { setSaved(true); router.refresh(); } else setError(r.error);
   }
-
-  const Section = ({ title, children }: { title: string; children: React.ReactNode }) => (
-    <div className="rounded-[15px] border border-line bg-card p-5">
-      <div className="mb-4 font-display text-[14px] font-bold text-ink-strong">{title}</div>
-      <div className="flex flex-col gap-3">{children}</div>
-    </div>
-  );
 
   return (
     <div className="flex flex-col gap-4">
