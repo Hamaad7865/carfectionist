@@ -21,6 +21,11 @@ describe('policyOf', () => {
   it('treats an unknown kind as a service — the safer default', () => {
     expect(policyOf(null, null)).toBe('none');
   });
+
+  it('falls back to the configured per-kind default', () => {
+    expect(policyOf(null, 'service', { service: 'free', goods: 'none' })).toBe('free');
+    expect(policyOf(null, 'product', { service: 'free', goods: 'none' })).toBe('none');
+  });
 });
 
 describe('lineAllowanceCents', () => {
@@ -34,6 +39,13 @@ describe('lineAllowanceCents', () => {
 
   it('gives goods the whole line', () => {
     expect(lineAllowanceCents(line())).toBe(115_000);
+  });
+
+  it('widens a carwash allowance when the cap is raised', () => {
+    // At the default 5% cap this line allows 5_750; at 10% it allows 11_500 —
+    // the same figures the DB probe computes (57.50 / 115.00 rupees).
+    expect(lineAllowanceCents(line({ policy: 'carwash' }))).toBe(5_750);
+    expect(lineAllowanceCents(line({ policy: 'carwash' }), 10)).toBe(11_500);
   });
 });
 
@@ -106,5 +118,9 @@ describe('computeAllowance', () => {
 
   it('does not ask for a reason once an owner has approved', () => {
     expect(computeAllowance([line({ policy: 'carwash', discountPct: 5 })], null, 5_750).reasonRequired).toBe(false);
+  });
+
+  it('honours a raised carwash cap', () => {
+    expect(computeAllowance([line({ policy: 'carwash' })], null, null, 10).ceilingCents).toBe(11_500);
   });
 });

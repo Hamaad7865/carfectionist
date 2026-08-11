@@ -37,7 +37,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
 
     suspend fun fetchSettings(): BusinessSettingsDto =
         client.postgrest.from("business_settings")
-            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone, receipt_logo_path, receipt_footer_text, prices_vat_exclusive, point_value_rupees, points_enabled")) { limit(1) }
+            .select(Columns.raw("id, vat_rate, trading_name, brn, vat_number, address, phone, receipt_logo_path, receipt_footer_text, prices_vat_exclusive, point_value_rupees, points_enabled, discount_carwash_pct, default_policy_service, default_policy_goods, default_opening_float, allow_negative_stock")) { limit(1) }
             .decodeSingle()
 
     /**

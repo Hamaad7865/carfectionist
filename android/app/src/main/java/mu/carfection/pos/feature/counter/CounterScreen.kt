@@ -356,7 +356,7 @@ fun CounterScreen(
                                     )
                                 } else if (l.discountPolicy == "carwash") {
                                     Text(
-                                        "Up to ${formatMUR(lineAllowanceCents(l.allowanceInput))} may be discounted on this line.",
+                                        "Up to ${formatMUR(lineAllowanceCents(l.allowanceInput, l.carwashPct))} may be discounted on this line.",
                                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
                                     )
                                 }

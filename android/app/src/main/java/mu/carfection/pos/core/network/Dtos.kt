@@ -556,6 +556,14 @@ data class BusinessSettingsDto(
     // tablet that cannot read the field keeps the shop's current behaviour rather than
     // silently withdrawing a tender the counter is still taking.
     @SerialName("points_enabled") val pointsEnabled: Boolean = true,
+    // The owner-editable discount rules (20260812000010). Each defaults to the value the
+    // rule was hardcoded to, so a tablet that cannot read the field clamps exactly as
+    // before — the same fallbacks Allowance.kt's DEFAULT_POLICIES / CARWASH_MAX_PCT use.
+    @SerialName("discount_carwash_pct") val discountCarwashPct: FlexDouble = 5.0,
+    @SerialName("default_policy_service") val defaultPolicyService: String = "none",
+    @SerialName("default_policy_goods") val defaultPolicyGoods: String = "free",
+    @SerialName("default_opening_float") val defaultOpeningFloat: FlexDouble = 0.0,
+    @SerialName("allow_negative_stock") val allowNegativeStock: Boolean = true,
 )
 
 @Serializable

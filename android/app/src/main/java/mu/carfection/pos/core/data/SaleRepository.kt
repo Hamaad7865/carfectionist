@@ -10,6 +10,9 @@ import mu.carfection.pos.core.money.DiscountPolicy
 import mu.carfection.pos.core.money.DocLineIn
 import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.centsToRupees
+import mu.carfection.pos.core.money.CARWASH_MAX_PCT
+import mu.carfection.pos.core.money.DEFAULT_POLICIES
+import mu.carfection.pos.core.money.PolicyDefaults
 import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.lineAllowanceCents
@@ -44,6 +47,12 @@ data class CartLine(
     val discountAmtText: String = "", // AMT mode — raw input, parsed to cents
     val expanded: Boolean = false, // UI: line row opened for qty/discount editing
     val oversellOk: Boolean = false, // cashier confirmed selling past available stock (asked once per sale)
+    // The owner's live discount rules, stamped when the line is added and re-stamped on a
+    // settings sync (CounterViewModel). Defaulted to the constants so a copy() that forgets
+    // them, or a test that omits them, clamps exactly as the shop did before the cap became
+    // editable — the same fallback the DB and the web use.
+    val carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
+    val policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
 ) {
     /** Ad-hoc (typed) lines carry a synthetic local id — they save with product_id = null. */
     val isAdhoc: Boolean get() = product.id.startsWith(ADHOC_PREFIX)
@@ -61,7 +70,7 @@ data class CartLine(
      * a discount the same way it would for a service with no stated kind at all).
      */
     val discountPolicy: DiscountPolicy
-        get() = policyOf(product.discountPolicy, product.kind)
+        get() = policyOf(product.discountPolicy, product.kind, policyDefaults)
 
     /**
      * Rs discount in cents as TYPED — i.e. VAT-inclusive, what comes off the bill, matching the
@@ -73,7 +82,7 @@ data class CartLine(
         get() {
             val typed = (parseMoneyToCents(discountAmtText) ?: 0L).coerceIn(0L, lineGrossCents)
             if (discountPolicy != "carwash") return typed
-            val cap = lineAllowanceCents(AllowanceLineInput(qty, product.sellingPriceCents, product.vatRatePct, discountPolicy))
+            val cap = lineAllowanceCents(AllowanceLineInput(qty, product.sellingPriceCents, product.vatRatePct, discountPolicy), carwashPct)
             return typed.coerceAtMost(cap)
         }
 

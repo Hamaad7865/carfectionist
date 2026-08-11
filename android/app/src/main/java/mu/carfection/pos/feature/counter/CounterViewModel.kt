@@ -35,6 +35,9 @@ import mu.carfection.pos.core.hardware.ReceiptLine
 import mu.carfection.pos.core.hardware.ReceiptPrinter
 import mu.carfection.pos.core.hardware.ReceiptVatGroup
 import mu.carfection.pos.core.money.Allowance
+import mu.carfection.pos.core.money.CARWASH_MAX_PCT
+import mu.carfection.pos.core.money.DEFAULT_POLICIES
+import mu.carfection.pos.core.money.PolicyDefaults
 import mu.carfection.pos.core.money.DocDiscount
 import mu.carfection.pos.core.money.DocDiscountTotals
 import mu.carfection.pos.core.money.DocTotals
@@ -147,6 +150,11 @@ data class CounterUiState(
     // the pad offers no points bar, because spend_points refuses ("points are switched off")
     // and a button that can only fail is worse than no button.
     val pointsEnabled: Boolean = true,
+    // The owner's live discount rules (business_settings, 20260812000010), loaded like
+    // pointValueRupees. The carwash cap feeds computeAllowance below; policyDefaults are
+    // stamped onto each CartLine so a line resolves its policy the same way the DB does.
+    val carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
+    val policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
     // The named customer's CURRENT points balance — derived in `state` from whichever source
     // has one: the collect bill's own embed, or the walk-in cart's picked customer in the
     // synced cache. 0 when nobody is named (the Points tender is not offered then anyway).
@@ -369,6 +377,7 @@ data class CounterUiState(
             cart.map { it.allowanceInput },
             docDiscount = orderDiscountKind?.let { DocDiscount(it, if (it == "percent") basketPct.toDouble() else basketAmtCents.toDouble()) },
             approvedMaxCents = approvedMaxCents,
+            carwashPct = carwashPct,
         )
 
     /** Why Record payment is dead, when the reason is the discount and not the till/basket. */
@@ -639,6 +648,22 @@ class CounterViewModel @Inject constructor(
                 )
             }
         }
+        // The owner's discount cap and per-kind defaults, live like the points rate. On a
+        // change (owner edits them in the back office, the tablet syncs) the open cart is
+        // re-stamped too, so a basket already on screen clamps by the new rule rather than
+        // waiting for the next fresh sale.
+        viewModelScope.launch {
+            catalog.carwashPctFlow.collect { pct ->
+                val s = local.value
+                local.value = s.copy(carwashPct = pct, cart = s.cart.map { it.copy(carwashPct = pct) })
+            }
+        }
+        viewModelScope.launch {
+            catalog.policyDefaultsFlow.collect { defs ->
+                val s = local.value
+                local.value = s.copy(policyDefaults = defs, cart = s.cart.map { it.copy(policyDefaults = defs) })
+            }
+        }
         // Track the shared session so opening/closing the till updates the chip immediately.
         viewModelScope.launch { till.current.collect { t -> local.value = local.value.copy(till = t) } }
         viewModelScope.launch { runCatching { catalog.refresh() } } // stale-while-revalidate
@@ -658,6 +683,7 @@ class CounterViewModel @Inject constructor(
             till = cur.till, bizName = cur.bizName, bizAddress = cur.bizAddress,
             pricesInclVat = cur.pricesInclVat, pointValueRupees = cur.pointValueRupees,
             pointsEnabled = cur.pointsEnabled,
+            carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
         )
     }
 
@@ -751,7 +777,7 @@ class CounterViewModel @Inject constructor(
                 vatRatePct = vat, barcode = null, isStocked = false, category = null, lowStockThreshold = null,
             )
             local.value = local.value.copy(adhocOpen = false)
-            mutateCart { cart -> cart + CartLine(p, 1.0) }
+            mutateCart { cart -> cart + cartLineOf(p, 1.0) }
         }
     }
 
@@ -1281,7 +1307,7 @@ class CounterViewModel @Inject constructor(
         mutateCart { cart ->
             val i = cart.indexOfFirst { it.product.id == p.id }
             if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = it[i].qty + 1) }
-            else cart + CartLine(p, 1.0)
+            else cart + cartLineOf(p, 1.0)
         }
     }
 
@@ -1310,7 +1336,7 @@ class CounterViewModel @Inject constructor(
         mutateCart { cart ->
             val i = cart.indexOfFirst { it.product.id == o.product.id }
             if (i >= 0) cart.toMutableList().also { it[i] = it[i].copy(qty = o.targetQty, oversellOk = true) }
-            else cart + CartLine(o.product, o.targetQty, oversellOk = true)
+            else cart + cartLineOf(o.product, o.targetQty, oversellOk = true)
         }
     }
 
@@ -1436,6 +1462,13 @@ class CounterViewModel @Inject constructor(
                     local.value = local.value.copy(overrideBusy = false, overrideError = result.message)
             }
         }
+    }
+
+    /** A new cart line stamped with the shop's live discount rules, so its clamp matches
+     *  what the DB will enforce the moment it is added (see CounterUiState.carwashPct). */
+    private fun cartLineOf(p: ProductEntity, qty: Double, oversellOk: Boolean = false): CartLine {
+        val s = local.value
+        return CartLine(p, qty, oversellOk = oversellOk, carwashPct = s.carwashPct, policyDefaults = s.policyDefaults)
     }
 
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {
@@ -1921,6 +1954,7 @@ class CounterViewModel @Inject constructor(
             // then: the pad would quietly price points at Rs 1.00 apiece for the rest of the
             // day, and offer them again on the next ticket after they were switched off.
             pointValueRupees = cur.pointValueRupees, pointsEnabled = cur.pointsEnabled,
+            carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
         )
         refreshTill()
     }

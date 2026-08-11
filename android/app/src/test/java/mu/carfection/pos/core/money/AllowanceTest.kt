@@ -142,4 +142,25 @@ class AllowanceTest {
         val r = computeAllowance(listOf(line(unitCents = 117_391L, policy = "carwash", discountPct = 6.0)), null)
         assertTrue(r.overCeiling)
     }
+
+    // ── configurable rules (business_settings, 20260812000010) ─────────────────
+
+    @Test
+    fun `widens a carwash allowance when the cap is raised`() {
+        // At the default 5% cap this line allows 5_750; at 10% it allows 11_500 —
+        // the same figures the DB probe computes (57.50 / 115.00 rupees).
+        assertEquals(5_750L, lineAllowanceCents(line(policy = "carwash")))
+        assertEquals(11_500L, lineAllowanceCents(line(policy = "carwash"), 10.0))
+    }
+
+    @Test
+    fun `honours a raised carwash cap`() {
+        assertEquals(11_500L, computeAllowance(listOf(line(policy = "carwash")), null, null, 10.0).ceilingCents)
+    }
+
+    @Test
+    fun `falls back to the configured per-kind default`() {
+        assertEquals("free", policyOf(null, "service", PolicyDefaults("free", "none")))
+        assertEquals("none", policyOf(null, "product", PolicyDefaults("free", "none")))
+    }
 }

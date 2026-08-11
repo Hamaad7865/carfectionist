@@ -16,6 +16,9 @@ import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.hardware.DEFAULT_RECEIPT_FOOTER
 import mu.carfection.pos.core.hardware.ReceiptBiz
 import mu.carfection.pos.core.money.rupeesToCents
+import mu.carfection.pos.core.money.CARWASH_MAX_PCT
+import mu.carfection.pos.core.money.PolicyDefaults
+import mu.carfection.pos.core.money.DEFAULT_POLICIES
 import mu.carfection.pos.core.network.PosApi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -54,6 +57,11 @@ class CatalogRepository @Inject constructor(
     private val inclVatKey = booleanPreferencesKey("prices_incl_vat")
     private val pointValueKey = doublePreferencesKey("point_value_rupees")
     private val pointsOnKey = booleanPreferencesKey("points_enabled")
+    private val carwashPctKey = doublePreferencesKey("discount_carwash_pct")
+    private val defServiceKey = stringPreferencesKey("default_policy_service")
+    private val defGoodsKey = stringPreferencesKey("default_policy_goods")
+    private val openingFloatKey = doublePreferencesKey("default_opening_float")
+    private val negStockKey = booleanPreferencesKey("allow_negative_stock")
 
     val products: Flow<List<ProductEntity>> = productDao.observeAll()
     val customers: Flow<List<CustomerEntity>> = customerDao.observeAll()
@@ -91,6 +99,29 @@ class CatalogRepository @Inject constructor(
      */
     val pointsEnabledFlow: Flow<Boolean> = prefs.data.map { it[pointsOnKey] ?: true }
 
+    /**
+     * The owner's live discount rules (business_settings, 20260812000010). Live, like the
+     * points rate above: the owner can change the cap or a per-kind default from the back
+     * office and the pad's clamp must follow on the next sync, not the next restart. Each
+     * defaults to the value the rule was hardcoded to, so a tablet that has never synced
+     * the fields clamps exactly as it did before the rules became editable.
+     */
+    val carwashPctFlow: Flow<Double> = prefs.data.map { it[carwashPctKey] ?: CARWASH_MAX_PCT.toDouble() }
+    val policyDefaultsFlow: Flow<PolicyDefaults> = prefs.data.map {
+        PolicyDefaults(
+            service = it[defServiceKey] ?: DEFAULT_POLICIES.service,
+            goods = it[defGoodsKey] ?: DEFAULT_POLICIES.goods,
+        )
+    }
+    /** The prefilled opening float and whether a low item may still be sold — the till's
+     *  own POS defaults, read the same live way. */
+    val defaultOpeningFloatFlow: Flow<Double> = prefs.data.map { it[openingFloatKey] ?: 0.0 }
+    val allowNegativeStockFlow: Flow<Boolean> = prefs.data.map { it[negStockKey] ?: true }
+
+    /** Suspend snapshots for a repository that has no state to collect into. */
+    suspend fun carwashPct(): Double = prefs.data.first()[carwashPctKey] ?: CARWASH_MAX_PCT.toDouble()
+    suspend fun policyDefaults(): PolicyDefaults = policyDefaultsFlow.first()
+
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
@@ -121,6 +152,11 @@ class CatalogRepository @Inject constructor(
             it[inclVatKey] = !settings.pricesVatExclusive
             it[pointValueKey] = settings.pointValueRupees
             it[pointsOnKey] = settings.pointsEnabled
+            it[carwashPctKey] = settings.discountCarwashPct
+            it[defServiceKey] = settings.defaultPolicyService
+            it[defGoodsKey] = settings.defaultPolicyGoods
+            it[openingFloatKey] = settings.defaultOpeningFloat
+            it[negStockKey] = settings.allowNegativeStock
             settings.tradingName?.let { n -> it[nameKey] = n }
             settings.brn?.let { v -> it[brnKey] = v }
             settings.vatNumber?.let { v -> it[vatNoKey] = v }

@@ -22,7 +22,17 @@ package mu.carfection.pos.core.money
 /** 'none' | 'carwash' | 'free' — the resolved policy. [policyOf] is what resolves 'inherit' away. */
 typealias DiscountPolicy = String
 
+/** The DEFAULT carwash cap and per-kind fallbacks — the values these rules were
+ *  hardcoded to before business_settings could carry them (20260812000010). The
+ *  functions below take the live values as optional arguments and fall back to
+ *  these, so a caller that has not synced the owner's settings behaves exactly as
+ *  the shop did before the cap became editable. Mirrors the web's constants. */
 const val CARWASH_MAX_PCT = 5
+
+/** What an `inherit` line falls back to, by kind — mirrors the DB's
+ *  default_policy_service / default_policy_goods and the web's PolicyDefaults. */
+data class PolicyDefaults(val service: DiscountPolicy, val goods: DiscountPolicy)
+val DEFAULT_POLICIES = PolicyDefaults(service = "none", goods = "free")
 
 /** A cent of tolerance, matching app.assert_discount_allowed's 0.01. */
 private const val TOLERANCE_CENTS = 1L
@@ -53,9 +63,12 @@ data class Allowance(
  * defers to the kind. An unknown kind reads as a service, which is the safer
  * default — it withholds a discount rather than granting one.
  */
-fun policyOf(productPolicy: String?, effectiveKind: String?): DiscountPolicy {
+fun policyOf(productPolicy: String?, effectiveKind: String?, defaults: PolicyDefaults = DEFAULT_POLICIES): DiscountPolicy {
     if (!productPolicy.isNullOrEmpty() && productPolicy != "inherit") return productPolicy
-    return if (effectiveKind == "product" || effectiveKind == "consumable") "free" else "none"
+    // The kind decides which fallback applies — the SAME split app.document_discount_limits
+    // uses: a service (or unknown/null kind) takes the service default; a product or
+    // consumable takes the goods default.
+    return if (effectiveKind == "product" || effectiveKind == "consumable") defaults.goods else defaults.service
 }
 
 /** Round to the nearest cent, ties away from zero — the same Math.round + sign
@@ -96,11 +109,11 @@ private fun netInclAtPct(l: AllowanceLineInput, pct: Double): Long {
  * customer with two cars was refused the discount the shop is expressly allowed
  * to give. See 20260811000060.
  */
-fun lineAllowanceCents(l: AllowanceLineInput): Long {
+fun lineAllowanceCents(l: AllowanceLineInput, carwashPct: Double = CARWASH_MAX_PCT.toDouble()): Long {
     val gross = grossInclCents(l)
     return when (l.policy) {
         "free" -> gross
-        "carwash" -> maxOf(gross - netInclAtPct(l, CARWASH_MAX_PCT.toDouble()), 0L)
+        "carwash" -> maxOf(gross - netInclAtPct(l, carwashPct), 0L)
         else -> 0L
     }
 }
@@ -109,6 +122,7 @@ fun computeAllowance(
     lines: List<AllowanceLineInput>,
     docDiscount: DocDiscount?,
     approvedMaxCents: Long? = null,
+    carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
 ): Allowance {
     var ceiling = 0L
     var free = 0L
@@ -117,7 +131,7 @@ fun computeAllowance(
 
     for (l in lines) {
         val gross = grossInclCents(l)
-        ceiling += lineAllowanceCents(l)
+        ceiling += lineAllowanceCents(l, carwashPct)
         if (l.policy == "free") free += gross
         val net = netInclCents(l)
         lineDisc += maxOf(gross - net, 0L)
