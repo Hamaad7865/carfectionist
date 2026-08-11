@@ -147,6 +147,9 @@ data class CounterUiState(
     // has one: the collect bill's own embed, or the walk-in cart's picked customer in the
     // synced cache. 0 when nobody is named (the Points tender is not offered then anyway).
     val pointsBalance: Int = 0,
+    /** Points the cashier has put against this bill, in cents. Settled alongside
+     *  whatever method covers the rest — see [dueAfterPointsCents]. */
+    val pointsAppliedCents: Long = 0,
     // The bill panel's real detail for a collect: the invoice's own lines + (for a job) the
     // service performed. Fetched when the pad opens; empty while in flight or for a walk-in.
     val collectLines: List<SaleHistoryLineDto> = emptyList(),
@@ -204,7 +207,7 @@ data class CounterUiState(
      * 2026-08-11.
      */
     val methodCeilingCents: Long
-        get() = if (method == PayMethod.POINTS) pointsCapCents else dueCents
+        get() = dueAfterPointsCents
 
     /**
      * What is being taken RIGHT NOW in single-method mode — a deposit, or the lot. Capped at
@@ -231,9 +234,10 @@ data class CounterUiState(
     /** Total allocated across every split row. */
     val allocatedCents: Long get() = SPLIT_METHODS.sumOf { splitCents(it) }
     /** What is still unallocated — the split's running balance. */
-    val splitBalanceCents: Long get() = dueCents - allocatedCents
+    // Against what is LEFT after points, not the bill — a split settles the rest.
+    val splitBalanceCents: Long get() = dueAfterPointsCents - allocatedCents
     /** The split is ready when its rows sum EXACTLY to the bill and a till is open. */
-    val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueCents
+    val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueAfterPointsCents > 0 && allocatedCents == dueAfterPointsCents
 
     /**
      * Does this sale name a REAL customer — one the cashier picked or the bill was already
@@ -254,11 +258,7 @@ data class CounterUiState(
 
     /**
      * What the apply-points prompt should offer, or null when there is nothing to offer.
-     *
-     * Points hid among six payment tiles, so a cashier had to already know they existed
-     * to spend any. This surfaces the balance at the moment the decision is actually
-     * made — before choosing how to pay — and is null unless a real customer is named,
-     * has points, and the bill has something left to put them against.
+     * Null once they are already applied — the bar then reports rather than offers.
      */
     val applyPointsCents: Long?
         get() = pointsCapCents.takeIf { hasNamedCustomer && pointsBalance > 0 && it > 0 }
@@ -267,24 +267,40 @@ data class CounterUiState(
     val pointsCustomerLabel: String
         get() = (collect?.customers?.name ?: customerText).trim().ifBlank { "This customer" }
 
-    /** The means of payment on offer — Points joins the grid only once a real customer is named. */
+    /**
+     * What the chosen method still has to cover once points have been applied.
+     *
+     * POINTS IS NOT A MEANS OF PAYMENT. It sat in the grid beside Cash and Card, which
+     * made it a rival to them: to use Rs 5.00 of points against a Rs 1,282.49 bill you
+     * picked Points, took Rs 5.00, and then went round again for the rest. That is not
+     * how anyone thinks about a balance — points behave like a voucher. They come off
+     * the total, and whatever is left is paid however the customer likes.
+     *
+     * So the tile is gone, the bar above the grid applies them, and this is what the
+     * grid is then settling. Underneath they are still a tender, not a discount: the
+     * bill total and its VAT never move (20260811000010), and Take records both the
+     * points and the cash in one go.
+     */
+    val dueAfterPointsCents: Long get() = (dueCents - pointsAppliedCents).coerceAtLeast(0)
+
+    /** The means of payment on offer. Points is applied above the grid, never in it. */
     val availableMethods: List<PayMethod>
-        get() = if (hasNamedCustomer) PayMethod.entries.toList() else PayMethod.entries.filterNot { it == PayMethod.POINTS }
+        get() = PayMethod.entries.filterNot { it == PayMethod.POINTS }
 
     /** Does the current single entry satisfy its method's rules (till, tender, customer)? */
     private val entryValid: Boolean
         get() = when (method) {
             PayMethod.CASH -> effectiveTenderCents >= payCents && till != null
             PayMethod.CREDIT -> (collect == null && customerId != null) || (collect?.customers != null)
-            PayMethod.POINTS -> till != null && hasNamedCustomer && payCents in 1..pointsCapCents
             else -> till != null // card/juice/bank
         }
 
     val canRecord: Boolean
         get() = !busy && discountBlockReason == null && (collect != null || cart.isNotEmpty()) && when (method) {
             PayMethod.CREDIT -> dueCents > 0 && entryValid
-            // A COLLECT may take a partial (a deposit); a WALK-IN must be settled in full.
-            else -> payCents > 0 && entryValid && (collect != null || payCents == dueCents)
+            // A COLLECT may take a partial (a deposit); a WALK-IN must be settled in full —
+            // and "in full" now means the rest, since points have already covered their part.
+            else -> payCents > 0 && entryValid && (collect != null || payCents == dueAfterPointsCents)
         }
 
     /** Why the pay button is dead, when the reason is the till and not the basket. */
@@ -502,7 +518,9 @@ internal fun canCaptureOffline(s: CounterUiState, online: Boolean): Boolean =
         s.collect == null &&
         s.pendingSettle == null &&
         s.method != PayMethod.CREDIT &&
-        s.method != PayMethod.POINTS &&
+        // Points are applied above the grid now, not chosen as a method — so the test is
+        // whether any are ON this bill, not which tile is lit.
+        s.pointsAppliedCents == 0L &&
         s.till != null &&
         s.cart.isNotEmpty()
 
@@ -935,16 +953,18 @@ class CounterViewModel @Inject constructor(
     /** The pad's confirm button: split allocation, collect on an invoice, or settle the cart. */
     fun confirm() {
         val s = local.value
-        // The server has to check and debit the balance NOW — a points payment queued for
-        // later replay would be trusting a number that may no longer be true. Say so plainly
-        // and stop, rather than let this fall through to captureOffline (excluded above) and
-        // then fail on a generic network error that doesn't explain why.
-        if (s.method == PayMethod.POINTS && !connectivity.online.value) {
-            local.value = s.copy(error = "Points need a connection to check the balance — try another method while offline.")
+        // The server has to check and debit the balance NOW — points queued for later replay
+        // would be trusting a number that may no longer be true. Say so plainly and stop,
+        // rather than fall through to captureOffline and fail on a generic network error
+        // that doesn't explain why.
+        if (s.pointsAppliedCents > 0 && !connectivity.online.value) {
+            local.value = s.copy(error = "Points need a connection to check the balance — take them off to pay offline.")
             return
         }
         when {
-            s.splitMode -> recordSplit()
+            // Points applied means TWO tenders — the points and whatever covers the rest —
+            // so it takes the same road a split does, whether or not the split UI is open.
+            s.splitMode || s.pointsAppliedCents > 0 -> recordSplit()
             s.collect != null -> recordCollect()
             else -> record()
         }
@@ -957,20 +977,42 @@ class CounterViewModel @Inject constructor(
      */
     private fun recordSplit() {
         val s = state.value
-        if (!s.splitCanRecord || s.busy) return
+        // Points-with-a-single-method comes through here too, and satisfies canRecord
+        // rather than splitCanRecord — the split grid is not open in that case.
+        if (s.busy) return
+        if (if (s.splitMode) !s.splitCanRecord else !s.canRecord) return
         val bill = s.collect
+        // Points lead, so the ledger is debited before the rest of the money lands and a
+        // half-finished settle can never leave cash taken against points that were not.
+        val pointsTender = s.pointsAppliedCents.takeIf { it > 0 }?.let {
+            mu.carfection.pos.core.data.Tender(method = PayMethod.POINTS, amountCents = it)
+        }
         // One tender per method that has money on it, in a stable order (idempotency keys are
         // per-index, so the same allocation always maps to the same keys on a retry).
-        val allTenders = SPLIT_METHODS.mapNotNull { m ->
-            s.splitCents(m).takeIf { it > 0 }?.let { cents ->
-                mu.carfection.pos.core.data.Tender(
-                    method = m,
-                    amountCents = cents,
-                    tenderedCents = if (m == PayMethod.CASH) cents else null, // split rows are exact
-                    ref = if (m == PayMethod.CASH) null else "POS",
-                )
+        val rest = if (s.splitMode) {
+            SPLIT_METHODS.mapNotNull { m ->
+                s.splitCents(m).takeIf { it > 0 }?.let { cents ->
+                    mu.carfection.pos.core.data.Tender(
+                        method = m,
+                        amountCents = cents,
+                        tenderedCents = if (m == PayMethod.CASH) cents else null, // split rows are exact
+                        ref = if (m == PayMethod.CASH) null else "POS",
+                    )
+                }
             }
+        } else {
+            listOfNotNull(
+                s.payCents.takeIf { it > 0 }?.let { cents ->
+                    mu.carfection.pos.core.data.Tender(
+                        method = s.method,
+                        amountCents = cents,
+                        tenderedCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
+                        ref = if (s.method == PayMethod.CASH) null else s.refText.ifBlank { "POS" },
+                    )
+                },
+            )
         }
+        val allTenders = listOfNotNull(pointsTender) + rest
         if (allTenders.isEmpty()) return
         if (canCaptureOffline(s)) { captureOffline(s, allTenders); return }
         val anyCash = allTenders.any { it.method == PayMethod.CASH }
@@ -1418,19 +1460,28 @@ class CounterViewModel @Inject constructor(
         }
         local.value = st.copy(padOpen = false, collect = null, collectLines = emptyList(), collectJob = null, collectDetailFailed = false)
     }
-    fun setMethod(m: PayMethod) {
+    fun setMethod(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(method = m, error = settleError()) }
+
+    /**
+     * Put the customer's points against this bill, or take them back off it.
+     *
+     * Applying only ARMS them — nothing is debited until Take. Doing it in one tap was
+     * the alternative and was rejected: reversing a payment is owner-only since rule 3,
+     * so a stray finger would need the owner to undo it.
+     *
+     * The typed amount is cleared either way, because what the chosen method has to
+     * cover has just changed. Leaving it would show the old figure while payCents had
+     * quietly coerced to the new ceiling.
+     */
+    fun toggleApplyPoints() {
         if (frozenBySettle()) return
         val s = local.value
-        // Points cap at what the balance is worth; every other method caps at the bill.
-        // Crossing that boundary has to clear a typed figure, or the box goes on showing
-        // Rs 1,277.49 while payCents has quietly coerced it to Rs 5.00 — the number on
-        // screen and the number being taken would disagree.
-        val ceilingChanged = (m == PayMethod.POINTS) != (s.method == PayMethod.POINTS)
+        val applied = if (s.pointsAppliedCents > 0) 0L else s.pointsCapCents
+        if (applied == 0L && s.pointsAppliedCents == 0L) return
         local.value = s.copy(
-            method = m,
-            payText = if (ceilingChanged) "" else s.payText,
-            tenderText = if (ceilingChanged) "" else s.tenderText,
-            error = settleError(),
+            pointsAppliedCents = applied,
+            payText = "", tenderText = "", splitText = emptyMap(),
+            error = null,
         )
     }
 

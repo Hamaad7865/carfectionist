@@ -956,32 +956,35 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
     Column(
         Modifier.weight(1f).fillMaxHeight().background(CardBg, RoundedCornerShape(16.dp)).border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(18.dp),
     ) {
-        // Points were reachable only by someone who already knew to look for them among
-        // six tiles. This says so out loud, at the moment the cashier is deciding how to
-        // take the money. It SETS UP the payment — selects Points and fills in what the
-        // balance is worth — and deliberately does not take it: reversing a payment is
-        // owner-only now, so a mis-tap that had already debited the ledger would mean
-        // fetching the owner to undo a stray finger.
+        // Points are NOT one of the tiles below, and used to be. They behave like a
+        // voucher: they come off the total and the grid settles whatever is left, by any
+        // method. As a tile they were a RIVAL to Cash — to spend Rs 5.00 you took Rs 5.00
+        // in points and then went round the pad a second time for the remaining Rs 1,277.
+        //
+        // Tapping only arms them; nothing is debited until Take, and tapping again takes
+        // them back off. One-tap-and-done was the alternative and was rejected: reversals
+        // are owner-only since rule 3, so a stray finger would mean fetching the owner.
         s.applyPointsCents?.let { worth ->
-            val armed = s.method == PayMethod.POINTS
+            val armed = s.pointsAppliedCents > 0
             Box(
                 Modifier.fillMaxWidth().requiredHeight(56.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(if (armed) AccentSoft else Inset)
                     .border(1.5.dp, if (armed) AccentLine else Hairline, RoundedCornerShape(12.dp))
-                    .clickable(enabled = !armed) { vm.setMethod(PayMethod.POINTS) }
+                    .clickable { vm.toggleApplyPoints() }
                     .padding(horizontal = 14.dp),
                 contentAlignment = Alignment.CenterStart,
             ) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            s.pointsCustomerLabel + " has " + formatMUR(s.pointsWorthCents) + " in points",
+                            if (armed) formatMUR(s.pointsAppliedCents) + " in points off this bill"
+                            else s.pointsCustomerLabel + " has " + formatMUR(s.pointsWorthCents) + " in points",
                             color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
                         )
                         Text(
-                            if (armed) "Applied — press Take to confirm"
-                            else "Tap to put " + formatMUR(worth) + " of it against this bill",
+                            if (armed) formatMUR(s.dueAfterPointsCents) + " left to pay — tap to undo"
+                            else "Tap to take " + formatMUR(worth) + " off, then pay the rest",
                             color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                         )
                     }
@@ -1276,26 +1279,6 @@ private fun PaymentEntryFields(s: CounterUiState, vm: CounterViewModel) {
                         ) { Text(if (s.busy) "Creating…" else "+ Create \"$typed\"", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
                     }
                 }
-            }
-        }
-        // A tender, not a discount (rule 4, 2026-08-10): no external reference — the ledger
-        // row app.spend_points writes IS the reference, same as record_payment's own branch.
-        PayMethod.POINTS -> {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Balance", color = TextSecondary, fontSize = 13.sp)
-                Spacer(Modifier.weight(1f))
-                Text("${s.pointsBalance} pts", color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Worth", color = TextSecondary, fontSize = 13.sp)
-                Spacer(Modifier.weight(1f))
-                Text(formatMUR(s.pointsWorthCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-            }
-            if (s.payCents > s.pointsCapCents) {
-                Text(
-                    "Points can cover up to ${formatMUR(s.pointsCapCents)} of this bill.",
-                    color = Danger, fontSize = 12.5.sp,
-                )
             }
         }
         else -> {
