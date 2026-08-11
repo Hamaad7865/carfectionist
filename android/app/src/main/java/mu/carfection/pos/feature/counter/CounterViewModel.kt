@@ -1509,14 +1509,23 @@ class CounterViewModel @Inject constructor(
      * it" is still one extra tap, but it is now a choice rather than an assumption.
      */
     fun toggleApplyPoints() {
-        if (frozenBySettle()) return
-        val s = local.value
+        // READ FROM state, WRITE TO local. pointsBalance is injected by the combine that
+        // builds `state` (it comes from the customer cache, not from local), so
+        // local.value.pointsBalance is always 0 — and pointsCapCents derives from it. Reading
+        // the cap off local therefore always saw 0, this returned silently, and tapping the
+        // bar did nothing at all while the bar itself rendered perfectly, because the UI
+        // reads the combined state. Every handler that reasons about the balance must read
+        // `state`.
+        //
+        // NOT gated on frozenBySettle() either: that guard stops the BASKET being edited
+        // mid-settle, and choosing how to pay is not editing the basket.
+        val s = state.value
         if (s.pointsAppliedCents > 0) {
-            local.value = s.copy(pointsAppliedCents = 0, payText = "", tenderText = "", splitText = emptyMap(), error = null)
+            local.value = local.value.copy(pointsAppliedCents = 0, payText = "", tenderText = "", splitText = emptyMap(), error = null)
             return
         }
         if (s.pointsCapCents <= 0) return
-        local.value = s.copy(pointsPickerOpen = true, pointsPickerText = centsToPlainText(s.pointsCapCents))
+        local.value = local.value.copy(pointsPickerOpen = true, pointsPickerText = centsToPlainText(s.pointsCapCents))
     }
 
     fun setPointsPickerText(t: String) {
@@ -1528,10 +1537,11 @@ class CounterViewModel @Inject constructor(
     /** Commit the chosen amount. Clamped to what the balance and the bill both allow —
      *  spend_points is still the authority and refuses anything this lets through wrongly. */
     fun applyChosenPoints() {
-        val s = local.value
+        // state, not local — the cap depends on pointsBalance, which only the combine knows.
+        val s = state.value
         val chosen = parseMoneyToCents(s.pointsPickerText)?.coerceIn(0, s.pointsCapCents) ?: return
         if (chosen <= 0) return
-        local.value = s.copy(
+        local.value = local.value.copy(
             pointsAppliedCents = chosen,
             pointsPickerOpen = false,
             payText = "", tenderText = "", splitText = emptyMap(),

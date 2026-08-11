@@ -438,9 +438,12 @@ fun CounterScreen(
     }
 
     if (s.padOpen) PaymentPad(s, viewModel)
-    // Hosted outside the pad so it sits ABOVE it — asked from the pad's own refusal.
-    if (s.reasonDialogOpen) DiscountReasonDialog(s, viewModel)
-    if (s.pointsPickerOpen) PointsPickerDialog(s, viewModel)
+    // Both are asked FROM the pad, and the pad is a full-screen Dialog of its own. Hosting
+    // them here as siblings left their window stacking to chance; nesting them inside the
+    // pad's own content (below) makes "on top of the pad" the only possible outcome. They
+    // stay here too for the ticket-panel route, which reaches them with no pad open.
+    if (!s.padOpen && s.reasonDialogOpen) DiscountReasonDialog(s, viewModel)
+    if (!s.padOpen && s.pointsPickerOpen) PointsPickerDialog(s, viewModel)
     if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
     s.oversell?.let { o ->
         val oh = s.onHand[o.product.id] ?: 0
@@ -1067,6 +1070,11 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                 }
             }
         }
+        // Asked FROM this pad, so hosted INSIDE it. As siblings of the pad at screen level
+        // their window stacking was left to chance; nested here, "above the pad" is the only
+        // possible outcome.
+        if (s.pointsPickerOpen) PointsPickerDialog(s, vm)
+        if (s.reasonDialogOpen) DiscountReasonDialog(s, vm)
     }
 }
 
