@@ -150,6 +150,8 @@ data class CounterUiState(
     /** Points the cashier has put against this bill, in cents. Settled alongside
      *  whatever method covers the rest — see [dueAfterPointsCents]. */
     val pointsAppliedCents: Long = 0,
+    /** The why-was-this-discounted box, opened from the pad's own refusal. */
+    val reasonDialogOpen: Boolean = false,
     // The bill panel's real detail for a collect: the invoice's own lines + (for a job) the
     // service performed. Fetched when the pad opens; empty while in flight or for a walk-in.
     val collectLines: List<SaleHistoryLineDto> = emptyList(),
@@ -1307,6 +1309,17 @@ class CounterViewModel @Inject constructor(
 
     /** Why — required once the discount reaches into a carwash allowance (Allowance.kt). */
     fun setDiscountReason(t: String) { local.value = local.value.copy(discountReason = t) }
+
+    /**
+     * Open/close the reason box from the payment pad.
+     *
+     * The ticket panel has an inline field, but by the time the pad is open that panel is
+     * behind it — so the cashier read "a reason is required for a carwash discount", found
+     * the pay button dead, and had no way forward without backing out of the sale. The
+     * refusal now carries its own way out.
+     */
+    fun openReasonDialog() { local.value = local.value.copy(reasonDialogOpen = true) }
+    fun closeReasonDialog() { local.value = local.value.copy(reasonDialogOpen = false) }
 
     // ── "Ask the owner" — the tablet's side of OwnerOverrideDialog.tsx (counter copy;
     // QuoteViewModel carries the quote/bill copy of the same machinery) ────────────────

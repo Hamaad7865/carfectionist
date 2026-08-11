@@ -437,6 +437,8 @@ fun CounterScreen(
     }
 
     if (s.padOpen) PaymentPad(s, viewModel)
+    // Hosted outside the pad so it sits ABOVE it — asked from the pad's own refusal.
+    if (s.reasonDialogOpen) DiscountReasonDialog(s, viewModel)
     if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
     s.oversell?.let { o ->
         val oh = s.onHand[o.product.id] ?: 0
@@ -619,6 +621,52 @@ private fun AdhocDialog(vm: CounterViewModel, inclVat: Boolean) {
                     Modifier.weight(1.4f).height(52.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ok) { vm.addAdhoc(name, cents ?: 0) },
                     contentAlignment = Alignment.Center,
                 ) { Text("Add line", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted) }
+            }
+        }
+    }
+}
+
+/**
+ * Why was this discounted — asked from the pad, where the refusal is.
+ *
+ * The rule (2026-08-10) is that a carwash may go to 5% and only with a reason; the
+ * database refuses at issue_document without one. The ticket panel asks inline, but
+ * once the pay pad is open that panel is behind it, so a cashier who reached the
+ * refusal here had to abandon the sale to answer it. Now the refusal opens this.
+ *
+ * Edits land straight on the shared state, so whatever is typed here is the same
+ * value the ticket panel shows and the same one save_draft sends as discount_reason.
+ */
+@Composable
+private fun DiscountReasonDialog(s: CounterUiState, vm: CounterViewModel) {
+    val ok = s.discountReason.isNotBlank()
+    Dialog(onDismissRequest = vm::closeReasonDialog) {
+        Column(
+            Modifier.widthIn(max = 460.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(16.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(16.dp)).padding(24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("Why the discount?", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+            Text(
+                "A carwash may be discounted up to 5%, and only with a reason. It is kept with the sale.",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary,
+            )
+            Text("REASON", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            FilledInput(
+                value = s.discountReason, onValueChange = vm::setDiscountReason,
+                placeholder = "e.g. regular customer, repeat wash",
+                modifier = Modifier.fillMaxWidth(), bg = Inset,
+            )
+            Row(Modifier.padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(52.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp)).clickable { vm.closeReasonDialog() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                Box(
+                    Modifier.weight(1.4f).height(52.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                        .clickable(enabled = ok) { vm.closeReasonDialog() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Save reason", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ok) AccentInk else TextMuted) }
             }
         }
     }
@@ -1020,6 +1068,28 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
         }
         Spacer(Modifier.height(10.dp))
         s.error?.let { Text(it, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(6.dp)) }
+        // A refusal that cannot be acted on is a dead end. The ticket panel's inline reason
+        // box sits BEHIND this pad, so a cashier who got here read "a reason is required",
+        // found the pay button dead, and had to back out of the sale to fix it. Both ways
+        // out now hang off the refusal itself.
+        s.discountBlockReason?.let { why ->
+            Text(why, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier.fillMaxWidth().requiredHeight(44.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(AccentSoft)
+                    .border(1.5.dp, AccentLine, RoundedCornerShape(11.dp))
+                    .clickable { if (s.allowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (s.allowance.overCeiling) "Ask the owner" else "Add the reason",
+                    color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         if (s.cashNeedsTill) {
             Text("Open the till first — every payment lands on a service that gets counted.",
                 color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
@@ -1111,6 +1181,28 @@ private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
         }
         Spacer(Modifier.height(10.dp))
         s.error?.let { Text(it, color = Danger, fontSize = 13.sp); Spacer(Modifier.height(6.dp)) }
+        // A refusal that cannot be acted on is a dead end. The ticket panel's inline reason
+        // box sits BEHIND this pad, so a cashier who got here read "a reason is required",
+        // found the pay button dead, and had to back out of the sale to fix it. Both ways
+        // out now hang off the refusal itself.
+        s.discountBlockReason?.let { why ->
+            Text(why, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+            Spacer(Modifier.height(6.dp))
+            Box(
+                Modifier.fillMaxWidth().requiredHeight(44.dp)
+                    .clip(RoundedCornerShape(11.dp))
+                    .background(AccentSoft)
+                    .border(1.5.dp, AccentLine, RoundedCornerShape(11.dp))
+                    .clickable { if (s.allowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (s.allowance.overCeiling) "Ask the owner" else "Add the reason",
+                    color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                )
+            }
+            Spacer(Modifier.height(8.dp))
+        }
         if (s.cashNeedsTill) {
             Text("Open the till first — every payment lands on a service that gets counted.",
                 color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
