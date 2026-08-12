@@ -53,15 +53,24 @@ data class CartLine(
     // editable — the same fallback the DB and the web use.
     val carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
     val policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
+    /** True: sellingPriceCents IS the VAT-inclusive figure exactly as typed, and the ledger
+     *  extracts the VAT (price_includes_vat, 20260812000020) — a typed 1000 stays 1000.00.
+     *  Set on ad-hoc lines when the shop quotes gross; catalogue lines stay net. */
+    val priceInclusive: Boolean = false,
 ) {
     /** Ad-hoc (typed) lines carry a synthetic local id — they save with product_id = null. */
     val isAdhoc: Boolean get() = product.id.startsWith(ADHOC_PREFIX)
 
     /** The line before its own discount, in the ledger's net cents. */
-    val lineExclCents: Long get() = lineExclCents(qty, product.sellingPriceCents)
+    val lineExclCents: Long get() =
+        if (priceInclusive) netFromGrossCents(lineExclCents(qty, product.sellingPriceCents), product.vatRatePct)
+        else lineExclCents(qty, product.sellingPriceCents)
 
-    /** The same line at the shelf price the cashier and the customer see. */
-    val lineGrossCents: Long get() = grossCents(lineExclCents, product.vatRatePct)
+    /** The same line at the shelf price the cashier and the customer see. On a flagged
+     *  line the stored unit IS that price — shown as typed, never re-derived. */
+    val lineGrossCents: Long get() =
+        if (priceInclusive) lineExclCents(qty, product.sellingPriceCents)
+        else grossCents(lineExclCents, product.vatRatePct)
 
     /**
      * 'none' | 'carwash' | 'free' — the most this line may be discounted, from the product's
@@ -82,7 +91,7 @@ data class CartLine(
         get() {
             val typed = (parseMoneyToCents(discountAmtText) ?: 0L).coerceIn(0L, lineGrossCents)
             if (discountPolicy != "carwash") return typed
-            val cap = lineAllowanceCents(AllowanceLineInput(qty, product.sellingPriceCents, product.vatRatePct, discountPolicy), carwashPct)
+            val cap = lineAllowanceCents(AllowanceLineInput(qty, product.sellingPriceCents, product.vatRatePct, discountPolicy, priceInclusive = priceInclusive), carwashPct)
             return typed.coerceAtMost(cap)
         }
 
@@ -95,6 +104,7 @@ data class CartLine(
             discountPct = discountPct.toDouble(),
             discountAmtInclCents = if (discountMode == DiscountMode.AMT) discountAmtCents else 0L,
             vatRatePct = product.vatRatePct,
+            priceInclusive = priceInclusive,
         )
 
     /** This line as the allowance module wants it — the same fields [docLine] assembles. */
@@ -107,6 +117,7 @@ data class CartLine(
             discountKind = if (discountMode == DiscountMode.AMT) "amount" else "percent",
             discountPct = discountPct.toDouble(),
             discountAmountCents = if (discountMode == DiscountMode.AMT) discountAmtCents else 0L,
+            priceInclusive = priceInclusive,
         )
 
     companion object { const val ADHOC_PREFIX = "adhoc:" }
@@ -125,6 +136,8 @@ data class SaleLineSpec(
     val vatRatePct: Double,
     val discountKind: String = "percent",
     val discountAmountInclCents: Long = 0, // VAT-INCLUSIVE, exactly as the cashier typed it
+    /** price_includes_vat: the unit IS the typed gross; the DB extracts the VAT. */
+    val priceInclusive: Boolean = false,
 )
 
 /**
@@ -175,6 +188,7 @@ fun expandSaleLines(
             // The typed figure goes over as-is: the DB divides it by (1 + rate/100) itself and
             // clamps the line at zero, so there is no client-side conversion left to round wrong.
             discountAmountInclCents = if (l.discountMode == DiscountMode.AMT) l.discountAmtCents else 0L,
+            priceInclusive = l.priceInclusive,
         )
     }
     // The basket discount is a DOCUMENT-level figure. The DB clamps it to the bill (least(v, gross)),
@@ -482,6 +496,7 @@ class SaleRepository @Inject constructor(
                     put("discount_amount", centsToRupees(sp.discountAmountInclCents))
                     put("vat_rate", sp.vatRatePct)
                     put("sort_order", i)
+                    put("price_includes_vat", sp.priceInclusive)
                 })
             }
         }

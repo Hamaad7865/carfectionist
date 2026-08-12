@@ -209,6 +209,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     discountAmountCents: l.discountAmountCents,
     vatRatePct: l.vatRatePct,
     policy: l.discountPolicy,
+    priceInclusive: l.priceInclusive,
   }));
   const docDiscount = state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null;
   const totals = computeTotals(lineInputs, docDiscount);
@@ -290,10 +291,12 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     // invoice (audit #10). The schema and a DB CHECK back this up.
     const typed = Math.max(0, parseMoneyInput(adPrice) ?? 0);
     if (!adName.trim()) return;
-    // Typed as the shelf price when the shop quotes gross — store the net the ledger adds VAT to.
-    const cents = ctx.pricesInclVat ? netFromGrossCents(typed, 15) : typed;
+    // Typed as the shelf price when the shop quotes gross — stored AS TYPED with
+    // price_includes_vat, so the ledger extracts the VAT and a typed 1000 stays
+    // 1000.00. Squashing it to a 2dp net (869.57) re-grossed a cent off — the
+    // 1000.01 the owner reported (20260812000020).
     // No product to ask, so the row's own Service/Product control decides the allowance too.
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: cents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: typed, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -519,7 +522,11 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         key={p.id}
                         onClick={() => {
                           // From the catalogue: the product's own kind answers, so this stays null.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: p.unitCents, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
+                          // Under gross quoting the figure ON SCREEN is the price: the shelf
+                          // gross is stored as shown with price_includes_vat, so the ledger
+                          // extracts the VAT and the line lands on the displayed number —
+                          // the same rule the tablet's quote builder applies (20260812000020).
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: ctx.pricesInclVat ? grossCents(p.unitCents, p.vatRatePct) : p.unitCents, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -573,7 +580,8 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             ) : (
               <div className="flex flex-col gap-2">
                 {state.lines.map((l, li) => {
-                  const net = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct }).exclCents;
+                  const lt = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct, priceInclusive: l.priceInclusive });
+                  const net = lt.exclCents;
                   const descOpen = openDesc === l.key;
                   const summary = l.rich ? richToPlainText(l.rich) : l.description;
                   // What this line's own discount control may give away — the database's
@@ -581,7 +589,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   const lineDiscountDisabled = l.discountPolicy === "none";
                   const linePctMax = l.discountPolicy === "carwash" ? ctx.posRules.carwashPct : 100;
                   const lineAmtMax = l.discountPolicy === "carwash"
-                    ? lineAllowanceCents({ qty: l.qty, unitCents: l.unitCents, vatRatePct: l.vatRatePct, policy: l.discountPolicy, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents }, ctx.posRules.carwashPct)
+                    ? lineAllowanceCents({ qty: l.qty, unitCents: l.unitCents, vatRatePct: l.vatRatePct, policy: l.discountPolicy, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents, priceInclusive: l.priceInclusive }, ctx.posRules.carwashPct)
                     : Infinity;
                   return (
                     <div key={l.key} className="rounded-[11px] border border-line bg-card">
@@ -663,8 +671,13 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                             // takes gross too; this box used to take net, so the same typed 1500
                             // billed Rs 1,725.00 here and Rs 1,500.00 there.
                             syncKey={l.productId ?? l.key}
-                            cents={ctx.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents}
-                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: unitCentsFromTyped(c, l.vatRatePct, ctx.pricesInclVat) } })}
+                            // A flagged line's stored unit IS the shelf figure — show it as stored.
+                            cents={l.priceInclusive ? l.unitCents : ctx.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents}
+                            // Typing under gross pricing makes THAT figure the price: stored as
+                            // typed with price_includes_vat, the ledger extracts the VAT and the
+                            // total lands on the typed number (20260812000020) — no conversion
+                            // left to round a cent off.
+                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: ctx.pricesInclVat ? { unitCents: c, priceInclusive: true } : { unitCents: unitCentsFromTyped(c, l.vatRatePct, false) } })}
                             placeholder="rate"
                             className="num h-7 w-full rounded-[7px] border border-line-2 bg-sub pl-6 pr-2 text-right text-[12px] font-semibold text-ink outline-none placeholder:text-faint focus:border-brand"
                           />
@@ -685,7 +698,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         </div>
                       )}
                       {readOnly && l.unitLabel && <span className="text-[12px] text-muted">{l.unitLabel}</span>}
-                      <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(ctx.pricesInclVat ? grossCents(net, l.vatRatePct) : net)}</span>
+                      <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(l.priceInclusive ? lt.exclCents + lt.vatCents : ctx.pricesInclVat ? grossCents(net, l.vatRatePct) : net)}</span>
                       {!readOnly && (
                         <>
                           <button

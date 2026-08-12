@@ -24,6 +24,7 @@ export interface RpcDraftLine {
   vat_rate: number; // percent
   sort_order: number;
   line_kind: "service" | "product" | null; // stated on an ad-hoc line; null defers to products.kind
+  price_includes_vat: boolean; // unit_price IS the typed gross; the DB extracts the VAT (20260812000020)
 }
 
 export interface RpcDraftDoc {

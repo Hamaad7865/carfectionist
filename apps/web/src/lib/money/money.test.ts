@@ -35,6 +35,32 @@ describe('computeTotals — shared VAT vectors (docs/vat-test-vectors.json)', ()
   }
 });
 
+describe('price_includes_vat — the typed price IS the price (20260812000020)', () => {
+  // Fixtures identical to scripts/_verify-typed-price.mjs and MoneyTest.kt, so all
+  // three engines are held to the same numbers.
+  it('a flagged 1000 lands on exactly 1000 — the reported bug', () => {
+    // Typing 1000 used to produce 1000.01: squashed to a 2dp net (869.57), re-grossed
+    // a cent off. Flagged, the VAT is EXTRACTED (130.43) and the total is exact.
+    const t = computeTotals([{ qty: 1, unitCents: 100_000, vatRatePct: 15, priceInclusive: true }]);
+    expect(t.subtotalCents).toBe(86_957);
+    expect(t.vatCents).toBe(13_043);
+    expect(t.totalCents).toBe(100_000);
+  });
+
+  it('flagged qty and discounts stay exact', () => {
+    const t = computeTotals([
+      { qty: 2, unitCents: 100_000, vatRatePct: 15, discountPct: 10, priceInclusive: true },
+      { qty: 1, unitCents: 100_000, vatRatePct: 15, discountKind: 'amount', discountAmountCents: 5_000, priceInclusive: true },
+    ]);
+    expect(t.totalCents).toBe(275_000); // 1800.00 + 950.00, both flat
+  });
+
+  it('an unflagged line still adds VAT on top — history unchanged', () => {
+    const t = computeTotals([{ qty: 1, unitCents: 86_957, vatRatePct: 15 }]);
+    expect(t.totalCents).toBe(100_001); // the old behaviour, byte-for-byte
+  });
+});
+
 describe('the Diamondbrite Rs 88,780 case, spelled out', () => {
   const totals = computeTotals([
     { qty: 1, unitCents: 3200000, vatRatePct: 15 },

@@ -123,4 +123,14 @@ describe('computeAllowance', () => {
   it('honours a raised carwash cap', () => {
     expect(computeAllowance([line({ policy: 'carwash' })], null, null, 10).ceilingCents).toBe(11_500);
   });
+
+  it('a flagged carwash at the cap sits exactly on its ceiling (price_includes_vat)', () => {
+    // Same fixture as scripts/_verify-typed-price.mjs and AllowanceTest.kt: typed 1000
+    // gross, 5% off. Ceiling = 5% of the typed figure = 50.00 and the actual is the
+    // same 50.00 — no phantom cent from re-deriving a gross the cashier never typed.
+    const r = computeAllowance([line({ policy: 'carwash', discountPct: 5, priceInclusive: true })], null);
+    expect(r.ceilingCents).toBe(5_000);
+    expect(r.actualCents).toBe(5_000);
+    expect(r.overCeiling).toBe(false);
+  });
 });

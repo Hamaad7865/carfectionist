@@ -28,6 +28,9 @@ export const draftLineSchema = z.object({
   // Stated on a hand-typed line only; a catalogue line leaves it null and lets
   // products.kind answer. Decides whether an accepted quote raises a job.
   lineKind: z.enum(["service", "product"]).nullable().optional(),
+  // document_lines.price_includes_vat (20260812000020): unitCents IS the typed
+  // VAT-inclusive figure and the DB extracts the VAT — a typed 1000 stays 1000.00.
+  priceInclusive: z.boolean().optional(),
 });
 
 export const draftDocSchema = z.object({
@@ -103,6 +106,7 @@ export function toRpcLines(lines: SaveDraftInput["lines"]): RpcDraftLine[] {
       sort_order: i,
       // Only a hand-typed line states one — null hands the question to the product.
       line_kind: l.productId ? null : l.lineKind ?? null,
+      price_includes_vat: l.priceInclusive ?? false,
     };
   });
 }

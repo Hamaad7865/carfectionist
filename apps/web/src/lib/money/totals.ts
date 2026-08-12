@@ -16,11 +16,15 @@ export type DiscountKind = 'percent' | 'amount';
 
 export interface TotalsLineInput {
   qty: number;
-  unitCents: number;              // Cents, VAT-exclusive unit price
+  unitCents: number;              // Cents, VAT-exclusive unit price — or the typed GROSS when priceInclusive
   discountPct?: number;           // 0..100 (when kind = 'percent')
   discountKind?: DiscountKind;    // default 'percent'
   discountAmountCents?: number;   // Cents, VAT-INCLUSIVE (when kind = 'amount')
   vatRatePct: number;             // e.g. 15
+  /** document_lines.price_includes_vat (20260812000020): the unit IS the VAT-inclusive
+   *  figure exactly as typed, and the VAT is EXTRACTED — so the total lands on the typed
+   *  number. Absent/false: the unit is net and VAT is added on top (all history). */
+  priceInclusive?: boolean;
 }
 
 /** value: percent = 0..100 ; amount = Cents (VAT-inclusive) off the whole total */
@@ -44,6 +48,17 @@ export interface DocumentTotals {
 }
 
 export function computeLineTotals(line: TotalsLineInput): LineTotals {
+  if (line.priceInclusive) {
+    // The generated columns' inclusive branch (20260812000020): discount the typed gross,
+    // extract the excl, and the VAT is the DIFFERENCE — excl + vat sums to the typed
+    // figure exactly, which is what makes a typed 1000 stay 1000.00.
+    const grossLine = roundHalfAwayFromZero(line.qty * line.unitCents);
+    const netGross = line.discountKind === 'amount'
+      ? Math.max(grossLine - (line.discountAmountCents ?? 0), 0)
+      : roundHalfAwayFromZero(grossLine * (1 - (line.discountPct ?? 0) / 100));
+    const excl = roundHalfAwayFromZero(netGross / (1 + line.vatRatePct / 100));
+    return { exclCents: cents(excl), vatCents: cents(netGross - excl) };
+  }
   const base = line.qty * line.unitCents;
   let excl: number;
   if (line.discountKind === 'amount') {

@@ -163,4 +163,21 @@ class AllowanceTest {
         assertEquals("free", policyOf(null, "service", PolicyDefaults("free", "none")))
         assertEquals("none", policyOf(null, "product", PolicyDefaults("free", "none")))
     }
+
+    // ── price_includes_vat (20260812000020) — the unit IS the typed gross ──────
+
+    @Test
+    fun `a flagged carwash at the cap sits exactly on its ceiling`() {
+        // Same fixture as scripts/_verify-typed-price.mjs: typed 1000 gross, 5% off.
+        // Ceiling = 5% of the typed figure = 50.00 and the actual is the same 50.00 —
+        // no phantom cent from re-deriving a gross the cashier never typed.
+        val l = AllowanceLineInput(
+            qty = 1.0, unitCents = 100_000L, vatRatePct = 15.0, policy = "carwash",
+            discountPct = 5.0, priceInclusive = true,
+        )
+        val r = computeAllowance(listOf(l), null)
+        assertEquals(5_000L, r.ceilingCents)
+        assertEquals(5_000L, r.actualCents)
+        assertFalse(r.overCeiling)
+    }
 }

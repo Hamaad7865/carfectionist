@@ -776,16 +776,19 @@ class CounterViewModel @Inject constructor(
         if (name.isBlank() || priceCents <= 0) { closeAdhoc(); return }
         viewModelScope.launch {
             val vat = catalog.vatDefault()
-            // When the shop quotes gross, staff type what the customer pays — store the NET,
-            // because the ledger adds VAT on top of whatever unit price it is handed.
-            val unit = if (catalog.pricesInclVat()) netFromGrossCents(priceCents, vat) else priceCents
+            // When the shop quotes gross, staff type what the customer pays — and that EXACT
+            // figure is the price. It used to be squashed to a 2dp net (1000 → 869.57) and
+            // re-grossed a cent off (→ 1000.01, reported from the shop floor); now the line
+            // carries the typed gross with price_includes_vat and the ledger EXTRACTS the
+            // VAT, so the total lands on the typed number (20260812000020).
+            val inclusive = catalog.pricesInclVat()
             val p = ProductEntity(
                 id = CartLine.ADHOC_PREFIX + UUID.randomUUID(),
-                name = name.trim(), kind = "adhoc", sellingPriceCents = unit,
+                name = name.trim(), kind = "adhoc", sellingPriceCents = priceCents,
                 vatRatePct = vat, barcode = null, isStocked = false, category = null, lowStockThreshold = null,
             )
             local.value = local.value.copy(adhocOpen = false)
-            mutateCart { cart -> cart + cartLineOf(p, 1.0) }
+            mutateCart { cart -> cart + cartLineOf(p, 1.0, priceInclusive = inclusive) }
         }
     }
 
@@ -1493,9 +1496,9 @@ class CounterViewModel @Inject constructor(
 
     /** A new cart line stamped with the shop's live discount rules, so its clamp matches
      *  what the DB will enforce the moment it is added (see CounterUiState.carwashPct). */
-    private fun cartLineOf(p: ProductEntity, qty: Double, oversellOk: Boolean = false): CartLine {
+    private fun cartLineOf(p: ProductEntity, qty: Double, oversellOk: Boolean = false, priceInclusive: Boolean = false): CartLine {
         val s = local.value
-        return CartLine(p, qty, oversellOk = oversellOk, carwashPct = s.carwashPct, policyDefaults = s.policyDefaults)
+        return CartLine(p, qty, oversellOk = oversellOk, carwashPct = s.carwashPct, policyDefaults = s.policyDefaults, priceInclusive = priceInclusive)
     }
 
     private fun mutateCart(f: (List<CartLine>) -> List<CartLine>) {

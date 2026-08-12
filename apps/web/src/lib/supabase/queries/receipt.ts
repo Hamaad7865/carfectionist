@@ -49,12 +49,16 @@ export function receiptLineOf(l: ReceiptLineRow): ReceiptLine {
   const vatRate = Number(l.vat_rate ?? 15);
   const excl = rupeesToCents(Number(l.line_total_excl));
   const chargedIncl = excl + rupeesToCents(Number(l.line_vat));
-  const unitExclCents = rupeesToCents(Number(l.unit_price));
+  const unitStoredCents = rupeesToCents(Number(l.unit_price));
+  // A flagged line's stored unit IS the typed shelf figure (price_includes_vat,
+  // 20260812000020) — print it as stored; re-grossing would put the VAT on twice.
+  const flagged = l.price_includes_vat === true;
+  const unitExclCents = flagged ? Math.round(unitStoredCents / (1 + vatRate / 100)) : unitStoredCents;
   const disc = presentLineDiscount(l, true); // the slip quotes VAT-inclusive shelf prices
   return {
     qty,
     title: l.title,
-    unitInclCents: grossCents(unitExclCents, vatRate),
+    unitInclCents: flagged ? unitStoredCents : grossCents(unitStoredCents, vatRate),
     totalInclCents: chargedIncl,
     fullInclCents: disc?.fullAmountCents ?? chargedIncl,
     discountInclCents: disc?.savedCents ?? 0,
@@ -266,7 +270,7 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     // and names what each line saved, and both must come off the STORED discount.
     sb
       .from("document_lines")
-      .select("qty, title, unit_price, line_total_excl, line_vat, vat_rate, discount_kind, discount_pct, discount_amount")
+      .select("qty, title, unit_price, line_total_excl, line_vat, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat")
       .eq("document_id", id)
       .order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),

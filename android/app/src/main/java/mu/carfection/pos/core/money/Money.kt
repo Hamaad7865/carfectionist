@@ -76,6 +76,10 @@ data class DocLineIn(
     val discountPct: Double,
     val discountAmtInclCents: Long, // VAT-inclusive Rs off
     val vatRatePct: Double,
+    // True: unitCents IS the VAT-inclusive figure exactly as typed, and the VAT is
+    // EXTRACTED (document_lines.price_includes_vat, 20260812000020) — the total lands on
+    // the typed number. False: unitCents is net and VAT is added on top (all history).
+    val priceInclusive: Boolean = false,
 )
 
 data class DocDiscountTotals(
@@ -95,19 +99,37 @@ fun computeDocTotals(
     orderPct: Double,
     orderAmtInclCents: Long,
 ): DocDiscountTotals {
-    // line_total_excl / line_vat — identical CASE to the generated columns.
-    val excl = lines.map { l ->
-        val gross = BigDecimal.valueOf(l.qty).multiply(BigDecimal.valueOf(l.unitCents))
-        val e =
-            if (l.discountKind == "amount")
-                gross.subtract(BigDecimal.valueOf(l.discountAmtInclCents).divide(vatFactor(l.vatRatePct), 10, RoundingMode.HALF_UP))
-                    .max(BigDecimal.ZERO)
-            else
-                gross.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(l.discountPct).movePointLeft(2)))
-        e.toCents()
+    // line_total_excl / line_vat — identical CASE to the generated columns, including the
+    // price_includes_vat branch (20260812000020): a flagged line's unit IS the typed gross,
+    // the net-gross is discounted first, and the VAT is the DIFFERENCE from the extracted
+    // excl — so excl + vat sums to the typed figure exactly.
+    val inclNetGross = lines.map { l ->
+        if (!l.priceInclusive) 0L
+        else {
+            val grossLine = BigDecimal.valueOf(l.qty).multiply(BigDecimal.valueOf(l.unitCents)).toCents()
+            if (l.discountKind == "amount") (grossLine - l.discountAmtInclCents).coerceAtLeast(0L)
+            else BigDecimal.valueOf(grossLine)
+                .multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(l.discountPct).movePointLeft(2)))
+                .toCents()
+        }
+    }
+    val excl = lines.mapIndexed { i, l ->
+        if (l.priceInclusive) {
+            BigDecimal.valueOf(inclNetGross[i]).divide(vatFactor(l.vatRatePct), 10, RoundingMode.HALF_UP).toCents()
+        } else {
+            val gross = BigDecimal.valueOf(l.qty).multiply(BigDecimal.valueOf(l.unitCents))
+            val e =
+                if (l.discountKind == "amount")
+                    gross.subtract(BigDecimal.valueOf(l.discountAmtInclCents).divide(vatFactor(l.vatRatePct), 10, RoundingMode.HALF_UP))
+                        .max(BigDecimal.ZERO)
+                else
+                    gross.multiply(BigDecimal.ONE.subtract(BigDecimal.valueOf(l.discountPct).movePointLeft(2)))
+            e.toCents()
+        }
     }
     val vat = lines.mapIndexed { i, l ->
-        BigDecimal.valueOf(excl[i]).multiply(BigDecimal.valueOf(l.vatRatePct).movePointLeft(2)).toCents()
+        if (l.priceInclusive) inclNetGross[i] - excl[i]
+        else BigDecimal.valueOf(excl[i]).multiply(BigDecimal.valueOf(l.vatRatePct).movePointLeft(2)).toCents()
     }
 
     // Per-VAT-rate groups (base, vat, incl) — the discounted_vat_groups input.

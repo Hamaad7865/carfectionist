@@ -17,6 +17,9 @@ export interface DocLineRow {
   line_total_excl: number | string;
   line_vat: number | string;
   vat_rate: number | string;
+  /** price_includes_vat (20260812000020): unit_price IS the typed VAT-inclusive figure —
+   *  present it as stored; re-grossing it would put the VAT on twice. */
+  price_includes_vat?: boolean | null;
   // Optional: only the surfaces that show a discount need to pass these.
   qty?: number | string;
   discount_kind?: string | null;
@@ -33,6 +36,15 @@ const cents = (v: number | string) => Math.round(Number(v) * 100);
 
 export function presentLine(l: DocLineRow, inclVat: boolean): PresentedLine {
   const excl = cents(l.line_total_excl);
+  // A flagged line's stored unit IS the shelf figure the customer was told — show it as
+  // stored on a gross-quoting shop (re-grossing would put the VAT on twice), and back it
+  // out for the rare ex-VAT surface.
+  if (l.price_includes_vat === true) {
+    const unit = cents(l.unit_price);
+    return inclVat
+      ? { rateCents: unit, amountCents: excl + cents(l.line_vat) }
+      : { rateCents: Math.round(unit / (1 + Number(l.vat_rate) / 100)), amountCents: excl };
+  }
   return inclVat
     ? { rateCents: grossCents(cents(l.unit_price), Number(l.vat_rate)), amountCents: excl + cents(l.line_vat) }
     : { rateCents: cents(l.unit_price), amountCents: excl };
@@ -67,12 +79,14 @@ export function presentLineDiscount(l: DocLineRow, inclVat: boolean): PresentedD
 
   const { amountCents } = presentLine(l, inclVat);
   const qty = Number(l.qty ?? 1);
-  const unitNet = cents(l.unit_price);
+  const unit = cents(l.unit_price);
   const rate = Number(l.vat_rate);
-  // Full price by the same route the DB priced the discounted figure: net line total first,
+  // Full price by the same route the DB priced the discounted figure. Flagged: the unit IS
+  // the gross, so the full price is a straight qty × unit. Otherwise: net line total first,
   // then its own rounded VAT — so the saving is exact rather than a cent off its own line.
-  const fullNet = Math.round(qty * unitNet);
-  const fullAmountCents = inclVat ? grossCents(fullNet, rate) : fullNet;
+  const fullAmountCents = l.price_includes_vat === true
+    ? (inclVat ? Math.round(qty * unit) : Math.round(Math.round(qty * unit) / (1 + rate / 100)))
+    : (inclVat ? grossCents(Math.round(qty * unit), rate) : Math.round(qty * unit));
 
   return {
     fullAmountCents,

@@ -40,12 +40,15 @@ const TOLERANCE_CENTS = 1;
 
 export interface AllowanceLineInput {
   qty: number;
-  unitCents: number;            // VAT-exclusive unit price
+  unitCents: number;            // VAT-exclusive unit price — or the typed GROSS when priceInclusive
   vatRatePct: number;
   policy: DiscountPolicy;
   discountKind?: DiscountKind;
   discountPct?: number;
   discountAmountCents?: number; // VAT-inclusive
+  /** document_lines.price_includes_vat (20260812000020): the unit IS the typed gross and
+   *  the VAT is extracted, so every figure here derives from the gross directly. */
+  priceInclusive?: boolean;
 }
 
 export interface Allowance {
@@ -74,11 +77,21 @@ export function policyOf(
 }
 
 function grossInclCents(l: AllowanceLineInput): number {
+  // A flagged line's unit IS the gross — no re-derivation, so no drift.
+  if (l.priceInclusive) return roundHalfAwayFromZero(l.qty * l.unitCents);
   const excl = roundHalfAwayFromZero(l.qty * l.unitCents);
   return excl + roundHalfAwayFromZero((excl * l.vatRatePct) / 100);
 }
 
 function netInclCents(l: AllowanceLineInput): number {
+  if (l.priceInclusive) {
+    // The generated columns' inclusive branch: discount the gross, and excl + vat sums
+    // back to it exactly — so the net-incl IS the discounted gross.
+    const grossLine = roundHalfAwayFromZero(l.qty * l.unitCents);
+    return l.discountKind === 'amount'
+      ? Math.max(grossLine - (l.discountAmountCents ?? 0), 0)
+      : roundHalfAwayFromZero(grossLine * (1 - (l.discountPct ?? 0) / 100));
+  }
   const base = l.qty * l.unitCents;
   const excl = l.discountKind === 'amount'
     ? roundHalfAwayFromZero(Math.max(base - (l.discountAmountCents ?? 0) / (1 + l.vatRatePct / 100), 0))
@@ -88,6 +101,8 @@ function netInclCents(l: AllowanceLineInput): number {
 
 /** What a line's net comes to at a given percentage off, rounded as the DB rounds. */
 function netInclAtPct(l: AllowanceLineInput, pct: number): number {
+  // Flagged: a straight percentage of the typed gross, as the SQL computes it.
+  if (l.priceInclusive) return roundHalfAwayFromZero(roundHalfAwayFromZero(l.qty * l.unitCents) * (1 - pct / 100));
   const excl = roundHalfAwayFromZero(l.qty * l.unitCents * (1 - pct / 100));
   return excl + roundHalfAwayFromZero((excl * l.vatRatePct) / 100);
 }

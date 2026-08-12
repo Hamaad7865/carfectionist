@@ -72,6 +72,43 @@ class MoneyTest {
         assertEquals(0L, t.lineExclCents[0])
     }
 
+    // ── price_includes_vat — the typed price IS the price (20260812000020) ──
+    // Fixtures identical to scripts/_verify-typed-price.mjs, so all three engines
+    // (SQL, this, allowance.ts) are held to the same numbers.
+
+    @Test
+    fun `a flagged 1000 lands on exactly 1000 — the reported bug`() {
+        // Reported from the shop floor: typing 1000 produced 1000.01, because the typed
+        // gross was squashed to a 2dp net (869.57) and re-grossed a cent off.
+        val t = computeDocTotals(
+            listOf(DocLineIn(1.0, 1_000_00, "percent", 0.0, 0, 15.0, priceInclusive = true)),
+            null, 0.0, 0,
+        )
+        assertEquals(869_57L, t.lineExclCents[0])
+        assertEquals(130_43L, t.vatCents) // extracted, not added — that's what makes it exact
+        assertEquals(1_000_00L, t.totalCents)
+    }
+
+    @Test
+    fun `flagged qty and discounts stay exact`() {
+        // 2 × 1000 at 10% off → flat 1800.00; 1000 minus Rs 50 → flat 950.00.
+        val t = computeDocTotals(
+            listOf(
+                DocLineIn(2.0, 1_000_00, "percent", 10.0, 0, 15.0, priceInclusive = true),
+                DocLineIn(1.0, 1_000_00, "amount", 0.0, 50_00, 15.0, priceInclusive = true),
+            ),
+            null, 0.0, 0,
+        )
+        assertEquals(2_750_00L, t.totalCents)
+    }
+
+    @Test
+    fun `an unflagged line still adds VAT on top — history unchanged`() {
+        // The old path, byte-for-byte: net 869.57 grosses to 1000.01.
+        val t = computeDocTotals(listOf(pctLine(1.0, 869_57)), null, 0.0, 0)
+        assertEquals(1_000_01L, t.totalCents)
+    }
+
     @Test
     fun `order percent discount on the canonical vector`() {
         // gross incl 88,780.00 → 10% = 8,878.00 off; net incl 79,902.00 @15%

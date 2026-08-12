@@ -39,12 +39,15 @@ private const val TOLERANCE_CENTS = 1L
 
 data class AllowanceLineInput(
     val qty: Double,
-    val unitCents: Long,                // VAT-exclusive unit price
+    val unitCents: Long,                // VAT-exclusive unit price — or the typed GROSS when [priceInclusive]
     val vatRatePct: Double,
     val policy: DiscountPolicy,
     val discountKind: String = "percent",
     val discountPct: Double = 0.0,
     val discountAmountCents: Long = 0L, // VAT-inclusive
+    /** document_lines.price_includes_vat (20260812000020): the unit IS the typed gross and
+     *  the VAT is extracted, so every figure here is derived from the gross directly. */
+    val priceInclusive: Boolean = false,
 )
 
 /** The whole-document discount input — mirrors the web's totals.ts DocDiscount. */
@@ -79,11 +82,20 @@ private fun roundHalfAwayFromZero(value: Double): Long {
 }
 
 private fun grossInclCents(l: AllowanceLineInput): Long {
+    // A flagged line's unit IS the gross — no re-derivation, so no drift.
+    if (l.priceInclusive) return roundHalfAwayFromZero(l.qty * l.unitCents)
     val excl = roundHalfAwayFromZero(l.qty * l.unitCents)
     return excl + roundHalfAwayFromZero((excl * l.vatRatePct) / 100)
 }
 
 private fun netInclCents(l: AllowanceLineInput): Long {
+    if (l.priceInclusive) {
+        // The generated columns' inclusive branch: discount the gross, and excl + vat sums
+        // back to it exactly — so the net-incl IS the discounted gross.
+        val grossLine = roundHalfAwayFromZero(l.qty * l.unitCents)
+        return if (l.discountKind == "amount") maxOf(grossLine - l.discountAmountCents, 0L)
+        else roundHalfAwayFromZero(grossLine * (1 - l.discountPct / 100))
+    }
     val base = l.qty * l.unitCents
     val excl = if (l.discountKind == "amount")
         roundHalfAwayFromZero(maxOf(base - l.discountAmountCents / (1 + l.vatRatePct / 100), 0.0))
@@ -95,6 +107,8 @@ private fun netInclCents(l: AllowanceLineInput): Long {
 /** The most a single line may be discounted, in VAT-inclusive cents. */
 /** What a line's net comes to at a given percentage off, rounded as the DB rounds. */
 private fun netInclAtPct(l: AllowanceLineInput, pct: Double): Long {
+    // Flagged: a straight percentage of the typed gross, as the SQL computes it.
+    if (l.priceInclusive) return roundHalfAwayFromZero(roundHalfAwayFromZero(l.qty * l.unitCents) * (1 - pct / 100.0))
     val excl = roundHalfAwayFromZero(l.qty * l.unitCents * (1 - pct / 100.0))
     return excl + roundHalfAwayFromZero((excl * l.vatRatePct) / 100)
 }

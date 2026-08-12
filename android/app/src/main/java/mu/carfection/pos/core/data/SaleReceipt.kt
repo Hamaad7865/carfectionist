@@ -33,17 +33,22 @@ fun billRef(billNo: Long?, terminalNo: Int?): String? =
 private fun receiptLineOf(l: SaleHistoryLineDto): ReceiptLine {
     val chargedIncl = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
     val rate = l.vatRate
-    val unitNet = rupeesToCents(l.unitPrice)
+    val unit = rupeesToCents(l.unitPrice)
     val discounted = (l.discountKind == "amount" && l.discountAmount > 0.0) || l.discountPct > 0.0
-    // Full price by the DB's own route — net line total first, then its own rounded VAT —
+    // price_includes_vat: the stored unit IS the typed shelf figure (20260812000020) —
+    // print it as stored; re-grossing would put the VAT on twice. Otherwise the full
+    // price goes by the DB's own route — net line total first, then its own rounded VAT —
     // so it matches the charged figure exactly whenever there is no discount.
-    val fullNet = Math.round(l.qty * unitNet)
-    val fullIncl = if (discounted) grossCents(fullNet, rate) else chargedIncl
+    val fullIncl = when {
+        !discounted -> chargedIncl
+        l.priceIncludesVat -> Math.round(l.qty * unit)
+        else -> grossCents(Math.round(l.qty * unit), rate)
+    }
     return ReceiptLine(
         title = l.title,
         qty = l.qty,
         inclCents = chargedIncl,
-        unitInclCents = grossCents(unitNet, rate),
+        unitInclCents = if (l.priceIncludesVat) unit else grossCents(unit, rate),
         grossInclCents = fullIncl,
         discountPct = if (l.discountKind != "amount") l.discountPct else 0.0,
     )

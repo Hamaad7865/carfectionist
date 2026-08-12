@@ -27,6 +27,11 @@ export interface BuilderLine {
   // A catalogue line leaves it null: products.kind is the better answer, and copying it
   // here would only let the two drift. Decides whether an accepted quote raises a job.
   lineKind: "service" | "product" | null;
+  /** document_lines.price_includes_vat (20260812000020): unitCents IS the VAT-inclusive
+   *  figure exactly as typed, and the ledger extracts the VAT — a typed 1000 stays
+   *  1000.00. Set when a price is typed under gross pricing; loaded lines carry what
+   *  the row stored. */
+  priceInclusive: boolean;
 }
 
 export interface BuilderState {
@@ -81,13 +86,14 @@ export function toSaveDraftLines(lines: BuilderLine[]) {
     discountAmountCents: l.discountAmountCents,
     vatRatePct: l.vatRatePct,
     lineKind: l.lineKind,
+    priceInclusive: l.priceInclusive,
   }));
 }
 
 export function blankLine(): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.
-  return { key: newKey(), productId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, "service"), vatRatePct: 15, lineKind: "service" };
+  return { key: newKey(), productId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, "service"), vatRatePct: 15, lineKind: "service", priceInclusive: false };
 }
 
 export type BuilderAction =

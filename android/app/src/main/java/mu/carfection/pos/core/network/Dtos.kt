@@ -81,7 +81,7 @@ data class JobRow(val id: String)
  */
 const val QUOTE_LINE_COLUMNS: String =
     "product_id, title, description, description_richtext, unit_label, " +
-        "qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate, line_kind"
+        "qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate, line_kind, price_includes_vat"
 
 @Serializable
 data class QuoteLineDto(
@@ -100,6 +100,8 @@ data class QuoteLineDto(
     @SerialName("discount_kind") val discountKind: String = "percent",
     @SerialName("discount_amount") val discountAmount: FlexDouble = 0.0, // Rs, VAT-inclusive
     @SerialName("vat_rate") val vatRate: FlexDouble = 15.0,
+    // True: unit_price IS the typed VAT-inclusive figure (20260812000020).
+    @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
     /** Stated on a typed-in line; null on a catalogue line, where products.kind answers. */
     @SerialName("line_kind") val lineKind: String? = null,
 )
@@ -276,6 +278,9 @@ data class SaleHistoryLineDto(
     @SerialName("discount_kind") val discountKind: String? = null, // percent | amount
     @SerialName("discount_pct") val discountPct: FlexDouble = 0.0,
     @SerialName("discount_amount") val discountAmount: FlexDouble = 0.0, // VAT-INCLUSIVE, as typed
+    // True: unit_price IS the typed VAT-inclusive figure (20260812000020) — print it as
+    // stored; re-grossing it would put the VAT on twice.
+    @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
 )
 
 @Serializable

@@ -24,9 +24,9 @@ const state: BuilderState = {
   customerId: "c1",
   revision: 0,
   lines: [
-    { key: "a", productId: "p1", title: "Full Decontamination & Body Polish", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 3200000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null },
-    { key: "b", productId: "p2", title: "Remove Wheel, Decontamination & Polish", description: "", rich: null, unitLabel: "", qty: 4, unitCents: 380000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null },
-    { key: "c", productId: "p3", title: "Diamondbrite 3-Year Protection (Exterior Only)", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 3000000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null },
+    { key: "a", productId: "p1", title: "Full Decontamination & Body Polish", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 3200000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false },
+    { key: "b", productId: "p2", title: "Remove Wheel, Decontamination & Polish", description: "", rich: null, unitLabel: "", qty: 4, unitCents: 380000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false },
+    { key: "c", productId: "p3", title: "Diamondbrite 3-Year Protection (Exterior Only)", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 3000000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false },
   ],
   docDiscountKind: null,
   docDiscountValue: 0,
@@ -80,7 +80,7 @@ describe("toDocumentProps — rich content reaches the preview", () => {
   it("passes the tree and the unit straight through to the A4 props", () => {
     const s: BuilderState = {
       ...state,
-      lines: [{ key: "a", productId: null, title: "Diamondbrite", description: "", rich, unitLabel: "panels", qty: 3, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null }],
+      lines: [{ key: "a", productId: null, title: "Diamondbrite", description: "", rich, unitLabel: "panels", qty: 3, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false }],
     };
     const props = toDocumentProps(s, business, PREVIEW);
     expect(props.lines[0].rich).toEqual(rich);
@@ -90,7 +90,7 @@ describe("toDocumentProps — rich content reaches the preview", () => {
   it("sends null rather than an empty string when a line has no unit", () => {
     const s: BuilderState = {
       ...state,
-      lines: [{ key: "a", productId: null, title: "Wash", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null }],
+      lines: [{ key: "a", productId: null, title: "Wash", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 100000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false }],
     };
     const props = toDocumentProps(s, business, PREVIEW);
     expect(props.lines[0].unit).toBeNull();

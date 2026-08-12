@@ -164,6 +164,8 @@ export interface LoadedDraft {
     discountPolicy: DiscountPolicy;
     vatRatePct: number;
     lineKind: "service" | "product" | null;
+    /** price_includes_vat: the stored unit IS the typed gross (20260812000020). */
+    priceInclusive: boolean;
   }[];
 }
 
@@ -224,6 +226,9 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
       // Only a hand-typed line ever stated one; a catalogue line reads null and
       // lets its product answer.
       lineKind: (l.line_kind ?? null) as "service" | "product" | null,
+      // The stored unit IS the typed gross on a flagged line — the builder shows and
+      // clamps it as such rather than re-grossing (price_includes_vat, 20260812000020).
+      priceInclusive: l.price_includes_vat === true,
     })),
   };
 }

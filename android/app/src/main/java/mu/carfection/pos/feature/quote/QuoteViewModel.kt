@@ -111,15 +111,24 @@ data class QuoteLine(
     // the same shape CartLine carries on the counter.
     val carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
     val policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
+    /** True: the typed price IS the VAT-inclusive figure, stored as typed — the ledger
+     *  extracts the VAT (price_includes_vat, 20260812000020), so 1000 stays 1000.00.
+     *  Set on lines added or re-priced under gross quoting; reopened old lines keep
+     *  their stored net until someone actually types a new price. */
+    val priceInclusive: Boolean = false,
 ) {
     val unitCents: Long get() {
         val typed = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
-        return if (priceIsGross) netFromGrossCents(typed, vatRate) else typed
+        return when {
+            priceInclusive -> typed // the typed gross IS the stored unit
+            priceIsGross -> netFromGrossCents(typed, vatRate)
+            else -> typed
+        }
     }
 
     /** This line as the allowance module wants it — qty/price/policy are all it needs. */
     private val allowanceInput: AllowanceLineInput
-        get() = AllowanceLineInput(qty.toDouble(), unitCents, vatRate, discountPolicy)
+        get() = AllowanceLineInput(qty.toDouble(), unitCents, vatRate, discountPolicy, priceInclusive = priceInclusive)
 
     /** Rs discount as TYPED, VAT-inclusive. Clamped to [lineAllowanceCents] on a carwash line,
      *  so a typed figure can never ask for more than the owner's 5% rule permits. */
@@ -159,8 +168,13 @@ fun storedLine(
     return QuoteLine(
         productId = l.productId,
         title = l.title,
-        priceText = centsToPlainText(rupeesToCents(l.unitPrice).let { net -> if (gross) grossCents(net, l.vatRate) else net }),
+        // A flagged line's stored unit IS the typed shelf figure — show it as stored;
+        // re-grossing it would put the VAT on twice (price_includes_vat, 20260812000020).
+        priceText = centsToPlainText(rupeesToCents(l.unitPrice).let { unit ->
+            if (l.priceIncludesVat) unit else if (gross) grossCents(unit, l.vatRate) else unit
+        }),
         priceIsGross = gross,
+        priceInclusive = l.priceIncludesVat,
         vatRate = l.vatRate,
         qty = l.qty.toInt().coerceAtLeast(1),
         discountMode = if (l.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
@@ -191,6 +205,7 @@ fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
     put("discount_amount", if (l.discountMode == DiscountMode.AMT) centsToRupees(l.discountAmtCents) else 0.0)
     put("vat_rate", l.vatRate)
     put("sort_order", sortOrder)
+    put("price_includes_vat", l.priceInclusive)
     // Only a typed-in line states one; a catalogue line leaves it to the product.
     if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
 }
@@ -238,6 +253,9 @@ fun quoteLine(
         centsToPlainText(if (gross) grossCents(unitCents, vatRate) else unitCents),
         vatRate, qty, priceIsGross = gross, discountPolicy = discountPolicy,
         carwashPct = carwashPct, policyDefaults = policyDefaults,
+        // Under gross quoting the figure ON SCREEN is the price: store it as typed and let
+        // the ledger extract the VAT, so it can never re-gross a cent off (20260812000020).
+        priceInclusive = gross,
     )
 
 data class QuoteState(
@@ -834,6 +852,7 @@ class QuoteViewModel @Inject constructor(
                 priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
                 discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
                 carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
+                priceInclusive = st.pricesInclVat,
             ),
         )
     }
@@ -878,7 +897,10 @@ class QuoteViewModel @Inject constructor(
 
     // ── price + Rs-discount editing (raw text lives on the line; cents derived) ──
     private fun moneyText(t: String) = t.filter { it.isDigit() || it == '.' }
-    fun setPrice(i: Int, t: String) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(priceText = moneyText(t)) else l }) }
+    // Typing a price under gross quoting makes THAT figure the price (priceInclusive):
+    // the freshly typed number is what the customer pays, stored as typed. A reopened old
+    // line keeps its stored net until someone actually types here.
+    fun setPrice(i: Int, t: String) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(priceText = moneyText(t), priceInclusive = l.priceIsGross) else l }) }
     fun setLineDiscMode(i: Int, m: DiscountMode) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountMode = m) else l }) }
     fun setLineDiscAmt(i: Int, t: String) = _s.update { st -> st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(discountAmtText = moneyText(t)) else l }) }
 
@@ -937,6 +959,7 @@ class QuoteViewModel @Inject constructor(
                 discountPct = it.discountPct.toDouble(),
                 discountAmtInclCents = if (it.discountMode == DiscountMode.AMT) it.discountAmtCents else 0L,
                 vatRatePct = it.vatRate,
+                priceInclusive = it.priceInclusive,
             )
         },
         orderKind = docDiscountKind(s), orderPct = basketPct(s).toDouble(), orderAmtInclCents = basketAmtCents(s),
@@ -1713,6 +1736,7 @@ class QuoteViewModel @Inject constructor(
                 priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
                 discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
                 carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
+                priceInclusive = st.pricesInclVat,
             ),
         )
     }
@@ -1751,7 +1775,7 @@ class QuoteViewModel @Inject constructor(
         else st.copy(billLines = st.billLines.mapIndexed { j, l -> if (j == i) l.copy(qty = q) else l })
     }
 
-    fun setBillPrice(i: Int, t: String) = mapBillLine(i) { it.copy(priceText = moneyText(t)) }
+    fun setBillPrice(i: Int, t: String) = mapBillLine(i) { it.copy(priceText = moneyText(t), priceInclusive = it.priceIsGross) }
     fun setBillUnitLabel(i: Int, t: String) = mapBillLine(i) { it.copy(unitLabel = t.take(24)) }
     fun setBillLineDiscMode(i: Int, m: DiscountMode) = mapBillLine(i) { it.copy(discountMode = m) }
     fun setBillDiscount(i: Int, d: Int) = mapBillLine(i) { it.copy(discountPct = d) }
@@ -1791,6 +1815,7 @@ class QuoteViewModel @Inject constructor(
                 discountPct = it.discountPct.toDouble(),
                 discountAmtInclCents = if (it.discountMode == DiscountMode.AMT) it.discountAmtCents else 0L,
                 vatRatePct = it.vatRate,
+                priceInclusive = it.priceInclusive,
             )
         },
         // The quote's order-level discount, because the BILL carries it: convert_quote_to_invoice
