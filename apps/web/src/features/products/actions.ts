@@ -49,6 +49,8 @@ const schema = z.object({
   unit: z.enum(["ml", "l", "g", "kg", "m2", "piece", "service"]),
   discountPolicy: z.enum(["inherit", "none", "carwash", "free"]).optional().default("inherit"),
   sellingPrice: num,
+  // True: sellingPrice IS the VAT-inclusive figure exactly as typed (20260812000030).
+  priceIncludesVat: z.boolean().optional().default(false),
   costPrice: num,
   vatRate: numOpt,
   barcode: strOpt,
@@ -75,6 +77,7 @@ export async function saveProductAction(input: z.input<typeof schema>): Promise<
     unit: p.data.unit,
     discount_policy: p.data.discountPolicy,
     selling_price: p.data.sellingPrice,
+    price_includes_vat: p.data.priceIncludesVat,
     cost_price: p.data.costPrice,
     vat_rate: p.data.vatRate,
     barcode: p.data.barcode,

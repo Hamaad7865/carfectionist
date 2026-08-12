@@ -1,6 +1,6 @@
 "use client";
 
-import { grossCents } from "@/lib/money";
+import { shelfCents } from "@/lib/money";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Barcode, Search, TriangleAlert, ChevronRight } from "lucide-react";
@@ -115,10 +115,11 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
 
   // When the business prices VAT-inclusive, show the gross sell price (what the
   // customer pays) rather than the ex-VAT figure we store.
-  // grossCents, not the inline formula it replaced: net * (1 + r/100) rounds a cent differently
+  // shelfCents, not the inline formula it replaced: net * (1 + r/100) rounds a cent differently
   // from the ledger's add-its-own-rounded-VAT, so this column disagreed with the counter, the
-  // receipt and the invoice on 7 live products.
-  const sellOf = (r: InventoryRow) => (pricesInclVat ? grossCents(r.sellCents, r.vatRatePct ?? vatDefault) : r.sellCents);
+  // receipt and the invoice on 7 live products. A price_includes_vat product (20260812000030)
+  // stores the exact shelf gross, so shelfCents shows it verbatim instead of re-grossing it.
+  const sellOf = (r: InventoryRow) => shelfCents(r.sellCents, r.vatRatePct ?? vatDefault, pricesInclVat, r.priceIncludesVat);
 
   function newProduct() { setEditing(null); setOpen(true); }
   function edit(p: InventoryRow) { setEditing(p); setOpen(true); }

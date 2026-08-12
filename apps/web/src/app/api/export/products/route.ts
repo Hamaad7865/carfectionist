@@ -12,7 +12,7 @@ export async function GET() {
 
   const sb = await createClient();
   const [prodData, ohData, locRes, bsRes] = await Promise.all([
-    fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, cost_price, vat_rate, low_stock_threshold, is_active").order("name")),
+    fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_active").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     sb.from("stock_locations").select("id, name, is_default").order("is_default", { ascending: false }),
     sb.from("business_settings").select("vat_rate, prices_vat_exclusive").limit(1),
@@ -21,13 +21,20 @@ export async function GET() {
   // A gross-quoting shop reads and writes SHELF prices everywhere — the sheet included.
   // import_products divides the same figure back to net (migration 0040), so
   // export → edit → import round-trips losslessly. A net-quoting shop exports net, as before.
+  //
+  // A price_includes_vat product (20260812000030) already stores the EXACT shelf gross, so it
+  // exports verbatim — no re-grossing, which would push its 9,900 to 9,900.01. Caveat: import
+  // still divides gross→net and does not carry the flag back, so a CSV round-trip reverts a
+  // flagged product to net (and its cent of drift) until the owner re-saves it in the form.
   const bs = (bsRes.data ?? [])[0] as { vat_rate: number | null; prices_vat_exclusive: boolean } | undefined;
   const grossQuoting = bs?.prices_vat_exclusive === false;
   const vatDefault = Number(bs?.vat_rate ?? 15);
-  const sheetPrice = (net: unknown, rate: unknown): string | unknown =>
-    net == null || !grossQuoting
-      ? net ?? ""
-      : (grossCents(Math.round(Number(net) * 100), Number(rate ?? vatDefault)) / 100).toFixed(2);
+  const sheetPrice = (val: unknown, rate: unknown, inclusive: boolean): string | unknown => {
+    if (val == null) return "";
+    if (inclusive) return Number(val).toFixed(2);   // selling_price IS the shelf gross, as typed
+    if (!grossQuoting) return val;                  // net-quoting shop exports net, as before
+    return (grossCents(Math.round(Number(val) * 100), Number(rate ?? vatDefault)) / 100).toFixed(2);
+  };
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const locs = ((locRes.data ?? []) as any[]).map((l) => ({ id: l.id, col: slug(l.name) }));
@@ -65,7 +72,7 @@ export async function GET() {
       category: p.category ?? "",
       barcode: p.barcode ?? "",
       unit: p.unit ?? "",
-      selling_price: sheetPrice(p.selling_price, p.vat_rate),
+      selling_price: sheetPrice(p.selling_price, p.vat_rate, p.price_includes_vat === true),
       cost_price: p.cost_price ?? "",
       vat_rate: p.vat_rate ?? "",
       low_stock_threshold: p.low_stock_threshold ?? "",

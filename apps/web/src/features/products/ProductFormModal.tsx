@@ -34,7 +34,9 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number,
   unit: (p?.unit as PForm["unit"]) ?? "piece",
   // A new product hasn't earned an exception yet — the owner ticks one on later.
   discountPolicy: (p?.discountPolicy as PForm["discountPolicy"]) ?? "inherit",
-  sellingPrice: p ? (inclVat ? grossPrice(p, vatDefault) : String(p.sellingPrice)) : "",
+  // A flagged product's selling_price IS the gross — show it as stored. A net product
+  // shown on a gross form is grossed up; otherwise it is the net.
+  sellingPrice: p ? (p.priceIncludesVat ? String(p.sellingPrice) : inclVat ? grossPrice(p, vatDefault) : String(p.sellingPrice)) : "",
   costPrice: p ? String(p.costPrice) : "",
   vatRate: p?.vatRatePct != null ? String(p.vatRatePct) : "",
   barcode: p?.barcode ?? "",
@@ -49,15 +51,15 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
   const editing = !!product;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [priceInclVat, setPriceInclVat] = useState(pricesInclVat);
-  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, pricesInclVat, vatDefault, defaultKind));
+  const [priceInclVat, setPriceInclVat] = useState((product?.priceIncludesVat ?? false) || pricesInclVat);
+  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind));
 
   // Re-seed whenever the modal opens for a (different) product.
   const [seededFor, setSeededFor] = useState<string | null | undefined>(undefined);
   if (open && seededFor !== (product?.id ?? null)) {
-    setF(seed(product ?? undefined, pricesInclVat, vatDefault, defaultKind));
+    setF(seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind));
     setSeededFor(product?.id ?? null);
-    setPriceInclVat(pricesInclVat);
+    setPriceInclVat((product?.priceIncludesVat ?? false) || pricesInclVat);
     setError(null);
   }
   if (!open && seededFor !== undefined) setSeededFor(undefined);
@@ -75,7 +77,9 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
   const effVat = f.vatRate.trim() !== "" ? money(f.vatRate) : vatDefault;
   const vatValid = Number.isFinite(effVat) && effVat >= 0;
   const enteredSell = money(f.sellingPrice);
-  const netFromGross = priceInclVat && vatValid && enteredSell > 0 ? enteredSell / (1 + effVat / 100) : null;
+  // The VAT BACKED OUT of a typed gross — what the receipt shows and the ledger stores.
+  // The price is kept exactly as typed (price_includes_vat), so a typed 9,900 stays 9,900.
+  const vatExtracted = priceInclVat && vatValid && enteredSell > 0 ? enteredSell * effVat / (100 + effVat) : null;
 
   function toggleInclVat(on: boolean) {
     setPriceInclVat(on);
@@ -96,8 +100,11 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
       category: f.category,
       unit: f.unit,
       discountPolicy: f.discountPolicy,
-      // selling_price is stored VAT-exclusive; convert if the user entered a gross price.
-      sellingPrice: netFromGross != null ? netFromGross.toFixed(2) : f.sellingPrice,
+      // Store the price EXACTLY as typed. When it is a VAT-inclusive figure the flag
+      // rides with it and the ledger extracts the VAT, so 9,900 stays 9,900 (no more
+      // divide-to-net then re-gross-a-cent-high). Otherwise it is the net, as before.
+      sellingPrice: f.sellingPrice,
+      priceIncludesVat: priceInclVat,
       costPrice: f.costPrice,
       vatRate: f.vatRate,
       barcode: f.barcode,
@@ -180,8 +187,8 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
         <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-body">
           <input type="checkbox" checked={priceInclVat} onChange={(e) => toggleInclVat(e.target.checked)} className="size-4 accent-[#2b8cff]" />
           The sell price I entered includes {vatValid ? `${effVat}%` : ""} VAT
-          {netFromGross != null && (
-            <span className="text-[12px] font-normal text-muted">→ stored net <span className="num font-semibold text-body">Rs {netFromGross.toFixed(2)}</span> (VAT Rs {(enteredSell - netFromGross).toFixed(2)})</span>
+          {vatExtracted != null && (
+            <span className="text-[12px] font-normal text-muted">→ kept as <span className="num font-semibold text-body">Rs {enteredSell.toFixed(2)}</span> (of which VAT Rs {vatExtracted.toFixed(2)})</span>
           )}
           {priceInclVat && !vatValid && <span className="text-[12px] font-normal text-rose">enter a valid VAT rate first</span>}
         </label>

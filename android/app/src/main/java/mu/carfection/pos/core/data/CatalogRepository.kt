@@ -187,6 +187,7 @@ class CatalogRepository @Inject constructor(
                 lowStockThreshold = p.lowStockThreshold,
                 photoPath = p.photoPath,
                 discountPolicy = p.discountPolicy,
+                priceInclusive = p.priceIncludesVat,
             )
         }
         if (products.isNotEmpty()) productDao.replaceAll(products)

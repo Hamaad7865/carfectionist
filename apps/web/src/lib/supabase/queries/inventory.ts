@@ -22,7 +22,9 @@ export interface InventoryRow {
   photoUrl: string | null;
   costCents: number;
   sellCents: number;
-  sellingPrice: number; // raw rupees (2dp)
+  sellingPrice: number; // raw rupees (2dp) — the NET, unless priceIncludesVat (then the gross)
+  /** True: sellingPrice IS the VAT-inclusive figure exactly as typed (20260812000030). */
+  priceIncludesVat: boolean;
   costPrice: number; // raw rupees (4dp)
   vatRatePct: number | null; // null = tenant default
   marginPct: number;
@@ -54,7 +56,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
   const makeProdQ = () => {
     let q = sb
       .from("products")
-      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active, photo_path, discount_policy");
+      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active, photo_path, discount_policy");
     if (!includeArchived) q = q.eq("is_active", true);
     return q.order("category").order("name");
   };
@@ -106,6 +108,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
       costCents: cost,
       sellCents: sell,
       sellingPrice,
+      priceIncludesVat: p.price_includes_vat === true,
       costPrice,
       vatRatePct: p.vat_rate == null ? null : Number(p.vat_rate),
       marginPct: sell > 0 ? Math.round(((sell - cost) / sell) * 100) : 0,

@@ -12,8 +12,8 @@ import mu.carfection.pos.core.data.AdjustmentRow
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.StockAdjustmentSlip
 import mu.carfection.pos.core.data.adjustmentRow
-import mu.carfection.pos.core.money.grossCents
 import mu.carfection.pos.core.money.rupeesToCents
+import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.network.NewStockMovementDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.StockProductDto
@@ -159,7 +159,9 @@ class StockViewModel @Inject constructor(
                 val net = rupeesToCents(it.sellingPrice)
                 StockItem(
                     it.id, it.name, it.category ?: "—",
-                    if (s.pricesInclVat) grossCents(net, it.vatRate ?: s.vatDefault) else net,
+                    // A price_includes_vat product's stored figure IS the exact gross — show it
+                    // verbatim, never re-grossed (20260812000030). shelfCents mirrors every till surface.
+                    shelfCents(net, it.vatRate ?: s.vatDefault, s.pricesInclVat, it.priceIncludesVat),
                     s.onHand[it.id] ?: 0,
                     (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD),
                     mu.carfection.pos.core.data.productPhotoUrl(it.photoPath),

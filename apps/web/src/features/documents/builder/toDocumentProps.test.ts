@@ -64,6 +64,36 @@ describe("toDocumentProps — the Rs 88,780 quote", () => {
   });
 });
 
+describe("toDocumentProps — a VAT-inclusive shop lands the A4 on the typed gross", () => {
+  // The dash cam: a price_includes_vat product priced at a round Rs 9,900 gross. On a gross-quoting
+  // shop the builder stores unitCents = the exact gross with priceInclusive = true, and the A4
+  // preview/PDF must NOT re-gross it (that inflated every inclusive line by the VAT factor before).
+  const inclState: BuilderState = {
+    ...state,
+    lines: [
+      { key: "d", productId: "p9", title: "Dash Cam", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 990000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: true },
+    ],
+  };
+  const props = toDocumentProps(inclState, business, {
+    createdBy: "Rakesh",
+    customerName: "Jean-Pierre Laval",
+    customerCountry: "Mauritius",
+    terms: ["Quotation is valid for 5 days."],
+    pricesInclVat: true,
+  });
+
+  it("shows the exact gross as Rate, Amount, Subtotal and Total — not 1.15× it", () => {
+    expect(props.lines[0].rateCents).toBe(990000);   // was grossCents(990000)=1138500
+    expect(props.lines[0].amountCents).toBe(990000);
+    expect(props.subtotalCents).toBe(990000);
+    expect(props.totalCents).toBe(990000);
+  });
+
+  it("extracts VAT from the gross (9900 × 15/115), not adds it on top", () => {
+    expect(props.vatCents).toBe(129130); // round(990000 × 15/115); NOT round(990000 × 0.15)=148500
+  });
+});
+
 const PREVIEW = {
   createdBy: "Rakesh",
   customerName: "Jean-Pierre Laval",

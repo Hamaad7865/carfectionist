@@ -89,7 +89,7 @@ import mu.carfection.pos.core.data.DiscountMode
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.formatMUR
-import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.parseMoneyToCents
@@ -304,9 +304,7 @@ fun CounterScreen(
                                     // A flagged line's stored unit IS the shelf figure — show it as
                                     // stored; re-grossing it would print the "× Rs 1,150" that made a
                                     // typed 1000 look like 1000.01 (20260812000020).
-                                    val unitShown = if (l.priceInclusive) l.product.sellingPriceCents
-                                                    else if (s.pricesInclVat) grossCents(l.product.sellingPriceCents, l.product.vatRatePct)
-                                                    else l.product.sellingPriceCents
+                                    val unitShown = shelfCents(l.product.sellingPriceCents, l.product.vatRatePct, s.pricesInclVat, l.priceInclusive)
                                     Text(
                                         "${l.qty.toInt()} × ${formatMUR(unitShown)}" + discountNote +
                                             (if (l.isAdhoc) "  ·  ad-hoc" else ""),
@@ -573,7 +571,7 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
             }
             Text(meta, color = metaC, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, maxLines = 1)
             // Shelf price when the shop quotes gross — the stored figure stays net.
-            Text(formatMUR(if (inclVat) grossCents(p.sellingPriceCents, p.vatRatePct) else p.sellingPriceCents), color = TextSecondary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
+            Text(formatMUR(shelfCents(p.sellingPriceCents, p.vatRatePct, inclVat, p.priceInclusive)), color = TextSecondary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, maxLines = 1)
         }
         val ohRaw = onHand ?: 0
         val short = if (p.isStocked && inCartQty != null) ohRaw - inCartQty else 0

@@ -1,4 +1,4 @@
-import { computeTotals, formatMUR, grossCents } from "@/lib/money";
+import { computeTotals, formatMUR, shelfCents } from "@/lib/money";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 import type { DocAssets } from "@/lib/pdf/assets";
 import type { BuilderState } from "./state";
@@ -39,7 +39,10 @@ export function toDocumentProps(
   opts: PreviewOpts,
 ): DocumentA4Props {
   const totals = computeTotals(
-    state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct })),
+    // priceInclusive MUST ride along: a gross-quoting line stores its unit as the exact gross
+    // with the flag set, and without it computeLineTotals would treat that gross as NET and add
+    // VAT again — inflating the printed A4 rate, amount, VAT and total by the VAT factor.
+    state.lines.map((l) => ({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct, priceInclusive: l.priceInclusive })),
     state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null,
   );
   const lines = state.lines.map((l, i) => ({
@@ -48,7 +51,7 @@ export function toDocumentProps(
     rich: l.rich ?? null,
     unit: l.unitLabel?.trim() || null,
     qty: l.qty,
-    rateCents: opts.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents,
+    rateCents: shelfCents(l.unitCents, l.vatRatePct, opts.pricesInclVat ?? false, l.priceInclusive),
     amountCents: opts.pricesInclVat
       ? totals.lines[i].exclCents + totals.lines[i].vatCents
       : totals.lines[i].exclCents,

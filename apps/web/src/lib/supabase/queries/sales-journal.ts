@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
-import { rupeesToCents } from "@/lib/money";
+import { rupeesToCents, netFromGrossCents } from "@/lib/money";
 import { MU_OFFSET_MS } from "@/lib/mu-date";
 
 // Sales Journal — the Cashmag "Journal de ventes" parity report.
@@ -135,6 +135,8 @@ export interface RawLine {
   vat_rate: number | string;
   line_total_excl: number | string;
   line_vat: number | string;
+  /** True: unit_price IS the VAT-inclusive gross, so the list basis extracts VAT (20260812000030). */
+  price_includes_vat?: boolean | null;
   products?: { name: string; category: string | null } | null;
 }
 export interface JournalInput {
@@ -325,11 +327,14 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     own.forEach((l, i) => {
       const excl = s * exclAlloc[i];
       const tax = s * vatAlloc[i];
-      // Gross = what the line would have been at list price, before BOTH the
-      // per-line discount and this line's share of the whole-sale discount.
-      const gross = s * rupeesToCents(Number(l.qty) * Number(l.unit_price));
-
       const ratePct = Number(l.vat_rate);
+      // Gross = what the line would have been at list price, before BOTH the per-line discount
+      // and this line's share of the whole-sale discount — stated in the SAME (net) basis as
+      // `excl`, so `gross - excl` is a real discount. A price_includes_vat line stores unit_price
+      // as the GROSS, so extract VAT first; otherwise unit_price is already net (20260812000030).
+      const listCents = rupeesToCents(Number(l.qty) * Number(l.unit_price));
+      const gross = s * (l.price_includes_vat === true ? netFromGrossCents(listCents, ratePct) : listCents);
+
       const t = byTax.get(ratePct) ?? { label: taxLabel(ratePct), ratePct, taxCents: 0, discountCents: 0, exclCents: 0, inclCents: 0 };
       t.taxCents += tax;
       t.exclCents += excl;
@@ -427,7 +432,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     fetchAllRows<any>(() =>
       sb
         .from("document_lines")
-        .select("id, document_id, title, qty, unit_price, vat_rate, line_total_excl, line_vat, products(name, category)")
+        .select("id, document_id, title, qty, unit_price, vat_rate, line_total_excl, line_vat, price_includes_vat, products(name, category)")
         .in("document_id", docIds),
     ),
     sessionIds.length ? fetchAllRows<any>(() => sb.from("cash_sessions").select("id, device_id").in("id", sessionIds)) : Promise.resolve([] as any[]),

@@ -225,6 +225,19 @@ fun grossCents(netCents: Long, vatRatePct: Double): Long {
 fun netFromGrossCents(gross: Long, vatRatePct: Double): Long =
     Math.round(gross / (1.0 + vatRatePct / 100.0))
 
+/**
+ * The shelf price to SHOW for one catalogue unit — the tablet's mirror of the web's shelfCents
+ * (lib/money/format.ts). DISPLAY ONLY.
+ *  - A price_includes_vat unit (20260812000030): `unitCents` IS the exact gross the owner typed,
+ *    so show it verbatim; re-grossing it would double the VAT.
+ *  - Otherwise on a VAT-inclusive shop: net → its own rounded gross, as always.
+ *  - VAT-exclusive shop: the stored net is the figure on screen.
+ */
+fun shelfCents(unitCents: Long, vatRatePct: Double, pricesInclVat: Boolean, priceInclusive: Boolean): Long =
+    if (priceInclusive) unitCents
+    else if (pricesInclVat) grossCents(unitCents, vatRatePct)
+    else unitCents
+
 /** Rupees (DB numeric as Double) → cents. Values are ≤2dp by DB constraint. */
 fun rupeesToCents(rupees: Double): Long =
     BigDecimal.valueOf(rupees).movePointRight(2).setScale(0, RoundingMode.HALF_UP).longValueExact()

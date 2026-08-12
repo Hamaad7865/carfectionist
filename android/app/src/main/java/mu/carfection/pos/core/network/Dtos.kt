@@ -27,6 +27,8 @@ data class ProductDto(
     // 'inherit' | 'none' | 'carwash' | 'free' — how much of this line may be discounted.
     // See core/money/Allowance.kt#policyOf, the tablet's mirror of app.document_discount_limits.
     @SerialName("discount_policy") val discountPolicy: String = "inherit",
+    // True: selling_price IS the VAT-inclusive shelf price exactly as typed (20260812000030).
+    @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
 )
 
 @Serializable
@@ -402,6 +404,8 @@ data class StockProductDto(
     val category: String? = null,
     val barcode: String? = null,
     @SerialName("selling_price") val sellingPrice: FlexDouble = 0.0,
+    // True: selling_price IS the VAT-inclusive shelf price exactly as typed (20260812000030).
+    @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
     // Needed to show the shelf price when the shop quotes VAT-inclusive; null = tenant default.
     @SerialName("vat_rate") val vatRate: FlexDouble? = null,
     @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,

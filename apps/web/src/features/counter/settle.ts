@@ -216,6 +216,10 @@ function allowanceLine(l: CartLine): AllowanceLineInput {
     discountKind: l.discountKind,
     discountPct: l.discountPct,
     discountAmountCents: l.discountAmountCents,
+    // A price_includes_vat product's priceCents IS the gross, so the ceiling must extract VAT,
+    // not re-gross it — otherwise the till permits a discount the SQL app.document_discount_limits
+    // (which branches on the same flag) then refuses inside issue_document, at the till.
+    priceInclusive: l.product.priceIncludesVat,
   };
 }
 

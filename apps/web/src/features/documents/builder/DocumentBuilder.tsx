@@ -20,7 +20,7 @@ const RichEditor = dynamic(() => import("./RichEditor"), {
     <div className="rounded-[9px] border border-line-2 bg-sub px-3 py-4 text-[12px] text-faint">Loading editor…</div>
   ),
 });
-import { computeTotals, computeLineTotals, computeAllowance, lineAllowanceCents, policyOf, formatMUR, parseMoneyInput, grossCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
+import { computeTotals, computeLineTotals, computeAllowance, lineAllowanceCents, policyOf, formatMUR, parseMoneyInput, grossCents, shelfCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
@@ -526,7 +526,10 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                           // gross is stored as shown with price_includes_vat, so the ledger
                           // extracts the VAT and the line lands on the displayed number —
                           // the same rule the tablet's quote builder applies (20260812000020).
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: ctx.pricesInclVat ? grossCents(p.unitCents, p.vatRatePct) : p.unitCents, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
+                          // A price_includes_vat product carries the EXACT gross the owner typed
+                          // (20260812000030); shelfCents shows it verbatim instead of re-grossing a
+                          // net, so its 9,900 dash cam lands on 9,900.00, not 9,900.01.
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat), priceInclusive: p.priceIncludesVat || ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -539,7 +542,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         )}
                         <span className="w-14 text-[9px] font-bold uppercase tracking-wide text-link">{p.kind}</span>
                         <span className="flex-1 text-[13px] font-semibold text-body">{p.name}</span>
-                        <span className="num text-[12.5px] font-bold text-muted">{formatMUR(ctx.pricesInclVat ? grossCents(p.unitCents, p.vatRatePct) : p.unitCents)}</span>
+                        <span className="num text-[12.5px] font-bold text-muted">{formatMUR(shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat))}</span>
                         <span className="grid size-6 place-items-center rounded-[7px] bg-[rgba(43,140,255,0.14)] text-link"><Plus size={14} strokeWidth={2.6} /></span>
                       </button>
                     ))}

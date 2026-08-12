@@ -207,7 +207,11 @@ class ContactsViewModel @Inject constructor(
                 reload()
             }.onFailure { e ->
                 val msg = e.message ?: ""
-                val dup = msg.contains("duplicate", true) || msg.contains("plate", true)
+                // Match the unique-violation SIGNAL, never the bare word "plate": supabase-kt appends
+                // the request URL (…/vehicles?select=…,plate,…) to every error, so contains("plate")
+                // fired on EVERY failure — an expired session then read as "already registered" for a
+                // plate nobody holds. "duplicate"/"plate_normalized" only appear in a real 23505.
+                val dup = msg.contains("duplicate", true) || msg.contains("plate_normalized", true)
                 if (dup) {
                     // Name the holder, as intake does - a bare "already exists" is what drove
                     // staff to invent placeholder plates.

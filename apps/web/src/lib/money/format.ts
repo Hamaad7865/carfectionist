@@ -24,6 +24,20 @@ export function netFromGrossCents(gross: number, vatRatePct: number): number {
   return Math.round(gross / (1 + vatRatePct / 100));
 }
 
+/**
+ * The shelf price to SHOW for one catalogue unit, honouring both the shop's pricing
+ * basis and the product's own price_includes_vat flag (20260812000030). DISPLAY ONLY —
+ * never feed the result into a total or payload (a flagged line stores its gross and lets
+ * the ledger extract VAT; grossing a stored gross would double it).
+ *  - Flagged product: `unitCents` IS the exact gross the owner typed → show it verbatim.
+ *  - Unflagged on a VAT-inclusive shop: net → its own rounded gross, exactly as before.
+ *  - VAT-exclusive shop: the stored net is the figure on screen.
+ */
+export function shelfCents(unitCents: number, vatRatePct: number, pricesInclVat: boolean, priceIncludesVat = false): number {
+  if (priceIncludesVat) return unitCents;
+  return pricesInclVat ? grossCents(unitCents, vatRatePct) : unitCents;
+}
+
 export function formatMUR(value: number): string {
   const n = Math.trunc(value);
   const negative = n < 0;

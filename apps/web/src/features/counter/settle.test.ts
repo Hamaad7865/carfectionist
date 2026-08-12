@@ -30,6 +30,7 @@ const product = (id: string, priceCents: number, discountPolicy: DiscountPolicy 
   priceCents,
   vatRate: 15,
   discountPolicy,
+  priceIncludesVat: false,
   barcode: null,
   photoUrl: null,
   isStocked: true,
@@ -41,6 +42,9 @@ const brakePad = product("p1", 100_000);
 const wiper = product("p2", 20_000);
 /** Rs 1,000.00 net @ 15% → Rs 1,150.00 on the shelf; a carwash may give away 5% of that = Rs 57.50. */
 const carwash = product("s1", 100_000, "carwash");
+/** A price_includes_vat carwash: priceCents IS the Rs 1,000.00 gross, so 5% = Rs 50.00 (not 57.50).
+ *  The ceiling must extract VAT, matching SQL app.document_discount_limits (20260812000030). */
+const flaggedCarwash: CounterProduct = { ...product("s2", 100_000, "carwash"), priceIncludesVat: true };
 /** A service the owner discounts by nothing at all. */
 const bodyPolish = product("s2", 100_000, "none");
 
@@ -361,6 +365,12 @@ describe("what a line's discount control may offer", () => {
 
   it("caps the Rs ceiling per quantity, not per unit", () => {
     expect(lineDiscountLimits({ product: carwash, qty: 2 }).amtMaxCents).toBe(11_500);
+  });
+
+  it("caps a price_includes_vat carwash on the typed gross, not a re-grossed net", () => {
+    // priceCents 100_000 IS the Rs 1,000.00 gross → 5% = Rs 50.00 (5_000c). Dropping the flag
+    // re-grosses it to Rs 1,150.00 and would wrongly permit Rs 57.50, which the DB then refuses.
+    expect(lineDiscountLimits({ product: flaggedCarwash, qty: 1 }).amtMaxCents).toBe(5_000);
   });
 
   /**

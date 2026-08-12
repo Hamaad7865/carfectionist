@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle, PanelLeftClose, PanelLeftOpen, KeyRound } from "lucide-react";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
 import type { PosRules } from "@/lib/supabase/queries/builder";
-import { grossCents, formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
+import { shelfCents, formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
 import { counterSaleAction, type CounterResult } from "./actions";
 import { setProductPriceAction } from "@/features/products/actions";
@@ -148,7 +148,7 @@ export function CounterSale({
 
   const totals = useMemo(
     () => computeTotals(
-      cart.map((l) => ({ qty: l.qty, unitCents: l.product.priceCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.product.vatRate })),
+      cart.map((l) => ({ qty: l.qty, unitCents: l.product.priceCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.product.vatRate, priceInclusive: l.product.priceIncludesVat })),
       orderDiscKind ? { kind: orderDiscKind, value: orderDiscValue } : null,
     ),
     [cart, orderDiscKind, orderDiscValue],
@@ -452,7 +452,7 @@ export function CounterSale({
                   // one, so tapping Wiper 24 turned "Rs 573.91" into "Rs 660.00 each" —
                   // the tablet has always grossed it up here (CounterScreen.kt tile).
                   <span className="num mt-auto text-[13px] font-extrabold text-ink">
-                    {formatMUR(pricesInclVat ? grossCents(p.priceCents, p.vatRate) : p.priceCents)}
+                    {formatMUR(shelfCents(p.priceCents, p.vatRate, pricesInclVat, p.priceIncludesVat))}
                   </span>
                 )}
               </button>
@@ -498,7 +498,7 @@ export function CounterSale({
             <div className="py-12 text-center text-[13px] text-faint">Tap products to build the sale.</div>
           ) : (
             cart.map((l) => {
-              const lt = computeLineTotals({ qty: l.qty, unitCents: l.product.priceCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.product.vatRate });
+              const lt = computeLineTotals({ qty: l.qty, unitCents: l.product.priceCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.product.vatRate, priceInclusive: l.product.priceIncludesVat });
               // What this line's own control may give away — app.document_discount_limits
               // computes the same ceiling server-side from the product join.
               const lim = lineDiscountLimits(l, posRules.carwashPct);
@@ -506,7 +506,7 @@ export function CounterSale({
               <div key={l.product.id} className="flex items-center gap-2 border-b border-line py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12.5px] font-semibold text-body">{l.product.name}</div>
-                  <div className="num text-[11px] text-faint">{formatMUR(pricesInclVat ? grossCents(l.product.priceCents, l.product.vatRate) : l.product.priceCents)} each</div>
+                  <div className="num text-[11px] text-faint">{formatMUR(shelfCents(l.product.priceCents, l.product.vatRate, pricesInclVat, l.product.priceIncludesVat))} each</div>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button disabled={frozen} onClick={() => setQty(l.product.id, l.qty - 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body disabled:opacity-50"><Minus size={13} /></button>

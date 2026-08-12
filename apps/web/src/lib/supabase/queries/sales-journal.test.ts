@@ -192,6 +192,21 @@ describe("sales journal — whole-sale discount", () => {
     expect(j.totalInclCents).toBe(0);
     expect(j.taxes[0].discountCents).toBe(100_000); // the whole list price was given away
   });
+
+  it("does NOT invent a discount for a price_includes_vat line sold at list", () => {
+    // The dash cam: unit_price IS the Rs 9,900 gross, extracted to 8,608.70 net + 1,291.30 VAT,
+    // sold with NO discount. The list basis must extract VAT too, or gross−excl = the VAT and the
+    // Remise column shows a phantom Rs 1,291.30 that nobody gave away (20260812000030).
+    const j = buildSalesJournal(FROM, TO, input({
+      docs: [{ id: "dc", doc_type: "invoice", business_day: FROM, total_incl: 9900.00, subtotal_excl: 8608.70, vat_total: 1291.30, customer_id: "c1", issued_by: "u1", cash_session_id: null, issued_at: null }],
+      payments: [{ document_id: "dc", method: "cash", amount: 9900.00 }],
+      lines: [
+        { document_id: "dc", qty: 1, unit_price: 9900.00, vat_rate: 15, line_total_excl: 8608.70, line_vat: 1291.30, price_includes_vat: true, products: { name: "Dash Cam", category: "DASHCAM" } },
+      ],
+    }));
+    expectFooting(j);
+    expect(j.taxes[0].discountCents).toBe(0); // was 129130 (the VAT) before the flag was honoured
+  });
 });
 
 describe("sales journal — credit notes", () => {

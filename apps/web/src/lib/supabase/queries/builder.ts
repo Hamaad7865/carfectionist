@@ -37,6 +37,9 @@ export interface CatalogueProduct {
   kind: string;
   /** How much of this product may be discounted: inherit | none | carwash | free. */
   discountPolicy: string;
+  /** True: unitCents IS the VAT-inclusive shelf price exactly as typed (20260812000030) —
+   *  a line from it is flagged and the ledger extracts the VAT, so it lands on the figure. */
+  priceIncludesVat: boolean;
   photoUrl: string | null;
 }
 export interface BuilderCustomer {
@@ -79,7 +82,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
   const [bsRes, tmplRes, prodRes, custRes] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
-    sb.from("products").select("id, name, selling_price, vat_rate, is_stocked, kind, photo_path, discount_policy").eq("is_active", true).order("kind").order("name"),
+    sb.from("products").select("id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy").eq("is_active", true).order("kind").order("name"),
     sb.from("customers").select("id, name, country, email, phone, brn, vat_number").order("name"),
   ]);
 
@@ -121,6 +124,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       isStocked: p.is_stocked,
       kind: p.kind,
       discountPolicy: p.discount_policy,
+      priceIncludesVat: p.price_includes_vat === true,
       photoUrl: productPhotoUrl(p.photo_path),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -22,6 +22,10 @@ data class ProductEntity(
     val photoPath: String? = null, // product-photos bucket object path; null = no reference photo
     // 'inherit' | 'none' | 'carwash' | 'free' — see core/money/Allowance.kt#policyOf.
     val discountPolicy: String = "inherit",
+    // True: sellingPriceCents IS the VAT-inclusive shelf price exactly as typed (20260812000030) —
+    // a line from it is flagged, so the ledger extracts VAT and the line lands on the figure.
+    // False (default): sellingPriceCents is VAT-exclusive and VAT is added on top.
+    val priceInclusive: Boolean = false,
 ) {
     /** Business rule: blank = 10, hard cap 20 (mirrors the DB check + web form). */
     val effectiveLowStock: Int

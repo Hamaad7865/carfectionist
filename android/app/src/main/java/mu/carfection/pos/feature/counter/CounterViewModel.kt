@@ -47,7 +47,7 @@ import mu.carfection.pos.core.money.LineInput
 import mu.carfection.pos.core.money.centsToPlainText
 import mu.carfection.pos.core.money.computeTotals
 import mu.carfection.pos.core.money.formatMUR
-import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.money.lineExclCents
 import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
@@ -1499,7 +1499,11 @@ class CounterViewModel @Inject constructor(
 
     /** A new cart line stamped with the shop's live discount rules, so its clamp matches
      *  what the DB will enforce the moment it is added (see CounterUiState.carwashPct). */
-    private fun cartLineOf(p: ProductEntity, qty: Double, oversellOk: Boolean = false, priceInclusive: Boolean = false): CartLine {
+    // A flagged catalogue product (price_includes_vat, 20260812000030) carries its exact gross
+    // in sellingPriceCents, so its line inherits the flag and the ledger extracts VAT — the
+    // dash cam rings up at 9,900.00, not 9,900.01. addAdhoc overrides this with the shop flag for
+    // a typed gross; a normal product defaults false and stays net + added VAT, exactly as before.
+    private fun cartLineOf(p: ProductEntity, qty: Double, oversellOk: Boolean = false, priceInclusive: Boolean = p.priceInclusive): CartLine {
         val s = local.value
         return CartLine(p, qty, oversellOk = oversellOk, carwashPct = s.carwashPct, policyDefaults = s.policyDefaults, priceInclusive = priceInclusive)
     }
@@ -1796,7 +1800,9 @@ class CounterViewModel @Inject constructor(
                         title = l.product.name,
                         qty = l.qty,
                         inclCents = charged,
-                        unitInclCents = grossCents(l.product.sellingPriceCents, l.product.vatRatePct),
+                        // The receipt always shows the gross unit; a flagged line's stored unit
+                        // IS that gross, so show it verbatim rather than re-grossing it (20260812000030).
+                        unitInclCents = shelfCents(l.product.sellingPriceCents, l.product.vatRatePct, pricesInclVat = true, priceInclusive = l.priceInclusive),
                         grossInclCents = if (discounted) l.lineGrossCents else charged,
                         discountPct = if (l.discountMode == DiscountMode.PCT) l.discountPct.toDouble() else 0.0,
                     )
@@ -1947,7 +1953,9 @@ class CounterViewModel @Inject constructor(
                 title = l.product.name,
                 qty = l.qty,
                 inclCents = charged,
-                unitInclCents = grossCents(l.product.sellingPriceCents, l.product.vatRatePct),
+                // A flagged line's stored unit IS the gross the owner typed (20260812000030) — show
+                // it as-is; re-grossing it would double the VAT and print a cent high.
+                unitInclCents = shelfCents(l.product.sellingPriceCents, l.product.vatRatePct, pricesInclVat = true, priceInclusive = l.priceInclusive),
                 grossInclCents = if (discounted) l.lineGrossCents else charged,
                 discountPct = if (l.discountMode == DiscountMode.PCT) l.discountPct.toDouble() else 0.0,
             )

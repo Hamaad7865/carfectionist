@@ -18,6 +18,9 @@ export interface CounterProduct {
    *  line_kind null, so the product answers alone — the same fallback the database's own
    *  app.document_discount_limits derives from its product join. */
   discountPolicy: DiscountPolicy;
+  /** True: priceCents IS the VAT-inclusive shelf price exactly as typed (20260812000030) —
+   *  the line inherits the flag and the ledger extracts VAT, so it lands on the figure. */
+  priceIncludesVat: boolean;
   barcode: string | null;
   photoUrl: string | null;
   isStocked: boolean;
@@ -28,7 +31,7 @@ export interface CounterProduct {
 export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number; pricesInclVat: boolean; posRules: PosRules }> {
   const sb = await createClient();
   const [prodData, bsRes, custData, ohData, locRes] = await Promise.all([
-    fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, vat_rate, barcode, is_stocked, photo_path, discount_policy").eq("is_active", true).order("category").order("name")),
+    fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, photo_path, discount_policy").eq("is_active", true).order("category").order("name")),
     sb.from("business_settings").select("vat_rate, prices_vat_exclusive, discount_carwash_pct, default_policy_service, default_policy_goods").limit(1).maybeSingle(),
     fetchAllRows(() => sb.from("customers").select("id, name").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
@@ -62,6 +65,7 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
     priceCents: rupeesToCents(Number(p.selling_price)),
     vatRate: p.vat_rate == null ? vatDefault : Number(p.vat_rate),
     discountPolicy: policyOf(p.discount_policy, p.kind, posRules.policyDefaults),
+    priceIncludesVat: p.price_includes_vat === true,
     barcode: p.barcode ?? null,
     photoUrl: productPhotoUrl(p.photo_path),
     isStocked: !!p.is_stocked,

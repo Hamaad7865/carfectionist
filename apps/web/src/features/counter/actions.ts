@@ -81,7 +81,7 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
   const ids = [...new Set(p.data.lines.map((l) => l.productId))];
   const { data: prods, error: pe } = await sb
     .from("products")
-    .select("id, name, selling_price, vat_rate")
+    .select("id, name, selling_price, price_includes_vat, vat_rate")
     .in("id", ids);
   if (pe) return { ok: false, error: pe.message };
   const { data: bs } = await sb.from("business_settings").select("vat_rate").limit(1).maybeSingle();
@@ -108,9 +108,10 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       discount_amount: (l.discountAmountCents ?? 0) / 100,
       vat_rate: prod.vat_rate == null ? vatDefault : Number(prod.vat_rate),
       sort_order: i,
-      // Every counter line prices off the catalogue's stored NET — the added-VAT path,
-      // exactly as before the typed-price flag existed (20260812000020).
-      price_includes_vat: false,
+      // A flagged product's selling_price IS the exact gross the owner typed, so its line
+      // carries the flag and the ledger extracts VAT (20260812000030). An unflagged product
+      // keeps the stored-NET, added-VAT path exactly as before.
+      price_includes_vat: prod.price_includes_vat === true,
       // Every counter line comes from the catalogue, so its product answers for it.
       line_kind: null,
     };
@@ -136,6 +137,10 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       discountKind: l.discount_kind,
       discountAmountCents: Math.round(l.discount_amount * 100),
       vatRatePct: l.vat_rate,
+      // A flagged line's unit_price IS the gross — carry the flag so this recompute extracts VAT
+      // instead of adding it, or the change owed and the "Paid" figure shown/WhatsApp'd would be
+      // the VAT-inflated total while the issued invoice (DB) is correct.
+      priceInclusive: l.price_includes_vat,
     })),
     orderDiscount,
   );

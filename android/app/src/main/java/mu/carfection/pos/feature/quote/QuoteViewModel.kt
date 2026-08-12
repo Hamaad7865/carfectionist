@@ -43,6 +43,7 @@ import mu.carfection.pos.core.money.computeAllowance
 import mu.carfection.pos.core.money.computeDocTotals
 import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.grossCents
+import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
@@ -247,15 +248,18 @@ fun quoteLine(
     discountPolicy: DiscountPolicy = "none",
     carwashPct: Double = CARWASH_MAX_PCT.toDouble(),
     policyDefaults: PolicyDefaults = DEFAULT_POLICIES,
+    priceInclusive: Boolean = false,
 ): QuoteLine =
     QuoteLine(
         productId, title,
-        centsToPlainText(if (gross) grossCents(unitCents, vatRate) else unitCents),
+        // A flagged product's unitCents IS the exact gross the owner typed (20260812000030) —
+        // store it verbatim; shelfCents keeps re-grossing a net for a normal inclusive-shop line.
+        centsToPlainText(shelfCents(unitCents, vatRate, gross, priceInclusive)),
         vatRate, qty, priceIsGross = gross, discountPolicy = discountPolicy,
         carwashPct = carwashPct, policyDefaults = policyDefaults,
         // Under gross quoting the figure ON SCREEN is the price: store it as typed and let
         // the ledger extract the VAT, so it can never re-gross a cent off (20260812000020).
-        priceInclusive = gross,
+        priceInclusive = priceInclusive || gross,
     )
 
 data class QuoteState(
@@ -833,7 +837,7 @@ class QuoteViewModel @Inject constructor(
         if (!editable(st)) return@update st
         val i = st.lines.indexOfFirst { it.productId == p.id }
         val lines = if (i >= 0) st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
-        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind, st.policyDefaults), carwashPct = st.carwashPct, policyDefaults = st.policyDefaults)
+        else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind, st.policyDefaults), carwashPct = st.carwashPct, policyDefaults = st.policyDefaults, priceInclusive = p.priceInclusive)
         st.copy(lines = lines)
     }
 
@@ -1161,7 +1165,13 @@ class QuoteViewModel @Inject constructor(
             }.onFailure { e ->
                 // Name the holder rather than dead-ending on "already exists" — that is what
                 // drove staff to invent placeholder plates in the first place.
-                val dup = (e.message ?: "").contains("duplicate", true) || (e.message ?: "").contains("plate", true)
+                // Match the unique-violation SIGNAL, never the bare word "plate": supabase-kt
+                // appends the request URL (…/vehicles?select=id,plate,…) to every error message,
+                // so contains("plate") fired on EVERY failure — an expired session then read as
+                // "already registered" for a plate nobody holds. "duplicate" / "plate_normalized"
+                // only ever appear in a genuine 23505 on vehicles_active_plate_key.
+                val msg = e.message ?: ""
+                val dup = msg.contains("duplicate", true) || msg.contains("plate_normalized", true)
                 val owner = if (dup) api.vehicleOwnerByPlate(plate) else null
                 _s.update {
                     it.copy(
@@ -1723,7 +1733,7 @@ class QuoteViewModel @Inject constructor(
 
     fun addToBill(p: ProductEntity) = _s.update { st ->
         if (!st.billOpen) st else st.copy(
-            billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind, st.policyDefaults), carwashPct = st.carwashPct, policyDefaults = st.policyDefaults),
+            billLines = st.billLines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind, st.policyDefaults), carwashPct = st.carwashPct, policyDefaults = st.policyDefaults, priceInclusive = p.priceInclusive),
         )
     }
 

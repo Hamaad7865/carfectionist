@@ -5,7 +5,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [ProductEntity::class, CustomerEntity::class],
-    version = 7, // v7: +customers.pointsBalance (read-cache; destructive migration rebuilds it, same as v4/v5/v6)
+    version = 8, // v8: +products.priceInclusive (read-cache; destructive migration rebuilds it, same as v4-v7)
     exportSchema = false,
 )
 abstract class PosDatabase : RoomDatabase() {

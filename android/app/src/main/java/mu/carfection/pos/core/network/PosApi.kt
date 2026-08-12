@@ -25,7 +25,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Reads (catalogue sync; RLS scopes everything to the tenant) ──────────
     suspend fun fetchProducts(): List<ProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, kind, selling_price, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy")) {
+            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy")) {
                 filter { eq("is_active", true) }
             }
             .decodeList()
@@ -282,7 +282,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Stock ─────────────────────────────────────────────────────────────────────
     suspend fun fetchStockProducts(): List<StockProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, category, barcode, selling_price, vat_rate, low_stock_threshold, photo_path")) {
+            .select(Columns.raw("id, name, category, barcode, selling_price, price_includes_vat, vat_rate, low_stock_threshold, photo_path")) {
                 filter { eq("is_active", true); eq("is_stocked", true) }
                 order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }
