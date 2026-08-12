@@ -84,6 +84,11 @@ data class DocLineIn(
 
 data class DocDiscountTotals(
     val lineExclCents: List<Long>,
+    // Per-line VAT (pre-order-discount), paired with lineExclCents. A line's own inclusive
+    // total is lineExclCents[i] + lineVatCents[i] — which equals grossCents(excl) for a
+    // normal line but, for a price_includes_vat line, is the typed figure exactly. The
+    // counter's line amount and gross subtotal read it so they never re-gross a cent off.
+    val lineVatCents: List<Long>,
     val orderDiscountInclCents: Long, // what the order discount actually takes off (incl)
     val subtotalCents: Long,
     val vatCents: Long,
@@ -148,7 +153,7 @@ fun computeDocTotals(
     if (dIncl == 0L) {
         val sub = groups.sumOf { it.base0 }
         val v = groups.sumOf { it.vat0 }
-        return DocDiscountTotals(excl, 0L, sub, v, sub + v)
+        return DocDiscountTotals(excl, vat, 0L, sub, v, sub + v)
     }
 
     // d_raw = round(d_incl × incl_g / gross); the largest-incl group (tie → lower
@@ -167,7 +172,7 @@ fun computeDocTotals(
         sub += base
         vatSum += net - base
     }
-    return DocDiscountTotals(excl, dIncl, sub, vatSum, sub + vatSum)
+    return DocDiscountTotals(excl, vat, dIncl, sub, vatSum, sub + vatSum)
 }
 
 /** Cents → a plain editable text ("6886.96") for price/discount input fields. */

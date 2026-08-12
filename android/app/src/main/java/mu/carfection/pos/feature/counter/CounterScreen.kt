@@ -301,8 +301,14 @@ fun CounterScreen(
                                         l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
                                         else -> ""
                                     }
+                                    // A flagged line's stored unit IS the shelf figure — show it as
+                                    // stored; re-grossing it would print the "× Rs 1,150" that made a
+                                    // typed 1000 look like 1000.01 (20260812000020).
+                                    val unitShown = if (l.priceInclusive) l.product.sellingPriceCents
+                                                    else if (s.pricesInclVat) grossCents(l.product.sellingPriceCents, l.product.vatRatePct)
+                                                    else l.product.sellingPriceCents
                                     Text(
-                                        "${l.qty.toInt()} × ${formatMUR(if (s.pricesInclVat) grossCents(l.product.sellingPriceCents, l.product.vatRatePct) else l.product.sellingPriceCents)}" + discountNote +
+                                        "${l.qty.toInt()} × ${formatMUR(unitShown)}" + discountNote +
                                             (if (l.isAdhoc) "  ·  ad-hoc" else ""),
                                         color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                                     )

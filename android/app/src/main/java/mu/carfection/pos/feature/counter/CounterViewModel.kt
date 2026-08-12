@@ -402,7 +402,10 @@ data class CounterUiState(
         get() = DocTotals(emptyList(), docTotals.subtotalCents, docTotals.vatCents, docTotals.totalCents)
 
     /** Each cart row at the price it will be billed — line discount applied, VAT added. */
-    fun rowGrossCents(i: Int): Long = grossCents(docTotals.lineExclCents[i], cart[i].product.vatRatePct)
+    // The line's own inclusive total = excl + its VAT. Identical to grossCents(excl) for a
+    // normal line, but for a price_includes_vat line it is the typed figure exactly (the
+    // ledger extracts the VAT), so the row and the gross subtotal never re-gross a cent off.
+    fun rowGrossCents(i: Int): Long = docTotals.lineExclCents[i] + docTotals.lineVatCents[i]
 
     val orderDiscountKind: String?
         get() = when {

@@ -85,8 +85,11 @@ class MoneyTest {
             null, 0.0, 0,
         )
         assertEquals(869_57L, t.lineExclCents[0])
-        assertEquals(130_43L, t.vatCents) // extracted, not added — that's what makes it exact
+        assertEquals(130_43L, t.lineVatCents[0]) // extracted, not added — that's what makes it exact
+        assertEquals(130_43L, t.vatCents)
         assertEquals(1_000_00L, t.totalCents)
+        // The row's own inclusive total (what the counter prints) IS the typed figure.
+        assertEquals(1_000_00L, t.lineExclCents[0] + t.lineVatCents[0])
     }
 
     @Test
