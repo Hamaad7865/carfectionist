@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle, PanelLeftClose, PanelLeftOpen } from "lucide-react";
+import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle, PanelLeftClose, PanelLeftOpen, KeyRound } from "lucide-react";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
+import type { PosRules } from "@/lib/supabase/queries/builder";
 import { grossCents, formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
 import { counterSaleAction, type CounterResult } from "./actions";
@@ -12,13 +13,19 @@ import { setProductPriceAction } from "@/features/products/actions";
 import { getReceiptDataAction } from "./receipt-action";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 import { btn, btnBase } from "@/components/ui/button";
+import { OwnerOverrideDialog } from "@/features/documents/OwnerOverrideDialog";
 import {
   EMPTY_BASKET,
   addProduct,
+  basketAllowance,
+  discountBlockReason,
+  lineDiscountLimits,
   patchLine as patchLineIn,
   pickCustomer as pickCustomerIn,
+  setApprovedMax,
   setCustomerName,
   setOrderDiscount,
+  setOrderDiscountReason,
   setQty as setQtyIn,
   settleMessage,
   settleResolved,
@@ -41,11 +48,15 @@ const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 export function CounterSale({
   products,
   customers,
+  posRules,
   canPrice = false,
   pricesInclVat = false,
 }: {
   products: CounterProduct[];
   customers: { id: string; name: string }[];
+  /** The owner's live discount rules — the till clamps with the cap the DB will enforce,
+   *  not the constant it used to be hardcoded to. */
+  posRules: PosRules;
   /** Owner/manager: may put a price on an unpriced product from here. */
   canPrice?: boolean;
   /** The shop quotes VAT-inclusive shelf prices — show what the customer pays, as the tablet does. */
@@ -62,7 +73,7 @@ export function CounterSale({
   // The cart, its discounts and the customer are one value: everything a settle sends. Once an
   // attempt reaches issue_document they freeze together, so a retry re-sends the same request.
   const [basket, setBasket] = useState<Basket>(EMPTY_BASKET);
-  const { lines: cart, orderDiscKind, orderDiscValue, customer, customerId, pending, notice } = basket;
+  const { lines: cart, orderDiscKind, orderDiscValue, orderDiscReason, customer, customerId, pending, notice } = basket;
   const frozen = pending !== null;
   const [method, setMethod] = useState<Method>("cash");
   const [tender, setTender] = useState("");
@@ -73,7 +84,20 @@ export function CounterSale({
   const [done, setDone] = useState<Extract<CounterResult, { ok: true }> | null>(null);
   const [receipt, setReceipt] = useState<ReceiptData | null>(null);
   const [receiptError, setReceiptError] = useState(false);
-  const [saleKey, setSaleKey] = useState(() => crypto.randomUUID()); // stable per sale, rotates on reset
+  const [overrideOpen, setOverrideOpen] = useState(false);
+  // This sale's identity: the idempotency key, and the id the invoice will be drafted under.
+  // Minted together, rotated together, on either way a ticket can end — Start/Abandon, or the
+  // cart being emptied by hand.
+  //
+  // The draft id is named UP FRONT because "Ask the owner" must pin the override to a document
+  // that does not exist yet: app.assert_discount_allowed re-reads the approval by ref_id, and
+  // the counter drafts, issues and pays in one call. The tablet names it the same way
+  // (SaleRepository.draftIdFor). Rotating on empty is what stops a rebuilt basket inheriting an
+  // approval the owner never saw — clearing the client figure alone would not, because the
+  // override row is pinned to that id server-side.
+  const [saleIds, setSaleIds] = useState(() => ({ key: crypto.randomUUID(), draft: crypto.randomUUID() }));
+  const { key: saleKey, draft: draftId } = saleIds;
+  const rotateSaleIds = () => setSaleIds({ key: crypto.randomUUID(), draft: crypto.randomUUID() });
 
   // Pull the authoritative receipt for the completed sale so the panel shows
   // exactly what prints. The Print / PDF / share actions work regardless, so a
@@ -88,7 +112,7 @@ export function CounterSale({
   }, [done]);
 
   function newKey() {
-    setSaleKey(crypto.randomUUID());
+    rotateSaleIds();
   }
 
   const categories = useMemo(
@@ -130,13 +154,26 @@ export function CounterSale({
     [cart, orderDiscKind, orderDiscValue],
   );
 
+  // The database is the authority — app.assert_discount_allowed, raised from inside
+  // issue_document. This mirrors it so the till clamps the input and states the limit here,
+  // instead of the cashier meeting "discount exceeds allowance: Rs …" with a customer waiting.
+  const allowance = useMemo(() => basketAllowance(basket, posRules.carwashPct), [basket, posRules.carwashPct]);
+  const blockReason = useMemo(() => discountBlockReason(basket, posRules.carwashPct), [basket, posRules.carwashPct]);
+
   const custMatches = useMemo(() => {
     const s = customer.trim().toLowerCase();
     return s && !customerId ? customers.filter((c) => c.name.toLowerCase().includes(s)).slice(0, 6) : [];
   }, [customer, customerId, customers]);
 
   const add = (p: CounterProduct) => setBasket((b) => addProduct(b, p));
-  const setQty = (id: string, qty: number) => setBasket((b) => setQtyIn(b, id, qty));
+  // Emptying the cart ends the ticket, so the sale's identity rotates with it — `generation`
+  // is the basket's own signal for that, and it never moves while a settle is frozen, so a
+  // replay can never go out under a key different from the one it was sent with.
+  const setQty = (id: string, qty: number) => {
+    const next = setQtyIn(basket, id, qty);
+    if (next.generation !== basket.generation) rotateSaleIds();
+    setBasket(next);
+  };
   const patchLine = (id: string, patch: Partial<CartLine>) => setBasket((b) => patchLineIn(b, id, patch));
 
   const tenderCents = parseMoneyInput(tender);
@@ -147,6 +184,8 @@ export function CounterSale({
     if (cart.length === 0) return setError("Add at least one product.");
     if (method === "credit" && !customerId) return setError("Pick an existing customer for a credit sale — the amount owed is tracked against them.");
     if (method === "cash" && tenderCents != null && tenderCents < totals.totalCents) return setError("Tendered is less than the total.");
+    // issue_document would refuse this anyway; saying so here costs the customer no wait.
+    if (blockReason) return setError(blockReason);
     // Soft guard: a stocked line that exceeds on-hand will drive stock negative.
     // Warn (and let them proceed) — sales are never hard-blocked on stock.
     // Skipped while frozen: the invoice already issued, so its stock has already moved.
@@ -163,10 +202,14 @@ export function CounterSale({
       lines: cart.map((l) => ({ productId: l.product.id, qty: l.qty, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents })),
       orderDiscountKind: orderDiscKind,
       orderDiscountValue: orderDiscValue,
+      orderDiscountReason: orderDiscReason,
       method,
       tenderedCents: method === "cash" ? tenderCents : null,
       externalRef: method === "cash" ? undefined : ref,
       idempotencyKey: saleKey,
+      // The id the owner's approval was pinned to, if one was taken — the draft must land on
+      // it or assert_discount_allowed will not find the override.
+      draftId,
     });
     setBusy(false);
     if (r.ok) { setBasket(settleResolved); return setDone(r); }
@@ -456,6 +499,9 @@ export function CounterSale({
           ) : (
             cart.map((l) => {
               const lt = computeLineTotals({ qty: l.qty, unitCents: l.product.priceCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.product.vatRate });
+              // What this line's own control may give away — app.document_discount_limits
+              // computes the same ceiling server-side from the product join.
+              const lim = lineDiscountLimits(l, posRules.carwashPct);
               return (
               <div key={l.product.id} className="flex items-center gap-2 border-b border-line py-2.5">
                 <div className="min-w-0 flex-1">
@@ -467,9 +513,12 @@ export function CounterSale({
                   <span className="num w-6 text-center text-[13px] font-bold text-ink">{l.qty}</span>
                   <button disabled={frozen} onClick={() => setQty(l.product.id, l.qty + 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body disabled:opacity-50"><Plus size={13} /></button>
                 </div>
-                <div className="flex items-center rounded-[7px] border border-line-2 bg-sub" title="Line discount (% or Rs off)">
-                  <button disabled={frozen} onClick={() => patchLine(l.product.id, { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 })} className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint disabled:opacity-50">{l.discountKind === "amount" ? "Rs" : "%"}</button>
-                  <input value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")} readOnly={frozen} onChange={(e) => l.discountKind === "amount" ? patchLine(l.product.id, { discountAmountCents: parseMoneyInput(e.target.value) ?? 0 }) : patchLine(l.product.id, { discountPct: Math.min(100, Math.max(0, parseFloat(e.target.value) || 0)) })} inputMode="decimal" placeholder="disc" className="h-7 w-10 bg-transparent pr-1 text-right text-[11px] text-body outline-none placeholder:text-faint" />
+                <div
+                  className={`flex items-center rounded-[7px] border border-line-2 bg-sub ${lim.disabled ? "opacity-50" : ""}`}
+                  title={lim.disabled ? "This service is not discounted — ask the owner" : "Line discount (% or Rs off)"}
+                >
+                  <button disabled={frozen || lim.disabled} onClick={() => patchLine(l.product.id, { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 })} className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint disabled:cursor-not-allowed disabled:opacity-50">{l.discountKind === "amount" ? "Rs" : "%"}</button>
+                  <input value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")} readOnly={frozen} disabled={lim.disabled} onChange={(e) => l.discountKind === "amount" ? patchLine(l.product.id, { discountAmountCents: Math.min(lim.amtMaxCents, Math.max(0, parseMoneyInput(e.target.value) ?? 0)) }) : patchLine(l.product.id, { discountPct: Math.min(lim.pctMax, Math.max(0, parseFloat(e.target.value) || 0)) })} inputMode="decimal" placeholder="disc" className="h-7 w-10 bg-transparent pr-1 text-right text-[11px] text-body outline-none placeholder:text-faint disabled:cursor-not-allowed" />
                 </div>
                 <span className="num w-[84px] text-right text-[13px] font-bold text-ink">{formatMUR(pricesInclVat ? lt.exclCents + lt.vatCents : lt.exclCents)}</span>
                 <button disabled={frozen} onClick={() => setQty(l.product.id, 0)} className="text-faint hover:text-rose disabled:opacity-50 disabled:hover:text-faint"><X size={15} /></button>
@@ -504,6 +553,34 @@ export function CounterSale({
               />
             </div>
           </div>
+          {allowance.actualCents > 0 && (
+            <p className="mb-2 text-[11px] text-faint">
+              Up to {formatMUR(allowance.ceilingCents)} may be discounted on this sale.
+            </p>
+          )}
+          {allowance.reasonRequired && (
+            <input
+              value={orderDiscReason}
+              onChange={(e) => { const v = e.target.value; setBasket((b) => setOrderDiscountReason(b, v)); }}
+              readOnly={frozen}
+              required
+              placeholder="Why — e.g. regular customer, repeat wash"
+              className="mb-2 h-9 w-full rounded-[9px] border border-line-2 bg-sub px-2.5 text-[12.5px] text-ink outline-none read-only:opacity-60 placeholder:text-faint focus:border-brand"
+            />
+          )}
+          {blockReason && <p className="mb-2 text-[11px] font-semibold text-rose">{blockReason}</p>}
+          {/* The way out of the disabled Charge button: an owner's PIN, checked server-side,
+              raising the ceiling for this sale only. No save first — unlike the builder, the
+              till already knows the id its invoice will be drafted under. */}
+          {allowance.overCeiling && !frozen && (
+            <button
+              onClick={() => setOverrideOpen(true)}
+              title="An owner's PIN can approve this discount for this sale"
+              className="mb-2 flex h-9 w-full items-center justify-center gap-1.5 rounded-[9px] border border-line-2 bg-card text-[12.5px] font-semibold text-link hover:border-brand"
+            >
+              <KeyRound size={15} /> Ask the owner
+            </button>
+          )}
           <div className="flex justify-between text-[12.5px] text-muted"><span>Subtotal</span><span className="num">{formatMUR(totals.grossSubtotalCents)}</span></div>
           {totals.grossSubtotalCents !== totals.subtotalCents && (
             <div className="flex justify-between text-[12.5px] text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(totals.grossSubtotalCents - totals.subtotalCents)}</span></div>
@@ -568,7 +645,8 @@ export function CounterSale({
               and it sits in the collect list forever. */}
           <button
             onClick={() => complete()}
-            disabled={busy || cart.length === 0 || totals.totalCents <= 0}
+            disabled={busy || cart.length === 0 || totals.totalCents <= 0 || !!blockReason}
+            title={blockReason ?? undefined}
             className="grad-brand shadow-brand mt-3 flex h-12 w-full items-center justify-center rounded-[12px] text-[15px] font-extrabold text-white disabled:opacity-50"
           >
             {busy
@@ -583,6 +661,16 @@ export function CounterSale({
           </button>
         </div>
       </div>
+
+      {overrideOpen && (
+        <OwnerOverrideDialog
+          documentId={draftId}
+          docType="invoice"
+          requestedCents={allowance.actualCents}
+          onClose={() => setOverrideOpen(false)}
+          onApproved={(cents) => { setBasket((b) => setApprovedMax(b, cents)); setOverrideOpen(false); }}
+        />
+      )}
 
       {pricing && (
         <PriceProductDialog

@@ -2,7 +2,10 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, pickSalesFloor } from "@/lib/supabase/locations";
 import { productPhotoUrl } from "@/lib/supabase/storage";
-import { rupeesToCents } from "@/lib/money";
+import { rupeesToCents, policyOf, type DiscountPolicy } from "@/lib/money";
+// One reading of the owner's rules, shared with the builder — two copies of the coercion
+// would be exactly the client/DB divergence this feature exists to prevent.
+import { posRulesFrom, type PosRules } from "@/lib/supabase/queries/builder";
 
 export interface CounterProduct {
   id: string;
@@ -11,6 +14,10 @@ export interface CounterProduct {
   category: string | null;
   priceCents: number;
   vatRate: number;
+  /** How much of this may be given away. Every counter line is a catalogue line sending
+   *  line_kind null, so the product answers alone — the same fallback the database's own
+   *  app.document_discount_limits derives from its product join. */
+  discountPolicy: DiscountPolicy;
   barcode: string | null;
   photoUrl: string | null;
   isStocked: boolean;
@@ -18,11 +25,11 @@ export interface CounterProduct {
   warehouseQty: number; // on-hand everywhere else, summed (shown as a restock hint)
 }
 
-export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number; pricesInclVat: boolean }> {
+export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number; pricesInclVat: boolean; posRules: PosRules }> {
   const sb = await createClient();
   const [prodData, bsRes, custData, ohData, locRes] = await Promise.all([
-    fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, vat_rate, barcode, is_stocked, photo_path").eq("is_active", true).order("category").order("name")),
-    sb.from("business_settings").select("vat_rate, prices_vat_exclusive").limit(1).maybeSingle(),
+    fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, vat_rate, barcode, is_stocked, photo_path, discount_policy").eq("is_active", true).order("category").order("name")),
+    sb.from("business_settings").select("vat_rate, prices_vat_exclusive, discount_carwash_pct, default_policy_service, default_policy_goods").limit(1).maybeSingle(),
     fetchAllRows(() => sb.from("customers").select("id, name").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     getStockLocations(sb),
@@ -43,6 +50,9 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vatDefault = Number((bsRes.data as any)?.vat_rate ?? 15);
+  // The owner's live discount rules. The till clamps with these, not with the old constants,
+  // so its ceiling is the one app.document_discount_limits will actually enforce.
+  const posRules = posRulesFrom(bsRes.data);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const products: CounterProduct[] = (prodData as any[]).map((p) => ({
     id: p.id,
@@ -51,6 +61,7 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
     category: p.category ?? null,
     priceCents: rupeesToCents(Number(p.selling_price)),
     vatRate: p.vat_rate == null ? vatDefault : Number(p.vat_rate),
+    discountPolicy: policyOf(p.discount_policy, p.kind, posRules.policyDefaults),
     barcode: p.barcode ?? null,
     photoUrl: productPhotoUrl(p.photo_path),
     isStocked: !!p.is_stocked,
@@ -63,5 +74,5 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
   // tablet counter already does, and the two screens were quoting different figures.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const pricesInclVat = (bsRes.data as any)?.prices_vat_exclusive === false;
-  return { products, customers, vatDefault, pricesInclVat };
+  return { products, customers, vatDefault, pricesInclVat, posRules };
 }

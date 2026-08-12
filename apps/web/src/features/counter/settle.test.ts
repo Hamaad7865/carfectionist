@@ -1,15 +1,20 @@
 import { describe, it, expect } from "vitest";
-import { computeTotals } from "@/lib/money";
+import { computeTotals, formatMUR, type DiscountPolicy } from "@/lib/money";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
 import {
   EMPTY_BASKET,
   SETTLE_LOCK_NOTICE,
   addProduct,
+  basketAllowance,
+  discountBlockReason,
   isDeterministicRejection,
+  lineDiscountLimits,
   patchLine,
   pickCustomer,
+  setApprovedMax,
   setCustomerName,
   setOrderDiscount,
+  setOrderDiscountReason,
   setQty,
   settleMessage,
   settleResolved,
@@ -17,13 +22,14 @@ import {
   type Basket,
 } from "./settle";
 
-const product = (id: string, priceCents: number): CounterProduct => ({
+const product = (id: string, priceCents: number, discountPolicy: DiscountPolicy = "free"): CounterProduct => ({
   id,
   name: `Part ${id}`,
-  kind: "product",
+  kind: discountPolicy === "free" ? "product" : "service",
   category: null,
   priceCents,
   vatRate: 15,
+  discountPolicy,
   barcode: null,
   photoUrl: null,
   isStocked: true,
@@ -33,6 +39,10 @@ const product = (id: string, priceCents: number): CounterProduct => ({
 
 const brakePad = product("p1", 100_000);
 const wiper = product("p2", 20_000);
+/** Rs 1,000.00 net @ 15% → Rs 1,150.00 on the shelf; a carwash may give away 5% of that = Rs 57.50. */
+const carwash = product("s1", 100_000, "carwash");
+/** A service the owner discounts by nothing at all. */
+const bodyPolish = product("s2", 100_000, "none");
 
 /** Cart A: one Rs 1,000 line, 10% off the whole sale — the ticket the cashier tried to settle. */
 const cartA = (): Basket =>
@@ -207,6 +217,55 @@ describe("the whole-sale discount dies with the ticket", () => {
   });
 });
 
+/**
+ * `app.assert_discount_allowed` reads `documents.discount_reason` back, so the reason is
+ * document content the settle SENDS — which puts it in the basket, beside the discount it
+ * explains, rather than in a useState of its own.
+ */
+describe("the reason travels with the discount it explains", () => {
+  it("starts a ticket with nothing said", () => {
+    expect(EMPTY_BASKET.orderDiscReason).toBe("");
+  });
+
+  it("records why the discount was given", () => {
+    const b = setOrderDiscountReason(cartA(), "regular customer");
+
+    expect(b.orderDiscReason).toBe("regular customer");
+  });
+
+  /**
+   * The reason reaches the server on `documents.discount_reason`. A basket that freezes its
+   * discount but not the reason lets the cashier re-justify an invoice that already issued.
+   */
+  it("refuses to change once the settle reached issue_document", () => {
+    const frozen = setOrderDiscountReason(withSettleFailure(cartA(), paymentLost), "something else");
+
+    expect(frozen.orderDiscReason).toBe("");
+    expect(frozen.notice).toBe(SETTLE_LOCK_NOTICE);
+  });
+
+  it("dies with the ticket, like the discount it explains", () => {
+    const emptied = setQty(setOrderDiscountReason(cartA(), "regular customer"), "p1", 0);
+
+    expect(emptied.orderDiscKind).toBeNull();
+    expect(emptied.orderDiscReason).toBe("");
+  });
+
+  /** The transition guard again: an empty cart staying empty is not the end of a ticket. */
+  it("is not wiped by a line change on an already-empty cart", () => {
+    const typed = setOrderDiscountReason(setOrderDiscount(EMPTY_BASKET, "percent", 10), "repeat wash");
+    const b = setQty(typed, "p1", 0);
+
+    expect(b.orderDiscReason).toBe("repeat wash");
+  });
+
+  it("survives removing one line of two", () => {
+    const b = setQty(addProduct(setOrderDiscountReason(cartA(), "regular customer"), wiper), "p2", 0);
+
+    expect(b.orderDiscReason).toBe("regular customer");
+  });
+});
+
 describe("the discount survives everything that is not the end of a ticket", () => {
   /** Typing the discount before scanning is a normal flow — only the transition to empty clears. */
   it("a discount typed before the first scan still applies to it", () => {
@@ -273,6 +332,207 @@ describe("the cashier is steered to retry, not to abandon", () => {
   });
 });
 
+/**
+ * The web mirror of app.document_discount_limits, applied to a till basket. The DATABASE is
+ * the authority and refuses at issue_document; this is what lets the counter clamp the input
+ * and say the limit out loud, instead of the cashier meeting a raw Postgres error with a
+ * customer standing there.
+ */
+describe("what a line's discount control may offer", () => {
+  it("lets unrestricted goods go to anything", () => {
+    const l = lineDiscountLimits({ product: brakePad, qty: 1 });
+
+    expect(l.disabled).toBe(false);
+    expect(l.pctMax).toBe(100);
+    expect(l.amtMaxCents).toBe(Infinity);
+  });
+
+  it("shuts the control on a service that is discounted by nothing", () => {
+    expect(lineDiscountLimits({ product: bodyPolish, qty: 1 }).disabled).toBe(true);
+  });
+
+  it("caps a carwash at 5% of its shelf price", () => {
+    const l = lineDiscountLimits({ product: carwash, qty: 1 });
+
+    expect(l.disabled).toBe(false);
+    expect(l.pctMax).toBe(5);
+    expect(l.amtMaxCents).toBe(5_750); // 5% of Rs 1,150.00 incl
+  });
+
+  it("caps the Rs ceiling per quantity, not per unit", () => {
+    expect(lineDiscountLimits({ product: carwash, qty: 2 }).amtMaxCents).toBe(11_500);
+  });
+
+  /**
+   * The cap is the owner's to set (business_settings.discount_carwash_pct, 20260812000010).
+   * Reading the old 5 constant while the DB reads 10 would refuse a discount the shop now
+   * expressly allows — the same failure ed3c0ba was written to end.
+   */
+  it("follows the owner's cap, not the old constant", () => {
+    const l = lineDiscountLimits({ product: carwash, qty: 1 }, 10);
+
+    expect(l.pctMax).toBe(10);
+    expect(l.amtMaxCents).toBe(11_500); // 10% of Rs 1,150.00 incl
+  });
+
+  it("still falls back to 5% when the owner has set nothing", () => {
+    expect(lineDiscountLimits({ product: carwash, qty: 1 }).pctMax).toBe(5);
+  });
+});
+
+describe("the ticket says what it may give away, and refuses what it may not", () => {
+  const ticket = (p: CounterProduct, kind: "percent" | "amount" | null = null, value = 0) =>
+    kind ? setOrderDiscount(addProduct(EMPTY_BASKET, p), kind, value) : addProduct(EMPTY_BASKET, p);
+
+  it("asks nothing of an undiscounted sale", () => {
+    const b = ticket(carwash);
+
+    expect(basketAllowance(b).actualCents).toBe(0);
+    expect(basketAllowance(b).reasonRequired).toBe(false);
+    expect(discountBlockReason(b)).toBeNull();
+  });
+
+  /** Goods cover their own discount, so the reason box must not nag on a normal parts sale. */
+  it("asks no reason when goods cover the whole discount", () => {
+    const b = ticket(brakePad, "amount", 5_000);
+
+    expect(basketAllowance(b).reasonRequired).toBe(false);
+    expect(discountBlockReason(b)).toBeNull();
+  });
+
+  it("wants a reason once the discount reaches a carwash allowance", () => {
+    const b = ticket(carwash, "amount", 5_000);
+
+    expect(basketAllowance(b).overCeiling).toBe(false);
+    expect(basketAllowance(b).reasonRequired).toBe(true);
+    expect(discountBlockReason(b)).toContain("reason");
+  });
+
+  it("is satisfied once the reason is typed", () => {
+    const b = setOrderDiscountReason(ticket(carwash, "amount", 5_000), "regular customer");
+
+    expect(discountBlockReason(b)).toBeNull();
+  });
+
+  it("is not satisfied by whitespace", () => {
+    const b = setOrderDiscountReason(ticket(carwash, "amount", 5_000), "   ");
+
+    expect(discountBlockReason(b)).toContain("reason");
+  });
+
+  /** A raised cap must reach the whole-sale check too, not just the line controls. */
+  it("lets the ticket give away what a raised cap allows", () => {
+    const b = ticket(carwash, "amount", 10_000); // over 5%, within 10%
+
+    expect(discountBlockReason(b)).toContain("ask the owner");
+    // At the owner's raised cap it is within allowance — so the block softens from "ask the
+    // owner" to merely owing a reason, which the cashier can answer themselves.
+    expect(basketAllowance(b, 10).overCeiling).toBe(false);
+    expect(discountBlockReason(b, 10)).toContain("reason");
+    expect(discountBlockReason(setOrderDiscountReason(b, "regular customer"), 10)).toBeNull();
+  });
+
+  it("sends the cashier to the owner past the ceiling, naming it", () => {
+    const b = ticket(carwash, "amount", 10_000); // Rs 100 off a Rs 57.50 allowance
+
+    expect(basketAllowance(b).overCeiling).toBe(true);
+    expect(discountBlockReason(b)).toContain("ask the owner");
+    expect(discountBlockReason(b)).toContain(formatMUR(5_750));
+  });
+
+  /** A reason cannot buy what only the owner can give. */
+  it("stays blocked past the ceiling even with a reason", () => {
+    const b = setOrderDiscountReason(ticket(carwash, "amount", 10_000), "regular customer");
+
+    expect(discountBlockReason(b)).toContain("ask the owner");
+  });
+
+  it("refuses any discount at all on a service that allows none", () => {
+    const b = ticket(bodyPolish, "percent", 1);
+
+    expect(basketAllowance(b).ceilingCents).toBe(0);
+    expect(discountBlockReason(b)).toContain("ask the owner");
+  });
+
+  /** The whole-sale field is the back door the DB closes: it spreads across services too. */
+  it("counts a whole-sale discount against the ceiling, not just line discounts", () => {
+    const b = setOrderDiscount(addProduct(addProduct(EMPTY_BASKET, carwash), bodyPolish), "percent", 50);
+
+    expect(discountBlockReason(b)).toContain("ask the owner");
+  });
+});
+
+/**
+ * The owner's approval is recorded server-side against a DOCUMENT ID, and
+ * app.assert_discount_allowed re-reads it by that id. The till has no document until it
+ * charges, so it names its draft id ahead of time — which makes the id's lifecycle a money
+ * question: a fresh basket must never inherit the previous one's approval.
+ */
+describe("an owner's approval belongs to the sale it was given for", () => {
+  const overCeiling = () => setOrderDiscount(addProduct(EMPTY_BASKET, carwash), "amount", 10_000);
+
+  it("starts a ticket with no approval", () => {
+    expect(EMPTY_BASKET.approvedMaxCents).toBeNull();
+    expect(EMPTY_BASKET.generation).toBe(0);
+  });
+
+  it("lifts the ceiling once the owner has approved that much", () => {
+    expect(discountBlockReason(overCeiling())).toContain("ask the owner");
+
+    const approved = setApprovedMax(overCeiling(), 10_000);
+
+    expect(basketAllowance(approved).overCeiling).toBe(false);
+    expect(discountBlockReason(approved)).toBeNull();
+  });
+
+  /** An approval carries its own reason, so it answers that too — as the DB's guard does. */
+  it("answers the reason box as well", () => {
+    const b = setApprovedMax(setOrderDiscount(addProduct(EMPTY_BASKET, carwash), "amount", 5_000), 5_000);
+
+    expect(basketAllowance(b).reasonRequired).toBe(false);
+    expect(discountBlockReason(b)).toBeNull();
+  });
+
+  it("still refuses a discount beyond what was approved", () => {
+    const approved = setApprovedMax(setOrderDiscount(addProduct(EMPTY_BASKET, carwash), "amount", 20_000), 10_000);
+
+    expect(discountBlockReason(approved)).toContain("ask the owner");
+  });
+
+  /**
+   * The hole this closes: emptying the basket and ringing up something else must not inherit
+   * the approval. Clearing the client figure is not enough on its own — the override row is
+   * pinned to a document id server-side — so the generation bumps too, and the till mints a
+   * new sale id from it.
+   */
+  it("dies with the ticket, and takes the sale's identity with it", () => {
+    const emptied = setQty(setApprovedMax(overCeiling(), 10_000), "s1", 0);
+
+    expect(emptied.approvedMaxCents).toBeNull();
+    expect(emptied.generation).toBe(1);
+  });
+
+  it("does not bump the sale's identity while a ticket is merely being edited", () => {
+    const b = setQty(addProduct(setApprovedMax(overCeiling(), 10_000), wiper), "p2", 0);
+
+    expect(b.generation).toBe(0);
+    expect(b.approvedMaxCents).toBe(10_000);
+  });
+
+  /**
+   * Replay safety: `issue_document` and `record_payment` replay purely on the key, so the sale
+   * id must be frozen once a settle is in flight. The freeze already refuses the edit that
+   * would empty the cart — this pins that the generation cannot move behind it.
+   */
+  it("never changes the sale's identity mid-settle", () => {
+    const frozen = withSettleFailure(overCeiling(), paymentLost);
+
+    expect(setQty(frozen, "s1", 0).generation).toBe(0);
+    expect(setApprovedMax(frozen, 99_999).approvedMaxCents).toBeNull();
+    expect(setApprovedMax(frozen, 99_999).notice).toBe(SETTLE_LOCK_NOTICE);
+  });
+});
+
 describe("definitive server refusals never freeze the basket", () => {
   it.each([
     "the day is closed — no more entries or transactions are possible",
@@ -280,6 +540,13 @@ describe("definitive server refusals never freeze the basket", () => {
     "this till is still on the day of 2026-07-29 — close that service on the till, then open a new one, before taking today's money",
     "unknown or closed cash session",
     "an invoice requires a customer",
+    // app.assert_discount_allowed, raised from inside issue_document. Nothing committed —
+    // but until these were listed, a refused discount froze the basket behind "couldn't
+    // confirm the sale reached the server" and the cashier retried a request the server
+    // would refuse forever. The client clamp does not make these unreachable: a policy
+    // changed since the page loaded still lands here.
+    "discount exceeds allowance: Rs 1,200.00 requested, Rs 350.00 allowed",
+    "a reason is required for a carwash discount",
   ])("recognises %s", (msg) => {
     expect(isDeterministicRejection(msg)).toBe(true);
   });

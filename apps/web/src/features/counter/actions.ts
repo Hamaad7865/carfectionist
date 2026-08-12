@@ -35,6 +35,9 @@ const schema = z.object({
   })).min(1),
   orderDiscountKind: z.enum(["percent", "amount"]).nullable().optional(),
   orderDiscountValue: z.number().min(0).optional(), // percent: % ; amount: Cents (VAT-inclusive)
+  // Why the discount was given. app.assert_discount_allowed reads it back and refuses a
+  // discount reaching a carwash allowance without one.
+  orderDiscountReason: z.string().optional(),
   // "credit" = on account: issue the invoice but collect nothing now; the total
   // stays as money owed (receivable). Not a real payment_method, so it never
   // reaches record_payment.
@@ -44,6 +47,11 @@ const schema = z.object({
   // One key per sale attempt (stable across retries) → a replayed submit returns
   // the same invoice + payment instead of creating duplicates.
   idempotencyKey: z.string().optional(),
+  // The id to draft under, named by the till before the document exists so an owner's
+  // "Ask the owner" approval — which app.assert_discount_allowed re-reads by ref_id — can be
+  // pinned to it. save_draft upserts by id, so a retry re-locks the same row rather than
+  // littering orphan drafts. Mirrors SaleRepository.draftIdFor on the tablet.
+  draftId: z.string().uuid().optional(),
 }).superRefine((d, ctx) => {
   // A percent order discount can't exceed 100% (else totals go negative).
   if (d.orderDiscountKind === "percent" && (d.orderDiscountValue ?? 0) > 100) {
@@ -149,6 +157,7 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     const draft = await rpc.saveDraft(
       sb,
       {
+        id: p.data.draftId ?? null,
         doc_type: "invoice",
         customer_id: customerId,
         vehicle_id: null,
@@ -159,9 +168,10 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
         origin: "standalone",
         discount_kind: p.data.orderDiscountKind ?? null,
         discount_value: p.data.orderDiscountKind === "amount" ? (p.data.orderDiscountValue ?? 0) / 100 : (p.data.orderDiscountValue ?? 0),
-        // The counter has no reason-collecting UI (a quick shelf sale, not the document
-        // builder) — issue_document still enforces the allowance and refuses if one's owed.
-        discount_reason: null,
+        // Typed at the till when the ticket's discount reaches a carwash allowance. Blank is
+        // null, not "" — save_draft's nullif('') would do it anyway, but the intent is that
+        // nothing was said, and issue_document refuses on exactly that.
+        discount_reason: p.data.orderDiscountReason?.trim() || null,
       },
       rpcLines,
       null,

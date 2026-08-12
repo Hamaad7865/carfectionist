@@ -9,7 +9,7 @@ export interface PosRules {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function posRulesFrom(bs: any): PosRules {
+export function posRulesFrom(bs: any): PosRules {
   const policy = (v: unknown, fallback: DiscountPolicy): DiscountPolicy =>
     v === "none" || v === "carwash" || v === "free" ? v : fallback;
   return {
