@@ -176,6 +176,11 @@ data class CounterUiState(
     val collectLines: List<SaleHistoryLineDto> = emptyList(),
     val collectJob: JobServiceDetailDto? = null,
     val collectDetailFailed: Boolean = false, // the item fetch errored — offer a retry, not a forever "loading"
+    // The quote this bill was raised from, BY NUMBER — so the payment panel can say
+    // "from quote A00094" instead of mislabelling a quoted bill "New counter sale".
+    // The prices on such a bill are the ones the customer agreed; naming the source is
+    // what lets the cashier answer "why is it this figure?" at the till.
+    val collectSourceNumber: String? = null,
     // Sales rung on this tablet during an outage. They stay listed after they land so the
     // cashier can see the invoice number each one was finally given.
     val offlineSales: List<mu.carfection.pos.core.sync.OfflineSaleRow> = emptyList(),
@@ -965,7 +970,7 @@ class CounterViewModel @Inject constructor(
         saleKey = UUID.randomUUID().toString()
         local.value = local.value.copy(
             collect = bill, padOpen = true, method = PayMethod.CASH,
-            collectLines = emptyList(), collectJob = null, collectDetailFailed = false,
+            collectLines = emptyList(), collectJob = null, collectDetailFailed = false, collectSourceNumber = null,
             // Every bill opens at its full balance — unless a deposit was agreed at signing,
             // which dials the pad in for the cashier. A part payment typed for the LAST
             // customer must never ride along into this one's.
@@ -987,12 +992,15 @@ class CounterViewModel @Inject constructor(
         viewModelScope.launch {
             val fetched = runCatching { api.fetchInvoice(bill.id)?.lines.orEmpty().sortedBy { it.sortOrder } }
             val job = bill.jobId?.let { jid -> runCatching { api.fetchJobDetail(jid) }.getOrNull() }
+            // Name the source quote, so the header can say where this bill's prices came from.
+            val srcNumber = bill.sourceDocumentId?.let { sid -> runCatching { api.fetchDocNumber(sid) }.getOrNull() }
             val st = local.value
             if (st.collect?.id != bill.id) return@launch // a newer bill (or none) is on the pad now
             local.value = st.copy(
                 collectLines = fetched.getOrDefault(emptyList()),
                 collectJob = job,
                 collectDetailFailed = fetched.isFailure,
+                collectSourceNumber = srcNumber,
             )
         }
     }
@@ -1578,7 +1586,7 @@ class CounterViewModel @Inject constructor(
                 // is never reused, so a later retry can only collect what remains.
                 local.value = st.copy(
                     padOpen = false, collect = null, pendingSettle = null, error = null,
-                    collectLines = emptyList(), collectJob = null, collectDetailFailed = false,
+                    collectLines = emptyList(), collectJob = null, collectDetailFailed = false, collectSourceNumber = null,
                     notice = "Collection cancelled — list refreshed",
                 )
                 loadLists()
@@ -1588,7 +1596,7 @@ class CounterViewModel @Inject constructor(
             local.value = st.copy(padOpen = false)
             return
         }
-        local.value = st.copy(padOpen = false, collect = null, collectLines = emptyList(), collectJob = null, collectDetailFailed = false)
+        local.value = st.copy(padOpen = false, collect = null, collectLines = emptyList(), collectJob = null, collectDetailFailed = false, collectSourceNumber = null)
     }
     fun setMethod(m: PayMethod) { if (frozenBySettle()) return; local.value = local.value.copy(method = m, error = settleError()) }
 

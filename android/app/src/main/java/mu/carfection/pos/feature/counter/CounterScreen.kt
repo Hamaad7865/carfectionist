@@ -970,8 +970,22 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                                 runCatching { java.time.OffsetDateTime.parse(it).atZoneSameInstant(java.time.ZoneOffset.ofHours(4)).format(fmt) }.getOrNull()
                             } ?: java.time.LocalDateTime.now().format(fmt)
                         }
+                        // Say where this bill came from. A quoted bill's prices are the ones the
+                        // customer AGREED — "New counter sale" on it made an agreed 1,759.99 look
+                        // like a till mistake. An un-numbered draft names its source instead
+                        // (the number only exists once it issues on payment).
+                        val collected = s.collect
+                        val headline = when {
+                            collected == null -> "New counter sale"
+                            collected.number != null -> collected.number
+                            s.collectSourceNumber != null -> "Billing quote ${s.collectSourceNumber}"
+                            collected.jobId != null -> "Job bill — issues on payment"
+                            else -> "New counter sale"
+                        }
+                        val fromNote = if (collected?.number != null && s.collectSourceNumber != null)
+                            "  ·  from quote ${s.collectSourceNumber}" else ""
                         Text(
-                            "${s.collect?.number ?: "New counter sale"}  ·  $stamp",
+                            "$headline$fromNote  ·  $stamp",
                             color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                         )
                         if (showItemCount) Text("$itemCount item${if (itemCount == 1) "" else "s"}", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)

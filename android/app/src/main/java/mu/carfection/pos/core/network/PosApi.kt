@@ -979,6 +979,21 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     /**
+     * One document's number, by id — names a bill's source quote on the payment panel
+     * ("from quote A00094"). A dedicated fetch rather than an embed: documents→documents
+     * is self-referencing, and the column-hint embed already means "children of" elsewhere
+     * (fetchQuotes), so asking for the PARENT the same way is ambiguous. Best-effort null.
+     */
+    suspend fun fetchDocNumber(id: String): String? = runCatching {
+        client.postgrest.from("documents")
+            .select(Columns.raw("number")) {
+                filter { eq("id", id) }
+                limit(1)
+            }
+            .decodeList<DocNumberDto>().firstOrNull()?.number
+    }.getOrNull()
+
+    /**
      * One job's service description (notes + checklist) — the payment screen's "what was this
      * for" detail on a collect. Scoped narrow on purpose: fetchJobs()/JobBoardDto pulls the whole
      * board; the bill panel only needs the fields that explain the service performed.

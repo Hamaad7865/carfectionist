@@ -235,6 +235,9 @@ data class JobBoardDto(
 
 // ── Checkout · collect on invoice ─────────────────────────────────────────────
 @Serializable
+data class DocNumberDto(val number: String? = null)
+
+@Serializable
 data class OutstandingInvoiceDto(
     val id: String,
     val number: String? = null,

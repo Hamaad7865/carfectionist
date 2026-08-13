@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
-import { Printer, FileMinus, Receipt, ArrowRight, Check, Undo2 } from "lucide-react";
+import { Printer, FileMinus, FileText, Receipt, ArrowRight, Check, Undo2 } from "lucide-react";
 import { getDocumentDetail } from "@/lib/supabase/queries/document";
 import { getDealFlow } from "@/lib/supabase/queries/flow";
 import { FlowStepper } from "@/components/flow/FlowStepper";
@@ -233,6 +233,19 @@ export default async function DocumentDetailPage({
             <FileMinus size={15} className="text-pink" />
             Credit note against invoice{" "}
             <Link href={`/sales/${doc.sourceId}`} className="font-bold text-link hover:underline">{doc.sourceNumber ?? "—"}</Link>.
+          </div>
+        )}
+
+        {/* Where this bill came from. The price on it is the price the customer AGREED —
+            saying so (and linking the signed quote) is what lets anyone at the desk answer
+            "why is this 1,759.99?" without archaeology. Mirrored on the tablet's payment
+            panel, which names the same source quote. */}
+        {doc.docType === "invoice" && doc.sourceId && (
+          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(43,140,255,0.25)] bg-[rgba(43,140,255,0.05)] px-4 py-2.5 text-[12.5px] text-body">
+            <FileText size={15} className="text-link" />
+            Billed from quote{" "}
+            <Link href={`/sales/${doc.sourceId}`} className="font-bold text-link hover:underline">{doc.sourceNumber ?? "—"}</Link>
+            {" "}— the prices on it are the ones the customer agreed.
           </div>
         )}
 
