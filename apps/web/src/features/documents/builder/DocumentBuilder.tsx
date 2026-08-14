@@ -224,14 +224,10 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     : allowance.reasonRequired && !state.docDiscountReason.trim()
       ? "Add a reason for this discount before issuing."
       : null;
-  // Quoting gross: state the subtotal and discount at shelf price, each line at its own rate,
-  // so Subtotal − Discount = Total still reads correctly. VAT becomes "of which".
-  const subtotalShown = ctx.pricesInclVat
-    ? totals.lines.reduce((s, l) => s + l.exclCents + l.vatCents, 0)
-    : totals.grossSubtotalCents;
-  const discountShown = ctx.pricesInclVat
-    ? subtotalShown - totals.totalCents
-    : totals.grossSubtotalCents - totals.subtotalCents;
+  // Ex-VAT footer (owner decision, 2026-08-14): Subtotal and Discount are taxable figures, VAT
+  // is its own row, and Subtotal − Discount + VAT = Total — the total the typed prices land on.
+  const subtotalShown = totals.grossSubtotalCents;
+  const discountShown = totals.grossSubtotalCents - totals.subtotalCents;
 
   // Render the A4 markup only when the document changes; zoom is a cheap wrapper
   // applied on top, so dragging the zoom control never re-runs renderToStaticMarkup.
@@ -244,7 +240,6 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       customerVatNo: customer?.vatNo ?? "",
       terms: ctx.templateTerms,
       assets: ctx.assets,
-      pricesInclVat: ctx.pricesInclVat,
       number: state.number,
       issueDate: readOnly ? state.issueDate ?? new Date().toISOString().slice(0, 10) : null,
     });
@@ -660,11 +655,11 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         </div>
                       )}
                       {!readOnly && (
-                        /* Stays NET on purpose. Displaying gross here fed grossCents(netFromGrossCents(x))
-                           back into a controlled input, and that is not an identity (~13% of values land a
-                           cent out) — the field rewrote itself under the cursor and saved a mangled rate
-                           (typing "1500" could bill Rs 149.99). The line total and the printed document
-                           below state the shelf price, and so does this box — type what the customer pays. */
+                        /* The one box that keeps the SHELF figure: type what the customer pays, and the
+                           typed text is never derived back from unitCents (gross→net→gross is not an
+                           identity — ~13% of values land a cent out, so a round-trip rewrote the field
+                           under the cursor and saved a mangled rate). The line amount and the printed
+                           document state the ex-VAT price; this box is entry, not presentation. */
                         <div className="relative w-[96px]" title={ctx.pricesInclVat ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
                           <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
                           <MoneyField
@@ -701,7 +696,11 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                         </div>
                       )}
                       {readOnly && l.unitLabel && <span className="text-[12px] text-muted">{l.unitLabel}</span>}
-                      <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(l.priceInclusive ? lt.exclCents + lt.vatCents : ctx.pricesInclVat ? grossCents(net, l.vatRatePct) : net)}</span>
+                      {/* The line amount is the ledger's ex-VAT figure (owner decision, 2026-08-14):
+                          the price shows without VAT, the footer's VAT row carries the tax, and the
+                          TOTAL still lands on the typed gross. The rate box above keeps the typed
+                          shelf figure — that is entry, not presentation. */}
+                      <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(net)}</span>
                       {!readOnly && (
                         <>
                           <button
@@ -875,7 +874,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             {discountShown > 0 && (
               <div className="flex justify-between py-1 text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(discountShown)}</span></div>
             )}
-            <div className="flex justify-between py-1 text-muted"><span>{ctx.pricesInclVat ? "of which VAT (15%)" : "VAT (15%)"}</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
+            <div className="flex justify-between py-1 text-muted"><span>VAT (15%)</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
             <div className="mt-1 flex justify-between rounded-[10px] bg-sub px-3 py-2 font-bold"><span className="text-ink">Total (MUR)</span><span className="num text-brand">{formatMUR(totals.totalCents)}</span></div>
           </div>
         </div>

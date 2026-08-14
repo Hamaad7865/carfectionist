@@ -125,19 +125,11 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
   const grossSubtotalCents = ((lines ?? []) as any[]).reduce((s, l) => s + rupeesToCents(Number(l.line_total_excl)), 0);
   const discountExclCents = grossSubtotalCents - rupeesToCents(Number(d.subtotal_excl));
 
-  // The shop quotes VAT-INCLUSIVE shelf prices, so the customer's copy should state them
-  // that way — the same figure they were told at the counter. Money is stored net (the DB's
-  // generated columns add VAT), so this is a presentation change only, per line at its own
-  // rate. Subtotal(incl) − Discount(incl) = Total exactly, so the column still adds up.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inclVat = (b as any)?.prices_vat_exclusive === false;
+  // The document states ex-VAT figures with VAT as its own row (owner decision, 2026-08-14,
+  // matching their reference proforma): Rate and Amount are the taxable price, Subtotal −
+  // Discount + VAT = Total. Entry is untouched — a typed shelf price still stores gross and
+  // still lands as the TOTAL to the cent; only the split shown above it changed.
   const totalInclCents = rupeesToCents(Number(d.total_incl));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const subtotalInclCents = ((lines ?? []) as any[]).reduce(
-    (s, l) => s + rupeesToCents(Number(l.line_total_excl)) + rupeesToCents(Number(l.line_vat)),
-    0,
-  );
-  const discountInclCents = subtotalInclCents - totalInclCents;
   const discountLabel =
     d.discount_kind === "percent" ? `${Number(d.discount_value)}%`
     : d.discount_kind === "amount" ? `${formatMUR(rupeesToCents(Number(d.discount_value)))} incl. VAT`
@@ -178,31 +170,26 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
       rich: parseRichDoc(l.description_richtext),
       unit: l.unit_label ?? null,
       qty: Number(l.qty),
-      // The Rate column states the SHELF price — what the customer was quoted and what the
-      // tablet shows — via the same two-step, half-away-from-zero rounding the DB uses, so a
-      // discount line's Rate can't land a cent off its own Amount. Note qty × Rate can still
-      // differ a cent or two from Amount when the stored net doesn't divide the shelf price
-      // evenly (Rs 100 stores as 86.96); Amount stays the ledger's figure so the column always
-      // foots to the TOTAL, which matters more on a fiscal document than the multiplication.
+      // The Rate column states the ex-VAT price; a flagged (gross-typed) line backs its shelf
+      // figure out at the line's own rate. Amount stays the ledger's line_total_excl so the
+      // column always foots to the TOTAL — which matters more on a fiscal document than
+      // qty × Rate multiplying exactly (it can sit a cent off on a backed-out rate).
       // presentLine is shared with the back-office screen, which derived this itself and
       // disagreed with the very PDF it links to.
-      ...presentLine(l, inclVat),
+      ...presentLine(l, false),
       // presentLineDiscount is shared with the back-office screen — which showed no
       // discount at all, so the PDF and the screen disagreed about whether one existed.
       discountNote: (() => {
-        const d = presentLineDiscount(l, inclVat);
+        const d = presentLineDiscount(l, false);
         return d ? `less ${d.label} · ${formatMUR(d.savedCents)}` : null;
       })(),
     })),
     // Subtotal row = pre-order-discount ex-VAT sum; the order discount shows as its own row.
-    subtotalCents: inclVat ? subtotalInclCents : grossSubtotalCents,
-    discountCents: inclVat
-      ? (discountInclCents > 0 ? discountInclCents : undefined)
-      : (discountExclCents > 0 ? discountExclCents : undefined),
-    discountLabel: (inclVat ? discountInclCents > 0 : discountExclCents > 0) ? discountLabel : undefined,
+    subtotalCents: grossSubtotalCents,
+    discountCents: discountExclCents > 0 ? discountExclCents : undefined,
+    discountLabel: discountExclCents > 0 ? discountLabel : undefined,
     vatCents: rupeesToCents(Number(d.vat_total)),
     totalCents: totalInclCents,
-    vatInclusive: inclVat,
     bank: {
       accountName: b.bank_account_name ?? "",
       accountNumber: b.bank_account_number ?? "",

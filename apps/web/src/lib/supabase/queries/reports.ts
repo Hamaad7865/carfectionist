@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { rupeesToCents } from "@/lib/money";
+import { netFromGrossCents, rupeesToCents } from "@/lib/money";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { muDate, muDateTime, muToday } from "@/lib/mu-date";
 import { monthLabel } from "@/features/pos/month-label";
@@ -375,7 +375,7 @@ export async function getDiscountsReport(from?: string, to?: string): Promise<Di
     return q;
   };
   const makeLineQ = () => {
-    let q = sb.from("document_lines").select("document_id, qty, unit_price, line_total_excl, documents!inner(doc_type, status, issue_date)").eq("documents.doc_type", "invoice").in("documents.status", ["issued", "partly_paid", "paid"]);
+    let q = sb.from("document_lines").select("document_id, qty, unit_price, vat_rate, price_includes_vat, line_total_excl, documents!inner(doc_type, status, issue_date)").eq("documents.doc_type", "invoice").in("documents.status", ["issued", "partly_paid", "paid"]);
     if (from) q = q.gte("documents.issue_date", from);
     if (to) q = q.lte("documents.issue_date", to);
     return q;
@@ -388,7 +388,11 @@ export async function getDiscountsReport(from?: string, to?: string): Promise<Di
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const l of lineRows as any[]) {
     const g = perDoc.get(l.document_id) ?? { gross: 0, net0: 0 };
-    g.gross += rupeesToCents(Number(l.qty) * Number(l.unit_price));
+    // A price_includes_vat line stores unit_price as the GROSS — back its list price out at
+    // the line's own rate (same as the sales journal), or an undiscounted flagged line reads
+    // as "discount given" equal to its VAT.
+    const listCents = rupeesToCents(Number(l.qty) * Number(l.unit_price));
+    g.gross += l.price_includes_vat === true ? netFromGrossCents(listCents, Number(l.vat_rate)) : listCents;
     g.net0 += rupeesToCents(Number(l.line_total_excl));
     perDoc.set(l.document_id, g);
   }

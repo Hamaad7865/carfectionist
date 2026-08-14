@@ -104,10 +104,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     // work on it belongs on the jobs board, a products-only one is a straight sale.
     sb.from("document_lines").select("*, products(kind)").eq("document_id", id).order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
-    sb.from("business_settings").select("prices_vat_exclusive, point_value_rupees, points_enabled").limit(1).maybeSingle(),
+    sb.from("business_settings").select("point_value_rupees, points_enabled").limit(1).maybeSingle(),
   ]);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const inclVat = (bs as any)?.prices_vat_exclusive === false;
 
   // Resolve who took each payment, and which originals a mirror later undid.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -181,8 +179,12 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
   // What per-line discounts took off, ex-VAT — the gap between each line at full price and the
   // line total the DB stored. Kept ex-VAT so the totals block still foots:
   // (Subtotal before discount) − (line discounts) − (order discount) + VAT = Total.
+  // A price_includes_vat line stores unit_price as the GROSS, so its full price is backed out
+  // at the line's own rate first (same arithmetic as presentLineDiscount) — comparing the gross
+  // against the net excl invented a "Discount on items" equal to the VAT on undiscounted bills.
   const lineDiscountCents = ((lines ?? []) as any[]).reduce((s, l) => {
-    const full = Math.round(Number(l.qty) * rupeesToCents(Number(l.unit_price)));
+    const listCents = Math.round(Number(l.qty) * rupeesToCents(Number(l.unit_price)));
+    const full = l.price_includes_vat === true ? Math.round(listCents / (1 + Number(l.vat_rate) / 100)) : listCents;
     return s + Math.max(0, full - rupeesToCents(Number(l.line_total_excl)));
   }, 0);
 
@@ -237,11 +239,13 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
       unit: l.unit_label ?? null,
       qty: Number(l.qty),
       // presentLine, not a third hand-rolled derivation: this screen showed NET while its own
-      // PDF showed GROSS, so one invoice had two sets of Rate/Amount figures.
-      ...presentLine(l, inclVat),
+      // PDF showed GROSS, so one invoice had two sets of Rate/Amount figures. Ex-VAT basis on
+      // every document surface (owner decision, 2026-08-14): the price shows without VAT and
+      // the VAT is its own row — the TOTAL is still the typed gross to the cent.
+      ...presentLine(l, false),
       // The per-line discount, same helper the PDF uses. Without it a discounted line read as
       // an unexplained gap between its Rate and its Amount.
-      discount: presentLineDiscount(l, inclVat),
+      discount: presentLineDiscount(l, false),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     payments: (payments ?? []).map((p: any) => ({

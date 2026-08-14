@@ -64,10 +64,12 @@ describe("toDocumentProps — the Rs 88,780 quote", () => {
   });
 });
 
-describe("toDocumentProps — a VAT-inclusive shop lands the A4 on the typed gross", () => {
-  // The dash cam: a price_includes_vat product priced at a round Rs 9,900 gross. On a gross-quoting
-  // shop the builder stores unitCents = the exact gross with priceInclusive = true, and the A4
-  // preview/PDF must NOT re-gross it (that inflated every inclusive line by the VAT factor before).
+describe("toDocumentProps — a gross-typed line presents ex-VAT and still totals the typed figure", () => {
+  // The dash cam: a price_includes_vat product priced at a round Rs 9,900 gross. The builder
+  // stores unitCents = the exact gross with priceInclusive = true. The A4 states the ex-VAT
+  // split (owner decision, 2026-08-14): Rate/Amount/Subtotal are the backed-out taxable price,
+  // VAT is its own row, and the TOTAL is the typed gross to the cent — never 1.15× it (the old
+  // re-grossing defect), and never a total that drifts off the typed figure.
   const inclState: BuilderState = {
     ...state,
     lines: [
@@ -79,18 +81,18 @@ describe("toDocumentProps — a VAT-inclusive shop lands the A4 on the typed gro
     customerName: "Jean-Pierre Laval",
     customerCountry: "Mauritius",
     terms: ["Quotation is valid for 5 days."],
-    pricesInclVat: true,
   });
 
-  it("shows the exact gross as Rate, Amount, Subtotal and Total — not 1.15× it", () => {
-    expect(props.lines[0].rateCents).toBe(990000);   // was grossCents(990000)=1138500
-    expect(props.lines[0].amountCents).toBe(990000);
-    expect(props.subtotalCents).toBe(990000);
-    expect(props.totalCents).toBe(990000);
+  it("backs Rate, Amount and Subtotal out of the gross; the Total IS the typed gross", () => {
+    expect(props.lines[0].rateCents).toBe(860870);   // round(990000 / 1.15) — not 990000, not 1138500
+    expect(props.lines[0].amountCents).toBe(860870);
+    expect(props.subtotalCents).toBe(860870);
+    expect(props.totalCents).toBe(990000);           // the typed price is still the price
   });
 
   it("extracts VAT from the gross (9900 × 15/115), not adds it on top", () => {
     expect(props.vatCents).toBe(129130); // round(990000 × 15/115); NOT round(990000 × 0.15)=148500
+    expect(props.subtotalCents + props.vatCents).toBe(props.totalCents); // the block foots
   });
 });
 

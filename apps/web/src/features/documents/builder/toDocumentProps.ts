@@ -1,4 +1,4 @@
-import { computeTotals, formatMUR, shelfCents } from "@/lib/money";
+import { computeTotals, formatMUR, netFromGrossCents } from "@/lib/money";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 import type { DocAssets } from "@/lib/pdf/assets";
 import type { BuilderState } from "./state";
@@ -27,8 +27,6 @@ export interface PreviewOpts {
   issueDate?: string | null;
   number?: string | null;
   assets?: DocAssets;
-  /** Shop quotes VAT-inclusive shelf prices — preview them the way the PDF will print them. */
-  pricesInclVat?: boolean;
 }
 
 /** Pure map from builder state → DocumentA4 props (drives the live preview and,
@@ -51,17 +49,18 @@ export function toDocumentProps(
     rich: l.rich ?? null,
     unit: l.unitLabel?.trim() || null,
     qty: l.qty,
-    rateCents: shelfCents(l.unitCents, l.vatRatePct, opts.pricesInclVat ?? false, l.priceInclusive),
-    amountCents: opts.pricesInclVat
-      ? totals.lines[i].exclCents + totals.lines[i].vatCents
-      : totals.lines[i].exclCents,
+    // Ex-VAT presentation (owner decision, 2026-08-14): the Rate is the taxable price and VAT
+    // is its own totals row. A priceInclusive line's unitCents IS the typed shelf gross, so its
+    // rate is backed out at the line's own rate; an unflagged unit is already net. The Amount
+    // stays the ledger's excl figure so the column foots to the TOTAL — the typed gross.
+    rateCents: l.priceInclusive ? netFromGrossCents(l.unitCents, l.vatRatePct) : l.unitCents,
+    amountCents: totals.lines[i].exclCents,
     discountNote:
       l.discountKind === "amount" && l.discountAmountCents > 0 ? `less ${formatMUR(l.discountAmountCents)}`
       : (l.discountPct ?? 0) > 0 ? `less ${l.discountPct}%`
       : null,
   }));
   const orderDiscountExclCents = totals.grossSubtotalCents - totals.subtotalCents;
-  const subtotalInclCents = totals.lines.reduce((s, l) => s + l.exclCents + l.vatCents, 0);
   const orderDiscountLabel =
     state.docDiscountKind === "percent" ? `${state.docDiscountValue}%`
     : state.docDiscountKind === "amount" ? `${formatMUR(state.docDiscountValue)} incl. VAT`
@@ -83,11 +82,8 @@ export function toDocumentProps(
     },
     billTo: { name: opts.customerName, country: opts.customerCountry, brn: opts.customerBrn ?? "", vatNo: opts.customerVatNo ?? "" },
     lines,
-    subtotalCents: opts.pricesInclVat ? subtotalInclCents : totals.grossSubtotalCents,
-    discountCents: opts.pricesInclVat
-      ? (subtotalInclCents - totals.totalCents > 0 ? subtotalInclCents - totals.totalCents : undefined)
-      : (orderDiscountExclCents > 0 ? orderDiscountExclCents : undefined),
-    vatInclusive: opts.pricesInclVat,
+    subtotalCents: totals.grossSubtotalCents,
+    discountCents: orderDiscountExclCents > 0 ? orderDiscountExclCents : undefined,
     discountLabel: orderDiscountExclCents > 0 ? orderDiscountLabel : undefined,
     vatCents: totals.vatCents,
     totalCents: totals.totalCents,

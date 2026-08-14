@@ -87,6 +87,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import mu.carfection.pos.core.money.AllowanceLineInput
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.ui.theme.Accent
@@ -337,10 +338,9 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                 Text("Nothing on this bill yet.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
             }
             s.billLines.forEachIndexed { i, l ->
-                // excl + its own extracted VAT, not grossCents(excl): identical for a normal line,
-                // but the exact typed figure for a price_includes_vat line (20260812000030).
-                val lineTotal = if (s.pricesInclVat) (t.lineExclCents.getOrNull(i) ?: 0L) + (t.lineVatCents.getOrNull(i) ?: 0L)
-                                else (t.lineExclCents.getOrNull(i) ?: 0L)
+                // The ledger's ex-VAT line amount (owner decision, 2026-08-14): the price shows
+                // without VAT and the footer's VAT row carries the tax.
+                val lineTotal = t.lineExclCents.getOrNull(i) ?: 0L
                 // Only what was added here can be changed. The quoted lines are the price
                 // the customer agreed — this screen does not get to re-open that.
                 val quoted = i < s.billQuotedCount
@@ -360,7 +360,7 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("of which VAT 15%", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary)
+                Text("VAT 15%", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary)
                 Spacer(Modifier.weight(1f))
                 Text(formatMUR(t.vatCents), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary)
             }
@@ -479,11 +479,10 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
                 }
                 val tt = vm.totals(s)
                 s.lines.forEachIndexed { i, l ->
-                    // The line at shelf price when the shop quotes gross: excl + its own extracted
-                    // VAT, not grossCents(excl) — the exact typed figure for a price_includes_vat
-                    // line (20260812000030), and identical to grossCents for a normal one.
-                    val lineTotal = if (s.pricesInclVat) (tt.lineExclCents.getOrNull(i) ?: 0L) + (tt.lineVatCents.getOrNull(i) ?: 0L)
-                                    else (tt.lineExclCents.getOrNull(i) ?: 0L)
+                    // The ledger's ex-VAT line amount (owner decision, 2026-08-14): the price
+                    // shows without VAT; the footer's VAT row carries the tax. The price box on
+                    // the card keeps the typed shelf figure — that is entry, not presentation.
+                    val lineTotal = tt.lineExclCents.getOrNull(i) ?: 0L
                     LineCard(l, i, lineTotal, editable = vm.editable(s), ops = quoteLineOps(vm))
                 }
             }
@@ -535,9 +534,8 @@ private fun BoxScope.BillLinesSheet(s: QuoteState, vm: QuoteViewModel) {
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 s.billLines.forEachIndexed { i, l ->
-                    // excl + its own extracted VAT, exact for a price_includes_vat line (20260812000030).
-                    val lineTotal = if (s.pricesInclVat) (t.lineExclCents.getOrNull(i) ?: 0L) + (t.lineVatCents.getOrNull(i) ?: 0L)
-                                    else (t.lineExclCents.getOrNull(i) ?: 0L)
+                    // The ledger's ex-VAT line amount (owner decision, 2026-08-14).
+                    val lineTotal = t.lineExclCents.getOrNull(i) ?: 0L
                     val quoted = i < s.billQuotedCount
                     LineCard(
                         l, i, lineTotal, editable = !quoted, ops = billLineOps(vm),
@@ -1016,20 +1014,18 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 val t = vm.totals(s)
-                val gross = vm.grossCents(s)
-                // Quoting gross: state the subtotal and the line discounts at shelf price too,
-                // each line at its own VAT rate, so the column the customer reads adds up.
-                // Grossed on the LINE total (qty × unit), not per unit then multiplied: rounding VAT
-                // per unit and multiplying differs by a cent from rounding it once on the line, and
-                // that cent surfaced as a phantom "Line discounts −Rs 0.01" row on any qty ≥ 2 quote
-                // that had no discount at all. This also matches the row printed for each line.
-                // A priceInclusive line already stores its GROSS unit (20260812000020/30), so its
-                // pre-discount total is qty × unit as-is — grossCents would VAT it a SECOND time and
-                // invent a "Line discounts" row (subtotal − line-total) on a quote with no discount.
-                val subtotalShown = if (s.pricesInclVat) s.lines.sumOf { shelfCents(it.qty * it.unitCents, it.vatRate, true, it.priceInclusive) } else gross
-                // Post-discount, at gross: excl + its own extracted VAT, exact for a priceInclusive line.
-                val afterLineDisc = s.lines.indices.sumOf { i -> (t.lineExclCents.getOrElse(i) { 0L }) + (t.lineVatCents.getOrElse(i) { 0L }) }
-                val lineDisc = if (s.pricesInclVat) subtotalShown - afterLineDisc else gross - t.lineExclCents.sum()
+                // Ex-VAT footer (owner decision, 2026-08-14): Subtotal and Line discounts are
+                // taxable figures, VAT is its own row, and the TOTAL still lands on the typed
+                // shelf prices. The full price is backed out on the LINE total (qty × unit), not
+                // per unit then multiplied — extracting per unit and multiplying differs by a
+                // cent from extracting once on the line, and that cent surfaced as a phantom
+                // "Line discounts −Rs 0.01" row on an undiscounted qty ≥ 2 quote. Same rounding
+                // as lineExclCents, so an undiscounted quote shows no discount row at all.
+                val subtotalShown = s.lines.sumOf { l ->
+                    val full = l.qty * l.unitCents
+                    if (l.priceInclusive) netFromGrossCents(full, l.vatRate) else full
+                }
+                val lineDisc = subtotalShown - t.lineExclCents.sum()
                 TotalLine("Subtotal", formatMUR(subtotalShown), TextSecondary)
                 if (lineDisc > 0) TotalLine("Line discounts", "−" + formatMUR(lineDisc), Success)
                 // basket (order-level) discount — % of the total, or Rs off (VAT-inclusive).
@@ -1088,7 +1084,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         )
                     }
                 }
-                TotalLine(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(t.vatCents), TextSecondary)
+                TotalLine("VAT 15%", formatMUR(t.vatCents), TextSecondary)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
                     Text("TOTAL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp, color = TextPrimary)
                     Spacer(Modifier.weight(1f))
@@ -1819,9 +1815,8 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
                 Text("Loading the items…", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
             }
             s.lines.forEachIndexed { i, l ->
-                // excl + its own extracted VAT, exact for a price_includes_vat line (20260812000030).
-                val lineTotal = if (s.pricesInclVat) (totals.lineExclCents.getOrNull(i) ?: 0L) + (totals.lineVatCents.getOrNull(i) ?: 0L)
-                                else (totals.lineExclCents.getOrNull(i) ?: 0L)
+                // The ledger's ex-VAT line amount (owner decision, 2026-08-14).
+                val lineTotal = totals.lineExclCents.getOrNull(i) ?: 0L
                 val discNote = when {
                     l.discountMode == DiscountMode.PCT && l.discountPct > 0 -> "  ·  −${l.discountPct}%"
                     l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
@@ -1883,9 +1878,8 @@ private fun ColumnScope.BillExtrasSection(s: QuoteState, vm: QuoteViewModel, ext
         )
     }
     extras.forEachIndexed { i, l ->
-        // excl + its own extracted VAT, exact for a price_includes_vat line (20260812000030).
-        val lineTotal = if (s.pricesInclVat) (t.lineExclCents.getOrNull(i) ?: 0L) + (t.lineVatCents.getOrNull(i) ?: 0L)
-                        else (t.lineExclCents.getOrNull(i) ?: 0L)
+        // The ledger's ex-VAT line amount (owner decision, 2026-08-14).
+        val lineTotal = t.lineExclCents.getOrNull(i) ?: 0L
         Row(
             Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp))
                 .border(1.dp, AccentLine, RoundedCornerShape(12.dp))

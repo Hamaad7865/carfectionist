@@ -51,8 +51,6 @@ export interface DocumentA4Props {
   discountLabel?: string | null; // what was entered, e.g. "10%" or "Rs 500 incl. VAT"
   vatCents: number;
   totalCents: number;
-  /** Line prices are stated VAT-INCLUSIVE, so VAT reads "of which" rather than an addition. */
-  vatInclusive?: boolean;
   bank?: { accountName: string; accountNumber: string; bankName: string } | null;
   terms?: string[];
   assets?: { headerBannerUrl?: string | null; footerBannerUrl?: string | null; logoUrl?: string | null };
@@ -333,7 +331,7 @@ export function DocumentA4(props: DocumentA4Props) {
                 <div style={s.totalRow}><span style={{ color: MUTED }}>Discount{props.discountLabel ? ` (${props.discountLabel})` : ""}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>−{mur(props.discountCents)}</span></div>
               </>
             ) : null}
-            <div style={s.totalRow}><span style={{ color: MUTED }}>{props.vatInclusive ? "of which VAT" : "VAT"}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.vatCents)}</span></div>
+            <div style={s.totalRow}><span style={{ color: MUTED }}>VAT</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.vatCents)}</span></div>
             <div style={s.grandRow}><span>Total (MUR)</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.totalCents)}</span></div>
           </div>
         </div>
