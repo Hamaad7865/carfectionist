@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle, PanelLeftClose, PanelLeftOpen, KeyRound } from "lucide-react";
 import type { CounterProduct } from "@/lib/supabase/queries/counter";
 import type { PosRules } from "@/lib/supabase/queries/builder";
-import { shelfCents, netFromGrossCents, formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
+import { shelfCents, formatMUR, computeTotals, computeLineTotals, parseMoneyInput } from "@/lib/money";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
 import { counterSaleAction, type CounterResult } from "./actions";
 import { setProductPriceAction } from "@/features/products/actions";
@@ -506,10 +506,7 @@ export function CounterSale({
               <div key={l.product.id} className="flex items-center gap-2 border-b border-line py-2.5">
                 <div className="min-w-0 flex-1">
                   <div className="truncate text-[12.5px] font-semibold text-body">{l.product.name}</div>
-                  {/* The bill states ex-VAT prices (owner decision, 2026-08-14): a flagged product's
-                      stored price IS the shelf gross, so its rate is backed out; an unflagged one is
-                      stored net already. The tile above keeps the shelf figure — that is the tag. */}
-                  <div className="num text-[11px] text-faint">{formatMUR(l.product.priceIncludesVat ? netFromGrossCents(l.product.priceCents, l.product.vatRate) : l.product.priceCents)} each</div>
+                  <div className="num text-[11px] text-faint">{formatMUR(shelfCents(l.product.priceCents, l.product.vatRate, pricesInclVat, l.product.priceIncludesVat))} each</div>
                 </div>
                 <div className="flex items-center gap-1.5">
                   <button disabled={frozen} onClick={() => setQty(l.product.id, l.qty - 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body disabled:opacity-50"><Minus size={13} /></button>
@@ -523,7 +520,7 @@ export function CounterSale({
                   <button disabled={frozen || lim.disabled} onClick={() => patchLine(l.product.id, { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 })} className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint disabled:cursor-not-allowed disabled:opacity-50">{l.discountKind === "amount" ? "Rs" : "%"}</button>
                   <input value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")} readOnly={frozen} disabled={lim.disabled} onChange={(e) => l.discountKind === "amount" ? patchLine(l.product.id, { discountAmountCents: Math.min(lim.amtMaxCents, Math.max(0, parseMoneyInput(e.target.value) ?? 0)) }) : patchLine(l.product.id, { discountPct: Math.min(lim.pctMax, Math.max(0, parseFloat(e.target.value) || 0)) })} inputMode="decimal" placeholder="disc" className="h-7 w-10 bg-transparent pr-1 text-right text-[11px] text-body outline-none placeholder:text-faint disabled:cursor-not-allowed" />
                 </div>
-                <span className="num w-[84px] text-right text-[13px] font-bold text-ink">{formatMUR(lt.exclCents)}</span>
+                <span className="num w-[84px] text-right text-[13px] font-bold text-ink">{formatMUR(pricesInclVat ? lt.exclCents + lt.vatCents : lt.exclCents)}</span>
                 <button disabled={frozen} onClick={() => setQty(l.product.id, 0)} className="text-faint hover:text-rose disabled:opacity-50 disabled:hover:text-faint"><X size={15} /></button>
               </div>
               );

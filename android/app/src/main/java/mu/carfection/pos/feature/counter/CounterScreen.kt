@@ -92,7 +92,6 @@ import mu.carfection.pos.core.money.formatMUR
 import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.money.lineAllowanceCents
 import mu.carfection.pos.core.money.lineExclCents
-import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.rupeesToCents
 import androidx.compose.ui.platform.LocalConfiguration
@@ -302,18 +301,17 @@ fun CounterScreen(
                                         l.discountMode == DiscountMode.AMT && l.discountAmtCents > 0 -> "  ·  −${formatMUR(l.discountAmtCents)}"
                                         else -> ""
                                     }
-                                    // The bill states ex-VAT unit prices (owner decision, 2026-08-14,
-                                    // same rule as the web till): a flagged line's stored unit IS the
-                                    // shelf gross, so back its rate out; an unflagged unit is stored
-                                    // net already. The tile keeps the shelf figure — that is the tag.
-                                    val unitShown = if (l.priceInclusive) netFromGrossCents(l.product.sellingPriceCents, l.product.vatRatePct) else l.product.sellingPriceCents
+                                    // A flagged line's stored unit IS the shelf figure — show it as
+                                    // stored; re-grossing it would print the "× Rs 1,150" that made a
+                                    // typed 1000 look like 1000.01 (20260812000020).
+                                    val unitShown = shelfCents(l.product.sellingPriceCents, l.product.vatRatePct, s.pricesInclVat, l.priceInclusive)
                                     Text(
                                         "${l.qty.toInt()} × ${formatMUR(unitShown)}" + discountNote +
                                             (if (l.isAdhoc) "  ·  ad-hoc" else ""),
                                         color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp,
                                     )
                                 }
-                                Text(formatMUR(s.docTotals.lineExclCents[i]), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
+                                Text(formatMUR(if (s.pricesInclVat) s.rowGrossCents(i) else s.docTotals.lineExclCents[i]), color = TextPrimary, fontFamily = Mono, fontSize = 13.5.sp, fontWeight = FontWeight.SemiBold)
                                 Box(
                                     Modifier.size(36.dp).background(Color(0x1AD63A3A), RoundedCornerShape(9.dp)).clickable { viewModel.setQty(l.product.id, 0.0) },
                                     contentAlignment = Alignment.Center,
@@ -375,10 +373,10 @@ fun CounterScreen(
                 }
                 Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
                 Column(Modifier.fillMaxWidth().padding(horizontal = 17.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Ex-VAT footer (owner decision, 2026-08-14): the Subtotal is summed from the
-                    // very ex-VAT rows listed above, VAT is its own row, and Subtotal − Discount +
-                    // VAT = TOTAL — which is still exactly what the typed shelf prices land on.
-                    TotalRow("Subtotal", formatMUR(s.preBasketSubtotalCents), TextSecondary)
+                    // Quoting gross: the subtotal is the lines at shelf price — summed from the very
+                    // rows listed above, so the two can't drift — and VAT below reads "of which" so
+                    // it isn't mistaken for a second charge.
+                    TotalRow("Subtotal", formatMUR(if (s.pricesInclVat) s.grossSubtotalCents else s.preBasketSubtotalCents), TextSecondary)
                     // basket discount — % or Rs off the whole sale, saved as explicit discount lines
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp)
@@ -389,8 +387,9 @@ fun CounterScreen(
                             modifier = Modifier.width(96.dp), height = 30.dp, radius = 8.dp, bg = Inset, fontSize = 13.sp,
                         )
                         Spacer(Modifier.weight(1f))
-                        // The ex-VAT figure, so Subtotal − Discount + VAT = TOTAL adds up.
-                        val shownDisc = s.basketAppliedCents
+                        // On a gross screen, show what actually came off the bill (Subtotal − TOTAL),
+                        // not the net discount line — otherwise the three rows don't add up.
+                        val shownDisc = if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
                         if (shownDisc > 0) Text("−" + formatMUR(shownDisc), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                     }
                     // The database is the authority (app.assert_discount_allowed) — this mirrors
@@ -421,7 +420,7 @@ fun CounterScreen(
                             )
                         }
                     }
-                    TotalRow("VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
+                    TotalRow(if (s.pricesInclVat) "of which VAT 15%" else "VAT 15%", formatMUR(s.totals.vatCents), TextSecondary)
                     TotalRow("TOTAL", formatMUR(s.totals.totalCents), TextPrimary, big = true)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Bottom) {
                         Text("BALANCE DUE", color = Warning, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
