@@ -252,6 +252,12 @@ export const completeJob = (sb: Client, jobId: string, consumptions: { product_i
 export const openCashSession = (sb: Client, deviceId: string, openingFloat: number) =>
   callRpc<{ id: string }>(sb, "open_cash_session", { p_device_id: deviceId, p_opening_float: openingFloat });
 
+/** The desk's till, always on today: reuses the open back-office session, or rolls a
+ *  stale one forward (quiet close + fresh open) so a back-office sale never trips the
+ *  stale-till guard. See migration 20260814000010. */
+export const backOfficeTill = (sb: Client) =>
+  callRpc<{ id: string }>(sb, "back_office_till", {});
+
 export const closeCashSession = (sb: Client, id: string, closingCount: number) =>
   callRpc<{ id: string; variance: string }>(sb, "close_cash_session", { p_id: id, p_closing_count: closingCount });
 
