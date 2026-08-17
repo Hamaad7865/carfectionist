@@ -325,11 +325,9 @@ export function DocumentA4(props: DocumentA4Props) {
             )}
           </div>
           <div style={s.totalsBox}>
+            <div style={s.totalRow}><span style={{ color: MUTED }}>Subtotal</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.subtotalCents)}</span></div>
             {props.discountCents ? (
-              <>
-                <div style={s.totalRow}><span style={{ color: MUTED }}>Subtotal</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.subtotalCents)}</span></div>
-                <div style={s.totalRow}><span style={{ color: MUTED }}>Discount{props.discountLabel ? ` (${props.discountLabel})` : ""}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>−{mur(props.discountCents)}</span></div>
-              </>
+              <div style={s.totalRow}><span style={{ color: MUTED }}>Discount{props.discountLabel ? ` (${props.discountLabel})` : ""}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>−{mur(props.discountCents)}</span></div>
             ) : null}
             <div style={s.totalRow}><span style={{ color: MUTED }}>VAT</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.vatCents)}</span></div>
             <div style={s.grandRow}><span>Total (MUR)</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.totalCents)}</span></div>

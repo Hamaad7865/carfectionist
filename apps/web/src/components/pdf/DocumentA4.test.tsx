@@ -48,6 +48,17 @@ describe("DocumentA4 — reproduces the Diamondbrite Rs 88,780 document", () => 
     expect(html).toContain("MUR 30,000.00");
   });
 
+  it("renders subtotal before VAT and total even without a discount", () => {
+    const subtotalAt = html.indexOf(">Subtotal<");
+    const vatAt = html.indexOf(">VAT<");
+    const totalAt = html.indexOf(">Total (MUR)<");
+
+    expect(subtotalAt).toBeGreaterThan(-1);
+    expect(html).toContain("MUR 77,200.00");
+    expect(subtotalAt).toBeLessThan(vatAt);
+    expect(vatAt).toBeLessThan(totalAt);
+  });
+
   it("trims the whole-rupee rate (MUR 32,000, not MUR 32,000.00)", () => {
     expect(html).toContain(">MUR 32,000<");
   });
