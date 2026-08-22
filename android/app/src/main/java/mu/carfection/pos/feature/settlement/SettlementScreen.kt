@@ -34,6 +34,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
@@ -56,7 +58,6 @@ import mu.carfection.pos.ui.theme.TextMuted
 import mu.carfection.pos.ui.theme.TextPrimary
 import mu.carfection.pos.ui.theme.TextSecondary
 import mu.carfection.pos.ui.theme.Tile
-import mu.carfection.pos.ui.theme.Warning
 
 @Composable
 fun SettlementScreen(onBack: () -> Unit, viewModel: SettlementViewModel = hiltViewModel()) {
@@ -93,7 +94,6 @@ fun SettlementScreen(onBack: () -> Unit, viewModel: SettlementViewModel = hiltVi
         when {
             s.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Accent) }
             s.error != null -> Text(s.error ?: "", color = Danger, fontFamily = Barlow, modifier = Modifier.padding(16.dp))
-            s.completedReceipts.isNotEmpty() -> SettlementCompleteView(s, viewModel)
             s.openCustomerId == null -> CustomerBalanceList(customerBalances(settleableInvoices(s.invoices)), onPick = viewModel::openCustomer)
             else -> SettleInvoicesPanel(
                 invoices = settleableInvoices(s.invoices).filter { it.customerId == s.openCustomerId },
@@ -101,6 +101,10 @@ fun SettlementScreen(onBack: () -> Unit, viewModel: SettlementViewModel = hiltVi
             )
         }
     }
+
+    // A floating dialog over whatever's underneath — same pattern as CounterScreen's
+    // Sale-complete dialog, dimmed scrim included — not inline content replacing the screen.
+    if (s.completedReceipts.isNotEmpty()) SettlementCompleteDialog(s, viewModel)
 }
 
 private fun initials(name: String): String {
@@ -298,41 +302,78 @@ private fun SettleInvoicesPanel(
     }
 }
 
-/** Mirrors CounterScreen's Sale-complete layout: status + total on the left, the printed
- *  slip(s) on the right, exactly as they came off the printer. */
+/** The exact structure of CounterScreen's Sale-complete dialog — a centred floating card
+ *  over a dimmed scrim, status + total + actions on the left, the printed slip(s) on the
+ *  right exactly as they came off the printer. */
 @Composable
-private fun SettlementCompleteView(state: SettlementState, vm: SettlementViewModel) {
+private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewModel) {
     val receipts = state.completedReceipts
     val totalCents = receipts.sumOf { it.totalCents }
-    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-                Box(Modifier.size(8.dp).background(Success, CircleShape))
-                Text("SETTLEMENT COMPLETE", color = Success, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp)
+    val customerName = receipts.firstOrNull()?.customer ?: ""
+    Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Row(
+            Modifier.widthIn(max = 960.dp).fillMaxWidth(0.97f).background(CardBg, RoundedCornerShape(22.dp)).padding(26.dp),
+            horizontalArrangement = Arrangement.spacedBy(24.dp),
+        ) {
+            // ── left: status + total + actions (scrolls on the small checkout tablet) ──
+            Column(Modifier.weight(1.15f).verticalScroll(rememberScrollState())) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text("Settlement complete", color = TextPrimary, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                        Text(
+                            if (receipts.size == 1) "Invoice ${receipts.first().invoiceNo ?: "—"} · paid"
+                            else "${receipts.size} invoices · ${receipts.mapNotNull { it.invoiceNo }.joinToString(", ")}",
+                            color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
+                        )
+                    }
+                    Box(
+                        Modifier.height(42.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = vm::dismissReceipts).padding(horizontal = 15.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("←  Done", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp) }
+                }
+                Spacer(Modifier.height(24.dp))
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    Box(Modifier.size(8.dp).background(Success, CircleShape))
+                    Text("PAYMENT CONFIRMED", color = Success, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp)
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(formatMUR(totalCents), color = TextPrimary, fontFamily = Condensed, fontSize = 46.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "received from $customerName" + if (receipts.size > 1) " · ${receipts.size} invoices settled" else "",
+                    color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp,
+                )
+                Spacer(Modifier.height(20.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    // printed automatically at settlement — this re-sends the same slip(s)
+                    Box(
+                        Modifier.height(48.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = vm::reprint).padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Print again", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp) }
+                }
+                Spacer(Modifier.height(16.dp))
+                Row(
+                    Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp)).padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Box(Modifier.size(38.dp).background(AccentSoft, CircleShape), contentAlignment = Alignment.Center) {
+                        Text("+", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Ready for the next customer", color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                        Text("Settle another account, or head back to Checkout", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp)
+                    }
+                    Box(
+                        Modifier.height(40.dp).background(Accent, RoundedCornerShape(11.dp)).clickable(onClick = vm::dismissReceipts).padding(horizontal = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text("Back  →", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp) }
+                }
             }
-            Spacer(Modifier.height(6.dp))
-            Text(formatMUR(totalCents), color = TextPrimary, fontFamily = Condensed, fontSize = 42.sp, fontWeight = FontWeight.Bold)
-            Text(
-                if (receipts.size == 1) "1 invoice paid — ${receipts.first().invoiceNo ?: ""}"
-                else "${receipts.size} invoices paid — ${receipts.mapNotNull { it.invoiceNo }.joinToString(", ")}",
-                color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp,
-            )
-            Spacer(Modifier.height(20.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Box(
-                    Modifier.height(46.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = vm::reprint).padding(horizontal = 18.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text("Print again", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
-                Box(
-                    Modifier.height(46.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = vm::dismissReceipts).padding(horizontal = 18.dp),
-                    contentAlignment = Alignment.Center,
-                ) { Text("Done", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
-            }
-        }
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-            receipts.forEach { r ->
-                ReceiptPaper(r, Modifier.widthIn(max = 300.dp).heightIn(max = 520.dp))
-                Spacer(Modifier.height(14.dp))
+            // ── right: the slip(s) exactly as they printed ──
+            Column(Modifier.weight(0.9f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+                receipts.forEachIndexed { i, r ->
+                    if (i > 0) Spacer(Modifier.height(14.dp))
+                    ReceiptPaper(r, Modifier.width(300.dp).heightIn(max = 560.dp))
+                }
             }
         }
     }
