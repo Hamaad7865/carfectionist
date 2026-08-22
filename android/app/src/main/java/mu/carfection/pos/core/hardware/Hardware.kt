@@ -135,6 +135,13 @@ data class ReceiptDoc(
      */
     val pointsEarned: Int? = null,
     val pointsBalanceAfter: Int? = null,
+    /** Set only for account settlement's multi-invoice receipt (see
+     *  [mu.carfection.pos.core.data.consolidatedReceiptDoc]): each settled invoice's own
+     *  lines/subtotal print under its own number, before this document's totals/tax/tenders
+     *  below — which then cover the GRAND total across every section, not one invoice.
+     *  Empty for every ordinary sale/collect/single-invoice-settle slip, which prints via
+     *  [lines] exactly as it always has. */
+    val consolidatedSections: List<ConsolidatedSection> = emptyList(),
 ) {
     val footer: String get() = biz.footer
 
@@ -153,6 +160,17 @@ data class ReceiptDoc(
 
 /** One dated payment row on the slip (a deposit, the balance, a reversal). */
 data class ReceiptPayment(val dateTime: String, val method: String, val amountCents: Long, val isReversal: Boolean = false)
+
+/** One settled invoice's own breakdown inside a consolidated (account-settlement) receipt —
+ *  see [ReceiptDoc.consolidatedSections]. Everything here is that ONE invoice's own figures;
+ *  the enclosing [ReceiptDoc]'s totals/tax/tenders cover the settlement as a whole. */
+data class ConsolidatedSection(
+    val invoiceNo: String?,
+    val lines: List<ReceiptLine>,
+    val subtotalCents: Long,
+    val discountCents: Long,
+    val totalCents: Long,
+)
 
 /** One VAT rate's tax line: base excl., the tax itself, and the inclusive figure. */
 data class ReceiptVatGroup(val ratePct: Double, val baseCents: Long, val vatCents: Long) {
@@ -236,8 +254,10 @@ object ReceiptText {
             appendLine(center("Not a VAT invoice.", w))
             wrap("Your VAT invoice is issued when this till is back online.", w)
                 .forEach { appendLine(center(it, w)) }
-        } else {
-            appendLine(center(bold("NUM VAT INVOICE ${d.invoiceNo ?: "—"}"), w))
+        } else if (d.invoiceNo != null) {
+            // Null only for a consolidated settlement receipt (several invoices, no single
+            // number to state here) — the sections below name each one instead.
+            appendLine(center(bold("NUM VAT INVOICE ${d.invoiceNo}"), w))
         }
         d.billNo?.let { appendLine(center(bold("Bill $it"), w)) }
         appendLine(center(d.saleModeLabel, w))
@@ -256,15 +276,14 @@ object ReceiptText {
         d.customerVatNo?.takeIf { it.isNotBlank() }?.let { appendLine(center("VAT No : " + it.removePrefix("VAT").trim(), w)) }
         appendLine(rule(w))
 
-        if (d.lines.isNotEmpty()) {
-            // ── items: Qty | Designation | UP | Total ─────────────────────────────
-            // Columns scale with the paper: the money columns keep their width and the
-            // designation takes what is left, so 58mm and 80mm both stay aligned.
-            val qtyW = 4
-            val numW = if (w >= 48) 10 else 8
-            val nameW = (w - qtyW - numW * 2).coerceAtLeast(6)
+        // Columns scale with the paper: the money columns keep their width and the
+        // designation takes what is left, so 58mm and 80mm both stay aligned.
+        val qtyW = 4
+        val numW = if (w >= 48) 10 else 8
+        val nameW = (w - qtyW - numW * 2).coerceAtLeast(6)
+        fun itemsTable(lines: List<ReceiptLine>) {
             appendLine("Qty ".take(qtyW).padEnd(qtyW) + "Designation".take(nameW).padEnd(nameW) + "UP".padStart(numW) + "Total".padStart(numW))
-            d.lines.forEach { l ->
+            lines.forEach { l ->
                 // The item itself carries the weight; its discount sub-lines stay light, so the
                 // eye lands on what was bought and what it cost — as on the studio's own slip.
                 appendLine(
@@ -282,6 +301,22 @@ object ReceiptText {
                     )
                 }
             }
+        }
+        val hasItems = d.lines.isNotEmpty() || d.consolidatedSections.isNotEmpty()
+        if (d.consolidatedSections.isNotEmpty()) {
+            // ── one section per invoice this settlement paid off ────────────────────
+            d.consolidatedSections.forEachIndexed { i, sec ->
+                if (i > 0) appendLine(rule(w))
+                appendLine(center(bold("Invoice " + (sec.invoiceNo ?: "—")), w))
+                itemsTable(sec.lines)
+                appendLine(kv("    Subtotal :", plain(sec.subtotalCents), w))
+                if (sec.discountCents > 0) appendLine(kv("    Discount :", plain(sec.discountCents), w))
+                appendLine(kv("    Invoice total :", plain(sec.totalCents), w))
+            }
+            appendLine(rule(w))
+        } else if (d.lines.isNotEmpty()) {
+            // ── items: Qty | Designation | UP | Total ─────────────────────────────
+            itemsTable(d.lines)
             appendLine(rule(w))
 
             // ── totals ────────────────────────────────────────────────────────────
@@ -291,8 +326,8 @@ object ReceiptText {
             appendLine(kv("    Subtotal :", plain(d.subtotalCents), w))
             if (d.discountCents > 0) appendLine(kv("    Discount :", plain(d.discountCents), w))
         }
-        appendLine(center(bold("Total: " + rs(d.totalCents)), w))
-        if (d.lines.isNotEmpty()) appendLine(center(bold("excl. VAT : " + rs(d.totalCents - d.vatCents)), w))
+        appendLine(center(bold((if (d.consolidatedSections.isNotEmpty()) "Grand total: " else "Total: ") + rs(d.totalCents)), w))
+        if (hasItems) appendLine(center(bold("excl. VAT : " + rs(d.totalCents - d.vatCents)), w))
         appendLine(rule(w))
 
         // ── tenders ───────────────────────────────────────────────────────────────
@@ -329,7 +364,7 @@ object ReceiptText {
         }
 
         // ── tax breakdown ─────────────────────────────────────────────────────────
-        if (d.lines.isNotEmpty()) {
+        if (hasItems) {
             val groups = d.vatGroups.ifEmpty {
                 listOf(ReceiptVatGroup(d.vatRatePct.toDouble(), d.totalCents - d.vatCents, d.vatCents))
             }

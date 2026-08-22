@@ -374,4 +374,69 @@ class ReceiptTextTest {
         assertFalse(withLogo.lines().any { it.trim() == "CARFECTIONIST" })
         assertTrue(render().lines().any { it.contains("CARFECTIONIST") && !it.contains("SALES") })
     }
+
+    // ── account settlement's consolidated receipt (mu.carfection.pos.core.data.consolidatedReceiptDoc) ──
+
+    private fun consolidatedDoc() = referenceDoc().copy(
+        invoiceNo = null,
+        ticketNo = null,
+        billNo = null,
+        lines = emptyList(),
+        consolidatedSections = listOf(
+            ConsolidatedSection(
+                invoiceNo = "TESTINV-0082",
+                lines = listOf(ReceiptLine("STEAM VALETTING", 1.0, inclCents = 770000, unitInclCents = 770000, grossInclCents = 770000)),
+                subtotalCents = 770000, discountCents = 0, totalCents = 770000,
+            ),
+            ConsolidatedSection(
+                invoiceNo = "TESTINV-0083",
+                lines = listOf(ReceiptLine("MINI VALETTING", 1.0, inclCents = 495000, unitInclCents = 495000, grossInclCents = 495000)),
+                subtotalCents = 495000, discountCents = 0, totalCents = 495000,
+            ),
+        ),
+        subtotalCents = 1265000, discountCents = 0, vatCents = 165000, totalCents = 1265000,
+        payments = listOf(ReceiptPayment("23/08 08:30", "Cash", 770000), ReceiptPayment("23/08 08:30", "Cash", 495000)),
+        payLabel = null, paidCents = 1265000, changeCents = 0,
+        vatGroups = listOf(ReceiptVatGroup(15.0, 1100000, 165000)),
+    )
+
+    @Test
+    fun `each settled invoice prints under its own number, with its own items and subtotal`() {
+        val out = render(consolidatedDoc()).lines()
+        assertTrue("first invoice header", out.any { it.contains("Invoice TESTINV-0082") })
+        assertTrue("first invoice's line", out.any { it.contains("STEAM VALETTING") })
+        assertTrue("first invoice's own total", out.any { it.contains("Invoice total :") && it.contains("7700.00") })
+        assertTrue("second invoice header", out.any { it.contains("Invoice TESTINV-0083") })
+        assertTrue("second invoice's line", out.any { it.contains("MINI VALETTING") })
+        // The first invoice's section must come before the second's — settled oldest first.
+        assertTrue(out.indexOfFirst { it.contains("TESTINV-0082") } < out.indexOfFirst { it.contains("TESTINV-0083") })
+    }
+
+    @Test
+    fun `the grand total covers every invoice, labelled as such`() {
+        val out = render(consolidatedDoc())
+        assertTrue(out.contains("Grand total: 12650.00Rs"))
+        assertFalse("not the single-invoice wording", out.contains("Total: 12650.00Rs"))
+    }
+
+    @Test
+    fun `no single invoice number or bill reference names the whole settlement`() {
+        val out = render(consolidatedDoc())
+        assertFalse(out.contains("NUM VAT INVOICE"))
+        assertFalse(out.contains("Bill "))
+        assertFalse(out.contains("No. "))
+    }
+
+    @Test
+    fun `every tender across every invoice is itemised by method`() {
+        val out = render(consolidatedDoc())
+        assertTrue(out.contains("2   CASH : 12650.00Rs"))
+    }
+
+    @Test
+    fun `the combined tax breakdown still prints for a doc with no flat line list`() {
+        val out = render(consolidatedDoc())
+        assertTrue(out.contains("TAUX NORMAL 15.0% : 1650.00Rs"))
+        assertTrue(out.contains("excl. VAT : 11000.00Rs"))
+    }
 }

@@ -14,6 +14,7 @@ import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.data.SaleRepository
 import mu.carfection.pos.core.data.TillRepository
+import mu.carfection.pos.core.data.consolidatedReceiptDoc
 import mu.carfection.pos.core.data.saleReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptPrinter
@@ -210,7 +211,7 @@ class SettlementViewModel @Inject constructor(
             // invariant every other collect in this app follows (a printer failure can never
             // lose a sale that already committed above).
             val settledIds = groups.map { it.first }
-            val receipts = settledIds.mapNotNull { invoiceId ->
+            val perInvoice = settledIds.mapNotNull { invoiceId ->
                 runCatching {
                     api.fetchInvoice(invoiceId)?.let { h ->
                         val pointsEarned = runCatching { api.pointsEarnedForDocument(invoiceId) }.getOrNull()
@@ -221,38 +222,32 @@ class SettlementViewModel @Inject constructor(
                     }
                 }.getOrNull()
             }
-            printReceipts(receipts)
+            // One invoice settled prints exactly like an ordinary collect-on-invoice slip.
+            // Several are folded into ONE consolidated receipt — every invoice's own lines and
+            // tax under its own number, one combined tax breakdown, grand total and tender
+            // list — rather than several separate slips.
+            val receipt = if (perInvoice.size > 1) consolidatedReceiptDoc(perInvoice) else perInvoice.firstOrNull()
+            printReceipt(receipt)
 
             val plural = if (settledCount == 1) "" else "s"
             _s.update {
                 it.copy(
                     busy = false, submitSuccess = "Settled $settledCount invoice$plural for ${formatMUR(settledCents)}.",
                     checked = emptySet(), pointsApplied = false, pointsText = "", tenderedText = "", ref = "",
-                    completedReceipts = receipts,
+                    completedReceipts = listOfNotNull(receipt),
                 )
             }
             refresh()
         }
     }
 
-    /** One invoice settled prints exactly like an ordinary collect-on-invoice slip; several
-     *  print one after another on the same strip — invoice 1's own lines and tax, then invoice
-     *  2's, and so on, closed by a short combined-total trailer — rather than a new,
-     *  separately-rendered "consolidated" document format. */
-    private fun printReceipts(receipts: List<ReceiptDoc>) {
-        viewModelScope.launch {
-            receipts.forEach { runCatching { printer.printDoc(it) } }
-            if (receipts.size > 1) {
-                val grandTotal = receipts.sumOf { it.totalCents }
-                runCatching {
-                    printer.printReceipt("\n---- CONSOLIDATED SETTLEMENT ----\n${receipts.size} invoices settled\nTotal: ${formatMUR(grandTotal)}\n\n")
-                }
-            }
-        }
+    private fun printReceipt(receipt: ReceiptDoc?) {
+        if (receipt == null) return
+        viewModelScope.launch { runCatching { printer.printDoc(receipt) } }
     }
 
-    /** "Print again" on the just-settled screen — re-sends the same slips already shown. */
-    fun reprint() = printReceipts(_s.value.completedReceipts)
+    /** "Print again" on the just-settled screen — re-sends the same slip already shown. */
+    fun reprint() = printReceipt(_s.value.completedReceipts.firstOrNull())
 
     /** Back from the just-settled screen to the customer-balance list. */
     fun dismissReceipts() = _s.update {

@@ -2089,8 +2089,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             Text("Ref ${d.offlineRef}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
             Text("Not a VAT invoice.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
             Text("Your VAT invoice is issued when this till is back online.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center)
-        } else {
-            Text("NUM VAT INVOICE ${d.invoiceNo ?: "—"}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+        } else if (d.invoiceNo != null) {
+            Text("NUM VAT INVOICE ${d.invoiceNo}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
         }
         d.billNo?.let { Text("Bill $it", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center) }
         Text(d.saleModeLabel, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
@@ -2109,14 +2109,15 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         DashRule()
         // ── items: Qty | Designation | UP | Total ───────────────────────────────
-        if (d.lines.isNotEmpty()) {
+        @Composable
+        fun ItemsTable(lines: List<mu.carfection.pos.core.hardware.ReceiptLine>) {
             Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
                 Text("Qty", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.width(24.dp))
                 Text("Designation", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.weight(1f))
                 Text("UP", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
                 Text("Total", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
             }
-            d.lines.forEach { l ->
+            lines.forEach { l ->
                 Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
                     Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.width(24.dp))
                     Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
@@ -2133,13 +2134,31 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
                     )
                 }
             }
+        }
+        val hasItems = d.lines.isNotEmpty() || d.consolidatedSections.isNotEmpty()
+        if (d.consolidatedSections.isNotEmpty()) {
+            // ── one section per invoice this settlement paid off ────────────────────
+            d.consolidatedSections.forEachIndexed { i, sec ->
+                if (i > 0) DashRule()
+                Text("Invoice ${sec.invoiceNo ?: "—"}", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 3.dp))
+                ItemsTable(sec.lines)
+                SlipRow("    Subtotal :", plainSlip(sec.subtotalCents))
+                if (sec.discountCents > 0) SlipRow("    Discount :", plainSlip(sec.discountCents))
+                SlipRow("    Invoice total :", plainSlip(sec.totalCents), strong = true)
+            }
+            DashRule()
+        } else if (d.lines.isNotEmpty()) {
+            ItemsTable(d.lines)
             DashRule()
             // ── totals: Subtotal is PRE-discount, so the saving is visible ───────
             SlipRow("    Subtotal :", plainSlip(d.subtotalCents))
             if (d.discountCents > 0) SlipRow("    Discount :", plainSlip(d.discountCents))
         }
-        Text("Total: ${plainSlip(d.totalCents)}Rs", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 5.dp))
-        if (d.lines.isNotEmpty()) {
+        Text(
+            "${if (d.consolidatedSections.isNotEmpty()) "Grand total" else "Total"}: ${plainSlip(d.totalCents)}Rs",
+            color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 5.dp),
+        )
+        if (hasItems) {
             Text("excl. VAT : ${plainSlip(d.totalCents - d.vatCents)}Rs", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = TextAlign.Center)
         }
         DashRule()
@@ -2163,7 +2182,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         DashRule()
         // ── tax breakdown ───────────────────────────────────────────────────────
-        if (d.lines.isNotEmpty()) {
+        if (hasItems) {
             val groups = d.vatGroups.ifEmpty {
                 listOf(mu.carfection.pos.core.hardware.ReceiptVatGroup(d.vatRatePct.toDouble(), d.totalCents - d.vatCents, d.vatCents))
             }

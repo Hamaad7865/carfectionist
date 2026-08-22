@@ -307,9 +307,14 @@ private fun SettleInvoicesPanel(
  *  right exactly as they came off the printer. */
 @Composable
 private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewModel) {
-    val receipts = state.completedReceipts
-    val totalCents = receipts.sumOf { it.totalCents }
-    val customerName = receipts.firstOrNull()?.customer ?: ""
+    val doc = state.completedReceipts.firstOrNull()
+    // A multi-invoice settlement is ONE consolidated ReceiptDoc (consolidatedSections
+    // non-empty); a single-invoice settlement is the ordinary per-invoice doc. Either way
+    // there's exactly one ReceiptDoc to show — this just names what's inside it.
+    val invoiceNumbers = doc?.consolidatedSections?.mapNotNull { it.invoiceNo }
+        ?.takeIf { it.isNotEmpty() } ?: listOfNotNull(doc?.invoiceNo)
+    val totalCents = doc?.totalCents ?: 0L
+    val customerName = doc?.customer ?: ""
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Row(
             Modifier.widthIn(max = 960.dp).fillMaxWidth(0.97f).background(CardBg, RoundedCornerShape(22.dp)).padding(26.dp),
@@ -321,8 +326,8 @@ private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewM
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                         Text("Settlement complete", color = TextPrimary, fontFamily = Condensed, fontSize = 26.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
                         Text(
-                            if (receipts.size == 1) "Invoice ${receipts.first().invoiceNo ?: "—"} · paid"
-                            else "${receipts.size} invoices · ${receipts.mapNotNull { it.invoiceNo }.joinToString(", ")}",
+                            if (invoiceNumbers.size <= 1) "Invoice ${invoiceNumbers.firstOrNull() ?: "—"} · paid"
+                            else "${invoiceNumbers.size} invoices · ${invoiceNumbers.joinToString(", ")}",
                             color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
                         )
                     }
@@ -339,7 +344,7 @@ private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewM
                 Spacer(Modifier.height(6.dp))
                 Text(formatMUR(totalCents), color = TextPrimary, fontFamily = Condensed, fontSize = 46.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    "received from $customerName" + if (receipts.size > 1) " · ${receipts.size} invoices settled" else "",
+                    "received from $customerName" + if (invoiceNumbers.size > 1) " · ${invoiceNumbers.size} invoices settled" else "",
                     color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp,
                 )
                 Spacer(Modifier.height(20.dp))
@@ -368,12 +373,9 @@ private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewM
                     ) { Text("Back  →", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp) }
                 }
             }
-            // ── right: the slip(s) exactly as they printed ──
+            // ── right: the slip exactly as it printed (consolidated when >1 invoice) ──
             Column(Modifier.weight(0.9f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-                receipts.forEachIndexed { i, r ->
-                    if (i > 0) Spacer(Modifier.height(14.dp))
-                    ReceiptPaper(r, Modifier.width(300.dp).heightIn(max = 560.dp))
-                }
+                doc?.let { ReceiptPaper(it, Modifier.width(300.dp).heightIn(max = 700.dp)) }
             }
         }
     }

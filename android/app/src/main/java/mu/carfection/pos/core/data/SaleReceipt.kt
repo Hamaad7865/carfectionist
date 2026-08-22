@@ -1,5 +1,6 @@
 package mu.carfection.pos.core.data
 
+import mu.carfection.pos.core.hardware.ConsolidatedSection
 import mu.carfection.pos.core.hardware.ReceiptBiz
 import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
@@ -160,5 +161,55 @@ fun saleReceiptDoc(
         // when the bill actually names one (never the anonymous walk-in bucket).
         pointsEarned = if (namesCustomer) pointsEarned else null,
         pointsBalanceAfter = if (namesCustomer) pointsBalanceAfter else null,
+    )
+}
+
+/**
+ * Combines several already-built single-invoice [ReceiptDoc]s (each straight from
+ * [saleReceiptDoc], never recomputed here) into ONE consolidated account-settlement receipt:
+ * every invoice's own lines/subtotal under its own number, then one combined tax breakdown,
+ * grand total and tender list covering the whole settlement.
+ *
+ * [docs] must be non-empty and in the order they were settled (oldest invoice first, same
+ * order [mu.carfection.pos.feature.settlement.SettlementViewModel] builds them in) — that
+ * order becomes both the section order on the page and, since every tender in this
+ * settlement happened within the same few seconds, the tender-list order too.
+ */
+fun consolidatedReceiptDoc(docs: List<ReceiptDoc>): ReceiptDoc {
+    require(docs.isNotEmpty()) { "a consolidated receipt needs at least one settled invoice" }
+    val vatGroups = docs
+        .flatMap { it.vatGroups }
+        .groupBy { it.ratePct }
+        .map { (rate, gs) -> ReceiptVatGroup(rate, gs.sumOf { it.baseCents }, gs.sumOf { it.vatCents }) }
+        .sortedByDescending { it.ratePct }
+    return docs.first().copy(
+        // No single number, ticket or bill reference names a settlement of several invoices —
+        // the sections below name each one instead, and the barcode (keyed on invoiceNo) and
+        // "No./Bill" lines simply don't print without one.
+        invoiceNo = null,
+        ticketNo = null,
+        billNo = null,
+        lines = emptyList(),
+        consolidatedSections = docs.map { d ->
+            ConsolidatedSection(d.invoiceNo, d.lines, d.subtotalCents, d.discountCents, d.totalCents)
+        },
+        subtotalCents = docs.sumOf { it.subtotalCents },
+        discountCents = docs.sumOf { it.discountCents },
+        vatCents = docs.sumOf { it.vatCents },
+        totalCents = docs.sumOf { it.totalCents },
+        vatGroups = vatGroups,
+        // Every invoice always carries its own `payments` rows regardless of count
+        // (saleReceiptDoc builds them unconditionally) — concatenating is the whole merge.
+        payments = docs.flatMap { it.payments },
+        payLabel = null, // payments.size is always > 1 here in practice; the per-row list prints instead
+        paidCents = docs.sumOf { it.paidCents },
+        changeCents = docs.sumOf { it.changeCents },
+        onAccount = false, // settlement only ever pays with a real tender, never on account
+        balanceDueCents = docs.sumOf { it.balanceDueCents },
+        voided = false,
+        // Points earned per invoice as it was settled; the balance after is whichever invoice
+        // was processed LAST (docs is oldest-first, so that's the tail).
+        pointsEarned = docs.mapNotNull { it.pointsEarned }.takeIf { it.isNotEmpty() }?.sum(),
+        pointsBalanceAfter = docs.lastOrNull { it.pointsBalanceAfter != null }?.pointsBalanceAfter,
     )
 }
