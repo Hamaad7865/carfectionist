@@ -1,12 +1,14 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
-import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement, getSettleableInvoices, getCustomerPointsContext } from "@/lib/supabase/queries/reports";
 import { getDailySummary } from "@/lib/supabase/queries/daily-summary";
 import { DailySummaryTable, parseSections, ALL_SECTIONS, type SectionKey } from "@/features/reports/DailySummaryTable";
 import { muToday } from "@/lib/mu-date";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatementPicker } from "@/features/reports/StatementPicker";
 import { StatementSendButton } from "@/features/reports/StatementSendButton";
+import { SettleAccountPanel } from "@/features/documents/SettleAccountPanel";
+import { getSessionContext } from "@/lib/auth/session";
 import { formatMUR } from "@/lib/money";
 import { muDate } from "@/lib/mu-date";
 import { btn } from "@/components/ui/button";
@@ -63,12 +65,19 @@ export default async function ReportsPage({
   const data = await getReportsData(sp.from, sp.to, method);
   const extra = EXTRA.includes(report) ? await getExtraReports(sp.from, sp.to) : null;
   const discounts = report === "discounts" ? await getDiscountsReport(sp.from, sp.to) : null;
+  // Owner/manager only — an accountant can view this page (reports/layout.tsx
+  // allows owner|manager|accountant) but never records real payments, matching
+  // every other payment-recording action in the app.
+  const session = report === "statement" && sp.c ? await getSessionContext() : null;
+  const canSettle = session?.role === "owner" || session?.role === "manager";
   const statement =
     report === "statement"
       ? {
           customers: await getStatementCustomers(),
           data: sp.c ? await getCustomerStatement(sp.c, sp.from, sp.to) : null,
           aged: sp.c ? await getCustomerAgedStatement(sp.c) : null,
+          settleable: sp.c && canSettle ? await getSettleableInvoices(sp.c) : [],
+          points: sp.c && canSettle ? await getCustomerPointsContext(sp.c) : null,
         }
       : null;
   const statementList = report === "statement-list" ? await getStatementOfAccounts() : null;
@@ -546,6 +555,16 @@ export default async function ReportsPage({
                   </div>
                 )}
               </div>
+
+              {statement.settleable.length > 0 && statement.points && (
+                <SettleAccountPanel
+                  customerId={sp.c!}
+                  invoices={statement.settleable}
+                  pointsEnabled={statement.points.pointsEnabled}
+                  pointsBalance={statement.points.pointsBalance}
+                  pointValueRupees={statement.points.pointValueRupees}
+                />
+              )}
 
               {statement.aged && statement.aged.soldeCents !== 0 && (
                 <div className="overflow-hidden rounded-[15px] border border-line bg-card">
