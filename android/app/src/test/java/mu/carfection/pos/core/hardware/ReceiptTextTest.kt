@@ -439,4 +439,24 @@ class ReceiptTextTest {
         assertTrue(out.contains("TAUX NORMAL 15.0% : 1650.00Rs"))
         assertTrue(out.contains("excl. VAT : 11000.00Rs"))
     }
+
+    /**
+     * The reported bug: a customer handing over Rs 7000 cash for a Rs 6159.99 settlement
+     * across two invoices got no change line at all — it only ever printed inside the
+     * single-payment branch, which a multi-invoice settlement (2+ payment rows) never
+     * reaches. Change must show regardless of how many tender rows made up the payment.
+     */
+    @Test
+    fun `change shows even though the payment took more than one tender row`() {
+        val withChange = consolidatedDoc().copy(changeCents = 84001) // Rs 840.01, as in the reported case
+        val out = render(withChange)
+        assertTrue("multi-tender branch still reached", out.contains("2   CASH : 12650.00Rs"))
+        assertTrue("change prints anyway", out.contains("Change :"))
+        assertTrue(out.contains("840.01"))
+    }
+
+    @Test
+    fun `no change line at all when nothing was overpaid`() {
+        assertFalse(render(consolidatedDoc().copy(changeCents = 0)).contains("Change"))
+    }
 }

@@ -349,8 +349,12 @@ object ReceiptText {
                 }
             } else {
                 appendLine(bold("1   ${(d.payLabel ?: "PAID").uppercase()} : " + rs(d.paidCents)))
-                if (d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
             }
+            // Change applies to the payment as a whole, regardless of how many tender rows
+            // made it up — a split or a multi-invoice settlement paid partly in cash still
+            // owes the customer one clear "here's what you get back" line, not silence just
+            // because it took more than one row to reach it.
+            if (!d.onAccount && d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
             // The one number a customer leaving a deposit needs to see on the paper.
             if (d.balanceDueCents > 0) appendLine(kv("    BALANCE DUE :", plain(d.balanceDueCents), w))
             // Points earned by this sale, and the running balance after it — only when the

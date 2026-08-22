@@ -2170,8 +2170,10 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             }
         } else {
             Text("1   ${(d.payLabel ?: "PAID").uppercase()} : ${plainSlip(d.paidCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
-            if (d.changeCents > 0) SlipRow("    Change :", plainSlip(d.changeCents))
         }
+        // Change applies to the payment as a whole, regardless of how many tender rows made
+        // it up — mirrors ReceiptText.render, so the screen and the printed slip agree.
+        if (!d.onAccount && d.changeCents > 0) SlipRow("    Change :", plainSlip(d.changeCents))
         // A deposit is only half a story without the half still to pay.
         if (d.balanceDueCents > 0) SlipRow("    BALANCE DUE :", plainSlip(d.balanceDueCents), strong = true)
         // Points earned by this sale, and the running balance after it — only when the bill
