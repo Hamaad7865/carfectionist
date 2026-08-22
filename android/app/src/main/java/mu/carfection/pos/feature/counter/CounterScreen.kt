@@ -2165,8 +2165,15 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         // ── tenders ─────────────────────────────────────────────────────────────
         if (d.onAccount) Text("1   ON ACCOUNT : ${plainSlip(d.totalCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
         else if (d.payments.size > 1) {
-            d.payments.forEach { p ->
-                Text("1   ${p.method.uppercase()} ${p.dateTime} : ${plainSlip(p.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+            // Grouped by method, not listed per dated row — mirrors ReceiptText.render exactly,
+            // so the screen states the same "how much cash did the customer hand over" total
+            // the printed slip does, instead of leaving it split across per-invoice rows the
+            // reader has to add up themselves.
+            d.payments.filterNot { it.isReversal }.groupBy { it.method.uppercase() }.forEach { (method, ps) ->
+                Text("${ps.size}   $method : ${plainSlip(ps.sumOf { it.amountCents })}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+            }
+            d.payments.filter { it.isReversal }.forEach { p ->
+                Text("1   ${p.method.uppercase()} REVERSED : ${plainSlip(p.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
             }
         } else {
             Text("1   ${(d.payLabel ?: "PAID").uppercase()} : ${plainSlip(d.paidCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
