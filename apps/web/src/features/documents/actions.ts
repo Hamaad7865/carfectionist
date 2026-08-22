@@ -8,6 +8,10 @@ import { resolveShopLocationId } from "@/lib/supabase/locations";
 import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
 import { saveDraftInputSchema, toRpcDoc, toRpcLines, type SaveDraftInput } from "./payload";
+import { formatMUR } from "@/lib/money";
+import { pointsValueCents } from "@/lib/points";
+import { getSettleableInvoices, getCustomerPointsContext } from "@/lib/supabase/queries/reports";
+import { planSettlement } from "./account-settlement";
 
 export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
 
@@ -551,4 +555,119 @@ export async function getApprovingOwnersAction(): Promise<ActionResult<Approving
   if (error) return { ok: false, error: error.message };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { ok: true, data: ((data ?? []) as any[]).map((o) => ({ appUserId: o.id, displayName: o.display_name })) };
+}
+
+// ── Account settlement ───────────────────────────────────────────────────────
+// Pays off several of a customer's open invoices in one action: points (if any)
+// then a chosen method, walked oldest-first by planSettlement, one record_payment
+// call per leg — no new RPC. See docs/superpowers/specs/2026-08-22-account-settlement-design.md.
+
+const settleAccountSchema = z.object({
+  customerId: z.string(),
+  invoiceIds: z.array(z.string()).min(1),
+  pointsAppliedCents: z.number().int().min(0),
+  method: z.enum(["cash", "card", "juice", "bank_transfer"]),
+  tenderedCents: z.number().int().nullable().optional(),
+  externalRef: z.string().nullable().optional(),
+  settleKey: z.string().min(1),
+});
+
+export type SettleAccountResult =
+  | { ok: true; settledCount: number; settledCents: number }
+  | { ok: false; error: string; settledCount: number; settledCents: number };
+
+export async function settleAccountAction(
+  input: z.infer<typeof settleAccountSchema>,
+): Promise<SettleAccountResult> {
+  await requireRole(...WRITE_ROLES);
+  const parsed = settleAccountSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "Invalid settlement request.", settledCount: 0, settledCents: 0 };
+  const { customerId, invoiceIds, pointsAppliedCents, method, settleKey } = parsed.data;
+  const externalRef = parsed.data.externalRef ?? null;
+  const sb = await createClient();
+
+  // Never trust the client's copy of what's owed — re-fetch server-side.
+  const [open, points] = await Promise.all([getSettleableInvoices(customerId), getCustomerPointsContext(customerId)]);
+  const byId = new Map(open.map((inv) => [inv.id, inv]));
+  const selected = invoiceIds.map((id) => byId.get(id)).filter((inv): inv is NonNullable<typeof inv> => inv != null);
+  if (selected.length !== invoiceIds.length) {
+    return { ok: false, error: "One or more selected invoices are no longer open — refresh and try again.", settledCount: 0, settledCents: 0 };
+  }
+
+  const totalDueCents = selected.reduce((s, inv) => s + inv.outstandingCents, 0);
+  const pointsCapCents = points.pointsEnabled ? Math.min(totalDueCents, pointsValueCents(points.pointsBalance, points.pointValueRupees)) : 0;
+  if (pointsAppliedCents > pointsCapCents) {
+    return { ok: false, error: "The points applied exceed what's available for this settlement.", settledCount: 0, settledCents: 0 };
+  }
+
+  const methodDueCents = totalDueCents - pointsAppliedCents;
+  let tenderedCents = parsed.data.tenderedCents ?? null;
+  if (methodDueCents > 0) {
+    if (method === "cash") {
+      tenderedCents = tenderedCents ?? methodDueCents;
+      if (tenderedCents < methodDueCents) return { ok: false, error: "Tendered is less than the amount due.", settledCount: 0, settledCents: 0 };
+    } else if (!externalRef?.trim()) {
+      return { ok: false, error: "A card / Juice / bank payment needs a reference.", settledCount: 0, settledCents: 0 };
+    }
+  }
+
+  const legs = planSettlement(
+    selected.map((inv) => ({ id: inv.id, issueDate: inv.issueDate, outstandingCents: inv.outstandingCents })),
+    pointsAppliedCents,
+    method,
+    methodDueCents > 0 ? tenderedCents : null,
+  );
+
+  // planSettlement always emits one invoice's legs (points, then method) consecutively —
+  // re-group them so a whole invoice's legs succeed together before the next one starts.
+  const groups: { invoiceId: string; legs: typeof legs }[] = [];
+  for (const leg of legs) {
+    const g = groups[groups.length - 1];
+    if (g && g.invoiceId === leg.invoiceId) g.legs.push(leg);
+    else groups.push({ invoiceId: leg.invoiceId, legs: [leg] });
+  }
+
+  // The DESK's till, same as every other web payment — never "any open till".
+  const cashSessionId = await backOfficeTillId(sb);
+  let settledCount = 0;
+  let settledCents = 0;
+
+  for (const group of groups) {
+    let groupCents = 0;
+    try {
+      for (const leg of group.legs) {
+        await rpc.recordPayment(sb, {
+          invoiceId: leg.invoiceId,
+          method: leg.method,
+          amount: leg.amountCents / 100,
+          tendered: leg.tenderedCents != null ? leg.tenderedCents / 100 : null,
+          externalRef: leg.method === "cash" || leg.method === "points" ? null : externalRef?.trim() || null,
+          cashSessionId,
+          idempotencyKey: `${settleKey}-${leg.invoiceId}-${leg.method}`,
+        });
+        groupCents += leg.amountCents;
+      }
+      settledCount += 1;
+      settledCents += groupCents;
+    } catch (e) {
+      const number = byId.get(group.invoiceId)?.number ?? group.invoiceId;
+      const partialNote = groupCents > 0 ? ` (${formatMUR(groupCents)} of it already applied to that invoice)` : "";
+      revalidatePath("/sales");
+      revalidatePath("/contacts");
+      revalidatePath("/reports");
+      for (const g of groups.slice(0, groups.indexOf(group) + 1)) revalidatePath(`/sales/${g.invoiceId}`);
+      return {
+        ok: false,
+        error: `Settled ${settledCount} of ${selected.length} invoice${selected.length === 1 ? "" : "s"} (${formatMUR(settledCents)}). Failed on ${number}${partialNote}: ${(e as Error).message}`,
+        settledCount,
+        settledCents,
+      };
+    }
+  }
+
+  revalidatePath("/sales");
+  revalidatePath("/contacts");
+  revalidatePath("/reports");
+  for (const inv of selected) revalidatePath(`/sales/${inv.id}`);
+  return { ok: true, settledCount, settledCents };
 }
