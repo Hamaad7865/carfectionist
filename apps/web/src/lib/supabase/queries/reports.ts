@@ -565,6 +565,68 @@ export interface AgedStatement {
   invoices: StatementCreditInvoice[]; // "Factures en crédit", itemised
 }
 
+export interface SettleableInvoice {
+  id: string;
+  number: string | null;
+  issueDate: string | null;
+  outstandingCents: number; // total_incl - amount_paid — what's still owed
+  paidCents: number; // amount_paid so far — the aged statement's "credit" column
+}
+
+/**
+ * Every open (not fully paid, not credited) invoice for a customer, oldest first —
+ * the same "what do they actually owe" filter the aged statement below uses, pulled
+ * out so account settlement can never offer to settle an invoice the statement
+ * wouldn't itself count as owed.
+ */
+export async function getSettleableInvoices(customerId: string): Promise<SettleableInvoice[]> {
+  const sb = await createClient();
+  const rows = await fetchAllRows(() =>
+    sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid, issue_date, source_document_id").eq("customer_id", customerId).in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
+  );
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  const docs = rows as any[];
+  const creditedIds = new Set(docs.filter((d) => d.doc_type === "credit_note").map((d) => d.source_document_id).filter(Boolean));
+
+  const open: SettleableInvoice[] = [];
+  for (const d of docs) {
+    if (d.doc_type !== "invoice") continue;
+    if (!["issued", "partly_paid"].includes(d.status)) continue;
+    if (creditedIds.has(d.id)) continue;
+    const outstandingCents = rupeesToCents(Number(d.total_incl) - Number(d.amount_paid));
+    if (outstandingCents <= 0) continue;
+    open.push({ id: d.id, number: d.number, issueDate: d.issue_date, outstandingCents, paidCents: rupeesToCents(Number(d.amount_paid)) });
+  }
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+  return open.sort((a, b) => {
+    const ak = a.issueDate ?? "9999-99-99";
+    const bk = b.issueDate ?? "9999-99-99";
+    return ak < bk ? -1 : ak > bk ? 1 : 0;
+  });
+}
+
+export interface CustomerPointsContext {
+  pointsBalance: number;
+  pointValueRupees: number;
+  pointsEnabled: boolean;
+}
+
+/** The points figures account settlement needs, for a customer the caller already knows. */
+export async function getCustomerPointsContext(customerId: string): Promise<CustomerPointsContext> {
+  const sb = await createClient();
+  const [{ data: cust }, { data: bs }] = await Promise.all([
+    sb.from("customers").select("points_balance").eq("id", customerId).maybeSingle(),
+    sb.from("business_settings").select("point_value_rupees, points_enabled").limit(1).maybeSingle(),
+  ]);
+  /* eslint-disable @typescript-eslint/no-explicit-any */
+  return {
+    pointsBalance: (cust as any)?.points_balance ?? 0,
+    pointValueRupees: Number((bs as any)?.point_value_rupees ?? 1),
+    pointsEnabled: (bs as any)?.points_enabled !== false,
+  };
+  /* eslint-enable @typescript-eslint/no-explicit-any */
+}
+
 /**
  * View B — one customer's balance aged by calendar month, with the outstanding
  * ("credit") invoices itemised. The carried Cashmag note seeds the "Avant" column and
@@ -573,27 +635,22 @@ export interface AgedStatement {
  */
 export async function getCustomerAgedStatement(customerId: string, refDate = muToday()): Promise<AgedStatement | null> {
   const sb = await createClient();
-  const { data: cust } = await sb.from("customers").select("id, name, email, notes").eq("id", customerId).maybeSingle();
-  if (!cust) return null;
-
-  const [invRows, lineRows] = await Promise.all([
-    fetchAllRows(() =>
-      sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid, issue_date, source_document_id").eq("customer_id", customerId).in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]),
-    ),
+  const [{ data: cust }, openInvoices, lineRows] = await Promise.all([
+    sb.from("customers").select("id, name, email, notes").eq("id", customerId).maybeSingle(),
+    getSettleableInvoices(customerId),
     fetchAllRows(() =>
       sb.from("document_lines").select("document_id, title, qty, discount_pct, sort_order, documents!inner(customer_id)").eq("documents.customer_id", customerId),
     ),
   ]);
+  if (!cust) return null;
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const docs = invRows as any[];
   const linesByDoc = new Map<string, StatementInvoiceLine[]>();
   for (const l of (lineRows as any[]).sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))) {
     const arr = linesByDoc.get(l.document_id) ?? [];
     arr.push({ title: l.title, qty: Number(l.qty), discountPct: Number(l.discount_pct ?? 0) });
     linesByDoc.set(l.document_id, arr);
   }
-  const creditedIds = new Set(docs.filter((d) => d.doc_type === "credit_note").map((d) => d.source_document_id).filter(Boolean));
 
   const keys = agingKeys(refDate);
   const buckets: StatementAgingBucket[] = keys.map((k) => ({ key: k, label: monthLabel(k), cents: 0 }));
@@ -603,27 +660,20 @@ export async function getCustomerAgedStatement(customerId: string, refDate = muT
   const carriedCents = carried?.netCents ?? 0;
   avant.cents += carriedCents; // historical debt is older than any shown month
 
-  const invoices: StatementCreditInvoice[] = [];
-  for (const d of docs) {
-    if (d.doc_type !== "invoice") continue;
-    if (!["issued", "partly_paid"].includes(d.status)) continue;
-    if (creditedIds.has(d.id)) continue;
-    const owed = rupeesToCents(Number(d.total_incl) - Number(d.amount_paid));
-    if (owed <= 0) continue;
-
-    const key = d.issue_date ? monthKey(d.issue_date) : "avant";
+  // getSettleableInvoices already sorts oldest-first and excludes anything credited
+  // or fully paid — this used to re-derive that same filter from raw document rows.
+  const invoices: StatementCreditInvoice[] = openInvoices.map((inv) => {
+    const key = inv.issueDate ? monthKey(inv.issueDate) : "avant";
     const bucket = buckets.find((b) => b.key === key) ?? avant;
-    bucket.cents += owed;
-
-    invoices.push({
-      date: d.issue_date ?? "",
-      number: d.number,
-      lines: linesByDoc.get(d.id) ?? [],
-      debitCents: owed,
-      creditCents: rupeesToCents(Number(d.amount_paid)),
-    });
-  }
-  invoices.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : 0));
+    bucket.cents += inv.outstandingCents;
+    return {
+      date: inv.issueDate ?? "",
+      number: inv.number,
+      lines: linesByDoc.get(inv.id) ?? [],
+      debitCents: inv.outstandingCents,
+      creditCents: inv.paidCents,
+    };
+  });
 
   const allBuckets = [...buckets, avant];
   const soldeCents = allBuckets.reduce((s, b) => s + b.cents, 0);
