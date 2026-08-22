@@ -6,6 +6,8 @@ import { CustomerList } from "@/features/contacts/CustomerList";
 import { ImportExport } from "@/features/dataio/ImportExport";
 import { VehiclesEditor } from "@/features/contacts/VehiclesEditor";
 import { PointsPanel } from "@/features/contacts/PointsPanel";
+import { SettleAccountPanel } from "@/features/documents/SettleAccountPanel";
+import { getSettleableInvoices } from "@/lib/supabase/queries/reports";
 import { SuppliersPanel } from "@/features/contacts/SuppliersPanel";
 import { WaOptOutToggle } from "@/features/contacts/WaOptOutToggle";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -29,6 +31,7 @@ export default async function ContactsPage({
   const tab = sp.tab === "suppliers" ? "suppliers" : "customers";
   const [data, session] = await Promise.all([getContacts(sp.c), getSessionContext()]);
   const sel = data.selected;
+  const settleable = sel ? await getSettleableInvoices(sel.id) : [];
   const canMarket = session?.role === "owner" || session?.role === "manager";
 
   return (
@@ -73,6 +76,18 @@ export default async function ContactsPage({
                   <div className={`num mt-1.5 text-[22px] font-extrabold ${sel.outstandingCents > 0 ? "text-amber-ink" : "text-ink-strong"}`}>{formatMUR(sel.outstandingCents)}</div>
                 </div>
               </div>
+
+              {settleable.length > 0 && (
+                <div className="px-[22px] pb-2">
+                  <SettleAccountPanel
+                    customerId={sel.id}
+                    invoices={settleable}
+                    pointsEnabled={sel.pointsEnabled}
+                    pointsBalance={sel.pointsBalance}
+                    pointValueRupees={sel.pointValueRupees}
+                  />
+                </div>
+              )}
 
               {canMarket && (
                 <div className="px-[22px] pb-1">
