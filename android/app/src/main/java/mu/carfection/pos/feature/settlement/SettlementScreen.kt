@@ -1,39 +1,62 @@
 package mu.carfection.pos.feature.settlement
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.Checkbox
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Divider
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.core.data.PayMethod
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.pointsValueCents
-import mu.carfection.pos.core.money.rupeesToCents
+import mu.carfection.pos.feature.counter.ReceiptPaper
+import mu.carfection.pos.ui.FilledInput
+import mu.carfection.pos.ui.theme.Accent
+import mu.carfection.pos.ui.theme.AccentInk
+import mu.carfection.pos.ui.theme.AccentSoft
+import mu.carfection.pos.ui.theme.CardBg
+import mu.carfection.pos.ui.theme.Condensed
+import mu.carfection.pos.ui.theme.Danger
+import mu.carfection.pos.ui.theme.Barlow
+import mu.carfection.pos.ui.theme.Hairline
+import mu.carfection.pos.ui.theme.InsetAlt
+import mu.carfection.pos.ui.theme.ScreenBg
+import mu.carfection.pos.ui.theme.Success
+import mu.carfection.pos.ui.theme.TextMuted
+import mu.carfection.pos.ui.theme.TextPrimary
+import mu.carfection.pos.ui.theme.TextSecondary
+import mu.carfection.pos.ui.theme.Tile
+import mu.carfection.pos.ui.theme.Warning
 
 @Composable
 fun SettlementScreen(onBack: () -> Unit, viewModel: SettlementViewModel = hiltViewModel()) {
@@ -42,55 +65,95 @@ fun SettlementScreen(onBack: () -> Unit, viewModel: SettlementViewModel = hiltVi
     val pointsEnabled by viewModel.pointsEnabled.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() } // refresh every time Settlement is (re)opened
 
-    Column(Modifier.fillMaxSize().padding(16.dp)) {
+    Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { if (s.openCustomerId != null) viewModel.closeCustomer() else onBack() }) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+            Box(
+                Modifier.height(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                    .clickable {
+                        when {
+                            s.completedReceipts.isNotEmpty() -> viewModel.dismissReceipts()
+                            s.openCustomerId != null -> viewModel.closeCustomer()
+                            else -> onBack()
+                        }
+                    }
+                    .padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text("←  Back", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp) }
+            Spacer(Modifier.width(12.dp))
+            Column {
+                Text("SETTLE ACCOUNT", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
+                Text(
+                    if (s.openCustomerId == null) "Pick a customer who owes the shop" else "Choose invoices, then take one payment",
+                    color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
+                )
             }
-            Text("SETTLE ACCOUNT", style = MaterialTheme.typography.titleLarge)
         }
+        Spacer(Modifier.height(14.dp))
 
         when {
-            s.loading -> Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) { CircularProgressIndicator() }
-            s.error != null -> Text(s.error ?: "", color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp))
+            s.loading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = Accent) }
+            s.error != null -> Text(s.error ?: "", color = Danger, fontFamily = Barlow, modifier = Modifier.padding(16.dp))
+            s.completedReceipts.isNotEmpty() -> SettlementCompleteView(s, viewModel)
             s.openCustomerId == null -> CustomerBalanceList(customerBalances(settleableInvoices(s.invoices)), onPick = viewModel::openCustomer)
             else -> SettleInvoicesPanel(
                 invoices = settleableInvoices(s.invoices).filter { it.customerId == s.openCustomerId },
-                state = s,
-                pointValueRupees = pointValueRupees,
-                pointsEnabled = pointsEnabled,
-                vm = viewModel,
+                state = s, pointValueRupees = pointValueRupees, pointsEnabled = pointsEnabled, vm = viewModel,
             )
         }
     }
 }
 
+private fun initials(name: String): String {
+    val parts = name.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }
+    val text = if (parts.size > 1) "${parts[0].first()}${parts[1].first()}" else name.take(2)
+    return text.uppercase()
+}
+
 @Composable
 private fun CustomerBalanceList(balances: List<CustomerBalance>, onPick: (String) -> Unit) {
     if (balances.isEmpty()) {
-        Text("No customer owes anything right now.", modifier = Modifier.padding(24.dp))
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("No customer owes anything right now.", color = TextMuted, fontFamily = Barlow, fontSize = 13.5.sp)
+        }
         return
     }
-    LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         items(balances, key = { it.customerId }) { b ->
-            Card(Modifier.fillMaxWidth()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column {
-                        Text(b.customerName, style = MaterialTheme.typography.titleMedium)
-                        Text("Owes", style = MaterialTheme.typography.bodySmall)
-                    }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(formatMUR(b.outstandingCents), style = MaterialTheme.typography.titleMedium)
-                        TextButton(onClick = { onPick(b.customerId) }) { Text("Settle") }
-                    }
+            Row(
+                Modifier.fillMaxWidth()
+                    .background(CardBg, RoundedCornerShape(14.dp))
+                    .border(1.dp, Hairline, RoundedCornerShape(14.dp))
+                    .clickable { onPick(b.customerId) }
+                    .padding(14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(Modifier.size(42.dp).background(AccentSoft, CircleShape), contentAlignment = Alignment.Center) {
+                    Text(initials(b.customerName), color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(b.customerName, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp)
+                    Text("Owes the shop", color = TextMuted, fontFamily = Barlow, fontSize = 11.5.sp)
+                }
+                Text(formatMUR(b.outstandingCents), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 19.sp)
+                Spacer(Modifier.width(10.dp))
+                Box(Modifier.height(34.dp).background(Accent, RoundedCornerShape(9.dp)).padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                    Text("Settle", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun MethodChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier
+            .background(if (selected) Accent else InsetAlt, RoundedCornerShape(10.dp))
+            .border(1.dp, if (selected) Accent else Hairline, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+    ) { Text(label, color = if (selected) AccentInk else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp) }
 }
 
 @Composable
@@ -106,93 +169,171 @@ private fun SettleInvoicesPanel(
     val pointsCapCents = if (pointsEnabled && selected.isNotEmpty())
         minOf(totalDueCents, pointsValueCents(selected.first().customerPointsBalance, pointValueRupees))
     else 0L
-    val pointsAppliedCents = if (state.pointsApplied) {
-        (parseCents(state.pointsText) ?: 0L).coerceIn(0, pointsCapCents)
-    } else 0L
+    val pointsAppliedCents = if (state.pointsApplied) (parseMoneyToCents(state.pointsText) ?: 0L).coerceIn(0, pointsCapCents) else 0L
     val methodDueCents = (totalDueCents - pointsAppliedCents).coerceAtLeast(0)
+    val tenderedCents = parseMoneyToCents(state.tenderedText)
 
-    LazyColumn(Modifier.fillMaxSize().padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("${invoices.size} open invoice${if (invoices.size == 1) "" else "s"}", style = MaterialTheme.typography.labelLarge)
-                TextButton(onClick = vm::selectAll) { Text("Select all") }
-            }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
+        // ── invoice list ──
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Text("${invoices.size} OPEN INVOICE${if (invoices.size == 1) "" else "S"}", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
+            Text("Select all", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, modifier = Modifier.clickable(onClick = vm::selectAll))
         }
-        items(invoices, key = { it.id }) { inv ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = inv.id in state.checked, onCheckedChange = { vm.toggleInvoice(inv.id) })
-                Text(inv.number ?: "—", modifier = Modifier.weight(1f))
-                Text(inv.issueDate ?: "—", modifier = Modifier.padding(end = 12.dp))
-                Text(formatMUR(inv.outstandingCents))
+        Column(
+            Modifier.fillMaxWidth().background(CardBg, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp)),
+        ) {
+            invoices.forEachIndexed { i, inv ->
+                if (i > 0) Box(Modifier.fillMaxWidth().height(1.dp).background(Hairline))
+                val checked = inv.id in state.checked
+                Row(
+                    Modifier.fillMaxWidth().clickable { vm.toggleInvoice(inv.id) }.padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(
+                        Modifier.size(22.dp).background(if (checked) Accent else Color.Transparent, RoundedCornerShape(6.dp))
+                            .border(1.5.dp, if (checked) Accent else Hairline, RoundedCornerShape(6.dp)),
+                        contentAlignment = Alignment.Center,
+                    ) { if (checked) Text("✓", color = AccentInk, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(inv.number ?: "—", color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                        Text(inv.issueDate ?: "—", color = TextMuted, fontFamily = Barlow, fontSize = 11.sp)
+                    }
+                    Text(formatMUR(inv.outstandingCents), color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                }
             }
         }
 
         if (selected.isNotEmpty()) {
-            item { Divider(Modifier.padding(vertical = 8.dp)) }
-            item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    Text("Total due", style = MaterialTheme.typography.titleMedium)
-                    Text(formatMUR(totalDueCents), style = MaterialTheme.typography.titleMedium)
-                }
+            Spacer(Modifier.height(16.dp))
+            Row(
+                Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp)).padding(16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text("Total due", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                Text(formatMUR(totalDueCents), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp)
             }
+
             if (pointsCapCents > 0) {
-                item {
-                    FilterChip(
-                        selected = state.pointsApplied,
-                        onClick = vm::togglePoints,
-                        label = { Text(if (state.pointsApplied) "${formatMUR(pointsAppliedCents)} in points applied" else "Apply loyalty points") },
-                    )
-                }
-                if (state.pointsApplied) {
-                    item {
-                        OutlinedTextField(
-                            value = state.pointsText, onValueChange = vm::setPointsText,
-                            label = { Text("Points to use (Rs)") }, modifier = Modifier.fillMaxWidth(),
+                Spacer(Modifier.height(10.dp))
+                Row(
+                    Modifier.fillMaxWidth()
+                        .background(if (state.pointsApplied) AccentSoft else InsetAlt, RoundedCornerShape(12.dp))
+                        .border(1.dp, if (state.pointsApplied) Accent else Hairline, RoundedCornerShape(12.dp))
+                        .clickable(onClick = vm::togglePoints)
+                        .padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (state.pointsApplied) "${formatMUR(pointsAppliedCents)} in points off this settlement" else "Apply loyalty points",
+                            color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                        )
+                        Text(
+                            if (state.pointsApplied) "Tap to remove" else "Worth up to ${formatMUR(pointsCapCents)}",
+                            color = TextMuted, fontFamily = Barlow, fontSize = 11.5.sp,
                         )
                     }
+                    Text(if (state.pointsApplied) "APPLIED" else "APPLY", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 0.8.sp)
+                }
+                if (state.pointsApplied) {
+                    Spacer(Modifier.height(8.dp))
+                    FilledInput(value = state.pointsText, onValueChange = vm::setPointsText, placeholder = "Points to use (Rs)", modifier = Modifier.fillMaxWidth(), bg = InsetAlt)
                 }
             }
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK).forEach { m ->
-                        FilterChip(selected = state.method == m, onClick = { vm.setMethod(m) }, label = { Text(m.label) })
+
+            Spacer(Modifier.height(14.dp))
+            Text("METHOD", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK).forEach { m ->
+                    MethodChip(m.label, state.method == m) { vm.setMethod(m) }
+                }
+            }
+
+            Spacer(Modifier.height(14.dp))
+            Row(
+                Modifier.fillMaxWidth().background(InsetAlt, RoundedCornerShape(12.dp)).padding(14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text("Amount due", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                Text(formatMUR(methodDueCents), color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
+            }
+
+            if (state.method == PayMethod.CASH) {
+                Spacer(Modifier.height(10.dp))
+                FilledInput(value = state.tenderedText, onValueChange = vm::setTendered, placeholder = "Tendered (Rs ${"%.2f".format(methodDueCents / 100.0)})", modifier = Modifier.fillMaxWidth())
+                if (tenderedCents != null) {
+                    Spacer(Modifier.height(8.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Change", color = TextMuted, fontFamily = Barlow, fontSize = 12.5.sp)
+                        val change = tenderedCents - methodDueCents
+                        Text(formatMUR(change.coerceAtLeast(0)), color = if (change < 0) Danger else TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     }
                 }
-            }
-            item { Text("Amount due: ${formatMUR(methodDueCents)}") }
-            if (state.method == PayMethod.CASH) {
-                item {
-                    OutlinedTextField(
-                        value = state.tenderedText, onValueChange = vm::setTendered,
-                        label = { Text("Tendered (Rs)") }, modifier = Modifier.fillMaxWidth(),
-                    )
-                }
-                val tendered = parseCents(state.tenderedText)
-                if (tendered != null) item { Text("Change: ${formatMUR((tendered - methodDueCents).coerceAtLeast(0))}") }
             } else if (methodDueCents > 0) {
-                item {
-                    OutlinedTextField(
-                        value = state.ref, onValueChange = vm::setRef,
-                        label = { Text("External reference") }, modifier = Modifier.fillMaxWidth(),
-                    )
-                }
+                Spacer(Modifier.height(10.dp))
+                FilledInput(value = state.ref, onValueChange = vm::setRef, placeholder = "External reference", modifier = Modifier.fillMaxWidth())
             }
 
-            state.submitError?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
-            state.submitSuccess?.let { item { Text(it, color = MaterialTheme.colorScheme.primary) } }
-
-            item {
-                Button(onClick = vm::submit, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) {
-                    Text(if (state.busy) "Settling…" else "Settle ${formatMUR(totalDueCents)}")
-                }
+            state.submitError?.let {
+                Spacer(Modifier.height(10.dp))
+                Text(it, color = Danger, fontFamily = Barlow, fontSize = 12.5.sp)
             }
+
+            Spacer(Modifier.height(16.dp))
+            Box(
+                Modifier.fillMaxWidth().height(52.dp)
+                    .background(if (state.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                    .clickable(enabled = !state.busy, onClick = vm::submit),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    if (state.busy) "Settling…" else "Settle ${formatMUR(totalDueCents)}",
+                    color = if (state.busy) TextMuted else AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                )
+            }
+            Spacer(Modifier.height(20.dp))
         }
     }
 }
 
-private fun parseCents(text: String): Long? {
-    val cleaned = text.trim().replace(",", "")
-    if (cleaned.isEmpty()) return null
-    val value = cleaned.toDoubleOrNull() ?: return null
-    return rupeesToCents(value)
+/** Mirrors CounterScreen's Sale-complete layout: status + total on the left, the printed
+ *  slip(s) on the right, exactly as they came off the printer. */
+@Composable
+private fun SettlementCompleteView(state: SettlementState, vm: SettlementViewModel) {
+    val receipts = state.completedReceipts
+    val totalCents = receipts.sumOf { it.totalCents }
+    Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                Box(Modifier.size(8.dp).background(Success, CircleShape))
+                Text("SETTLEMENT COMPLETE", color = Success, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.2.sp)
+            }
+            Spacer(Modifier.height(6.dp))
+            Text(formatMUR(totalCents), color = TextPrimary, fontFamily = Condensed, fontSize = 42.sp, fontWeight = FontWeight.Bold)
+            Text(
+                if (receipts.size == 1) "1 invoice paid — ${receipts.first().invoiceNo ?: ""}"
+                else "${receipts.size} invoices paid — ${receipts.mapNotNull { it.invoiceNo }.joinToString(", ")}",
+                color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp,
+            )
+            Spacer(Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Box(
+                    Modifier.height(46.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = vm::reprint).padding(horizontal = 18.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Print again", color = AccentInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp) }
+                Box(
+                    Modifier.height(46.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp)).clickable(onClick = vm::dismissReceipts).padding(horizontal = 18.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Done", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp) }
+            }
+        }
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
+            receipts.forEach { r ->
+                ReceiptPaper(r, Modifier.widthIn(max = 300.dp).heightIn(max = 520.dp))
+                Spacer(Modifier.height(14.dp))
+            }
+        }
+    }
 }
