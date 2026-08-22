@@ -129,6 +129,7 @@ class JobsViewModel @Inject constructor(
     private val printer: ReceiptPrinter,
     private val sendApi: DocumentSendApi,
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
+    private val a4: mu.carfection.pos.core.print.JobCardPrinter,
 ) : ViewModel() {
     private var appUserId: String? = null
     private val _s = MutableStateFlow(JobsState())
@@ -367,6 +368,32 @@ class JobsViewModel @Inject constructor(
             runCatching { printer.printDoc(doc) }
                 .onSuccess { _s.update { it.copy(toast = "Sent to the printer") } }
                 .onFailure { e -> _s.update { it.copy(toast = e.uiMessage("Couldn’t print — check the printer in Settings")) } }
+        }
+    }
+
+    /**
+     * The whole work order on one A4 sheet, through the system's print dialogue — the shop's
+     * A4 printer is paired there, not in this app (the thermal till roll is). Everything the
+     * sheet shows goes on paper: the car and its customer, what was ordered off the quote,
+     * who is on it, checklist, notes, photos. The activity context comes from the screen
+     * because PrintManager refuses to print from a background context.
+     */
+    fun printJobCard(ctx: android.content.Context) {
+        val s = _s.value
+        val j = active(s) ?: return
+        if (s.busy) return
+        _s.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            runCatching {
+                val biz = catalog.receiptBiz()
+                // Names for the crew ids, lead first; an unsynced roster still names the
+                // job's own technician so the paper never reads "Unassigned" wrongly.
+                val crew = roster(j.id).mapNotNull { id -> s.technicians.firstOrNull { it.id == id }?.displayName }
+                    .ifEmpty { listOfNotNull(j.technician?.displayName) }
+                val html = mu.carfection.pos.core.print.jobCardHtml(biz, j, s.detailLines, crew, s.comments, s.photos, s.photoUrls)
+                a4.print(ctx, html, "Job card ${j.id.take(4)}")
+            }.onSuccess { _s.update { it.copy(busy = false, toast = "Pick the A4 printer in the print dialogue") } }
+                .onFailure { e -> _s.update { it.copy(busy = false, toast = e.uiMessage("Couldn’t print the job card")) } }
         }
     }
 

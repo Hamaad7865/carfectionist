@@ -598,6 +598,22 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                         }
                     }
                 }
+                // The paper copy for the bay/binder: everything this sheet shows on one A4
+                // page, printed via the system print dialogue (the shop's A4 printer lives
+                // there — the thermal till roll below is a separate device).
+                val activityCtx = LocalContext.current
+                Box(
+                    Modifier.fillMaxWidth().height(48.dp)
+                        .border(1.dp, Color(0x2E101A24), RoundedCornerShape(13.dp))
+                        .clickable(enabled = !s.busy) { vm.printJobCard(activityCtx) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Print job card",
+                        fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp,
+                        color = if (s.busy) TextMuted else TextSecondary,
+                    )
+                }
                 val doneN = j.checklist.count { it.done }
                 val liveInv = j.invoices.firstOrNull { it.docType == "invoice" && it.status != "void" }
                 val (label, action) = when {
