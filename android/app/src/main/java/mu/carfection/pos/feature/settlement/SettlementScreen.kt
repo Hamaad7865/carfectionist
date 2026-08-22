@@ -374,8 +374,12 @@ private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewM
                 }
             }
             // ── right: the slip exactly as it printed (consolidated when >1 invoice) ──
-            Column(Modifier.weight(0.9f).verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally) {
-                doc?.let { ReceiptPaper(it, Modifier.width(300.dp).heightIn(max = 700.dp)) }
+            // The scroll goes ON ReceiptPaper's own modifier, same as CounterScreen's
+            // Sale-complete dialog — a plain Column here would report only its heightIn(max)
+            // as its size and let a long consolidated receipt overflow past it uncut, instead
+            // of scrolling inside the space actually allotted to it.
+            Box(Modifier.weight(0.9f), contentAlignment = Alignment.TopCenter) {
+                doc?.let { ReceiptPaper(it, Modifier.width(300.dp).heightIn(max = 700.dp).verticalScroll(rememberScrollState())) }
             }
         }
     }
