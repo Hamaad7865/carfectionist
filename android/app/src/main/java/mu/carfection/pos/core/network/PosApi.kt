@@ -978,6 +978,18 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList()
 
+    /** Every open invoice/credit-note across every customer — the shop-wide read behind
+     *  account settlement's customer-balance list and, once a customer is picked, their own
+     *  settleable invoices. Same doc_type filter idea as [fetchOutstandingInvoices] but WITHOUT
+     *  drafts: settlement only ever clears an already-issued bill. */
+    suspend fun fetchAccountInvoices(): List<AccountInvoiceDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, customer_id, doc_type, status, number, total_incl, amount_paid, issue_date, source_document_id, customers(name, points_balance)")) {
+                filter { isIn("doc_type", listOf("invoice", "credit_note")); isIn("status", listOf("issued", "partly_paid", "paid")) }
+                limit(1000)
+            }
+            .decodeList()
+
     /**
      * One document's number, by id — names a bill's source quote on the payment panel
      * ("from quote A00094"). A dedicated fetch rather than an embed: documents→documents

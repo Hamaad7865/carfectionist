@@ -122,6 +122,7 @@ import mu.carfection.pos.ui.theme.Warning
 @Composable
 fun CounterScreen(
     onOpenTill: () -> Unit,
+    onOpenSettlement: () -> Unit,
     viewModel: CounterViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsState()
@@ -148,6 +149,8 @@ fun CounterScreen(
                 color = if (till != null) Success else Warning,
                 onClick = onOpenTill,
             )
+            Spacer(Modifier.width(8.dp))
+            Chip(text = "Settlement", color = TextSecondary, onClick = onOpenSettlement)
         }
         Spacer(Modifier.height(12.dp))
 

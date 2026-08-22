@@ -256,6 +256,25 @@ data class OutstandingInvoiceDto(
     val vehicles: JobVehicleDto? = null,
 )
 
+/** One invoice or credit note, for account settlement's shop-wide read: every open invoice
+ *  across every customer, fetched once so both the customer-balance list and (once a customer
+ *  is picked) their own settleable invoices come from the SAME rows — no per-tap round trip.
+ *  Deliberately narrower than [OutstandingInvoiceDto]: no drafts here — settlement clears
+ *  already-issued debt, never an in-progress job's unissued bill (that stays the TO COLLECT
+ *  list's job). Mirrors the web's getSettleableInvoices filter exactly. */
+@Serializable data class AccountInvoiceDto(
+    val id: String,
+    @SerialName("customer_id") val customerId: String? = null,
+    @SerialName("doc_type") val docType: String = "invoice",
+    val status: String = "issued",
+    val number: String? = null,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+    @SerialName("issue_date") val issueDate: String? = null,
+    @SerialName("source_document_id") val sourceDocumentId: String? = null,
+    val customers: JobCustomerDto? = null,
+)
+
 /** Just enough of a job to explain, on the payment screen, WHAT service a collect was for
  *  (the work performed) — not the whole jobs-board shape (JobBoardDto). */
 @Serializable

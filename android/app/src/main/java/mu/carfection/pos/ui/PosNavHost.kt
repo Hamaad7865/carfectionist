@@ -123,6 +123,8 @@ class RootViewModel @Inject constructor(
     val tab = _tab.asStateFlow()
     private val _showTill = MutableStateFlow(false)
     val showTill = _showTill.asStateFlow()
+    private val _showSettlement = MutableStateFlow(false)
+    val showSettlement = _showSettlement.asStateFlow()
     private val backStack = ArrayDeque<PosTab>()
     private val _backDepth = MutableStateFlow(0)
     val backDepth = _backDepth.asStateFlow()
@@ -136,10 +138,13 @@ class RootViewModel @Inject constructor(
             _tab.value = next
         }
         _showTill.value = false
+        _showSettlement.value = false
     }
-    fun setShowTill(v: Boolean) { _showTill.value = v }
+    fun setShowTill(v: Boolean) { _showTill.value = v; if (v) _showSettlement.value = false }
+    fun setShowSettlement(v: Boolean) { _showSettlement.value = v; if (v) _showTill.value = false }
     fun back() {
         if (_showTill.value) { _showTill.value = false; return }
+        if (_showSettlement.value) { _showSettlement.value = false; return }
         if (backStack.isEmpty()) return
         val prev = backStack.removeLast()
         _backDepth.value = backStack.size
@@ -152,6 +157,7 @@ class RootViewModel @Inject constructor(
         backStack.clear(); _backDepth.value = 0
         _tab.value = mu.carfection.pos.core.data.landingTab(takesPayments.value)
         _showTill.value = false
+        _showSettlement.value = false
     }
 
     // ── till discipline (owner requirement) ──────────────────────────────────
@@ -268,8 +274,9 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 // can't be recorded without an open till, and Checkout offers "open it" there.
                 val tab by rootViewModel.tab.collectAsState()
                 val showTill by rootViewModel.showTill.collectAsState()
+                val showSettlement by rootViewModel.showSettlement.collectAsState()
                 val backDepth by rootViewModel.backDepth.collectAsState()
-                BackHandler(enabled = showTill || backDepth > 0) { rootViewModel.back() }
+                BackHandler(enabled = showTill || showSettlement || backDepth > 0) { rootViewModel.back() }
                 // After a photo capture (which can tear down + rebuild this tree), the feature's
                 // ViewModel — and now the nav state on RootViewModel — survive; snap back to it.
                 val captureReturn by rootViewModel.captureReturnTo.collectAsState()
@@ -304,7 +311,8 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                     when (tab) {
                         PosTab.SALE ->
                             if (showTill) TillScreen(onBack = { rootViewModel.setShowTill(false) }, onOpened = { rootViewModel.setShowTill(false) })
-                            else CounterScreen(onOpenTill = { rootViewModel.setShowTill(true) })
+                            else if (showSettlement) mu.carfection.pos.feature.settlement.SettlementScreen(onBack = { rootViewModel.setShowSettlement(false) })
+                            else CounterScreen(onOpenTill = { rootViewModel.setShowTill(true) }, onOpenSettlement = { rootViewModel.setShowSettlement(true) })
                         PosTab.INTAKE -> IntakeScreen(onStartQuote = { rootViewModel.navigate(PosTab.QUOTE) })
                         PosTab.QUOTE -> QuoteScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onViewJob = { rootViewModel.navigate(PosTab.JOBS) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) })
                         PosTab.JOBS -> JobsScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) }, onGoQuotes = { rootViewModel.navigate(PosTab.QUOTE) })
