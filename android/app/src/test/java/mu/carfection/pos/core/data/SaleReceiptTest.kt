@@ -5,6 +5,9 @@ import mu.carfection.pos.core.hardware.ReceiptDoc
 import mu.carfection.pos.core.hardware.ReceiptLine
 import mu.carfection.pos.core.hardware.ReceiptPayment
 import mu.carfection.pos.core.hardware.ReceiptVatGroup
+import mu.carfection.pos.core.network.SaleHistoryDto
+import mu.carfection.pos.core.network.SaleHistoryLineDto
+import mu.carfection.pos.core.network.SaleHistoryPaymentDto
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -117,5 +120,36 @@ class SaleReceiptTest {
 
         assertEquals(false, doc.onAccount)
         assertEquals(false, doc.voided)
+    }
+
+    /**
+     * The reported bug: a customer handing over Rs 7000 cash for a Rs 6159.99 settlement
+     * across two invoices saw a "Change" line but never the Rs 7000 they actually gave — each
+     * tender row printed only the amount KEPT (net of change), so a settlement's cash total
+     * read as the amount collected, not the amount handed over. planSettlement puts the whole
+     * tendered/change split on the LAST cash leg (AccountSettlement.kt), so this fixture mirrors
+     * that: invoice A paid exactly (no change), invoice B's leg absorbs all the change.
+     */
+    @Test
+    fun `each tender row states what was handed over, not just what stayed in the till`() {
+        val h = SaleHistoryDto(
+            id = "sale-1", number = "TESTINV-0001", totalIncl = 615999.0 / 100, vatTotal = 0.0, amountPaid = 615999.0 / 100,
+            lines = listOf(SaleHistoryLineDto(title = "Wash", qty = 1.0, lineTotalExcl = 6159.99, unitPrice = 6159.99)),
+            payments = listOf(
+                SaleHistoryPaymentDto(method = "cash", amount = 4000.01, tendered = 4000.01, changeGiven = 0.0, receivedAt = "2026-08-23T10:00:00Z"),
+                SaleHistoryPaymentDto(method = "cash", amount = 2159.98, tendered = 2999.99, changeGiven = 840.01, receivedAt = "2026-08-23T10:00:01Z"),
+            ),
+        )
+
+        val doc = saleReceiptDoc(h, biz, vatRatePct = 15)
+
+        assertEquals(2, doc.payments.size)
+        // First leg was paid exact — nothing to add back.
+        assertEquals(400001L, doc.payments[0].amountCents)
+        // Second leg kept 215998 but also handed back 84001 in change — the row must show the
+        // 299999 the customer actually put down, not the 215998 the till kept.
+        assertEquals(299999L, doc.payments[1].amountCents)
+        // Summed, the two rows now read as the true Rs 7000 tendered across the settlement.
+        assertEquals(700000L, doc.payments.sumOf { it.amountCents })
     }
 }

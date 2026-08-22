@@ -100,7 +100,11 @@ fun saleReceiptDoc(
                     OffsetDateTime.parse(p.receivedAt).atZoneSameInstant(ZoneOffset.ofHours(4)).format(payFmt)
                 }.getOrDefault(p.receivedAt?.take(10) ?: "—"),
                 method = PayMethod.entries.firstOrNull { it.rpcValue == p.method }?.label ?: p.method,
-                amountCents = rupeesToCents(p.amount),
+                // What the customer physically handed over on THIS leg, not what stayed in the
+                // till — same "applied + change" rule as paidCents below, so a tender line and
+                // the Change line underneath it read as one honest story instead of the till's
+                // net take.
+                amountCents = rupeesToCents(p.amount) + rupeesToCents(p.changeGiven ?: 0.0),
                 isReversal = p.reversesPaymentId != null,
             )
         }
