@@ -549,8 +549,9 @@ private fun Toast(msg: String) = Box(Modifier.fillMaxSize().padding(bottom = 28.
 }
 
 /**
- * Add a customer from the shop floor. Name and phone only — the phone because it is what
- * prefills a WhatsApp quote, and everything else can be filled in on their card afterwards.
+ * Add a customer from the shop floor. Individual or business — a business carries a BRN
+ * and VAT number onto its invoices, so those fields exist to be filled now or later. Name
+ * and phone are the only requirements; the phone is what prefills a WhatsApp quote.
  */
 @Composable
 private fun NewCustomerDialog(s: ContactsState, vm: ContactsViewModel) {
@@ -561,10 +562,45 @@ private fun NewCustomerDialog(s: ContactsState, vm: ContactsViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("NEW CUSTOMER", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary)
-            FilledInput(s.newName, vm::setNewName, "Full name", Modifier.fillMaxWidth(), height = 48.dp, bg = Inset)
+
+            // Individual vs business entity — the same toggle the web's customer dialog leads with.
+            Row(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(11.dp)).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                listOf("Individual" to false, "Business" to true).forEach { (label, v) ->
+                    val sel = s.newIsCompany == v
+                    Box(
+                        Modifier.weight(1f).height(40.dp)
+                            .background(if (sel) CardBg else Color.Transparent, RoundedCornerShape(8.dp))
+                            .border(1.dp, if (sel) Hairline else Color.Transparent, RoundedCornerShape(8.dp))
+                            .clickable { vm.setNewIsCompany(v) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (sel) TextPrimary else TextMuted)
+                    }
+                }
+            }
+
+            FilledInput(
+                s.newName, vm::setNewName,
+                if (s.newIsCompany) "Registered company name" else "Full name",
+                Modifier.fillMaxWidth(), height = 48.dp, bg = Inset,
+            )
             FilledInput(s.newPhone, vm::setNewPhone, "Phone", Modifier.fillMaxWidth(), height = 48.dp, bg = Inset)
+            FilledInput(s.newAddress, vm::setNewAddress, "Address — street, town", Modifier.fillMaxWidth(), height = 48.dp, bg = Inset)
+            if (s.newIsCompany) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        MiniLabel("BRN")
+                        FilledInput(s.newBrn, vm::setNewBrn, "Business reg. no.", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        MiniLabel("VAT NUMBER")
+                        FilledInput(s.newVat, vm::setNewVat, "VAT…", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                    }
+                }
+            }
             Text(
-                "Their card opens next, so you can add the car straight away.",
+                if (s.newIsCompany) "Their card opens next, so you can add the company car straight away."
+                else "Their card opens next, so you can add the car straight away.",
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
             )
             s.error?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Danger) }
