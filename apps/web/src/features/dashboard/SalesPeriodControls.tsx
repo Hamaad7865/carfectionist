@@ -135,7 +135,7 @@ export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
   }
 
   const inputClass =
-    'h-8 rounded-[9px] border border-line-2 bg-card px-2 text-[11.5px] font-semibold text-body outline-none [color-scheme:light] hover:border-faint focus:border-brand';
+    'h-8 rounded-[9px] border border-line-2 bg-card px-2 text-[12.5px] font-semibold text-body outline-none [color-scheme:light] hover:border-faint focus:border-brand';
 
   return (
     <form
@@ -153,7 +153,7 @@ export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
             type="button"
             aria-pressed={selected}
             onClick={() => choosePreset(preset.key)}
-            className={`h-8 rounded-[9px] px-2.5 text-[11.5px] font-bold transition-colors ${
+            className={`h-8 rounded-[9px] px-2.5 text-[12.5px] font-bold transition-colors ${
               selected
                 ? 'border border-[rgba(30,111,224,0.22)] bg-[rgba(43,140,255,0.12)] text-link'
                 : 'border border-line-2 bg-card text-muted hover:border-faint hover:text-body'
@@ -172,7 +172,7 @@ export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
         onInput={(event) => event.currentTarget.setCustomValidity('')}
         className={inputClass}
       />
-      <span aria-hidden="true" className="text-[11px] text-faint">
+      <span aria-hidden="true" className="text-[12px] font-medium text-faint">
         to
       </span>
       <input
@@ -186,7 +186,7 @@ export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
       />
       <button
         type="submit"
-        className="h-8 rounded-[9px] border border-brand bg-brand px-2.5 text-[11.5px] font-bold text-white transition-opacity hover:opacity-90"
+        className="h-8 rounded-[9px] border border-brand bg-brand px-2.5 text-[12.5px] font-bold text-white transition-opacity hover:opacity-90"
       >
         Apply
       </button>

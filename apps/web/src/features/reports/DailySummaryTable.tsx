@@ -48,7 +48,7 @@ export function DailySummaryTable({
             <Link
               key={s.key}
               href={hrefFor(next)}
-              className={`inline-flex h-8 items-center gap-1.5 rounded-[9px] border px-2.5 text-[12px] font-semibold ${on ? "border-brand bg-[rgba(43,140,255,0.08)] text-link" : "border-line-2 bg-card text-muted"}`}
+              className={`inline-flex h-8 items-center gap-1.5 rounded-[9px] border px-2.5 text-[13px] font-semibold ${on ? "border-brand bg-[rgba(43,140,255,0.08)] text-link" : "border-line-2 bg-card text-muted"}`}
             >
               <span className={`grid size-[14px] place-items-center rounded-[4px] border ${on ? "border-brand bg-brand text-white" : "border-line-2"}`}>
                 {on && <Check size={10} strokeWidth={3.5} />}
@@ -68,14 +68,14 @@ export function DailySummaryTable({
 
       {/* the sheet — wide, so it scrolls in its own container */}
       <div className="overflow-x-auto rounded-[13px] border border-line bg-card">
-        <table className="w-full border-collapse text-[12.5px]">
+        <table className="w-full border-collapse text-[13.5px] font-medium">
           <thead>
             <tr>
               {groups.map((g, i) => (
                 <th
                   key={`${g.label}-${i}`}
                   colSpan={g.span}
-                  className={`whitespace-nowrap border-b border-line bg-band px-3 py-2 text-left text-[10px] font-bold uppercase tracking-[0.1em] text-th ${i > 0 ? "border-l border-line" : ""}`}
+                  className={`whitespace-nowrap border-b border-line bg-band px-3 py-2 text-left text-[11.5px] font-bold uppercase tracking-[0.1em] text-th ${i > 0 ? "border-l border-line" : ""}`}
                 >
                   {g.label}
                 </th>
@@ -85,7 +85,7 @@ export function DailySummaryTable({
               {cols.map((c, i) => (
                 <th
                   key={`${c.head}-${i}`}
-                  className={`whitespace-nowrap border-b border-line bg-sub px-3 py-2 text-[10.5px] font-bold uppercase tracking-[0.08em] text-faint ${isNum(c) ? "text-right" : "text-left"}`}
+                  className={`whitespace-nowrap border-b border-line bg-sub px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.08em] text-faint ${isNum(c) ? "text-right" : "text-left"}`}
                 >
                   {c.head}
                 </th>
@@ -116,7 +116,7 @@ export function DailySummaryTable({
       </div>
 
       {summary.rows.length === 0 && (
-        <p className="rounded-[11px] border border-line bg-card px-4 py-8 text-center text-[13px] text-faint">Pick a date range to see the summary.</p>
+        <p className="rounded-[11px] border border-line bg-card px-4 py-8 text-center text-[14.5px] font-medium text-faint">Pick a date range to see the summary.</p>
       )}
     </div>
   );
