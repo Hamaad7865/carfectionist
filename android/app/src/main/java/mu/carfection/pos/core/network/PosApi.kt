@@ -729,16 +729,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     /**
-     * Discard a DRAFT document, lines and all.
+     * Discard a DRAFT document, lines and all — via the discard_draft RPC.
      *
-     * Safe by construction rather than by trust: the doc_delete RLS policy already allows a
-     * delete only when status = 'draft' and the caller is owner/manager/cashier, so an issued
-     * quote or invoice cannot be removed even if this were called with its id. document_lines
-     * cascade; anything with a job or a payment hanging off it fails on its foreign key rather
-     * than silently shedding history.
+     * A direct PostgREST delete stopped working when direct UPDATE on documents was revoked
+     * (20260711000001): PostgREST's delete locks the doomed rows with SELECT … FOR UPDATE,
+     * and that needs the very privilege the revoke took away. The RPC carries the same guards
+     * the doc_delete policy did — draft only, own tenant, owner/manager/cashier — plus an
+     * audit row. Anything with a job or a payment hanging off it still fails on its foreign
+     * key rather than silently shedding history.
      */
     suspend fun deleteDraftDocument(id: String) {
-        client.postgrest.from("documents").delete { filter { eq("id", id); eq("status", "draft") } }
+        client.postgrest.rpc("discard_draft", buildJsonObject { put("p_document_id", id) })
     }
 
     /** Save the quote as a draft document (save_draft RPC). p_lines carry rupee prices. */

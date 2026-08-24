@@ -235,20 +235,24 @@ export async function deleteDraftAction(id: string): Promise<ActionResult<{ id: 
   await requireRole(...WRITE_ROLES);
   const sb = await createClient();
   try {
-    // Draft-only, by design: the doc_delete RLS policy already restricts this to
-    // draft documents (owner/manager/cashier, own tenant), and a draft has no
-    // number, payments or stock movements — its lines cascade on delete. The
-    // explicit status filter turns an issued/already-gone row into a clean 0-row
-    // result rather than a silent no-op.
-    const { data, error } = await sb.from("documents").delete().eq("id", id).eq("status", "draft").select("id");
-    if (error) return { ok: false, error: error.code === "23503" ? await explainDeleteRefusal(sb, id) : error.message };
-    if (!data || data.length === 0) {
-      return { ok: false, error: "This document can no longer be deleted — it may have been issued or already removed." };
-    }
+    // Via the discard_draft RPC, not a direct delete: PostgREST's delete plan
+    // locks the doomed rows with SELECT … FOR UPDATE, which needs the UPDATE
+    // privilege that 20260711000001 revoked from documents — a direct delete
+    // has failed with "permission denied" ever since. The RPC carries the same
+    // guards (draft only, own tenant, WRITE_ROLES) and writes an audit row. It
+    // raises on anything still referring to the draft (revision, job, bill).
+    await sb.rpc("discard_draft", { p_document_id: id });
     revalidatePath("/sales");
     return { ok: true, data: { id } };
   } catch (e) {
-    return { ok: false, error: (e as Error).message };
+    const msg = (e as Error).message;
+    if (msg.includes("document not found")) {
+      return { ok: false, error: "This document can no longer be deleted — it may have been issued or already removed." };
+    }
+    if (msg.includes("violates foreign key") || msg.includes("foreign key")) {
+      return { ok: false, error: await explainDeleteRefusal(sb, id) };
+    }
+    return { ok: false, error: msg };
   }
 }
 
