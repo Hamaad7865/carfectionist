@@ -3,6 +3,7 @@ package mu.carfection.pos.feature.contacts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,16 +39,22 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import mu.carfection.pos.core.network.ContactDto
 import mu.carfection.pos.core.network.ContactVehicleDto
+import mu.carfection.pos.feature.contacts.CustomerHistoryState
+import mu.carfection.pos.feature.contacts.HistoryPhotoUi
+import mu.carfection.pos.feature.contacts.JobHistoryUi
 import mu.carfection.pos.feature.intake.VEHICLE_CATEGORIES
 import mu.carfection.pos.feature.intake.VEHICLE_COLORS
 import mu.carfection.pos.feature.intake.VEHICLE_MAKES
@@ -65,10 +72,12 @@ import mu.carfection.pos.ui.theme.Inset
 import mu.carfection.pos.ui.theme.InsetAlt
 import mu.carfection.pos.ui.theme.Mono
 import mu.carfection.pos.ui.theme.Plate
+import mu.carfection.pos.ui.theme.ScreenBg
 import mu.carfection.pos.ui.theme.Success
 import mu.carfection.pos.ui.theme.TextMuted
 import mu.carfection.pos.ui.theme.TextPrimary
 import mu.carfection.pos.ui.theme.TextSecondary
+import mu.carfection.pos.ui.theme.Warning
 
 /**
  * Contacts on the shop floor: who the customer is, what they drive, and — the question this
@@ -135,6 +144,7 @@ fun ContactsScreen(onJobStarted: () -> Unit = {}, viewModel: ContactsViewModel =
 
     s.open?.let { ContactCard(it, s, viewModel) }
     if (s.addingCustomer) NewCustomerDialog(s, viewModel)
+    s.history?.let { CustomerHistoryScreen(it, viewModel) }
     s.toast?.let { LaunchedEffect(it) { delay(1600); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
 }
@@ -186,6 +196,11 @@ private fun ContactCard(c: ContactDto, s: ContactsState, vm: ContactsViewModel) 
                     Text(listOfNotNull(c.phone, c.email).joinToString(" · ").ifBlank { "No contact details" },
                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
                 }
+                Box(
+                    Modifier.height(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp))
+                        .clickable { vm.openHistory(c) }.padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("History", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextSecondary) }
                 Box(
                     Modifier.height(38.dp).background(AccentSoft, RoundedCornerShape(11.dp))
                         .border(1.dp, AccentLine, RoundedCornerShape(11.dp))
@@ -568,5 +583,288 @@ private fun NewCustomerDialog(s: ContactsState, vm: ContactsViewModel) {
                 ) { Text(if (s.busy) "Saving…" else "Add customer", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (can) AccentInk else TextMuted) }
             }
         }
+    }
+}
+
+/**
+ * The customer's whole book of work, one screen: every job they ever had, newest first,
+ * with the intake/finish photos that came with it. Opened from the contact card's
+ * "History" chip — "what did we do for this person, and what did their car look like"
+ * should not need a walk through Jobs and Quotes to answer.
+ */
+@Composable
+private fun CustomerHistoryScreen(h: CustomerHistoryState, vm: ContactsViewModel) {
+    val s by vm.state.collectAsState()
+    var viewing by remember { mutableStateOf<HistoryPhotoUi?>(null) }
+    Dialog(onDismissRequest = vm::closeHistory, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(
+            Modifier.fillMaxSize().background(ScreenBg).padding(start = 20.dp, top = 16.dp, end = 20.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    Modifier.size(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { vm.closeHistory() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("<", color = TextSecondary, fontSize = 16.sp, fontFamily = Barlow, fontWeight = FontWeight.Bold) }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("HISTORY", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
+                    Text(h.customerName, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                if (!h.loading) Text(
+                    "${h.jobs.size} job${if (h.jobs.size == 1) "" else "s"}",
+                    fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextMuted,
+                )
+            }
+
+            when {
+                h.loading -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("Loading history…", color = TextMuted, fontFamily = Barlow)
+                }
+                h.error != null -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(h.error, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                }
+                h.jobs.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text(
+                        "No jobs yet for ${h.customerName}.",
+                        fontFamily = Barlow, fontSize = 14.sp, color = TextMuted,
+                    )
+                }
+                else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    items(h.jobs, key = { it.job.id }) { ui -> HistoryJobCard(ui, onPhoto = { viewing = it }, onOpenDoc = { vm.openDoc(it) }) }
+                }
+            }
+        }
+    }
+
+    if (s.docLoading) {
+        Dialog(onDismissRequest = {}) {
+            Box(Modifier.size(140.dp).background(CardBg, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+                androidx.compose.material3.CircularProgressIndicator(color = Accent)
+            }
+        }
+    }
+    s.docDetail?.let { DocumentDetailDialog(it) { vm.closeDoc() } }
+
+    viewing?.let { p ->
+        Dialog(onDismissRequest = { viewing = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+            Box(
+                Modifier.fillMaxSize().background(Color(0xEE10161C)).clickable { viewing = null },
+                contentAlignment = Alignment.Center,
+            ) {
+                AsyncImage(model = p.url, contentDescription = p.phase, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize())
+                Text(
+                    (if (p.phase == "after") "AFTER" else "BEFORE") + (p.caption?.takeIf { it.isNotBlank() }?.let { "  ·  $it" } ?: ""),
+                    Modifier.align(Alignment.BottomCenter).padding(bottom = 30.dp),
+                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, letterSpacing = 1.2.sp, color = Color.White,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryJobCard(ui: JobHistoryUi, onPhoto: (HistoryPhotoUi) -> Unit, onOpenDoc: (String) -> Unit) {
+    val j = ui.job
+    Column(
+        Modifier.fillMaxWidth().background(CardBg, RoundedCornerShape(13.dp))
+            .border(1.dp, Hairline, RoundedCornerShape(13.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text(historyDate(j.createdAt), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = TextPrimary)
+            HistoryStatusChip(j.status)
+            Spacer(Modifier.weight(1f))
+            j.technician?.displayName?.takeIf { it.isNotBlank() }?.let {
+                Text("by $it", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            j.vehicles?.plate?.let { p ->
+                Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) {
+                    Text(p, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Color(0xFF151208))
+                }
+            }
+            Text(
+                listOfNotNull(j.vehicles?.make, j.vehicles?.model, j.vehicles?.colour).joinToString(" ").ifBlank { "—" },
+                fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+        }
+        j.notes?.takeIf { it.isNotBlank() }?.let {
+            Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        val meta = buildList {
+            if (j.checklist.isNotEmpty()) add("Checklist ${j.checklist.count { it.done }}/${j.checklist.size}")
+            if (j.damageMarkers.isNotEmpty()) add("⚠ ${j.damageMarkers.size} damage mark${if (j.damageMarkers.size == 1) "" else "s"}")
+            j.certificates.mapNotNull { c -> c.number }.forEach { add("Cert $it") }
+        }
+        if (meta.isNotEmpty()) {
+            Text(meta.joinToString("   ·   "), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+        }
+        // The paper trail as two clear doors: the job's invoice(s) and the quote it
+        // came from. Tap one to read the actual document — lines, totals, payments.
+        // The quote ALSO rides the invoices embed (it carries job_id once accepted),
+        // so it is filtered out there — it has its own button.
+        val quote = j.sourceQuote?.takeIf { it.id != null }
+        val papers = j.invoices.filter { it.docType != "quote" }
+        if (papers.isNotEmpty() || quote != null) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                papers.forEach { inv ->
+                    HistoryDocButton(
+                        "${if (inv.docType == "credit_note") "Credit note" else "Invoice"} ${inv.number ?: ""} · Rs ${money(inv.totalIncl)}".trim(),
+                        filled = true,
+                        onClick = { onOpenDoc(inv.id) },
+                    )
+                }
+                quote?.let { q ->
+                    HistoryDocButton("Quote ${q.number ?: ""}".trim(), filled = false, onClick = { onOpenDoc(q.id!!) })
+                }
+            }
+        }
+        if (ui.photos.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                ui.photos.forEach { p ->
+                    Box(
+                        Modifier.size(92.dp).background(Inset, RoundedCornerShape(10.dp))
+                            .border(1.dp, Hairline, RoundedCornerShape(10.dp))
+                            .clickable { onPhoto(p) },
+                    ) {
+                        AsyncImage(model = p.url, contentDescription = p.phase, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                        Text(
+                            if (p.phase == "after") "AFTER" else "BEFORE",
+                            Modifier.align(Alignment.BottomStart).padding(4.dp)
+                                .background(Color(0xB310161C), RoundedCornerShape(5.dp)).padding(horizontal = 5.dp, vertical = 2.dp),
+                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 8.sp, letterSpacing = 0.6.sp, color = Color.White,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HistoryStatusChip(status: String) {
+    val (bg, fg, label) = when (status) {
+        "delivered" -> Triple(Color(0x221FA361), Success, "DELIVERED")
+        "ready" -> Triple(Color(0x22C17A00), Warning, "READY")
+        "in_progress" -> Triple(AccentSoft, Accent, "IN PROGRESS")
+        "cancelled" -> Triple(Color(0x22D63A3A), Danger, "CANCELLED")
+        "scheduled" -> Triple(InsetAlt, TextSecondary, "SCHEDULED")
+        else -> Triple(InsetAlt, TextSecondary, status.uppercase())
+    }
+    Box(Modifier.background(bg, RoundedCornerShape(8.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) {
+        Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, letterSpacing = 0.7.sp, color = fg)
+    }
+}
+
+private fun historyDate(iso: String?): String = runCatching {
+    java.time.OffsetDateTime.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy"))
+}.getOrDefault("")
+
+/** A document button on a history card — the same shape as the car row's Start job / Edit:
+ *  filled accent for the money document (invoice), outline for its quote. */
+@Composable
+private fun HistoryDocButton(label: String, filled: Boolean, onClick: () -> Unit) {
+    Box(
+        Modifier.height(38.dp).background(if (filled) AccentSoft else CardBg, RoundedCornerShape(10.dp))
+            .border(1.dp, if (filled) AccentLine else Hairline, RoundedCornerShape(10.dp))
+            .clickable(onClick = onClick).padding(horizontal = 15.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            label, fontFamily = Barlow,
+            fontWeight = if (filled) FontWeight.Bold else FontWeight.SemiBold,
+            fontSize = 12.5.sp,
+            color = if (filled) Accent else TextSecondary,
+        )
+    }
+}
+
+private fun money(v: Double): String = "%,.2f".format(java.util.Locale.ENGLISH, v)
+
+/**
+ * The document behind a history ref: who it was for, every line with its price, and where
+ * the money stands. Read-only — this is the record, not an editor.
+ */
+@Composable
+private fun DocumentDetailDialog(doc: mu.carfection.pos.core.network.SaleHistoryDto, onClose: () -> Unit) {
+    Dialog(onDismissRequest = onClose) {
+        Column(
+            Modifier.width(560.dp).fillMaxHeight(0.88f)
+                .background(CardBg, RoundedCornerShape(18.dp)).border(1.dp, Hairline, RoundedCornerShape(18.dp))
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Text(
+                    (when (doc.docType) { "quote" -> "QUOTE"; "credit_note" -> "CREDIT NOTE"; else -> "INVOICE" }) + "  ${doc.number ?: ""}",
+                    fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary,
+                    modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                )
+                HistoryStatusChip(if (doc.status == "paid" || doc.status == "partly_paid") doc.status else if (doc.docType == "quote") doc.status else "issued")
+                Box(Modifier.size(34.dp).border(1.dp, Hairline, RoundedCornerShape(10.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
+                    Text("✕", color = TextSecondary, fontSize = 13.sp)
+                }
+            }
+            Text(
+                listOfNotNull(
+                    doc.customers?.name,
+                    doc.issuedAt?.let { historyDate(it) },
+                    doc.creator?.displayName?.let { "by $it" },
+                ).joinToString("  ·  ").ifBlank { "—" },
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+            )
+
+            // Lines scroll; header and money stay put.
+            Column(
+                Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                doc.lines.sortedBy { it.sortOrder }.forEach { l ->
+                    Column(Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                l.title, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextPrimary,
+                                modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                            )
+                            Text("Rs ${money(l.lineTotalExcl + l.lineVat)}", fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = TextPrimary)
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${l.qty} × Rs ${money(l.unitPrice)}", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted)
+                            if (l.discountPct > 0) Text("−${l.discountPct}%", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = Danger)
+                        }
+                    }
+                }
+                if (doc.lines.isEmpty()) Text("No lines on this document.", fontFamily = Barlow, fontSize = 12.5.sp, color = TextMuted)
+            }
+
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                MoneyRow("VAT", doc.vatTotal)
+                MoneyRow("TOTAL", doc.totalIncl, bold = true)
+                MoneyRow("Paid", doc.amountPaid)
+                val balance = doc.totalIncl - doc.amountPaid
+                if (balance > 0.005 && doc.docType != "quote") MoneyRow("Balance", balance, color = Warning)
+                doc.payments.filter { it.reversesPaymentId == null }.forEach { p ->
+                    Text(
+                        "${p.method.replaceFirstChar { it.uppercase() }}  Rs ${money(p.amount)}",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MoneyRow(label: String, value: Double, bold: Boolean = false, color: Color = TextSecondary) {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(label, fontFamily = Barlow, fontWeight = if (bold) FontWeight.Bold else FontWeight.Medium, fontSize = if (bold) 14.sp else 12.5.sp, color = if (bold) TextPrimary else color)
+        Spacer(Modifier.weight(1f))
+        Text("Rs ${money(value)}", fontFamily = Mono, fontWeight = if (bold) FontWeight.Bold else FontWeight.SemiBold, fontSize = if (bold) 14.sp else 12.5.sp, color = if (bold) TextPrimary else color)
     }
 }

@@ -563,6 +563,19 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     /**
+     * One customer's whole book of work — the Contacts history screen. Same embeds the
+     * board reads (plus the invoice totals and the created stamp), filtered to the person,
+     * newest first.
+     */
+    suspend fun fetchCustomerJobs(customerId: String): List<JobBoardDto> =
+        client.postgrest.from("jobs")
+            .select(Columns.raw("id, status, created_at, scheduled_at, started_at, ready_at, delivered_at, cancelled_at, cancel_reason, notes, checklist, damage_markers, vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(id, number, status), invoices:documents!documents_job_id_fkey(id, number, doc_type, status, total_incl), certificates(number, expires_at)")) {
+                filter { eq("customer_id", customerId) }
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+            }
+            .decodeList()
+
+    /**
      * When the car is booked in for, and how long it should take. Written when a quote
      * is accepted; drives the scheduled card, the estimated finish and the tablet's alarms.
      */
@@ -643,6 +656,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         client.postgrest.from("job_photos")
             .select(Columns.raw("id, storage_path, phase, caption")) {
                 filter { eq("job_id", jobId) }
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList()
+
+    /** Photos for MANY jobs in one round trip — a customer's history loads as one page. */
+    suspend fun fetchPhotosForJobs(jobIds: List<String>): List<JobPhotoDto> =
+        if (jobIds.isEmpty()) emptyList()
+        else client.postgrest.from("job_photos")
+            .select(Columns.raw("id, job_id, storage_path, phase, caption")) {
+                filter { isIn("job_id", jobIds) }
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }
             .decodeList()
@@ -1139,7 +1162,10 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         do {
             val page = client.postgrest.from("customers")
                 .select(Columns.raw("id, name, phone, email, address, brn, vat_number, notes, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
-                    filter { if (safe.length >= 2) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
+                    // Any non-blank term filters — a single "z" must narrow the book, not
+                    // return it whole. (Intake's server pass can afford a >= 2 guard because
+                    // its local cache answers first; Contacts has no cache — this IS the list.)
+                    filter { if (safe.isNotEmpty()) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
                     // id breaks name ties, so a page boundary can never skip or repeat a row
                     order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
                     order("id", io.github.jan.supabase.postgrest.query.Order.ASCENDING)

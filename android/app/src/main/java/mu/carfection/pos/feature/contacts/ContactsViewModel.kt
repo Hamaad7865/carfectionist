@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -12,9 +14,30 @@ import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.network.ContactDto
 import mu.carfection.pos.core.network.ContactVehicleDto
+import mu.carfection.pos.core.network.JobBoardDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
+
+/** One photo on a history job, with its signed URL ready for Coil. */
+data class HistoryPhotoUi(
+    val id: String,
+    val url: String?,
+    /** "before" | "after" — the intake/finish phases staff speak in. */
+    val phase: String,
+    val caption: String?,
+)
+
+/** One job in the customer's history, its photos riding along. */
+data class JobHistoryUi(val job: JobBoardDto, val photos: List<HistoryPhotoUi> = emptyList())
+
+data class CustomerHistoryState(
+    val loading: Boolean = true,
+    val customerId: String = "",
+    val customerName: String = "",
+    val jobs: List<JobHistoryUi> = emptyList(),
+    val error: String? = null,
+)
 
 data class ContactsState(
     val loading: Boolean = true,
@@ -44,6 +67,11 @@ data class ContactsState(
     val draftCustNotes: String = "",
     /** Retired cars are hidden by default - they are history, not the working list. */
     val showRetired: Boolean = false,
+    /** The customer whose full work history is on screen. Null = the list. */
+    val history: CustomerHistoryState? = null,
+    /** The invoice/quote document opened from a history card. Null = closed. */
+    val docDetail: mu.carfection.pos.core.network.SaleHistoryDto? = null,
+    val docLoading: Boolean = false,
     val addingCustomer: Boolean = false,
     val newName: String = "",
     val newPhone: String = "",
@@ -87,13 +115,90 @@ class ContactsViewModel @Inject constructor(
         _s.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
             runCatching { api.fetchContacts(term) }
-                .onSuccess { rows -> _s.update { it.copy(loading = false, contacts = rows) } }
+                .onSuccess { rows -> _s.update { it.copy(loading = false, contacts = displayOrder(rows, term)) } }
                 .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 
+    /**
+     * What you typed should lead the list: "z" opens on Zaheer, not on "abdul azize". The
+     * server returns matches alphabetically (its pagination needs that order stable), so the
+     * page is re-ranked for display — names starting with the term first, then the rest A→Z.
+     */
+    private fun displayOrder(rows: List<ContactDto>, term: String): List<ContactDto> {
+        val q = term.trim().lowercase()
+        if (q.isEmpty()) return rows
+        return rows.sortedWith(
+            compareBy(
+                { if (it.name.lowercase().startsWith(q)) 0 else 1 },
+                { it.name.lowercase() },
+            ),
+        )
+    }
+
     fun openContact(c: ContactDto) = _s.update { it.copy(open = c) }
     fun closeContact() = _s.update { it.copy(open = null, editing = null) }
+
+    /** The customer's full work history — every job, with its photos. */
+    fun openHistory(c: ContactDto) {
+        _s.update { it.copy(open = null, editing = null, editingCustomer = false, history = CustomerHistoryState(customerId = c.id, customerName = c.name)) }
+        loadHistory(c.id)
+    }
+
+    fun closeHistory() = _s.update { it.copy(history = null) }
+
+    /**
+     * Open a document referenced by a history card — the invoice or the quote it came
+     * from — with its lines and payments. fetchInvoice reads by ID regardless of doc_type,
+     * so one call serves every document kind.
+     */
+    fun openDoc(id: String) {
+        _s.update { it.copy(docLoading = true, docDetail = null) }
+        viewModelScope.launch {
+            runCatching { api.fetchInvoice(id) }
+                .onSuccess { d ->
+                    if (d != null) _s.update { it.copy(docLoading = false, docDetail = d) }
+                    else _s.update { it.copy(docLoading = false, toast = "Couldn't load that document") }
+                }
+                .onFailure { e -> _s.update { it.copy(docLoading = false, toast = e.uiMessage()) } }
+        }
+    }
+
+    fun closeDoc() = _s.update { it.copy(docDetail = null, docLoading = false) }
+
+    private fun loadHistory(customerId: String) {
+        viewModelScope.launch {
+            runCatching {
+                val jobs = api.fetchCustomerJobs(customerId)
+                val photos = api.fetchPhotosForJobs(jobs.map { it.id })
+                // The bucket is private: each photo needs a short-lived signed URL. Signed
+                // in parallel — a regular's file can carry a few dozen pictures.
+                val signed: List<Pair<String, String?>> = coroutineScope {
+                    photos.map { p ->
+                        async { p.storagePath to runCatching { api.signedPhotoUrl(p.storagePath) }.getOrNull() }
+                    }.map { it.await() }
+                }
+                val urlByPath: Map<String, String?> = signed.toMap()
+                jobs.map { j ->
+                    JobHistoryUi(
+                        j,
+                        photos.filter { it.jobId == j.id }
+                            .map { p -> HistoryPhotoUi(p.id, urlByPath[p.storagePath], p.phase, p.caption) },
+                    )
+                }
+            }.onSuccess { list ->
+                _s.update { st ->
+                    st.history?.takeIf { it.customerId == customerId }
+                        ?.let { h -> st.copy(history = h.copy(loading = false, jobs = list)) } ?: st
+                }
+            }.onFailure { e ->
+                _s.update { st ->
+                    st.history?.takeIf { it.customerId == customerId }
+                        ?.let { h -> st.copy(history = h.copy(loading = false, error = e.uiMessage())) } ?: st
+                }
+            }
+        }
+    }
 
     /** Edit an existing car - identity, coating and note in one place. */
     fun editVehicle(v: ContactVehicleDto) = _s.update {
@@ -285,7 +390,7 @@ class ContactsViewModel @Inject constructor(
         val openId = _s.value.open?.id
         viewModelScope.launch {
             runCatching { api.fetchContacts(_s.value.query) }.onSuccess { rows ->
-                _s.update { st -> st.copy(contacts = rows, open = rows.firstOrNull { it.id == openId } ?: st.open) }
+                _s.update { st -> st.copy(contacts = displayOrder(rows, st.query), open = rows.firstOrNull { it.id == openId } ?: st.open) }
             }
         }
     }

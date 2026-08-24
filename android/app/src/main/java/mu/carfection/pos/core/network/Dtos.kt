@@ -146,6 +146,9 @@ data class QuoteRowDto(
 // ── Lifecycle flow refs (embedded on the jobs board) ──────────────────────────
 @Serializable
 data class FlowQuoteRefDto(
+    // Present only on embeds that ask for it (the customer history opens the quote's
+    // document by id); the board's select omits it and decodes null.
+    val id: String? = null,
     val number: String? = null,
     val status: String = "",
     @SerialName("accepted_signature") val acceptedSignature: kotlinx.serialization.json.JsonElement? = null,
@@ -186,6 +189,9 @@ data class FlowCertRefDto(
 
 @Serializable data class JobPhotoDto(
     val id: String,
+    // Present only on the multi-job select (the customer history) — the per-job
+    // select doesn't ask for it, and absent decodes as null.
+    @SerialName("job_id") val jobId: String? = null,
     @SerialName("storage_path") val storagePath: String,
     val phase: String, // "before" | "after"
     val caption: String? = null,
@@ -202,6 +208,8 @@ data class FlowCertRefDto(
 data class JobBoardDto(
     val id: String,
     val status: String,
+    // When the job was created — the history screen's "when". The board doesn't ask for it.
+    @SerialName("created_at") val createdAt: String? = null,
     @SerialName("customer_id") val customerId: String? = null,
     @SerialName("vehicle_id") val vehicleId: String? = null,
     @SerialName("scheduled_at") val scheduledAt: String? = null,
