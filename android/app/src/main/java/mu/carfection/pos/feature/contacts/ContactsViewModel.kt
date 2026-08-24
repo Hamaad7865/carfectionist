@@ -75,6 +75,11 @@ data class ContactsState(
     val addingCustomer: Boolean = false,
     val newName: String = "",
     val newPhone: String = "",
+    /** Individual vs business — a business carries BRN + VAT onto its invoices. */
+    val newIsCompany: Boolean = false,
+    val newBrn: String = "",
+    val newVat: String = "",
+    val newAddress: String = "",
     val startingJob: Boolean = false,
     val startedJobId: String? = null,
     val busy: Boolean = false,
@@ -211,10 +216,18 @@ class ContactsViewModel @Inject constructor(
         )
     }
 
-    fun addCustomer() = _s.update { it.copy(addingCustomer = true, newName = it.query.trim(), newPhone = "", error = null) }
-    fun cancelAddCustomer() = _s.update { it.copy(addingCustomer = false, newName = "", newPhone = "", error = null) }
+    fun addCustomer() = _s.update {
+        it.copy(addingCustomer = true, newName = it.query.trim(), newPhone = "", newIsCompany = false, newBrn = "", newVat = "", newAddress = "", error = null)
+    }
+    fun cancelAddCustomer() = _s.update {
+        it.copy(addingCustomer = false, newName = "", newPhone = "", newIsCompany = false, newBrn = "", newVat = "", newAddress = "", error = null)
+    }
     fun setNewName(v: String) = _s.update { it.copy(newName = v) }
     fun setNewPhone(v: String) = _s.update { it.copy(newPhone = v) }
+    fun setNewIsCompany(v: Boolean) = _s.update { it.copy(newIsCompany = v) }
+    fun setNewBrn(v: String) = _s.update { it.copy(newBrn = v) }
+    fun setNewVat(v: String) = _s.update { it.copy(newVat = v) }
+    fun setNewAddress(v: String) = _s.update { it.copy(newAddress = v) }
 
     /** Create the customer, then open their card so the car can be added straight away. */
     fun saveNewCustomer() {
@@ -228,19 +241,35 @@ class ContactsViewModel @Inject constructor(
                 api.insertCustomer(
                     mu.carfection.pos.core.network.NewCustomerDto(
                         tenantId = tenant, name = name, phone = st.newPhone.trim().ifBlank { null },
+                        isCompany = st.newIsCompany,
+                        address = st.newAddress.trim().ifBlank { null },
+                        brn = st.newBrn.trim().ifBlank { null },
+                        vatNumber = st.newVat.trim().ifBlank { null },
                     ),
                 )
             }.onSuccess { c ->
                 // Into the local cache too, so intake and the quote picker find them at once
                 // rather than inviting a duplicate.
                 runCatching { catalog.cacheCustomer(mu.carfection.pos.core.database.CustomerEntity(c.id, c.name, c.phone)) }
-                _s.update { it.copy(busy = false, addingCustomer = false, newName = "", newPhone = "", toast = "Customer added") }
+                _s.update {
+                    it.copy(
+                        busy = false, addingCustomer = false,
+                        newName = "", newPhone = "", newIsCompany = false, newBrn = "", newVat = "", newAddress = "",
+                        toast = "Customer added",
+                    )
+                }
                 load("")
-                // Open the fresh card with the "add car" form already up.
+                // Open the fresh card with the "add car" form already up — carrying the
+                // company flag and fiscal fields, so the card reads right at once.
                 _s.update {
                     it.copy(
                         open = mu.carfection.pos.core.network.ContactDto(
-                            id = c.id, name = c.name, phone = c.phone, email = null, isCompany = false, vehicles = emptyList(),
+                            id = c.id, name = c.name, phone = c.phone, email = null,
+                            isCompany = st.newIsCompany,
+                            address = st.newAddress.trim().ifBlank { null },
+                            brn = st.newBrn.trim().ifBlank { null },
+                            vatNumber = st.newVat.trim().ifBlank { null },
+                            vehicles = emptyList(),
                         ),
                     )
                 }
