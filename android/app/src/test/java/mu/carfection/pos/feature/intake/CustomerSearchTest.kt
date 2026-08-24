@@ -65,4 +65,29 @@ class CustomerSearchTest {
         // return an arbitrary slice of the roster and cost a round trip per keystroke.
         assertTrue("a".length < 2)
     }
+
+    /**
+     * "ya" must surface Yash, not bury him: a plain contains-filter kept the cache's A→Z
+     * order, so mid-name hits (Heerma Seedoyal) filled the list and names starting with the
+     * term — sorted last by the alphabet — fell off take(6) entirely.
+     */
+    @Test
+    fun `a name that starts with the term outranks one that merely contains it`() {
+        val roster = listOf(
+            CustomerEntity("h", "Heerma Seedoyal", "58148273"),
+            CustomerEntity("l", "Lakshya Ramoogur", "57758132"),
+            CustomerEntity("y", "Yash Vinumber", "55001234"),
+        )
+        assertEquals(listOf("y", "h", "l"), mu.carfection.pos.core.data.rankedCustomerMatches(roster, "ya", 6).map { it.id })
+        // The contains-matches are still found — just ranked after the prefix match.
+        assertEquals(3, mu.carfection.pos.core.data.rankedCustomerMatches(roster, "ya", 6).size)
+        // And the old rule is preserved where it never hurt: prefix order within a tier.
+        assertEquals(
+            listOf("y1", "y2"),
+            mu.carfection.pos.core.data.rankedCustomerMatches(
+                listOf(CustomerEntity("y1", "Yana A", null), CustomerEntity("y2", "Yash B", null)),
+                "ya", 6,
+            ).map { it.id },
+        )
+    }
 }
