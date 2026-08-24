@@ -43,9 +43,9 @@ export function activeCount(f: JournalFilterState): number {
 }
 
 const selectCls =
-  "h-9 w-full rounded-[10px] border border-line-2 bg-card px-2.5 text-[12.5px] text-ink outline-none focus:border-brand";
+  "h-9 w-full rounded-[10px] border border-line-2 bg-card px-2.5 text-[13.5px] font-medium text-ink outline-none focus:border-brand";
 const timeCls =
-  "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[12.5px] text-ink outline-none focus:border-brand [color-scheme:light]";
+  "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[13.5px] font-medium text-ink outline-none focus:border-brand [color-scheme:light]";
 
 /** Hoisted, not defined inside the dialog: a component created during render is a
  *  new type every keystroke, so React would remount the select and drop focus. */
@@ -98,7 +98,7 @@ export function MoreFiltersDialog({ facets, current }: { facets: JournalFacets; 
       <button onClick={show} className={btn(n ? "subtle" : "ghost", "sm")}>
         <SlidersHorizontal size={14} />
         More filters
-        {n > 0 && <span className="ml-0.5 grid size-[17px] place-items-center rounded-full bg-brand text-[10px] font-bold text-white">{n}</span>}
+        {n > 0 && <span className="ml-0.5 grid size-[17px] place-items-center rounded-full bg-brand text-[11px] font-bold text-white">{n}</span>}
       </button>
 
       <Modal
@@ -149,7 +149,7 @@ export function MoreFiltersDialog({ facets, current }: { facets: JournalFacets; 
                 onChange={(e) => setDraft((d) => ({ ...d, timeFrom: e.target.value }))}
                 className={timeCls}
               />
-              <span className="text-[12px] text-faint">→</span>
+              <span className="text-[13px] font-medium text-faint">→</span>
               <input
                 type="time"
                 aria-label="To time"
@@ -160,7 +160,7 @@ export function MoreFiltersDialog({ facets, current }: { facets: JournalFacets; 
             </div>
           </div>
         </div>
-        <p className="mt-4 text-[12px] leading-relaxed text-muted">
+        <p className="mt-4 text-[13px] font-medium leading-relaxed text-muted">
           A ticket is kept or dropped as a whole. Filtering to a service keeps the tickets that
           contain it, including their other lines — otherwise the sections would stop agreeing
           with each other.

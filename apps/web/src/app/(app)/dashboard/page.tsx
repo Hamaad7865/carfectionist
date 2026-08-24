@@ -25,8 +25,8 @@ function Kpi({ icon: Icon, value, label, tint }: { icon: typeof ReceiptText; val
       <span className="grid size-[34px] place-items-center rounded-[10px]" style={{ background: `${tint}22`, color: tint }}>
         <Icon size={18} />
       </span>
-      <div className="num mt-3.5 text-[18px] font-extrabold leading-tight tracking-tight text-ink-strong min-[400px]:text-[23px] sm:text-[27px]">{value}</div>
-      <div className="mt-0.5 text-[12px] font-medium text-muted">{label}</div>
+      <div className="num mt-3.5 text-[19px] font-extrabold leading-tight tracking-tight text-ink-strong min-[400px]:text-[24.5px] sm:text-[29px]">{value}</div>
+      <div className="mt-0.5 text-[13px] font-medium text-muted">{label}</div>
     </div>
   );
 }
@@ -56,10 +56,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div>
-        <h2 className="font-display text-[20px] font-extrabold text-ink-strong">
+        <h2 className="font-display text-[22px] font-extrabold text-ink-strong">
           Welcome back{name ? `, ${name}` : ""}
         </h2>
-        <p className="mt-0.5 text-[12.5px] text-muted">Live figures below read straight from the database through row-level security.</p>
+        <p className="mt-0.5 text-[13.5px] font-medium text-muted">Live figures below read straight from the database through row-level security.</p>
       </div>
 
       {/* KPIs */}
@@ -75,23 +75,23 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       {/* Collected by method + catalogue */}
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,400px)_1fr]">
         <div className={`${card} p-5`}>
-          <div className="font-display text-[14px] font-bold text-ink">Collected by method</div>
-          <div className="mt-0.5 text-[11.5px] text-muted">All recorded payments</div>
+          <div className="font-display text-[15px] font-bold text-ink">Collected by method</div>
+          <div className="mt-0.5 text-[12.5px] font-medium text-muted">All recorded payments</div>
           {d.byMethod.length === 0 ? (
-            <div className="py-10 text-center text-[12.5px] text-faint">No payments recorded yet.</div>
+            <div className="py-10 text-center text-[13.5px] font-medium text-faint">No payments recorded yet.</div>
           ) : (
             <div className="mt-3 flex flex-wrap items-center gap-x-6 gap-y-4">
               <div className="relative grid size-[136px] shrink-0 place-items-center rounded-full" style={{ background: `conic-gradient(${stops})` }}>
                 <div className="grid size-[100px] place-items-center rounded-full bg-card">
-                  <span className="num max-w-[94px] text-center text-[12px] font-extrabold leading-tight text-ink-strong">{formatMUR(d.collectedCents)}</span>
+                  <span className="num max-w-[94px] text-center text-[13px] font-extrabold leading-tight text-ink-strong">{formatMUR(d.collectedCents)}</span>
                 </div>
               </div>
               <div className="flex min-w-[176px] flex-col gap-2.5">
                 {d.byMethod.map((m) => (
                   <div key={m.method} className="flex items-center gap-2.5">
                     <span className="size-2.5 rounded-[3px]" style={{ background: METHOD_COLOR[m.method] ?? "#8c96a1" }} />
-                    <span className="flex-1 text-[12px] font-semibold text-body">{METHOD_LABEL[m.method] ?? m.method}</span>
-                    <span className="num text-[12px] font-bold text-ink">{formatMUR(m.cents)}</span>
+                    <span className="flex-1 text-[13px] font-semibold text-body">{METHOD_LABEL[m.method] ?? m.method}</span>
+                    <span className="num text-[13px] font-bold text-ink">{formatMUR(m.cents)}</span>
                   </div>
                 ))}
               </div>
@@ -100,8 +100,8 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
 
         <div className={`${card} p-5`}>
-          <div className="font-display text-[14px] font-bold text-ink">Catalogue &amp; team</div>
-          <div className="mt-3 grid grid-cols-2 gap-2.5 text-[12.5px]">
+          <div className="font-display text-[15px] font-bold text-ink">Catalogue &amp; team</div>
+          <div className="mt-3 grid grid-cols-2 gap-2.5 text-[13.5px] font-medium">
             {[
               { icon: Wrench, label: "Services", value: d.counts.services },
               { icon: Package, label: "Stocked products", value: d.counts.stocked },
@@ -122,20 +122,20 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-2">
         <div className={`${card} p-5`}>
           <div className="mb-3.5 flex items-center justify-between">
-            <span className="font-display text-[14px] font-bold text-ink">Recent documents</span>
-            <Link href="/sales" className="text-[11.5px] font-semibold text-link">View all →</Link>
+            <span className="font-display text-[15px] font-bold text-ink">Recent documents</span>
+            <Link href="/sales" className="text-[12.5px] font-semibold text-link">View all →</Link>
           </div>
           {d.recent.length === 0 ? (
-            <div className="py-8 text-center text-[12.5px] text-faint">No documents yet.</div>
+            <div className="py-8 text-center text-[13.5px] font-medium text-faint">No documents yet.</div>
           ) : (
             <div className="flex flex-col">
               {d.recent.map((r) => (
                 <Link key={r.id} href={`/sales/${r.id}`} className="flex items-center gap-2.5 rounded-[9px] px-1.5 py-2 hover:bg-sub">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[12.5px] font-semibold text-body">{r.customer ?? "—"}</div>
-                    <div className="num text-[10.5px] text-faint">{r.number ?? "Draft"} · {r.date}</div>
+                    <div className="text-[13.5px] font-semibold text-body">{r.customer ?? "—"}</div>
+                    <div className="num text-[11.5px] font-medium text-faint">{r.number ?? "Draft"} · {r.date}</div>
                   </div>
-                  <span className="num text-[12px] font-bold text-ink">{formatMUR(r.totalCents)}</span>
+                  <span className="num text-[13px] font-bold text-ink">{formatMUR(r.totalCents)}</span>
                   <StatusPill status={r.status} />
                 </Link>
               ))}
@@ -144,23 +144,23 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
 
         <div className={`${card} p-5`}>
-          <div className="mb-4 font-display text-[14px] font-bold text-ink">Best-selling services</div>
+          <div className="mb-4 font-display text-[15px] font-bold text-ink">Best-selling services</div>
           {d.bestServices.length === 0 ? (
-            <div className="py-8 text-center text-[12.5px] text-faint">Sales analytics activate as invoices are paid.</div>
+            <div className="py-8 text-center text-[13.5px] font-medium text-faint">Sales analytics activate as invoices are paid.</div>
           ) : (
             <div className="flex flex-col gap-3.5">
               {d.bestServices.map((s, i) => (
                 <div key={s.name} className="flex items-center gap-3">
-                  <span className="num w-5 text-[13px] font-extrabold text-link">{i + 1}</span>
+                  <span className="num w-5 text-[14px] font-extrabold text-link">{i + 1}</span>
                   <div className="min-w-0 flex-1">
-                    <div className="truncate text-[12.5px] font-semibold text-body">{s.name}</div>
+                    <div className="truncate text-[13.5px] font-semibold text-body">{s.name}</div>
                     <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-[rgba(15,23,32,0.06)]">
                       <div className="h-full rounded-[3px]" style={{ width: `${Math.round((s.cents / bestMax) * 100)}%`, background: "#10b5aa" }} />
                     </div>
                   </div>
                   <div className="text-right">
-                    <div className="num text-[12px] font-bold text-ink">{formatMUR(s.cents)}</div>
-                    <div className="text-[10px] text-faint">{s.qty} sold</div>
+                    <div className="num text-[13px] font-bold text-ink">{formatMUR(s.cents)}</div>
+                    <div className="text-[11px] font-medium text-faint">{s.qty} sold</div>
                   </div>
                 </div>
               ))}

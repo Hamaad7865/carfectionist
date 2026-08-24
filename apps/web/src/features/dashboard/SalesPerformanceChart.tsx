@@ -102,13 +102,13 @@ function SalesTooltip({
 
   return (
     <div className="min-w-[210px] rounded-[12px] border border-line-2 bg-card p-3 shadow-xl">
-      <div className="mb-2 text-[11.5px] font-bold text-ink">
+      <div className="mb-2 text-[12.5px] font-bold text-ink">
         {point.fullLabel}
       </div>
       {values.map(([label, cents, color]) => (
         <div
           key={label}
-          className="flex items-center gap-2 py-1 text-[11.5px]"
+          className="flex items-center gap-2 py-1 text-[12.5px] font-medium"
         >
           <span
             aria-hidden="true"
@@ -144,16 +144,16 @@ export function SalesPerformanceChart({
           >
             Sales performance
           </div>
-          <div className="mt-0.5 text-[11.5px] text-muted">
+          <div className="mt-0.5 text-[12.5px] font-medium text-muted">
             Issued sales including VAT · {data.period.label}
           </div>
         </div>
         <div className="flex flex-col items-start gap-2 lg:items-end">
           <div className="flex items-baseline gap-2 lg:flex-col lg:items-end lg:gap-0.5">
-            <div className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-faint">
+            <div className="text-[11.5px] font-semibold uppercase tracking-[0.08em] text-faint">
               Total incl. VAT
             </div>
-            <div className="num text-[18px] font-extrabold text-ink-strong">
+            <div className="num text-[19.5px] font-extrabold text-ink-strong">
               {data.status === 'ready' ? formatMUR(data.totalCents) : '—'}
             </div>
           </div>
@@ -166,14 +166,14 @@ export function SalesPerformanceChart({
           <div className="text-[13px] font-bold text-body">
             Sales chart unavailable
           </div>
-          <div className="mt-1 text-[11.5px] text-muted">
+          <div className="mt-1 text-[12.5px] font-medium text-muted">
             Refresh the page to retry loading this period.
           </div>
         </div>
       ) : (
         <>
           {!data.hasSales && (
-            <div className="mt-4 text-center text-[11.5px] text-faint">
+            <div className="mt-4 text-center text-[12.5px] font-medium text-faint">
               No issued sales in this period.
             </div>
           )}
@@ -202,7 +202,7 @@ export function SalesPerformanceChart({
                     angle={-35}
                     textAnchor="end"
                     height={64}
-                    tick={{ fill: '#68737f', fontSize: 10 }}
+                    tick={{ fill: '#68737f', fontSize: 11 }}
                     axisLine={{ stroke: 'rgba(15,23,32,0.12)' }}
                     tickLine={false}
                   />
@@ -213,7 +213,7 @@ export function SalesPerformanceChart({
                     tickCount={data.hasSales ? 5 : 2}
                     tickFormatter={formatCompactMUR}
                     width={76}
-                    tick={{ fill: '#68737f', fontSize: 10 }}
+                    tick={{ fill: '#68737f', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -224,7 +224,7 @@ export function SalesPerformanceChart({
                   <Legend
                     verticalAlign="bottom"
                     height={28}
-                    wrapperStyle={{ fontSize: 11 }}
+                    wrapperStyle={{ fontSize: 12 }}
                   />
                   <ReferenceLine
                     y={0}

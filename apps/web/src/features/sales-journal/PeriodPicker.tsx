@@ -41,14 +41,14 @@ export function PeriodPicker({ range, today, compare }: { range: Range; today: s
   }
 
   const select =
-    "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[12.5px] font-semibold text-ink outline-none focus:border-brand";
+    "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[13.5px] font-semibold text-ink outline-none focus:border-brand";
   const date =
-    "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[12.5px] text-ink outline-none focus:border-brand [color-scheme:light]";
+    "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[13.5px] font-medium text-ink outline-none focus:border-brand [color-scheme:light]";
 
   return (
     <>
       <label className="flex items-center gap-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">Period</span>
+        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Period</span>
         <select value={preset} onChange={(e) => onPreset(e.target.value as PresetKey)} className={select} aria-label="Period">
           {PRESETS.map((p) => (
             <option key={p.key} value={p.key} disabled={p.key === "custom" && preset !== "custom"}>
@@ -63,23 +63,29 @@ export function PeriodPicker({ range, today, compare }: { range: Range; today: s
           type="date"
           aria-label="From date"
           value={range.from}
-          max={range.to}
-          onChange={(e) => e.target.value && push({ from: e.target.value })}
+          onChange={(e) => {
+            const from = e.target.value;
+            if (!from) return;
+            push(from > range.to ? { from, to: from } : { from });
+          }}
           className={date}
         />
-        <span className="text-[12px] text-faint">→</span>
+        <span className="text-[13px] font-medium text-faint">→</span>
         <input
           type="date"
           aria-label="To date"
           value={range.to}
-          min={range.from}
-          onChange={(e) => e.target.value && push({ to: e.target.value })}
+          onChange={(e) => {
+            const to = e.target.value;
+            if (!to) return;
+            push(to < range.from ? { from: to, to } : { to });
+          }}
           className={date}
         />
       </div>
 
       <label className="flex items-center gap-1.5">
-        <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-faint">Compare</span>
+        <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Compare</span>
         <select
           value={compare}
           onChange={(e) => push({ cmp: e.target.value === "none" ? undefined : e.target.value })}

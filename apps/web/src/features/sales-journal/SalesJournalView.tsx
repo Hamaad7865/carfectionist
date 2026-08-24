@@ -22,7 +22,7 @@ function Delta({ now, prev }: { now: number; prev: number }) {
   const flat = now === prev;
   const tone = flat ? "text-faint" : up ? "text-mint" : "text-pink";
   return (
-    <span className={`num text-[11px] font-bold ${tone}`}>
+    <span className={`num text-[12px] font-bold ${tone}`}>
       {pct === null ? "new" : `${flat ? "" : up ? "+" : "−"}${Math.abs(pct).toFixed(1)}%`}
     </span>
   );
@@ -32,7 +32,7 @@ function Delta({ now, prev }: { now: number; prev: number }) {
 function PriorCell({ now, prev }: { now: number; prev: number }) {
   return (
     <span className="flex items-baseline justify-end gap-2">
-      <span className="num text-[12px] text-faint">{money(prev)}</span>
+      <span className="num text-[13px] font-medium text-faint">{money(prev)}</span>
       <Delta now={now} prev={prev} />
     </span>
   );
@@ -43,16 +43,16 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
     <div className="overflow-hidden rounded-[14px] border border-line bg-card">
       <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5">
         <span className="grad-rail h-[15px] w-[3px] rounded-[3px]" />
-        <span className="font-display text-[13px] font-bold uppercase tracking-[0.06em] text-ink-strong">{title}</span>
+        <span className="font-display text-[14px] font-bold uppercase tracking-[0.06em] text-ink-strong">{title}</span>
       </div>
       <div className="overflow-x-auto">{children}</div>
     </div>
   );
 }
 
-const HEAD = "grid gap-3 border-b border-line bg-band px-5 py-2.5 text-[10px] font-bold uppercase tracking-[0.1em] text-th";
-const ROW = "grid items-center gap-3 border-b border-line px-5 py-3 text-[12.5px]";
-const TOTAL = "grid items-center gap-3 bg-sub px-5 py-3 text-[13px] font-bold text-ink";
+const HEAD = "grid gap-3 border-b border-line bg-band px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th";
+const ROW = "grid items-center gap-3 border-b border-line px-5 py-3 text-[13.5px] font-medium";
+const TOTAL = "grid items-center gap-3 bg-sub px-5 py-3 text-[14px] font-bold text-ink";
 
 /**
  * Merge current rows with the comparison period's, keyed by label, so a line
@@ -86,12 +86,12 @@ export function SalesJournalView({
     <div className="flex flex-col gap-4">
       {/* ── period header ── */}
       <div>
-        <div className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint">{businessName}</div>
-        <h2 className="font-display text-[24px] font-extrabold leading-tight text-ink-strong">
+        <div className="text-[12px] font-bold uppercase tracking-[0.12em] text-faint">{businessName}</div>
+        <h2 className="font-display text-[26px] font-extrabold leading-tight text-ink-strong">
           {rangeLabel({ from: j.from, to: j.to })}
         </h2>
         {cmp && priorRange && (
-          <div className="mt-1 text-[12px] text-muted">
+          <div className="mt-1 text-[13px] font-medium text-muted">
             compared with <span className="font-semibold text-body">{shortRangeLabel(priorRange)}</span>
           </div>
         )}
@@ -100,32 +100,32 @@ export function SalesJournalView({
       {/* ── KPI tiles ── */}
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <div className="rounded-[15px] border border-line bg-card p-5">
-          <div className="text-[12px] font-semibold text-muted">Tickets / Invoices</div>
-          <div className="num mt-2 text-[30px] font-extrabold text-ink-strong">{j.tickets}</div>
+          <div className="text-[13px] font-semibold text-muted">Tickets / Invoices</div>
+          <div className="num mt-2 text-[32px] font-extrabold text-ink-strong">{j.tickets}</div>
           {cmp && (
             <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="num text-[11.5px] text-faint">{prior!.tickets}</span>
+              <span className="num text-[12.5px] font-medium text-faint">{prior!.tickets}</span>
               <Delta now={j.tickets} prev={prior!.tickets} />
             </div>
           )}
         </div>
 
         <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-          <div className="text-[12px] font-semibold text-[#3d5978]">Total sales incl tax</div>
-          <div className="num mt-2 text-[30px] font-extrabold text-[#0f2f5e]">{money(j.totalInclCents)}</div>
-          <div className="num mt-1 text-[11.5px] text-[#3d5978]">Avg {money(j.avgInclCents)}</div>
+          <div className="text-[13px] font-semibold text-[#3d5978]">Total sales incl tax</div>
+          <div className="num mt-2 text-[32px] font-extrabold text-[#0f2f5e]">{money(j.totalInclCents)}</div>
+          <div className="num mt-1 text-[12.5px] font-medium text-[#3d5978]">Avg {money(j.avgInclCents)}</div>
           {cmp && (
             <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="num text-[11.5px] text-[#3d5978]">{money(prior!.totalInclCents)}</span>
+              <span className="num text-[12.5px] font-medium text-[#3d5978]">{money(prior!.totalInclCents)}</span>
               <Delta now={j.totalInclCents} prev={prior!.totalInclCents} />
             </div>
           )}
         </div>
 
         <div className="rounded-[15px] border border-line bg-card p-5">
-          <div className="text-[12px] font-semibold text-muted">Clients</div>
-          <div className="num mt-2 text-[30px] font-extrabold text-ink-strong">{j.clients}</div>
-          <div className="num mt-1 text-[11.5px] text-faint">
+          <div className="text-[13px] font-semibold text-muted">Clients</div>
+          <div className="num mt-2 text-[32px] font-extrabold text-ink-strong">{j.clients}</div>
+          <div className="num mt-1 text-[12.5px] font-medium text-faint">
             {money(j.clientInclCents)} · Avg {money(j.clientAvgInclCents)}
           </div>
         </div>
@@ -314,5 +314,5 @@ export function SalesJournalView({
 }
 
 function Empty({ label = "Nothing sold in this period." }: { label?: string }) {
-  return <div className="px-5 py-10 text-center text-[13px] text-faint">{label}</div>;
+  return <div className="px-5 py-10 text-center text-[14.5px] font-medium text-faint">{label}</div>;
 }

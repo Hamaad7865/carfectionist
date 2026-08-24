@@ -37,7 +37,7 @@ export function StatementSendButton({
 
   if (!open) {
     return (
-      <button onClick={() => setOpen(true)} className="text-[12px] font-semibold text-link hover:underline">
+      <button onClick={() => setOpen(true)} className="text-[13px] font-semibold text-link hover:underline">
         Email
       </button>
     );
@@ -49,7 +49,7 @@ export function StatementSendButton({
         type="email"
         autoFocus
         placeholder={`${customerName}'s email`}
-        className="h-8 w-[180px] rounded-[9px] border border-line-2 bg-card px-2.5 text-[12px] text-ink outline-none focus:border-brand"
+        className="h-8 w-[180px] rounded-[9px] border border-line-2 bg-card px-2.5 text-[13px] font-medium text-ink outline-none focus:border-brand"
         value={to}
         onChange={(e) => setTo(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && to.trim()) send(); }}
@@ -57,12 +57,12 @@ export function StatementSendButton({
       <button
         onClick={send}
         disabled={busy || !to.trim()}
-        className="grad-brand h-8 rounded-[9px] px-3 text-[12px] font-bold text-white disabled:opacity-50"
+        className="grad-brand h-8 rounded-[9px] px-3 text-[13px] font-bold text-white disabled:opacity-50"
       >
         {busy ? "…" : "Send"}
       </button>
-      <button onClick={() => { setOpen(false); setMsg(null); }} className="text-[12px] font-semibold text-muted">✕</button>
-      {msg && <span className={`text-[11.5px] font-semibold ${msg.ok ? "text-mint" : "text-rose"}`}>{msg.text}</span>}
+      <button onClick={() => { setOpen(false); setMsg(null); }} className="text-[13px] font-semibold text-muted">✕</button>
+      {msg && <span className={`text-[12.5px] font-semibold ${msg.ok ? "text-mint" : "text-rose"}`}>{msg.text}</span>}
     </span>
   );
 }
