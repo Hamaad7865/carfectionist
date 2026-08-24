@@ -1123,16 +1123,32 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     }
 
     // ── Contacts ──────────────────────────────────────────────────────────────
-    /** The customer book with each customer's cars — the tablet's Contacts tab. */
-    suspend fun fetchContacts(term: String = "", limit: Long = 60): List<ContactDto> {
+    /**
+     * The customer book with each customer's cars — the tablet's Contacts tab.
+     *
+     * Paged to the end: the book grows one walk-in at a time and the web side shows ALL
+     * of it, so a fixed cap quietly hid everyone past the cap — the list ended mid-alphabet
+     * at "Michael Angeline" while search still found the rest. Pages are read until one
+     * comes back short.
+     */
+    suspend fun fetchContacts(term: String = "", pageSize: Long = 200): List<ContactDto> {
         val safe = term.trim().replace("%", "").replace(",", " ")
-        return client.postgrest.from("customers")
-            .select(Columns.raw("id, name, phone, email, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
-                filter { if (safe.length >= 2) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
-                order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
-                limit(limit)
-            }
-            .decodeList()
+        val all = ArrayList<ContactDto>()
+        var from = 0L
+        do {
+            val page = client.postgrest.from("customers")
+                .select(Columns.raw("id, name, phone, email, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
+                    filter { if (safe.length >= 2) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
+                    // id breaks name ties, so a page boundary can never skip or repeat a row
+                    order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                    order("id", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                    range(from, from + pageSize - 1)
+                }
+                .decodeList<ContactDto>()
+            all += page
+            from += pageSize
+        } while (page.size == pageSize.toInt())
+        return all
     }
 
     /** Edit a car's identity from Contacts. Plate included — typos get corrected. */
