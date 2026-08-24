@@ -534,6 +534,11 @@ data class StockAdjustmentDto(
     val name: String,
     val phone: String? = null,
     val email: String? = null,
+    val address: String? = null,
+    // A company also carries a BRN + VAT number — they land on its invoices.
+    val brn: String? = null,
+    @SerialName("vat_number") val vatNumber: String? = null,
+    val notes: String? = null,
     @SerialName("is_company") val isCompany: Boolean = false,
     val vehicles: List<ContactVehicleDto> = emptyList(),
 )

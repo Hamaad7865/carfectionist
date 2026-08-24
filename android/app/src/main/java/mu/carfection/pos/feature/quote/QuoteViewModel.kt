@@ -686,19 +686,18 @@ class QuoteViewModel @Inject constructor(
     /** Same rule as intake: cache first, then the server, so a new customer is findable. */
     fun setPickQuery(q: String) {
         val query = q.trim().lowercase()
-        val local = if (query.isBlank()) emptyList()
-        else allCustomers.filter { it.name.lowercase().contains(query) || (it.phone ?: "").contains(query) }.take(6)
+        val local = mu.carfection.pos.core.data.rankedCustomerMatches(allCustomers, query, 6)
         _s.update { it.copy(pickQuery = q, pickResults = local, pickSearching = query.length >= 2 && local.isEmpty()) }
         pickJob?.cancel()
         if (query.length < 2) return
         pickJob = viewModelScope.launch {
             kotlinx.coroutines.delay(250)
-            val remote = api.searchCustomers(query) + api.searchCustomersByPlate(query)
+            val remote = api.searchCustomers(query, limit = 20) + api.searchCustomersByPlate(query)
             val seen = local.map { it.id }.toMutableSet()
             val merged = local + remote.filter { seen.add(it.id) }
                 .map { mu.carfection.pos.core.database.CustomerEntity(it.id, it.name, it.phone) }
             if (_s.value.pickQuery.trim().lowercase() == query) {
-                _s.update { it.copy(pickResults = merged.take(8), pickSearching = false) }
+                _s.update { it.copy(pickResults = mu.carfection.pos.core.data.rankedCustomerMatches(merged, query, 8), pickSearching = false) }
             }
         }
     }

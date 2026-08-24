@@ -729,16 +729,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList()
 
     /**
-     * Discard a DRAFT document, lines and all.
+     * Discard a DRAFT document, lines and all — via the discard_draft RPC.
      *
-     * Safe by construction rather than by trust: the doc_delete RLS policy already allows a
-     * delete only when status = 'draft' and the caller is owner/manager/cashier, so an issued
-     * quote or invoice cannot be removed even if this were called with its id. document_lines
-     * cascade; anything with a job or a payment hanging off it fails on its foreign key rather
-     * than silently shedding history.
+     * A direct PostgREST delete stopped working when direct UPDATE on documents was revoked
+     * (20260711000001): PostgREST's delete locks the doomed rows with SELECT … FOR UPDATE,
+     * and that needs the very privilege the revoke took away. The RPC carries the same guards
+     * the doc_delete policy did — draft only, own tenant, owner/manager/cashier — plus an
+     * audit row. Anything with a job or a payment hanging off it still fails on its foreign
+     * key rather than silently shedding history.
      */
     suspend fun deleteDraftDocument(id: String) {
-        client.postgrest.from("documents").delete { filter { eq("id", id); eq("status", "draft") } }
+        client.postgrest.rpc("discard_draft", buildJsonObject { put("p_document_id", id) })
     }
 
     /** Save the quote as a draft document (save_draft RPC). p_lines carry rupee prices. */
@@ -1123,16 +1124,32 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     }
 
     // ── Contacts ──────────────────────────────────────────────────────────────
-    /** The customer book with each customer's cars — the tablet's Contacts tab. */
-    suspend fun fetchContacts(term: String = "", limit: Long = 60): List<ContactDto> {
+    /**
+     * The customer book with each customer's cars — the tablet's Contacts tab.
+     *
+     * Paged to the end: the book grows one walk-in at a time and the web side shows ALL
+     * of it, so a fixed cap quietly hid everyone past the cap — the list ended mid-alphabet
+     * at "Michael Angeline" while search still found the rest. Pages are read until one
+     * comes back short.
+     */
+    suspend fun fetchContacts(term: String = "", pageSize: Long = 200): List<ContactDto> {
         val safe = term.trim().replace("%", "").replace(",", " ")
-        return client.postgrest.from("customers")
-            .select(Columns.raw("id, name, phone, email, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
-                filter { if (safe.length >= 2) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
-                order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
-                limit(limit)
-            }
-            .decodeList()
+        val all = ArrayList<ContactDto>()
+        var from = 0L
+        do {
+            val page = client.postgrest.from("customers")
+                .select(Columns.raw("id, name, phone, email, address, brn, vat_number, notes, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
+                    filter { if (safe.length >= 2) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
+                    // id breaks name ties, so a page boundary can never skip or repeat a row
+                    order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                    order("id", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                    range(from, from + pageSize - 1)
+                }
+                .decodeList<ContactDto>()
+            all += page
+            from += pageSize
+        } while (page.size == pageSize.toInt())
+        return all
     }
 
     /** Edit a car's identity from Contacts. Plate included — typos get corrected. */
@@ -1143,6 +1160,28 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             set("model", model)
             set("color", colour)
             set("category", category)
+        }) { filter { eq("id", id) } }
+    }
+
+    /** Edit who the customer is — the same fields the web's customer dialog saves. */
+    suspend fun updateCustomer(
+        id: String,
+        name: String,
+        phone: String?,
+        email: String?,
+        address: String?,
+        brn: String?,
+        vatNumber: String?,
+        notes: String?,
+    ) {
+        client.postgrest.from("customers").update({
+            set("name", name)
+            set("phone", phone)
+            set("email", email)
+            set("address", address)
+            set("brn", brn)
+            set("vat_number", vatNumber)
+            set("notes", notes)
         }) { filter { eq("id", id) } }
     }
 

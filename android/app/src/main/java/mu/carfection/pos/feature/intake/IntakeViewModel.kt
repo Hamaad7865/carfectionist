@@ -129,8 +129,7 @@ class IntakeViewModel @Inject constructor(
      */
     fun setQuery(q: String) {
         val query = q.trim().lowercase()
-        val local = if (query.isBlank()) emptyList()
-        else allCustomers.filter { it.name.lowercase().contains(query) || (it.phone ?: "").contains(query) }.take(6)
+        val local = mu.carfection.pos.core.data.rankedCustomerMatches(allCustomers, query, 6)
         _s.update { it.copy(query = q, results = local, searching = query.length >= 2 && local.isEmpty()) }
 
         searchJob?.cancel()
@@ -138,14 +137,16 @@ class IntakeViewModel @Inject constructor(
         searchJob = viewModelScope.launch {
             kotlinx.coroutines.delay(250) // let typing settle before asking the server
             // Name/phone AND plate — the box has always said "or plate", so it must mean it.
-            val remote = api.searchCustomers(query) + api.searchCustomersByPlate(query)
+            // Wide server limit: the ranking below picks the best 8, so an alphabetical
+            // slice must not have already dropped the name that starts with the term.
+            val remote = api.searchCustomers(query, limit = 20) + api.searchCustomersByPlate(query)
             // Merge, keeping the local hits first and dropping anything already shown.
             val seen = local.map { it.id }.toMutableSet()
             val merged = local + remote.filter { seen.add(it.id) }.map { CustomerEntity(it.id, it.name, it.phone) }
             // Cache what the server found, so the next search is instant and offline-safe.
             remote.forEach { runCatching { catalog.cacheCustomer(CustomerEntity(it.id, it.name, it.phone)) } }
             if (_s.value.query.trim().lowercase() == query) {
-                _s.update { it.copy(results = merged.take(8), searching = false) }
+                _s.update { it.copy(results = mu.carfection.pos.core.data.rankedCustomerMatches(merged, query, 8), searching = false) }
             }
         }
     }

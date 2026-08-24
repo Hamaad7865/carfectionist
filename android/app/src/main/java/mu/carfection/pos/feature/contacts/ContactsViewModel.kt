@@ -33,6 +33,15 @@ data class ContactsState(
     val draftCoated: Boolean = false,
     val draftNote: String = "",
     val draftActive: Boolean = true,
+    /** Editing WHO the customer is — name, contact details, and for a company BRN + VAT. */
+    val editingCustomer: Boolean = false,
+    val draftCustName: String = "",
+    val draftCustPhone: String = "",
+    val draftCustEmail: String = "",
+    val draftCustAddress: String = "",
+    val draftCustBrn: String = "",
+    val draftCustVat: String = "",
+    val draftCustNotes: String = "",
     /** Retired cars are hidden by default - they are history, not the working list. */
     val showRetired: Boolean = false,
     val addingCustomer: Boolean = false,
@@ -153,6 +162,51 @@ class ContactsViewModel @Inject constructor(
     fun setDraftNote(v: String) = _s.update { it.copy(draftNote = v) }
     fun toggleShowRetired() = _s.update { it.copy(showRetired = !it.showRetired) }
     fun cancelEdit() = _s.update { it.copy(editing = null, adding = false, error = null) }
+
+    /** Edit who the customer is — seeded from the open card. */
+    fun editCustomer(c: ContactDto) = _s.update {
+        it.copy(
+            editingCustomer = true,
+            draftCustName = c.name, draftCustPhone = c.phone.orEmpty(), draftCustEmail = c.email.orEmpty(),
+            draftCustAddress = c.address.orEmpty(), draftCustBrn = c.brn.orEmpty(),
+            draftCustVat = c.vatNumber.orEmpty(), draftCustNotes = c.notes.orEmpty(),
+            error = null,
+        )
+    }
+
+    fun cancelEditCustomer() = _s.update { it.copy(editingCustomer = false, error = null) }
+    fun setDraftCustName(v: String) = _s.update { it.copy(draftCustName = v) }
+    fun setDraftCustPhone(v: String) = _s.update { it.copy(draftCustPhone = v) }
+    fun setDraftCustEmail(v: String) = _s.update { it.copy(draftCustEmail = v) }
+    fun setDraftCustAddress(v: String) = _s.update { it.copy(draftCustAddress = v) }
+    fun setDraftCustBrn(v: String) = _s.update { it.copy(draftCustBrn = v) }
+    fun setDraftCustVat(v: String) = _s.update { it.copy(draftCustVat = v) }
+    fun setDraftCustNotes(v: String) = _s.update { it.copy(draftCustNotes = v) }
+
+    /** Save the customer's identity; reload() then refreshes the open card in place. */
+    fun saveCustomer() {
+        val st = _s.value
+        val cust = st.open ?: return
+        val name = st.draftCustName.trim()
+        if (name.isBlank()) { _s.update { it.copy(error = "Enter a name") }; return }
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                api.updateCustomer(
+                    cust.id, name,
+                    phone = st.draftCustPhone.trim().ifBlank { null },
+                    email = st.draftCustEmail.trim().ifBlank { null },
+                    address = st.draftCustAddress.trim().ifBlank { null },
+                    brn = st.draftCustBrn.trim().ifBlank { null },
+                    vatNumber = st.draftCustVat.trim().ifBlank { null },
+                    notes = st.draftCustNotes.trim().ifBlank { null },
+                )
+            }.onSuccess {
+                _s.update { it.copy(busy = false, editingCustomer = false, toast = "Customer saved") }
+                reload()
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+        }
+    }
 
     /**
      * Mark a car not-used, or bring it back. Retiring also frees its plate, so the same

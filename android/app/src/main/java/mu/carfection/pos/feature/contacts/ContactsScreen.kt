@@ -22,16 +22,25 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -39,6 +48,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import kotlinx.coroutines.delay
 import mu.carfection.pos.core.network.ContactDto
 import mu.carfection.pos.core.network.ContactVehicleDto
+import mu.carfection.pos.feature.intake.VEHICLE_CATEGORIES
+import mu.carfection.pos.feature.intake.VEHICLE_COLORS
+import mu.carfection.pos.feature.intake.VEHICLE_MAKES
 import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
@@ -168,12 +180,18 @@ private fun ContactCard(c: ContactDto, s: ContactsState, vm: ContactsViewModel) 
                 .padding(20.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                     Text(c.name, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
                     Text(listOfNotNull(c.phone, c.email).joinToString(" · ").ifBlank { "No contact details" },
                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
                 }
+                Box(
+                    Modifier.height(38.dp).background(AccentSoft, RoundedCornerShape(11.dp))
+                        .border(1.dp, AccentLine, RoundedCornerShape(11.dp))
+                        .clickable { vm.editCustomer(c) }.padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text("Edit customer", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Accent) }
                 Box(
                     Modifier.size(38.dp).border(1.dp, Hairline, RoundedCornerShape(11.dp)).clickable { vm.closeContact() },
                     contentAlignment = Alignment.Center,
@@ -220,6 +238,7 @@ private fun ContactCard(c: ContactDto, s: ContactsState, vm: ContactsViewModel) 
     }
 
     if (s.editing != null || s.adding) VehicleDialog(s, vm)
+    if (s.editingCustomer) EditCustomerDialog(c, s, vm)
 }
 
 @Composable
@@ -311,7 +330,7 @@ private fun VehicleDialog(s: ContactsState, vm: ContactsViewModel) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     MiniLabel("MAKE")
-                    FilledInput(s.draftMake, vm::setDraftMake, "Hyundai", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                    PresetField(s.draftMake, vm::setDraftMake, "Hyundai", VEHICLE_MAKES, Modifier.fillMaxWidth())
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     MiniLabel("MODEL")
@@ -321,11 +340,11 @@ private fun VehicleDialog(s: ContactsState, vm: ContactsViewModel) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     MiniLabel("COLOUR")
-                    FilledInput(s.draftColour, vm::setDraftColour, "Silver", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                    PresetField(s.draftColour, vm::setDraftColour, "Silver", VEHICLE_COLORS, Modifier.fillMaxWidth())
                 }
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                     MiniLabel("TYPE")
-                    FilledInput(s.draftCategory, vm::setDraftCategory, "SUV, sedan…", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                    PresetField(s.draftCategory, vm::setDraftCategory, "SUV, sedan…", VEHICLE_CATEGORIES, Modifier.fillMaxWidth())
                 }
             }
 
@@ -403,6 +422,109 @@ private fun VehicleDialog(s: ContactsState, vm: ContactsViewModel) {
 @Composable
 private fun MiniLabel(t: String) =
     Text(t, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.3.sp, color = TextMuted)
+
+/** A FilledInput with a presets dropdown (make / colour / body type) — the same quick-picks
+ *  Intake's vehicle form offers. Still typeable as free text; the chevron opens the list. */
+@Composable
+private fun PresetField(
+    value: String,
+    onChange: (String) -> Unit,
+    placeholder: String,
+    options: List<String>,
+    modifier: Modifier = Modifier,
+    height: Dp = 46.dp,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier) {
+        FilledInput(value, onChange, placeholder, Modifier.fillMaxWidth(), height = height, bg = Inset)
+        Box(
+            Modifier.align(Alignment.CenterEnd).height(height).width(42.dp).clickable { expanded = true },
+            contentAlignment = Alignment.Center,
+        ) { Icon(Icons.Filled.ArrowDropDown, "Presets", tint = TextMuted, modifier = Modifier.size(24.dp)) }
+        DropdownMenu(
+            expanded = expanded, onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 340.dp).background(CardBg),
+        ) {
+            options.forEach { o ->
+                DropdownMenuItem(
+                    text = { Text(o, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 15.sp, color = TextPrimary) },
+                    onClick = { onChange(o); expanded = false },
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Who the customer is — the same fields the web's customer dialog saves: name, phone, email,
+ * address and notes, plus BRN + VAT for a company. The company flag itself is decided when the
+ * customer is created (web/import) and is not flipped here.
+ */
+@Composable
+private fun EditCustomerDialog(c: ContactDto, s: ContactsState, vm: ContactsViewModel) {
+    Dialog(onDismissRequest = vm::cancelEditCustomer) {
+        Column(
+            Modifier.width(520.dp).background(CardBg, RoundedCornerShape(18.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(18.dp))
+                .padding(horizontal = 22.dp, vertical = 18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text("EDIT CUSTOMER", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary)
+                if (c.isCompany) Text("COMPANY", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.sp, letterSpacing = 0.8.sp, color = TextMuted)
+            }
+
+            MiniLabel(if (c.isCompany) "COMPANY NAME" else "NAME")
+            FilledInput(s.draftCustName, vm::setDraftCustName, if (c.isCompany) "Registered company name" else "Full name", Modifier.fillMaxWidth(), height = 48.dp, bg = Inset)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    MiniLabel("PHONE")
+                    FilledInput(s.draftCustPhone, vm::setDraftCustPhone, "+230 …", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    MiniLabel("EMAIL")
+                    FilledInput(s.draftCustEmail, vm::setDraftCustEmail, "name@email.com", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                }
+            }
+            MiniLabel("ADDRESS")
+            FilledInput(s.draftCustAddress, vm::setDraftCustAddress, "Street, town", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+
+            // A business also carries a BRN + VAT number — they land on its invoices.
+            if (c.isCompany) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        MiniLabel("BRN")
+                        FilledInput(s.draftCustBrn, vm::setDraftCustBrn, "Business reg. no.", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        MiniLabel("VAT NUMBER")
+                        FilledInput(s.draftCustVat, vm::setDraftCustVat, "VAT…", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+                    }
+                }
+            }
+
+            MiniLabel("NOTES")
+            FilledInput(s.draftCustNotes, vm::setDraftCustNotes, "Optional", Modifier.fillMaxWidth(), height = 46.dp, bg = Inset)
+
+            s.error?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Danger) }
+
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(
+                    Modifier.weight(1f).height(50.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp))
+                        .clickable { vm.cancelEditCustomer() },
+                    contentAlignment = Alignment.Center,
+                ) { Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                val can = s.draftCustName.isNotBlank() && !s.busy
+                Box(
+                    Modifier.weight(1.5f).height(50.dp)
+                        .background(if (can) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                        .clickable(enabled = can) { vm.saveCustomer() },
+                    contentAlignment = Alignment.Center,
+                ) { Text(if (s.busy) "Saving…" else "Save", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (can) AccentInk else TextMuted) }
+            }
+        }
+    }
+}
 
 @Composable
 private fun Toast(msg: String) = Box(Modifier.fillMaxSize().padding(bottom = 28.dp), contentAlignment = Alignment.BottomCenter) {
