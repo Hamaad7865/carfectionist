@@ -1137,7 +1137,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         var from = 0L
         do {
             val page = client.postgrest.from("customers")
-                .select(Columns.raw("id, name, phone, email, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
+                .select(Columns.raw("id, name, phone, email, address, brn, vat_number, notes, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active)")) {
                     filter { if (safe.length >= 2) or { ilike("name", "%$safe%"); ilike("phone", "%$safe%") } }
                     // id breaks name ties, so a page boundary can never skip or repeat a row
                     order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
@@ -1159,6 +1159,28 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             set("model", model)
             set("color", colour)
             set("category", category)
+        }) { filter { eq("id", id) } }
+    }
+
+    /** Edit who the customer is — the same fields the web's customer dialog saves. */
+    suspend fun updateCustomer(
+        id: String,
+        name: String,
+        phone: String?,
+        email: String?,
+        address: String?,
+        brn: String?,
+        vatNumber: String?,
+        notes: String?,
+    ) {
+        client.postgrest.from("customers").update({
+            set("name", name)
+            set("phone", phone)
+            set("email", email)
+            set("address", address)
+            set("brn", brn)
+            set("vat_number", vatNumber)
+            set("notes", notes)
         }) { filter { eq("id", id) } }
     }
 
