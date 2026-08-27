@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole, type SessionContext } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
 import { logAudit } from "@/lib/supabase/audit";
+import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
 
 const ROLES = ["owner", "manager", "cashier", "technician"] as const;
@@ -139,9 +140,12 @@ export async function setJobScheduleAction(
  * part of a bill settled before the car is collected. Any amount up to the balance: the
  * invoice goes PARTLY PAID and the rest stays in the counter's TO COLLECT.
  *
- * Cash is deliberately not on offer. Cash moves a physical drawer, so the server takes it
- * only on an open till — and there is no till in the back office. Offering it here would
- * produce money no cash-up could ever see.
+ * Booked to the virtual desk till (backOfficeTillId), same as every other web payment: the
+ * till gate (20260716000040) refuses EVERY method — card/Juice/bank, not just cash — when
+ * no session is passed, because a payment on no session shows on no Z-report.
+ *
+ * Cash is deliberately not on offer here. It moves a physical drawer, so it is handed over
+ * at the counter, not recorded from a job page.
  */
 export async function recordPaymentAction(
   jobId: string,
@@ -158,11 +162,16 @@ export async function recordPaymentAction(
 
   const sb = await createClient();
   try {
+    // The DESK's till — resolved (and rolled to today) server-side, opened on
+    // demand if closed. Never "any open till": that put a back-office payment
+    // into a tablet's drawer and corrupted both cash-ups. Mirrors documents/actions.ts.
+    const cashSessionId = await backOfficeTillId(sb);
     await rpc.recordPayment(sb, {
       invoiceId,
       method,
       amount: amountRupees,
       externalRef: externalRef.trim(),
+      cashSessionId,
       // A per-attempt token from the client, NOT the payment's content (audit #4): keying
       // on invoice+amount+ref silently swallowed a genuine second instalment of the same
       // size and reference. The client keeps one token per opened form, so a double-click
