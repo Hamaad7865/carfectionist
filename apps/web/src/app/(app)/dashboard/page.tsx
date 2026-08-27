@@ -16,8 +16,9 @@ const METHOD_COLOR: Record<string, string> = {
   cash: "#0da77c",
   juice: "#6a5cff",
   bank_transfer: "#f5a623",
+  cheque: "#5a8f7b",
 };
-const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer" };
+const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
 
 function Kpi({ icon: Icon, value, label, tint }: { icon: typeof ReceiptText; value: string; label: string; tint: string }) {
   return (

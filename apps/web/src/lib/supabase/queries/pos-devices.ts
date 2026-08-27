@@ -284,7 +284,7 @@ export interface DeviceDashboard {
   cashflow: CashflowData;
 }
 
-const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
+const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** MU calendar day → [start, end) as epoch ms (Mauritius is UTC+04, no DST). */

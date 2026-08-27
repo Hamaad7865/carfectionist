@@ -63,7 +63,7 @@ export async function issueDocumentAction(input: z.infer<typeof issueSchema>): P
 
 const recordPaymentSchema = z.object({
   invoiceId: z.string(),
-  method: z.enum(["cash", "card", "juice", "bank_transfer", "points"]),
+  method: z.enum(["cash", "card", "juice", "bank_transfer", "cheque", "points"]),
   amountCents: z.number().int().positive(),
   tenderedCents: z.number().int().nullable().optional(),
   externalRef: z.string().nullable().optional(),
@@ -570,7 +570,7 @@ const settleAccountSchema = z.object({
   customerId: z.string(),
   invoiceIds: z.array(z.string()).min(1),
   pointsAppliedCents: z.number().int().min(0),
-  method: z.enum(["cash", "card", "juice", "bank_transfer"]),
+  method: z.enum(["cash", "card", "juice", "bank_transfer", "cheque"]),
   tenderedCents: z.number().int().nullable().optional(),
   externalRef: z.string().nullable().optional(),
   settleKey: z.string().min(1),
@@ -610,7 +610,8 @@ export async function settleAccountAction(
     if (method === "cash") {
       tenderedCents = tenderedCents ?? methodDueCents;
       if (tenderedCents < methodDueCents) return { ok: false, error: "Tendered is less than the amount due.", settledCount: 0, settledCents: 0 };
-    } else if (!externalRef?.trim()) {
+    } else if (method !== "cheque" && !externalRef?.trim()) {
+      // A cheque number is optional — card / Juice / bank still cite something outside the till.
       return { ok: false, error: "A card / Juice / bank payment needs a reference.", settledCount: 0, settledCents: 0 };
     }
   }

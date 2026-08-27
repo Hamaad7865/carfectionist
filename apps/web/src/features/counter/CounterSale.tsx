@@ -40,6 +40,7 @@ const METHODS = [
   { key: "card", label: "Card" },
   { key: "juice", label: "Juice" },
   { key: "bank_transfer", label: "Bank" },
+  { key: "cheque", label: "Cheque" },
   { key: "credit", label: "Credit" },
 ] as const;
 type Method = (typeof METHODS)[number]["key"];
@@ -588,7 +589,7 @@ export function CounterSale({
           <div className="flex justify-between text-[12.5px] text-muted"><span>VAT</span><span className="num">{formatMUR(totals.vatCents)}</span></div>
           <div className="mt-1 flex justify-between text-[16px] font-extrabold text-ink-strong"><span>Total</span><span className="num">{formatMUR(totals.totalCents)}</span></div>
 
-          <div className="mt-3 grid grid-cols-5 gap-1.5">
+          <div className="mt-3 grid grid-cols-3 gap-1.5">
             {METHODS.map((m) => (
               <button
                 key={m.key}
@@ -622,7 +623,7 @@ export function CounterSale({
           ) : (
             <input
               className="mt-2 h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand read-only:opacity-60"
-              placeholder="Approval / reference no."
+              placeholder={method === "cheque" ? "Cheque no. (optional)" : "Approval / reference no."}
               value={ref}
               onChange={(e) => setRef(e.target.value)}
               readOnly={frozen}

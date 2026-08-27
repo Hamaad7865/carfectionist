@@ -13,6 +13,7 @@ const METHODS = [
   { value: "card", label: "Card" },
   { value: "juice", label: "Juice" },
   { value: "bank_transfer", label: "Bank transfer" },
+  { value: "cheque", label: "Cheque" },
 ] as const;
 
 const field =
@@ -92,16 +93,16 @@ export function SettleAccountPanel({
     setSuccess(null);
     if (selected.length === 0) return setError("Select at least one invoice.");
     if (isCash && tenderedCents != null && tenderedCents < methodDueCents) return setError("Tendered is less than the amount due.");
-    if (methodDueCents > 0 && !isCash && !ref.trim()) return setError("A card / Juice / bank payment needs a reference.");
+    if (methodDueCents > 0 && !isCash && method !== "cheque" && !ref.trim()) return setError("A card / Juice / bank payment needs a reference.");
     setBusy(true);
 
     const result = await settleAccountAction({
       customerId,
       invoiceIds: selected.map((inv) => inv.id),
       pointsAppliedCents,
-      method: method as "cash" | "card" | "juice" | "bank_transfer",
+      method: method as "cash" | "card" | "juice" | "bank_transfer" | "cheque",
       tenderedCents: isCash ? (tenderedCents ?? methodDueCents) : null,
-      externalRef: isCash ? null : ref.trim(),
+      externalRef: isCash ? null : ref.trim() || null,
       settleKey: crypto.randomUUID(),
     });
 
@@ -225,8 +226,8 @@ export function SettleAccountPanel({
               </>
             ) : methodDueCents > 0 ? (
               <label className="col-span-2 block">
-                <span className={lbl}>External reference</span>
-                <input className={field} value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Terminal / transaction ref" />
+                <span className={lbl}>{method === "cheque" ? "Cheque no. (optional)" : "External reference"}</span>
+                <input className={field} value={ref} onChange={(e) => setRef(e.target.value)} placeholder={method === "cheque" ? "Cheque number" : "Terminal / transaction ref"} />
               </label>
             ) : null}
           </div>

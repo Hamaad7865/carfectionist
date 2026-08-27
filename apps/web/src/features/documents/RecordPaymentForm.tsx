@@ -12,6 +12,7 @@ const METHODS = [
   { value: "card", label: "Card" },
   { value: "juice", label: "Juice" },
   { value: "bank_transfer", label: "Bank transfer" },
+  { value: "cheque", label: "Cheque" },
 ] as const;
 
 const field =
@@ -105,7 +106,7 @@ export function RecordPaymentForm({
     setError(null);
     if (amountCents <= 0 && pointsAppliedCents <= 0) return setError("Enter an amount greater than zero.");
     if (isCash && tenderedCents != null && tenderedCents < amountCents) return setError("Tendered is less than the amount.");
-    if (amountCents > 0 && !isCash && !ref.trim()) return setError("A card / Juice / bank payment needs a reference.");
+    if (amountCents > 0 && !isCash && method !== "cheque" && !ref.trim()) return setError("A card / Juice / bank payment needs a reference.");
     setBusy(true);
 
     // Points lead. Debiting the ledger before the rest of the money lands means a
@@ -134,10 +135,10 @@ export function RecordPaymentForm({
     if (amountCents > 0) {
       const res = await recordPaymentAction({
         invoiceId,
-        method: method as "cash" | "card" | "juice" | "bank_transfer",
+        method: method as "cash" | "card" | "juice" | "bank_transfer" | "cheque",
         amountCents,
         tenderedCents: isCash ? (tenderedCents ?? amountCents) : null,
-        externalRef: isCash ? null : ref.trim(),
+        externalRef: isCash ? null : ref.trim() || null,
         idempotencyKey: `${payKey}-rest`,
       });
       if (!res.ok) {
@@ -256,8 +257,8 @@ export function RecordPaymentForm({
           </>
         ) : (
           <label className="col-span-2 block">
-            <span className={lbl}>External reference</span>
-            <input className={field} value={ref} onChange={(e) => setRef(e.target.value)} placeholder="Terminal / transaction ref" />
+            <span className={lbl}>{method === "cheque" ? "Cheque no. (optional)" : "External reference"}</span>
+            <input className={field} value={ref} onChange={(e) => setRef(e.target.value)} placeholder={method === "cheque" ? "Cheque number" : "Terminal / transaction ref"} />
           </label>
         )}
       </div>
