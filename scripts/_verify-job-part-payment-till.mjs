@@ -101,6 +101,26 @@ try {
   ).rows[0];
   check("part-payment lands, booked to the desk till", pay.booked_session_id === till, `booked=${pay.booked_session_id}`);
 
+  // ── cheque: offered here too; its reference (the cheque no.) is optional ───
+  console.log("— cheque: on the till like any non-cash method, but ref is optional —");
+  await expectError(
+    "cheque with no till is refused by the same gate",
+    `select public.record_payment($1,'cheque'::payment_method,0.01,null,null,null,null,'vjpp:cheque:no-till')`,
+    [inv.id],
+    "must be taken on an open till",
+  );
+  const chq = (
+    await c.query(
+      `select * from public.record_payment($1,'cheque'::payment_method,0.01,null,null,$2,null,'vjpp:cheque:with-till')`,
+      [inv.id, till],
+    )
+  ).rows[0];
+  check(
+    "cheque with a NULL number lands on the desk till",
+    chq.booked_session_id === till && chq.external_ref === null,
+    `booked=${chq.booked_session_id} ref=${chq.external_ref}`,
+  );
+
   await c.query("rollback");
   console.log(`\n${ok ? "PASS" : "FAIL"} — transaction rolled back, nothing persisted.`);
   process.exit(ok ? 0 : 1);
