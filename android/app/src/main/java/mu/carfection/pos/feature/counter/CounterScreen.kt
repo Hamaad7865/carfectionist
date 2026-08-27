@@ -43,6 +43,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Payments
+import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
@@ -1415,6 +1416,7 @@ private fun methodHue(m: PayMethod): Color = when (m) {
     PayMethod.CARD -> Accent
     PayMethod.JUICE -> Color(0xFFE8A400)
     PayMethod.BANK -> Color(0xFF3B5B8C)
+    PayMethod.CHEQUE -> Color(0xFF5A8F7B)
     PayMethod.POINTS -> Color(0xFF9B59B6)
     PayMethod.CREDIT -> Warning
 }
@@ -1425,6 +1427,7 @@ private fun methodIcon(m: PayMethod): ImageVector = when (m) {
     PayMethod.CARD -> Icons.Filled.CreditCard        // bank card
     PayMethod.JUICE -> Icons.Filled.Smartphone       // MCB Juice — a phone wallet
     PayMethod.BANK -> Icons.Filled.AccountBalance     // bank transfer
+    PayMethod.CHEQUE -> Icons.Filled.ReceiptLong      // a written cheque
     PayMethod.POINTS -> Icons.Filled.Star            // loyalty points
     PayMethod.CREDIT -> Icons.Filled.Schedule         // on account — pay later
 }
@@ -1532,11 +1535,16 @@ private fun PaymentEntryFields(s: CounterUiState, vm: CounterViewModel) {
                 placeholder = { Text(when (s.method) {
                     PayMethod.CARD -> "Terminal ref — e.g. T-88291"
                     PayMethod.JUICE -> "Juice ref — e.g. JU-55214"
+                    PayMethod.CHEQUE -> "Cheque no. (optional)"
                     else -> "Transfer ref — e.g. MCB-2214"
                 }, color = TextMuted) },
                 singleLine = true, modifier = Modifier.fillMaxWidth(),
             )
-            Text("Run it on the terminal / app first — the POS records the reference.", color = TextMuted, fontSize = 12.sp)
+            Text(
+                if (s.method == PayMethod.CHEQUE) "The cheque number is optional — leave it blank if you don't have it."
+                else "Run it on the terminal / app first — the POS records the reference.",
+                color = TextMuted, fontSize = 12.sp,
+            )
         }
     }
 }

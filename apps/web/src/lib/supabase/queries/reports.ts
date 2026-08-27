@@ -42,7 +42,7 @@ function daysBetween(iso: string, now: number): number {
   return Number.isNaN(t) ? 0 : Math.floor((now - t) / 86_400_000);
 }
 
-const PAYMENT_METHODS = ["cash", "card", "juice", "bank_transfer"];
+const PAYMENT_METHODS = ["cash", "card", "juice", "bank_transfer", "cheque"];
 
 // Mauritius is UTC+4 (no DST). Build day bounds so timestamptz filters don't
 // misassign transactions recorded near local midnight.
@@ -438,7 +438,7 @@ export async function getDiscountsReport(from?: string, to?: string): Promise<Di
 }
 
 // ── Customer statement ────────────────────────────────────────────────────────
-const STMT_METHOD: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
+const STMT_METHOD: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
 
 export interface StatementLine {
   date: string; // yyyy-mm-dd

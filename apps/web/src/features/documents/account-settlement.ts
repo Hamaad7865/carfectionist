@@ -13,7 +13,7 @@
  * spread — or lost — across several rows.
  */
 
-export type SettleMethod = "cash" | "card" | "juice" | "bank_transfer";
+export type SettleMethod = "cash" | "card" | "juice" | "bank_transfer" | "cheque";
 export type LegMethod = SettleMethod | "points";
 
 export interface SettleInvoiceInput {

@@ -13,8 +13,8 @@ import { formatMUR } from "@/lib/money";
 import { muDate } from "@/lib/mu-date";
 import { btn } from "@/components/ui/button";
 
-const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c", juice: "#6a5cff", bank_transfer: "#f5a623" };
-const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer" };
+const METHOD_COLOR: Record<string, string> = { card: "#2b8cff", cash: "#0da77c", juice: "#6a5cff", bank_transfer: "#f5a623", cheque: "#5a8f7b" };
+const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
 
 // VAT chart series — brand blue + the app's amber ink. This exact pair passes
 // the palette checks (lightness band, CVD ΔE ≈ 118, ≥3:1 on white); the lighter
@@ -61,7 +61,7 @@ export default async function ReportsPage({
 }) {
   const sp = await searchParams;
   const report = REPORTS.some((x) => x.key === sp.r) ? sp.r! : "collected";
-  const method = ["cash", "card", "juice", "bank_transfer"].includes(sp.m ?? "") ? sp.m : undefined;
+  const method = ["cash", "card", "juice", "bank_transfer", "cheque"].includes(sp.m ?? "") ? sp.m : undefined;
   const data = await getReportsData(sp.from, sp.to, method);
   const extra = EXTRA.includes(report) ? await getExtraReports(sp.from, sp.to) : null;
   const discounts = report === "discounts" ? await getDiscountsReport(sp.from, sp.to) : null;
@@ -166,7 +166,7 @@ export default async function ReportsPage({
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="mr-1 text-[12px] font-bold uppercase tracking-[0.1em] text-faint">Method</span>
-                {[undefined, "cash", "card", "juice", "bank_transfer"].map((mkey) => {
+                {[undefined, "cash", "card", "juice", "bank_transfer", "cheque"].map((mkey) => {
                   const on = method === mkey;
                   return (
                     <Link

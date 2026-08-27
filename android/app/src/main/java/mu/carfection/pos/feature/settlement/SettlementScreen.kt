@@ -250,7 +250,7 @@ private fun SettleInvoicesPanel(
             Text("METHOD", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, letterSpacing = 1.sp)
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK).forEach { m ->
+                listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK, PayMethod.CHEQUE).forEach { m ->
                     MethodChip(m.label, state.method == m) { vm.setMethod(m) }
                 }
             }
@@ -277,7 +277,11 @@ private fun SettleInvoicesPanel(
                 }
             } else if (methodDueCents > 0) {
                 Spacer(Modifier.height(10.dp))
-                FilledInput(value = state.ref, onValueChange = vm::setRef, placeholder = "External reference", modifier = Modifier.fillMaxWidth())
+                FilledInput(
+                    value = state.ref, onValueChange = vm::setRef,
+                    placeholder = if (state.method == PayMethod.CHEQUE) "Cheque no. (optional)" else "External reference",
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
 
             state.submitError?.let {

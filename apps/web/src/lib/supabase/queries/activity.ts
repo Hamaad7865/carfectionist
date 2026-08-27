@@ -38,7 +38,7 @@ export const ACTIVITY_CATEGORIES: { key: ActivityCategory; label: string }[] = [
 const MU = "+04:00";
 const dayStart = (d: string) => `${d}T00:00:00${MU}`;
 const dayEnd = (d: string) => `${d}T23:59:59.999${MU}`;
-const METHOD: Record<string, string> = { cash: "cash", card: "card", juice: "Juice", bank_transfer: "bank transfer" };
+const METHOD: Record<string, string> = { cash: "cash", card: "card", juice: "Juice", bank_transfer: "bank transfer", cheque: "cheque" };
 const strip = (n: string | null | undefined) => (n ?? "").replace(/\s*\(.*\)\s*$/, "").trim();
 const qtyFmt = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 const PER = 200;

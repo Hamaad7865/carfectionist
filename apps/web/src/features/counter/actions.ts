@@ -41,7 +41,7 @@ const schema = z.object({
   // "credit" = on account: issue the invoice but collect nothing now; the total
   // stays as money owed (receivable). Not a real payment_method, so it never
   // reaches record_payment.
-  method: z.enum(["cash", "card", "juice", "bank_transfer", "credit"]),
+  method: z.enum(["cash", "card", "juice", "bank_transfer", "cheque", "credit"]),
   tenderedCents: z.number().int().nonnegative().nullable().optional(),
   externalRef: z.string().optional(),
   // One key per sale attempt (stable across retries) → a replayed submit returns
@@ -227,7 +227,14 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
           method: p.data.method,
           amount: totalRupees,
           tendered: tenderedRupees,
-          externalRef: p.data.method === "cash" ? null : (p.data.externalRef?.trim() || "COUNTER"),
+          // Cash and cheque cite nothing external — a cheque number is optional and
+          // kept only when typed; card/Juice/bank fall back to "COUNTER".
+          externalRef:
+            p.data.method === "cash"
+              ? null
+              : p.data.method === "cheque"
+                ? p.data.externalRef?.trim() || null
+                : p.data.externalRef?.trim() || "COUNTER",
           cashSessionId,
           idempotencyKey: key ? `${key}:pay` : null,
         });

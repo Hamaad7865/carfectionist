@@ -40,7 +40,7 @@ class OfflineCaptureDecisionTest {
 
     @Test
     fun `every tender the drawer can take is capturable`() {
-        listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK).forEach { m ->
+        listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK, PayMethod.CHEQUE).forEach { m ->
             assertTrue("$m should be capturable", canCaptureOffline(walkIn().copy(method = m), online = false))
         }
     }

@@ -1,0 +1,23 @@
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Carfectionist — a cheque is a way of paying.
+--
+-- The owner wants CHEQUE alongside card, Juice and a bank transfer: a non-cash
+-- tender that settles the bill there and then. No clearing lifecycle — a cheque
+-- is treated as good the moment it is taken, exactly like a card slip.
+--
+-- Like every non-cash method it is still taken ON an open till (the till gate,
+-- 20260716000040), so it appears on the Z-report — but it never moves the
+-- physical drawer and is not part of the cash count. The one thing that sets it
+-- apart from card/Juice/bank: its reference (the cheque number) is OPTIONAL, and
+-- a blank one is stored as NULL rather than a placeholder. The table CHECK and
+-- record_payment's external-ref branch both learn that exception in the next
+-- file.
+--
+-- THIS FILE DOES NOTHING ELSE, ON PURPOSE — the same reason 20260811000010
+-- (points) stands alone: PostgreSQL refuses to let a newly added enum value be
+-- USED in the transaction that added it, and db-exec sends a whole file as one
+-- statement batch. Everything that writes or checks 'cheque' lives in
+-- 20260827000020, applied separately.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+alter type payment_method add value if not exists 'cheque';

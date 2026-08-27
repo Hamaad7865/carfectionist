@@ -458,7 +458,7 @@ fun docKindLabel(docType: String): String = when (docType) {
 enum class CheckoutMode { LIST, WALKIN }
 
 /** The methods a split bill can be allocated across — Credit is a receivable, not a tender. */
-val SPLIT_METHODS = listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK)
+val SPLIT_METHODS = listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK, PayMethod.CHEQUE)
 
 /** Which figure the numpad is editing: what we're taking, or what the customer handed over. */
 enum class PadField { AMOUNT, TENDER }
@@ -1080,7 +1080,9 @@ class CounterViewModel @Inject constructor(
                         method = m,
                         amountCents = cents,
                         tenderedCents = if (m == PayMethod.CASH) cents else null, // split rows are exact
-                        ref = if (m == PayMethod.CASH) null else "POS",
+                        // A split row types no reference; the repository fills "POS" for
+                        // card/Juice/bank and leaves a cheque's optional number blank.
+                        ref = if (m == PayMethod.CASH || m == PayMethod.CHEQUE) null else "POS",
                     )
                 }
             }
@@ -1091,7 +1093,9 @@ class CounterViewModel @Inject constructor(
                         method = s.method,
                         amountCents = cents,
                         tenderedCents = if (s.method == PayMethod.CASH) s.effectiveTenderCents else null,
-                        ref = if (s.method == PayMethod.CASH) null else s.refText.ifBlank { "POS" },
+                        // The repository normalises: a typed ref is kept, a blank one becomes
+                        // "POS" for card/Juice/bank but stays NULL for a cheque.
+                        ref = if (s.method == PayMethod.CASH) null else s.refText.trim().ifBlank { null },
                     )
                 },
             )

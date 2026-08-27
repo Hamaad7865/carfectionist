@@ -30,7 +30,7 @@ import { markerMeta } from "@/features/intake/damage";
 import { formatMUR } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 
-const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer", points: "Points" };
+const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque", points: "Points" };
 
 // Inline: reverse_payment has no lever anywhere in features/documents yet, so this
 // keeps the one correction control and its action next to the only place it's used.

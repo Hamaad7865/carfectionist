@@ -153,8 +153,8 @@ export interface ReceiptData {
   pointsBalanceAfter: number | null;
 }
 
-const METHOD_LABEL: Record<string, string> = { cash: "cash", card: "card", juice: "Juice", bank_transfer: "bank transfer" };
-const METHOD_UPPER: Record<string, string> = { cash: "CASH", card: "CARD", juice: "JUICE", bank_transfer: "BANK TRANSFER" };
+const METHOD_LABEL: Record<string, string> = { cash: "cash", card: "card", juice: "Juice", bank_transfer: "bank transfer", cheque: "cheque" };
+const METHOD_UPPER: Record<string, string> = { cash: "CASH", card: "CARD", juice: "JUICE", bank_transfer: "BANK TRANSFER", cheque: "CHEQUE" };
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const DEFAULT_FOOTER = "Goods sold are not refundable. Thank you for shopping with us.";
 

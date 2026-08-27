@@ -33,12 +33,13 @@ export const BACK_OFFICE = "Back office";
 export const DEFAULT_SALE_METHOD = "SALES";
 export const UNCATEGORISED = "(uncategorised)";
 /** Fixed display order — Cashmag lists payment methods by kind, not by value. */
-export const METHOD_ORDER = ["cash", "card", "juice", "bank_transfer"] as const;
+export const METHOD_ORDER = ["cash", "card", "juice", "bank_transfer", "cheque"] as const;
 const METHOD_LABEL: Record<string, string> = {
   cash: "Cash",
   card: "Bank card",
   juice: "Juice",
   bank_transfer: "Bank transfer",
+  cheque: "Cheque",
 };
 
 export interface SaleMethodRow {

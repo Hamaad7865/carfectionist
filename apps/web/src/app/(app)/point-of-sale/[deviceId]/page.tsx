@@ -19,7 +19,7 @@ const TABS = [
   { key: "trace", label: "Traceability" },
 ] as const;
 
-const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer" };
+const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
 
 // Cashmag-style round icons per traceability event kind.
 const KIND_ICON: Record<string, typeof CircleDot> = {

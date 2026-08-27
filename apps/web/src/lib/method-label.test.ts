@@ -20,6 +20,9 @@ describe("methodLabelFor", () => {
   it("points is its own label, not left showing the raw method", () => {
     expect(methodLabelFor([{ method: "points", amount: 5000 }])).toBe("Points");
   });
+  it("cheque has a label of its own", () => {
+    expect(methodLabelFor([{ method: "cheque", amount: 115000 }])).toBe("Cheque");
+  });
   it("everything reversed → back to unpaid dash", () => {
     expect(methodLabelFor([{ method: "cash", amount: 100 }, { method: "cash", amount: -100 }])).toBe("—");
   });
