@@ -473,7 +473,17 @@ export default async function DocumentDetailPage({
                               {p.isReversal && <span className="ml-2 rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">Reversal</span>}
                               {p.wasReversed && <span className="ml-2 rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">Reversed</span>}
                               {p.externalRef && <span className="ml-2 text-[11px] text-faint">{p.externalRef}</span>}
-                              {p.changeCents != null && p.changeCents > 0 && <span className="ml-2 text-[11px] text-faint">change {formatMUR(p.changeCents)}</span>}
+                              {/* Cash overpaid → say what the customer handed over, not just the
+                                  change: "change Rs 175.00" alone reads as an unexplained gap
+                                  under an "Rs 825.00 · paid in full" row. The headline amount
+                                  stays the figure applied to the bill (the running total below
+                                  depends on it). Matches the slip's "CASH : 1000.00Rs". */}
+                              {p.changeCents != null && p.changeCents > 0 && (
+                                <span className="ml-2 text-[11px] text-faint">
+                                  {p.tenderedCents != null && <>given {formatMUR(p.tenderedCents)} · </>}
+                                  change {formatMUR(p.changeCents)}
+                                </span>
+                              )}
                             </div>
                             <span className={`num font-bold ${cancelled ? "text-faint" : "text-ink"} ${p.wasReversed ? "line-through" : ""}`}>{formatMUR(p.amountCents)}</span>
                           </div>

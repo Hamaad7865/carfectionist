@@ -281,6 +281,35 @@ describe("tender rows count the legs and never net a reversal away", () => {
   it("returns nothing for an unpaid bill, which is what makes the slip say ON ACCOUNT", () => {
     expect(receiptTenders([])).toEqual([]);
   });
+
+  // The row must state what the customer HANDED OVER, not what stayed in the till — an
+  // Rs 825 bill paid with a Rs 1000 note reads "1  CASH : 1000.00Rs" with "Change : 175.00"
+  // underneath, matching the tablet slip (core/data/SaleReceipt.kt). Web used to print 825.
+  it("folds change back into the cash row so it states what was handed over", () => {
+    const t = receiptTenders([{ id: "p1", method: "cash", amount: 825.0, change_given: 175.0 }]);
+    expect(t).toEqual([{ method: "CASH", count: 1, amountCents: 100000, isReversal: false }]);
+  });
+
+  it("sums applied + change across split cash legs to the true amount tendered", () => {
+    // Two cash legs, all the change handed back on the second — the single CASH row still
+    // totals the real Rs 7000 that crossed the counter.
+    const t = receiptTenders([
+      { id: "a", method: "cash", amount: 4000.01, change_given: 0 },
+      { id: "b", method: "cash", amount: 2159.98, change_given: 840.01 },
+    ]);
+    expect(t[0]).toEqual({ method: "CASH", count: 2, amountCents: 700000, isReversal: false });
+  });
+
+  it("does not fold change into a reversed cash leg", () => {
+    // The leg was reversed, so the caller suppresses its Change line too — the row must show
+    // only what was kept, or the paper reads 1000 out with nothing to explain the 175.
+    const t = receiptTenders([
+      { id: "p1", method: "cash", amount: 825.0, change_given: 175.0, reverses_payment_id: null },
+      { id: "r1", method: "cash", amount: -825.0, change_given: null, reverses_payment_id: "p1" },
+    ]);
+    expect(t[0]).toEqual({ method: "CASH", count: 1, amountCents: 82500, isReversal: false });
+    expect(t[1]).toEqual({ method: "CASH", count: 1, amountCents: -82500, isReversal: true });
+  });
 });
 
 describe("one slip renderer, not two", () => {
