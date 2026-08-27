@@ -80,8 +80,8 @@ data class SettlementLeg(val invoiceId: String, val tender: Tender)
  * the LAST cash leg receives whatever remains of the customer's tendered total, so its change
  * resolves to the true overall change instead of being spread — or lost — across several rows.
  *
- * [method] must be CASH, CARD, JUICE or BANK — never POINTS or CREDIT; the caller (the
- * settlement screen) only ever offers those four.
+ * [method] must be CASH, CARD, JUICE, BANK or CHEQUE — never POINTS or CREDIT; the caller
+ * (the settlement screen) only ever offers those.
  */
 fun planSettlement(
     invoices: List<SettleableInvoice>,

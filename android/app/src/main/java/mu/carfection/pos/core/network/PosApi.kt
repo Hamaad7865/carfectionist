@@ -921,7 +921,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     /** Records a payment + recomputes status. Idempotent. */
     suspend fun recordPayment(
         invoiceId: String,
-        method: String, // cash | card | juice | bank_transfer
+        method: String, // cash | card | juice | bank_transfer | cheque | points
         amountRupees: Double,
         tenderedRupees: Double?,
         externalRef: String?,

@@ -211,6 +211,10 @@ enum class PayMethod(val rpcValue: String?, val label: String) {
     CARD("card", "Card"),
     JUICE("juice", "Juice"),
     BANK("bank_transfer", "Bank"),
+    // Like card/Juice/bank a cheque is a non-cash tender taken on an open till, but its
+    // reference (the cheque number) is OPTIONAL — a blank one is sent as NULL, not "POS"
+    // (record_payment learned that exception in 20260827000020).
+    CHEQUE("cheque", "Cheque"),
     // A tender, not a discount (rule 4, 2026-08-10): the ledger row app.spend_points writes
     // IS the reference, so — like cash — it carries no external one. Offered only when the
     // bill names a customer; see CounterUiState.hasNamedCustomer.
@@ -224,6 +228,16 @@ enum class PayMethod(val rpcValue: String?, val label: String) {
  * Card, Juice and a bank transfer cite something outside the till and need one.
  */
 private fun PayMethod.carriesNoExternalRef() = this == PayMethod.CASH || this == PayMethod.POINTS
+
+/**
+ * The external_ref to send for a payment: nothing for cash/points; the typed reference when
+ * there is one; otherwise "POS" for card/Juice/bank (they must cite something) but NULL for a
+ * cheque, whose number is optional.
+ */
+private fun PayMethod.externalRefToSend(typed: String?): String? = when {
+    carriesNoExternalRef() -> null
+    else -> typed?.trim().takeUnless { it.isNullOrEmpty() } ?: if (this == PayMethod.CHEQUE) null else "POS"
+}
 
 data class SaleResult(
     val invoiceId: String,
@@ -392,7 +406,7 @@ class SaleRepository @Inject constructor(
                 method = requireNotNull(method.rpcValue),
                 amountRupees = centsToRupees(totalCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
-                externalRef = if (method.carriesNoExternalRef()) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                externalRef = method.externalRefToSend(externalRef),
                 cashSessionId = cashSessionId,
                 idempotencyKey = "$saleKey:pay",
             )
@@ -668,7 +682,7 @@ class SaleRepository @Inject constructor(
                     method = requireNotNull(t.method.rpcValue),
                     amountRupees = centsToRupees(t.amountCents),
                     tenderedRupees = t.tenderedCents?.let { centsToRupees(it) },
-                    externalRef = if (t.method.carriesNoExternalRef()) null else (t.ref?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                    externalRef = t.method.externalRefToSend(t.ref),
                     cashSessionId = cashSessionId,
                     idempotencyKey = "$saleKey:pay:$i",
                 )
@@ -723,7 +737,7 @@ class SaleRepository @Inject constructor(
                 method = requireNotNull(method.rpcValue),
                 amountRupees = centsToRupees(outstandingCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
-                externalRef = if (method.carriesNoExternalRef()) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                externalRef = method.externalRefToSend(externalRef),
                 cashSessionId = cashSessionId,
                 idempotencyKey = "$saleKey:pay",
             )
@@ -782,7 +796,7 @@ class SaleRepository @Inject constructor(
                 method = requireNotNull(method.rpcValue),
                 amountRupees = centsToRupees(amountCents),
                 tenderedRupees = tendered?.let { centsToRupees(it) },
-                externalRef = if (method.carriesNoExternalRef()) null else (externalRef?.trim().takeUnless { it.isNullOrEmpty() } ?: "POS"),
+                externalRef = method.externalRefToSend(externalRef),
                 // ALL methods link to the till session (see completeSale) — device traceability.
                 cashSessionId = cashSessionId,
                 idempotencyKey = "$payKey:collect",

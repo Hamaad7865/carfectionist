@@ -156,7 +156,8 @@ class SettlementViewModel @Inject constructor(
             if (st.method == PayMethod.CASH) {
                 tenderedCents = tenderedCents ?: methodDueCents
                 if (tenderedCents < methodDueCents) { _s.update { it.copy(submitError = "Tendered is less than the amount due.") }; return }
-            } else if (st.ref.isBlank()) {
+            } else if (st.method != PayMethod.CHEQUE && st.ref.isBlank()) {
+                // A cheque number is optional; card / Juice / bank still cite something outside the till.
                 _s.update { it.copy(submitError = "A card / Juice / bank payment needs a reference.") }
                 return
             }
