@@ -190,7 +190,7 @@ export function billReference(billNo: number | string | null | undefined, termin
 }
 
 /** A stored payments row, as much of it as the tender rows read. */
-export interface ReceiptPaymentRow { method: string; amount: number | string; reverses_payment_id?: string | null }
+export interface ReceiptPaymentRow { id?: string; method: string; amount: number | string; change_given?: number | string | null; reverses_payment_id?: string | null }
 
 /**
  * The slip's tender rows: one per METHOD, prefixed with how many legs of that kind were taken —
@@ -199,16 +199,25 @@ export interface ReceiptPaymentRow { method: string; amount: number | string; re
  * A reversal is never netted into the row it undoes. Netting made a refunded tender look like a
  * smaller one that was never questioned; each reversal now gets its own row so the paper shows
  * the money going back out.
+ *
+ * The amount is what CROSSED THE COUNTER — money kept plus any change handed back — so an Rs 825
+ * bill paid with a Rs 1000 note reads "1   CASH : 1000.00Rs" with "Change : 175.00" underneath,
+ * word for word the tablet slip (core/data/SaleReceipt.kt). A leg that has been reversed folds
+ * no change in: the caller suppresses its "Change :" line too, and a row stating 1000 out with
+ * nothing to explain the 175 would be the defect this avoids.
  */
 export function receiptTenders(rows: ReceiptPaymentRow[]): ReceiptTender[] {
   const byMethod = new Map<string, { count: number; amountCents: number }>();
   const upper = (m: string) => METHOD_UPPER[m] ?? String(m).toUpperCase();
+  const reversedIds = new Set(rows.filter((p) => p.reverses_payment_id).map((p) => p.reverses_payment_id));
   for (const p of rows) {
     if (p.reverses_payment_id) continue;
     const m = upper(p.method);
     const g = byMethod.get(m) ?? { count: 0, amountCents: 0 };
     g.count += 1;
-    g.amountCents += rupeesToCents(Number(p.amount));
+    const changeCents =
+      !reversedIds.has(p.id) && p.change_given != null ? Math.max(0, rupeesToCents(Number(p.change_given))) : 0;
+    g.amountCents += rupeesToCents(Number(p.amount)) + changeCents;
     byMethod.set(m, g);
   }
   return [
