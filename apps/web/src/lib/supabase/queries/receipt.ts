@@ -269,7 +269,7 @@ export async function getReceiptPublic(id: string): Promise<ReceiptData | null> 
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> {
-  const { data: doc } = await sb.from("documents").select("*, customers(name, email, brn, vat_number, points_balance)").eq("id", id).maybeSingle();
+  const { data: doc } = await sb.from("documents").select("*, customers(name, email, phone, brn, vat_number, points_balance)").eq("id", id).maybeSingle();
   if (!doc) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
@@ -410,10 +410,14 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   const docLabel = d.doc_type === "quote" ? "Quote" : d.doc_type === "credit_note" ? "Credit note" : "Invoice";
 
   // Points earned on this sale, and the customer's running balance after it — only when the
-  // bill actually names one (mirrors getDocumentDetail's customerPointsBalance, same gate).
-  const namesCustomer = d.customer_id != null;
-  const pointsEarned = namesCustomer ? Number(earnRow?.delta ?? 0) : null;
-  const pointsBalanceAfter = namesCustomer ? Number(d.customers?.points_balance ?? 0) : null;
+  // bill names a REACHABLE customer (a phone or an email). A "Walk-in customer" bucket row
+  // carries neither and is not on the programme (app.award_points_for_invoice, 20260828000010);
+  // mirrors getDocumentDetail's customerPointsBalance and the tablet slip's namesCustomer.
+  const reachableCustomer =
+    d.customer_id != null &&
+    (String(d.customers?.phone ?? "").trim() !== "" || String(d.customers?.email ?? "").trim() !== "");
+  const pointsEarned = reachableCustomer ? Number(earnRow?.delta ?? 0) : null;
+  const pointsBalanceAfter = reachableCustomer ? Number(d.customers?.points_balance ?? 0) : null;
 
   return {
     studioName,
