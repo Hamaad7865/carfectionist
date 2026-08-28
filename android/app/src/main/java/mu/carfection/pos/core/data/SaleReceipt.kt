@@ -75,10 +75,14 @@ fun saleReceiptDoc(
     pointsEarned: Int? = null,
     pointsBalanceAfter: Int? = null,
 ): ReceiptDoc {
-    // Never the generic WALK_IN_CUSTOMER bucket every anonymous counter sale is billed to
-    // (issueWalkInInvoice) — an anonymous walk-in must print exactly as it does today,
-    // whatever the caller passed in. Checked here, once, rather than trusted to every caller.
-    val namesCustomer = h.customers != null && h.customers.name != WALK_IN_CUSTOMER
+    // Points print only for a REACHABLE customer — one with a phone or an email. That
+    // rules out the generic WALK_IN_CUSTOMER bucket every anonymous counter sale is billed
+    // to (issueWalkInInvoice), and a cashier-typed walk-in name with no contact details:
+    // neither is on the loyalty programme (app.award_points_for_invoice, 20260828000010).
+    // The explicit name check stays — redundant now, but it documents the bucket.
+    val namesCustomer = h.customers != null &&
+        h.customers.name != WALK_IN_CUSTOMER &&
+        (!h.customers.phone.isNullOrBlank() || !h.customers.email.isNullOrBlank())
     fun incl(l: SaleHistoryLineDto) = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
     val sorted = h.lines.sortedBy { it.sortOrder }
     // Discount lines are stored as negative lines: they are the discount total, not items.

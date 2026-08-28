@@ -64,6 +64,7 @@ const PAY_METHODS = [
   { v: "bank_transfer", label: "Bank transfer" },
   { v: "card", label: "Card" },
   { v: "juice", label: "Juice" },
+  { v: "cheque", label: "Cheque" },
 ] as const;
 
 /**
@@ -142,17 +143,19 @@ function PartPayment({
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint">Reference</span>
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.12em] text-faint">
+            {method === "cheque" ? "Cheque no. (optional)" : "Reference"}
+          </span>
           <input
             className={`${field} w-[150px]`}
-            placeholder="e.g. MCB-2214"
+            placeholder={method === "cheque" ? "Cheque number" : "e.g. MCB-2214"}
             value={ref}
             onChange={(e) => setRef(e.target.value)}
           />
         </label>
         <button
           onClick={submit}
-          disabled={busy || !(typed > 0) || over || !ref.trim()}
+          disabled={busy || !(typed > 0) || over || (method !== "cheque" && !ref.trim())}
           className="grad-brand shadow-brand h-9 rounded-[10px] px-4 text-[13px] font-bold text-white disabled:opacity-50"
         >
           {busy ? "Recording…" : "Record"}

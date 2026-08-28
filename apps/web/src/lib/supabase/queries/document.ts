@@ -39,8 +39,9 @@ export interface DocumentDetail {
   customerPhone: string | null;
   /** The account behind the invoice — what a statement of account is FOR. */
   customerId: string | null;
-  /** null when there is no customer — the Points tender only ever offers itself
-   *  on a bill that names one (customer_points_ledger.customer_id is NOT NULL). */
+  /** null when there is no REACHABLE customer — the Points tender only ever offers
+   *  itself on a bill that names one with a phone or an email. A "Walk-in customer"
+   *  bucket row has neither and is not on the programme (20260828000010). */
   customerPointsBalance: number | null;
   /** What one point is worth right now (business_settings.point_value_rupees). */
   pointValueRupees: number;
@@ -199,7 +200,11 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     customerEmail: d.customers?.email ?? null,
     customerPhone: d.customers?.phone ?? null,
     customerId: d.customer_id ?? null,
-    customerPointsBalance: d.customer_id != null ? Number(d.customers?.points_balance ?? 0) : null,
+    customerPointsBalance:
+      d.customer_id != null &&
+      (String(d.customers?.phone ?? "").trim() !== "" || String(d.customers?.email ?? "").trim() !== "")
+        ? Number(d.customers?.points_balance ?? 0)
+        : null,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pointValueRupees: Number((bs as any)?.point_value_rupees ?? 1),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
