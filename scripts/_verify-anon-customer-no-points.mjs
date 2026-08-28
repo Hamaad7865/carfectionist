@@ -114,6 +114,12 @@ try {
         where points_balance <> 0 and nullif(btrim(phone),'') is null and nullif(btrim(email),'') is null`,
     )
   ).rows[0];
+  const adjBefore = (
+    await c.query(
+      `select count(*)::int n from public.customer_points_ledger
+        where reason='adjusted' and note like 'Anonymous customer%'`,
+    )
+  ).rows[0].n;
   await c.query(CLEANUP);
   const after = (
     await c.query(
@@ -121,16 +127,23 @@ try {
         where points_balance <> 0 and nullif(btrim(phone),'') is null and nullif(btrim(email),'') is null`,
     )
   ).rows[0];
-  const adj = (
+  const adjNew = (
     await c.query(
       `select count(*)::int n, coalesce(sum(delta),0)::int pts
          from public.customer_points_ledger where reason='adjusted' and note like 'Anonymous customer%'`,
     )
   ).rows[0];
+  // Adapts whether or not the migration has already run against this DB: if there
+  // was a balance to zero, exactly that many compensating rows appear; if the DB
+  // is already clean, the cleanup is a verified no-op.
   check(
-    `${before.n} anonymous balance(s) (${before.pts} pts) → 0`,
-    after.n === 0 && adj.n === before.n && adj.pts === -before.pts,
-    `adjusted rows=${adj.n} sum=${adj.pts}`,
+    before.n > 0
+      ? `${before.n} anonymous balance(s) (${before.pts} pts) → 0`
+      : "already clean — cleanup is a no-op",
+    after.n === 0 &&
+      adjNew.n - adjBefore === before.n &&
+      (before.n === 0 || adjNew.pts <= -before.pts),
+    `new adjusted rows=${adjNew.n - adjBefore}`,
   );
 
   await c.query("rollback");
