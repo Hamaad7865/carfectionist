@@ -54,8 +54,10 @@ Because total paid is invariant across the operation:
   cash is fine for a cashier (the drawer is then expected to hold it).
   Non-cash → non-cash — the real case — is always allowed for a cashier.
 - **`points` and `credit` are out.** Neither side of the swap may be `points`
-  (needs a balance debit/credit) or `credit` (not a real payment row). A
-  declined card is never either.
+  (needs a balance debit/credit). `credit` is not a `payment_method` enum value
+  at all — a UI-only pseudo-tender — so the type system already keeps it off
+  both sides; the RPC only needs the explicit `points` guard. A declined card is
+  never either.
 - **No-op rejected.** New method must differ from the current one.
 - **Not on a reversal / already-reversed / credit-noted payment** — same
   refusals `reverse_payment` already makes.

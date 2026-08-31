@@ -64,11 +64,13 @@ begin
               where reverses_payment_id = p_payment_id and tenant_id = v_tenant) then
     raise exception 'payment already reversed';
   end if;
-  if v_orig.method in ('points','credit') then
-    raise exception 'a % payment cannot have its method changed here', v_orig.method;
+  -- 'credit' is a UI pseudo-tender, never a payment_method enum value, so it can
+  -- reach neither side: v_orig.method is a real row, p_new_method is enum-typed.
+  if v_orig.method = 'points' then
+    raise exception 'a points payment cannot have its method changed here';
   end if;
-  if p_new_method in ('points','credit') then
-    raise exception 'cannot change a payment to %', p_new_method;
+  if p_new_method = 'points' then
+    raise exception 'cannot change a payment to points';
   end if;
   if p_new_method = v_orig.method then
     raise exception 'that is already the payment method';

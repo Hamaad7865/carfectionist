@@ -126,8 +126,10 @@ try {
   await c.query("rollback to savepoint s4");
   check("no-ref juice refused", asRefusal(noRef, "requires an external reference", "refused"), "refused");
 
-  // ── 5. no-op / points / credit ───────────────────────────────────────────
-  console.log("▸ 5. no-op and points/credit are refused");
+  // ── 5. no-op / points ────────────────────────────────────────────────────
+  // ('credit' can't be tested — it is not a payment_method enum value, so the
+  //  type system rejects it on both sides before the RPC body runs.)
+  console.log("▸ 5. no-op and points are refused");
   let sameMethod = "accepted";
   await c.query("savepoint s5a");
   try {
