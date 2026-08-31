@@ -192,6 +192,48 @@ export async function recordPaymentAction(
   return { ok: true };
 }
 
+/**
+ * The card was declined at the terminal after it had already been recorded — swap
+ * the recorded method for the one the customer actually paid with, same amount,
+ * same bill. change_payment_method reverses the old line and books the new one in
+ * one transaction (nets to zero). Cashier-allowed; the RPC itself refuses a
+ * cash-SOURCE change for a non-manager. Books onto the desk till like every web
+ * payment, so both mirrored rows land on a Z-report.
+ */
+export async function changePaymentMethodAction(
+  jobId: string,
+  invoiceId: string,
+  paymentId: string,
+  newMethod: "cash" | "card" | "juice" | "bank_transfer" | "cheque",
+  newExternalRef: string,
+  token: string,
+): Promise<Result> {
+  const ctx = await requireRole(...ROLES);
+  if (newMethod !== "cash" && newMethod !== "cheque" && !newExternalRef.trim()) {
+    return { ok: false, error: "The new card, Juice or transfer payment needs its reference." };
+  }
+  if (!token) return { ok: false, error: "Missing token — reopen the form and try again." };
+
+  const sb = await createClient();
+  try {
+    const cashSessionId = await backOfficeTillId(sb);
+    await rpc.changePaymentMethod(sb, {
+      paymentId,
+      newMethod,
+      newExternalRef: newExternalRef.trim() || null,
+      cashSessionId,
+      idempotencyKey: `web-change-method:${token}`,
+    });
+    await jobAudit(sb, ctx, "payment_method_changed", jobId, { invoiceId, paymentId, newMethod });
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not change the method." };
+  }
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath(`/sales/${invoiceId}`);
+  revalidatePath("/sales");
+  return { ok: true };
+}
+
 export async function assignTechnicianAction(jobId: string, technicianId: string | null): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const sb = await createClient();
