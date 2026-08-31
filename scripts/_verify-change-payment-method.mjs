@@ -51,10 +51,10 @@ try {
 
   console.log("▸ 0. the RPC exists");
   const installed = (await c.query(
-    "select to_regprocedure('public.change_payment_method(uuid, payment_method, text, uuid, text)') is not null ok",
+    "select to_regprocedure('public.change_payment_method(uuid, payment_method, text, numeric, uuid, text)') is not null ok",
   )).rows[0].ok;
   check("change_payment_method installed", installed, true);
-  if (!installed) throw new Error("RPC not installed — run: node scripts/db-exec.mjs supabase/migrations/20260831000010_a_receipt_can_change_how_it_was_paid.sql");
+  if (!installed) throw new Error("RPC not installed — run: node scripts/db-exec.mjs supabase/migrations/20260831000020_a_changed_tender_can_be_a_bigger_note.sql");
 
   const cust = (await c.query(
     "insert into public.customers (tenant_id, name) values ($1,'CPM Probe Customer') returning id", [tenant],
@@ -78,7 +78,7 @@ try {
   )).rows[0];
 
   const juice1 = (await c.query(
-    "select id, method, amount::float8 amt, external_ref from public.change_payment_method($1::uuid,'juice'::payment_method,'JUICE-1',$2::uuid,null)",
+    "select id, method, amount::float8 amt, external_ref from public.change_payment_method($1::uuid,'juice'::payment_method,'JUICE-1',null,$2::uuid,null)",
     [card1.id, till.id],
   )).rows[0];
   check("returned row is the new juice line", juice1.method, "juice");
@@ -121,7 +121,7 @@ try {
   let noRef = "accepted";
   await c.query("savepoint s4");
   try {
-    await c.query("select from public.change_payment_method($1::uuid,'juice'::payment_method,null,$2::uuid,null)", [card4.id, till.id]);
+    await c.query("select from public.change_payment_method($1::uuid,'juice'::payment_method,null,null,$2::uuid,null)", [card4.id, till.id]);
   } catch (e) { noRef = e.message; }
   await c.query("rollback to savepoint s4");
   check("no-ref juice refused", asRefusal(noRef, "requires an external reference", "refused"), "refused");
@@ -133,7 +133,7 @@ try {
   let sameMethod = "accepted";
   await c.query("savepoint s5a");
   try {
-    await c.query("select from public.change_payment_method($1::uuid,'card'::payment_method,'X',$2::uuid,null)", [card4.id, till.id]);
+    await c.query("select from public.change_payment_method($1::uuid,'card'::payment_method,'X',null,$2::uuid,null)", [card4.id, till.id]);
   } catch (e) { sameMethod = e.message; }
   await c.query("rollback to savepoint s5a");
   check("card → card refused", asRefusal(sameMethod, "already the payment method", "refused"), "refused");
@@ -141,7 +141,7 @@ try {
   let toPoints = "accepted";
   await c.query("savepoint s5b");
   try {
-    await c.query("select from public.change_payment_method($1::uuid,'points'::payment_method,null,$2::uuid,null)", [card4.id, till.id]);
+    await c.query("select from public.change_payment_method($1::uuid,'points'::payment_method,null,null,$2::uuid,null)", [card4.id, till.id]);
   } catch (e) { toPoints = e.message; }
   await c.query("rollback to savepoint s5b");
   check("card → points refused", asRefusal(toPoints, "cannot change a payment to", "refused"), "refused");
@@ -159,7 +159,7 @@ try {
   let closed = "accepted";
   await c.query("savepoint s6");
   try {
-    await c.query("select from public.change_payment_method($1::uuid,'juice'::payment_method,'J6',null,null)", [card6.id]);
+    await c.query("select from public.change_payment_method($1::uuid,'juice'::payment_method,'J6',null,null,null)", [card6.id]);
   } catch (e) { closed = e.message; }
   await c.query("rollback to savepoint s6");
   check("closed-till change refused", asRefusal(closed, "till this was paid on is closed", "refused"), "refused");
@@ -176,14 +176,14 @@ try {
   await c.query("update public.app_users set role='cashier' where auth_user_id=$1", [SANDBOX_AUTH]);
   let cashAway = "accepted";
   try {
-    await c.query("select from public.change_payment_method($1::uuid,'card'::payment_method,'C7',$2::uuid,null)", [cash7.id, till.id]);
+    await c.query("select from public.change_payment_method($1::uuid,'card'::payment_method,'C7',null,$2::uuid,null)", [cash7.id, till.id]);
   } catch (e) { cashAway = e.message; }
   await c.query("rollback to savepoint s7a");
   check("cashier: cash → card refused", asRefusal(cashAway, "insufficient privileges", "refused"), "refused");
 
   // manager (owner) CAN
   const mgrAway = (await c.query(
-    "select method from public.change_payment_method($1::uuid,'card'::payment_method,'C7-mgr',$2::uuid,null)", [cash7.id, till.id],
+    "select method from public.change_payment_method($1::uuid,'card'::payment_method,'C7-mgr',null,$2::uuid,null)", [cash7.id, till.id],
   )).rows[0];
   check("owner: cash → card allowed", mgrAway.method, "card");
   check("  invoice still paid after cash → card", (await docState(inv7.id)).status, "paid");
@@ -196,13 +196,41 @@ try {
   await c.query("savepoint s7b");
   await c.query("update public.app_users set role='cashier' where auth_user_id=$1", [SANDBOX_AUTH]);
   const toCash = (await c.query(
-    "select method, tendered::float8 t, change_given::float8 cg from public.change_payment_method($1::uuid,'cash'::payment_method,null,$2::uuid,null)",
+    "select method, tendered::float8 t, change_given::float8 cg from public.change_payment_method($1::uuid,'cash'::payment_method,null,null,$2::uuid,null)",
     [card7b.id, till.id],
   )).rows[0];
   check("cashier: card → cash allowed", toCash.method, "cash");
   check("  cash row tender defaults to exact", toCash.t, 1150);
   check("  cash row change is zero", toCash.cg, 0);
   await c.query("rollback to savepoint s7b");
+
+  // card → cash where he hands over a bigger note: 1150 owed, 2000 given → 850 back
+  const inv7c = await newInvoice(cust, till.id);
+  const card7c = (await c.query(
+    "select id from public.record_payment($1::uuid,'card'::payment_method,1150,null,'PDQ-7c',$2::uuid,null,null)", [inv7c.id, till.id],
+  )).rows[0];
+  const overCash = (await c.query(
+    "select method, tendered::float8 t, change_given::float8 cg from public.change_payment_method($1::uuid,'cash'::payment_method,null,2000,$2::uuid,null)",
+    [card7c.id, till.id],
+  )).rows[0];
+  check("card → cash with a bigger note: tender recorded", overCash.t, 2000);
+  check("  change recorded", overCash.cg, 850);
+  check("  invoice still paid (applied amount unchanged)", (await docState(inv7c.id)).status, "paid");
+  check("  amount_paid is the bill, not the note", (await docState(inv7c.id)).amount_paid, "1150.00");
+  check("  slip change line sums right", overCash.t - 1150, overCash.cg);
+
+  // a short note is refused (fresh payment — card7c already has its mirror)
+  const inv7d = await newInvoice(cust, till.id);
+  const card7d = (await c.query(
+    "select id from public.record_payment($1::uuid,'card'::payment_method,1150,null,'PDQ-7d',$2::uuid,null,null)", [inv7d.id, till.id],
+  )).rows[0];
+  let shortCash = "accepted";
+  await c.query("savepoint s7d");
+  try {
+    await c.query("select from public.change_payment_method($1::uuid,'cash'::payment_method,null,1000,$2::uuid,null)", [card7d.id, till.id]);
+  } catch (e) { shortCash = e.message; }
+  await c.query("rollback to savepoint s7d");
+  check("card → cash with too small a note is refused", asRefusal(shortCash, "less than the", "refused"), "refused");
 
   // ── 8. idempotency ───────────────────────────────────────────────────────
   console.log("▸ 8. the same idempotency key does not swap twice");
@@ -212,10 +240,10 @@ try {
   )).rows[0];
   const k = `cpm-probe-${Date.now()}`;
   const first = (await c.query(
-    "select id from public.change_payment_method($1::uuid,'juice'::payment_method,'J8',$2::uuid,$3)", [card8.id, till.id, k],
+    "select id from public.change_payment_method($1::uuid,'juice'::payment_method,'J8',null,$2::uuid,$3)", [card8.id, till.id, k],
   )).rows[0];
   const second = (await c.query(
-    "select id from public.change_payment_method($1::uuid,'juice'::payment_method,'J8',$2::uuid,$3)", [card8.id, till.id, k],
+    "select id from public.change_payment_method($1::uuid,'juice'::payment_method,'J8',null,$2::uuid,$3)", [card8.id, till.id, k],
   )).rows[0];
   check("same key returns the same row", second.id, first.id);
   const rows8 = await payRows(inv8.id);
@@ -235,7 +263,7 @@ try {
   )).rows[0];
   check("split invoice paid", (await docState(inv9.id)).status, "paid");
   await c.query(
-    "select from public.change_payment_method($1::uuid,'juice'::payment_method,'J9',$2::uuid,null)", [cardHalf.id, till.id],
+    "select from public.change_payment_method($1::uuid,'juice'::payment_method,'J9',null,$2::uuid,null)", [cardHalf.id, till.id],
   );
   const rows9 = await payRows(inv9.id);
   check("the cash row is still there untouched", rows9.some((r) => r.method === "cash" && r.amt === 1380 && r.reverses_payment_id === null), true);
@@ -256,19 +284,19 @@ try {
     "select id from public.record_payment($1::uuid,'card'::payment_method,1150,null,'PDQ-10a',$2::uuid,null,null)", [inv10.id, till.id],
   )).rows[0];
   const juice10 = (await c.query(
-    "select id from public.change_payment_method($1::uuid,'juice'::payment_method,'J10',$2::uuid,null)", [card10.id, till.id],
+    "select id from public.change_payment_method($1::uuid,'juice'::payment_method,'J10',null,$2::uuid,null)", [card10.id, till.id],
   )).rows[0];
   // changing the ORIGINAL (now-mirrored) row again is refused
   let reChange = "accepted";
   await c.query("savepoint s10");
   try {
-    await c.query("select from public.change_payment_method($1::uuid,'bank_transfer'::payment_method,'B10',$2::uuid,null)", [card10.id, till.id]);
+    await c.query("select from public.change_payment_method($1::uuid,'bank_transfer'::payment_method,'B10',null,$2::uuid,null)", [card10.id, till.id]);
   } catch (e) { reChange = e.message; }
   await c.query("rollback to savepoint s10");
   check("changing the already-mirrored row is refused", asRefusal(reChange, "already reversed", "refused"), "refused");
   // changing the NEW row works
   const bank10 = (await c.query(
-    "select id, method from public.change_payment_method($1::uuid,'bank_transfer'::payment_method,'B10',$2::uuid,null)", [juice10.id, till.id],
+    "select id, method from public.change_payment_method($1::uuid,'bank_transfer'::payment_method,'B10',null,$2::uuid,null)", [juice10.id, till.id],
   )).rows[0];
   check("the juice row can be changed on to bank", bank10.method, "bank_transfer");
   check("invoice still paid after two changes", (await docState(inv10.id)).status, "paid");
