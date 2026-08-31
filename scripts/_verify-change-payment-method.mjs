@@ -243,6 +243,46 @@ try {
   const sum9 = (await c.query("select coalesce(sum(amount),0)::float8 s from public.payments where document_id=$1", [inv9.id])).rows[0].s;
   check("split sum still = total", sum9, 2300);
 
+  // ── 10. chained change: a SECOND card also fails ─────────────────────────
+  // The customer's replacement card is declined too — change the row again. The
+  // first change froze the ORIGINAL card row; the new row is a fresh payment and
+  // must itself be changeable, and the tablet's "live payments" filter (a row
+  // with no mirror, not itself mirrored) must show exactly the latest one.
+  console.log("▸ 10. Card → Juice → Bank (a second failed card)");
+  const inv10 = await newInvoice(cust, till.id);
+  const card10 = (await c.query(
+    "select id from public.record_payment($1::uuid,'card'::payment_method,1150,null,'PDQ-10a',$2::uuid,null,null)", [inv10.id, till.id],
+  )).rows[0];
+  const juice10 = (await c.query(
+    "select id from public.change_payment_method($1::uuid,'juice'::payment_method,'J10',$2::uuid,null)", [card10.id, till.id],
+  )).rows[0];
+  // changing the ORIGINAL (now-mirrored) row again is refused
+  let reChange = "accepted";
+  await c.query("savepoint s10");
+  try {
+    await c.query("select from public.change_payment_method($1::uuid,'bank_transfer'::payment_method,'B10',$2::uuid,null)", [card10.id, till.id]);
+  } catch (e) { reChange = e.message; }
+  await c.query("rollback to savepoint s10");
+  check("changing the already-mirrored row is refused", asRefusal(reChange, "already reversed", "refused"), "refused");
+  // changing the NEW row works
+  const bank10 = (await c.query(
+    "select id, method from public.change_payment_method($1::uuid,'bank_transfer'::payment_method,'B10',$2::uuid,null)", [juice10.id, till.id],
+  )).rows[0];
+  check("the juice row can be changed on to bank", bank10.method, "bank_transfer");
+  check("invoice still paid after two changes", (await docState(inv10.id)).status, "paid");
+  const sum10 = (await c.query("select coalesce(sum(amount),0)::float8 s from public.payments where document_id=$1", [inv10.id])).rows[0].s;
+  check("two-change sum still = total", sum10, 1150);
+  // the tablet's PAID TODAY filter: reverses_payment_id is null AND id not in the reversed set
+  const live10 = (await c.query(
+    `select p.method, p.amount::float8 amt from public.payments p
+      where p.document_id = $1 and p.reverses_payment_id is null
+        and p.id not in (select reverses_payment_id from public.payments where document_id = $1 and reverses_payment_id is not null)`,
+    [inv10.id],
+  )).rows;
+  check("exactly one live row remains", live10.length, 1);
+  check("  and it is the bank row", live10[0]?.method, "bank_transfer");
+  check("  at the full amount", live10[0]?.amt, 1150);
+
   await c.query("rollback");
   console.log(`\n${failures === 0 ? "✓ ALL PASSED" : `✗ ${failures} FAILURE(S)`}`);
   process.exitCode = failures === 0 ? 0 : 1;
