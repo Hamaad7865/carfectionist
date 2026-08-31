@@ -128,6 +128,7 @@ data class CounterUiState(
     val methodChangeFor: TodayPaymentDto? = null,
     val methodChangePick: PayMethod = PayMethod.CARD,
     val methodChangeRef: String = "",
+    val methodChangeTenderText: String = "", // cash target only; blank = exact
     val notice: String? = null, // transient corrections feedback
     val oversell: OversellPrompt? = null, // adding this would drive stock negative — confirm first
     val pendingSettle: PendingSettle? = null, // a settle reached the server — basket is frozen
@@ -850,18 +851,26 @@ class CounterViewModel @Inject constructor(
     fun startMethodChange(p: TodayPaymentDto) {
         val from = payMethodOfWire(p.method) ?: return
         val first = methodChangeTargets(from, canManage).firstOrNull() ?: return
-        local.value = local.value.copy(methodChangeFor = p, methodChangePick = first, methodChangeRef = "")
+        local.value = local.value.copy(
+            methodChangeFor = p, methodChangePick = first, methodChangeRef = "", methodChangeTenderText = "",
+        )
     }
-    fun pickMethodChange(m: PayMethod) { local.value = local.value.copy(methodChangePick = m, methodChangeRef = "") }
+    fun pickMethodChange(m: PayMethod) {
+        local.value = local.value.copy(methodChangePick = m, methodChangeRef = "", methodChangeTenderText = "")
+    }
     fun setMethodChangeRef(t: String) { local.value = local.value.copy(methodChangeRef = t) }
+    fun setMethodChangeTender(t: String) { local.value = local.value.copy(methodChangeTenderText = t) }
     fun cancelMethodChange() { local.value = local.value.copy(methodChangeFor = null) }
 
     /**
-     * Book the new tender and reverse the old one — one server call, nets to zero.
-     * A card / Juice / bank change needs its reference; a cheque's is optional; cash
-     * needs none. The till is this device's open one (the RPC also resolves it).
+     * Book the new tender, reverse the old one (one server call, nets to zero), then
+     * rebuild the corrected slip from the server invoice and print it — the customer
+     * leaves with paper that says how he actually paid. A card / Juice / bank change
+     * needs its reference; a cheque's is optional; a cash change may name the note he
+     * handed over (blank = exact) so the slip carries the change line.
      */
     fun confirmMethodChange() {
+        if (local.value.busy) return
         val p = local.value.methodChangeFor ?: return
         val m = local.value.methodChangePick
         val ref = local.value.methodChangeRef.trim()
@@ -869,15 +878,49 @@ class CounterViewModel @Inject constructor(
             local.value = local.value.copy(notice = "Enter the new payment's reference first.")
             return
         }
+        val owedCents = mu.carfection.pos.core.money.rupeesToCents(p.amount)
+        val tenderCents: Long? = if (m == PayMethod.CASH) {
+            local.value.methodChangeTenderText.trim().takeIf { it.isNotEmpty() }?.let { txt ->
+                val c = mu.carfection.pos.core.money.rupeesToCents(txt.toDoubleOrNull() ?: -1.0)
+                if (c < owedCents) {
+                    local.value = local.value.copy(notice = "Cash received can't be less than ${formatMUR(owedCents)}.")
+                    return
+                }
+                c
+            }
+        } else null
         val key = UUID.randomUUID().toString()
-        correction("Method changed — ${p.documents?.number ?: "invoice"}") {
-            api.changePaymentMethod(
-                paymentId = p.id,
-                newMethod = m.rpcValue ?: error("credit is not a change target"),
-                newExternalRef = ref.ifEmpty { null },
-                sessionId = local.value.till?.id,
-                idempotencyKey = key,
-            )
+        local.value = local.value.copy(busy = true, error = null)
+        viewModelScope.launch {
+            runCatching {
+                api.changePaymentMethod(
+                    paymentId = p.id,
+                    newMethod = m.rpcValue ?: error("credit is not a change target"),
+                    newExternalRef = ref.ifEmpty { null },
+                    newTenderedRupees = tenderCents?.let { it / 100.0 },
+                    sessionId = local.value.till?.id,
+                    idempotencyKey = key,
+                )
+                // Rebuild the slip from the server invoice — it now carries the new
+                // tender row (and its change line) — and print it.
+                runCatching {
+                    api.fetchInvoice(p.documentId)?.let {
+                        saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                            pointsBalanceAfter = it.customers?.pointsBalance).copy(isPayment = true)
+                    }
+                }.getOrNull()
+            }.onSuccess { slip ->
+                slip?.let { launch { runCatching { printer.printDoc(it) } } }
+                local.value = local.value.copy(
+                    busy = false, paymentAction = null, methodChangeFor = null,
+                    viewDoc = slip, notice = "Method changed — ${p.documents?.number ?: "receipt"} reprinted",
+                )
+                loadLists()
+            }.onFailure { e ->
+                val msg = if (e.message?.contains("privileges", true) == true)
+                    "Only an owner or manager can change a cash payment." else e.uiMessage("Couldn’t change the method — try again")
+                local.value = local.value.copy(busy = false, notice = msg)
+            }
         }
     }
 

@@ -1252,6 +1252,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         paymentId: String,
         newMethod: String,           // cash | card | juice | bank_transfer | cheque
         newExternalRef: String?,
+        newTenderedRupees: Double?,  // cash only: what the customer handed over (null = exact)
         sessionId: String?,
         idempotencyKey: String,
     ): PaymentDto =
@@ -1259,6 +1260,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_payment_id", paymentId)
             put("p_new_method", newMethod)
             if (newExternalRef != null) put("p_new_external_ref", newExternalRef) else put("p_new_external_ref", JsonNull)
+            if (newTenderedRupees != null) put("p_new_tendered", newTenderedRupees) else put("p_new_tendered", JsonNull)
             if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
             put("p_idempotency_key", idempotencyKey)
         }).decodeAs()

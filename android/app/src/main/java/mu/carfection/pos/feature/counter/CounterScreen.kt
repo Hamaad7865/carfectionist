@@ -1624,12 +1624,26 @@ private fun PaymentActionDialog(p: mu.carfection.pos.core.network.TodayPaymentDt
                                 label = { Text(if (cs.methodChangePick == PayMethod.CHEQUE) "Cheque no. (optional)" else "New reference") },
                                 singleLine = true, modifier = Modifier.fillMaxWidth(),
                             )
+                        } else {
+                            OutlinedTextField(
+                                cs.methodChangeTenderText, { vm.setMethodChangeTender(it) },
+                                label = { Text("Cash received (optional)") },
+                                placeholder = { Text("exact — ${formatMUR(mu.carfection.pos.core.money.rupeesToCents(p.amount))}") },
+                                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Decimal),
+                            )
+                            val owed = mu.carfection.pos.core.money.rupeesToCents(p.amount)
+                            val given = cs.methodChangeTenderText.trim().toDoubleOrNull()
+                                ?.let { mu.carfection.pos.core.money.rupeesToCents(it) }
+                            if (given != null && given > owed) {
+                                Text("Change to hand back: ${formatMUR(given - owed)}", color = TextMuted, fontSize = 12.sp)
+                            }
                         }
                         val needRef = cs.methodChangePick != PayMethod.CASH &&
                             cs.methodChangePick != PayMethod.CHEQUE && cs.methodChangeRef.isBlank()
                         ActionButton(
                             "Change to ${cs.methodChangePick.label}",
-                            if (needRef) "Enter the new reference first." else "Books the new tender and reverses the old one.",
+                            if (needRef) "Enter the new reference first." else "Books the new tender, reverses the old one, reprints the slip.",
                             Accent, AccentInk, enabled = !needRef,
                         ) { vm.confirmMethodChange() }
                     }

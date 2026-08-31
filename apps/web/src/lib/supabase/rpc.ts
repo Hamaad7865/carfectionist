@@ -228,6 +228,8 @@ export interface ChangePaymentMethodArgs {
   paymentId: string;
   newMethod: "cash" | "card" | "juice" | "bank_transfer" | "cheque";
   newExternalRef?: string | null;
+  /** Cash target only: what the customer handed over (rupees). Null ⇒ exact. */
+  newTendered?: number | null;
   cashSessionId?: string | null;
   idempotencyKey?: string | null;
 }
@@ -241,6 +243,7 @@ export const changePaymentMethod = (sb: Client, a: ChangePaymentMethodArgs) =>
     p_payment_id: a.paymentId,
     p_new_method: a.newMethod,
     p_new_external_ref: a.newExternalRef ?? null,
+    p_new_tendered: a.newTendered ?? null,
     p_session_id: a.cashSessionId ?? null,
     p_idempotency_key: a.idempotencyKey ?? null,
   });

@@ -68,6 +68,8 @@ async function changeMethodAction(formData: FormData) {
   const newMethod = String(formData.get("newMethod") ?? "").trim() as
     "cash" | "card" | "juice" | "bank_transfer" | "cheque";
   const ref = String(formData.get("ref") ?? "").trim();
+  const tenderedRaw = String(formData.get("tendered") ?? "").trim();
+  const tendered = newMethod === "cash" && tenderedRaw ? Number(tenderedRaw) : null;
   if (!paymentId || !documentId || !newMethod) return;
   const sb = await createClient();
   try {
@@ -77,6 +79,7 @@ async function changeMethodAction(formData: FormData) {
       paymentId,
       newMethod,
       newExternalRef: ref || null,
+      newTendered: tendered != null && Number.isFinite(tendered) ? tendered : null,
       idempotencyKey: `sales-change-method:${paymentId}:${newMethod}`,
     });
   } catch (e) {
@@ -589,6 +592,13 @@ export default async function DocumentDetailPage({
                                   placeholder="New reference"
                                   className="min-w-0 flex-1 rounded-[8px] border border-line bg-transparent px-2 py-1 text-[11.5px] text-body placeholder:text-faint"
                                 />
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  name="tendered"
+                                  placeholder="Cash received (if cash)"
+                                  className="w-32 rounded-[8px] border border-line bg-transparent px-2 py-1 text-[11.5px] text-body placeholder:text-faint"
+                                />
                                 <button
                                   type="submit"
                                   className="flex shrink-0 items-center gap-1 rounded-[8px] bg-link px-2.5 py-1 text-[11px] font-bold text-white"
@@ -597,7 +607,7 @@ export default async function DocumentDetailPage({
                                 </button>
                               </form>
                               <p className="mt-1 text-[10.5px] text-faint">
-                                Same amount, same bill. Run the new tender first, then enter its reference.
+                                Same amount, same bill. Run the new tender first; enter its reference, or for cash what the customer handed over.
                               </p>
                             </details>
                           )}

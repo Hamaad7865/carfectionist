@@ -207,6 +207,7 @@ export async function changePaymentMethodAction(
   newMethod: "cash" | "card" | "juice" | "bank_transfer" | "cheque",
   newExternalRef: string,
   token: string,
+  newTendered: number | null = null,
 ): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   if (newMethod !== "cash" && newMethod !== "cheque" && !newExternalRef.trim()) {
@@ -221,6 +222,8 @@ export async function changePaymentMethodAction(
       paymentId,
       newMethod,
       newExternalRef: newExternalRef.trim() || null,
+      // Only meaningful for a cash target; the RPC ignores it otherwise.
+      newTendered: newMethod === "cash" ? newTendered : null,
       cashSessionId,
       idempotencyKey: `web-change-method:${token}`,
     });
