@@ -870,7 +870,6 @@ class CounterViewModel @Inject constructor(
             return
         }
         val key = UUID.randomUUID().toString()
-        local.value = local.value.copy(methodChangeFor = null)
         correction("Method changed — ${p.documents?.number ?: "invoice"}") {
             api.changePaymentMethod(
                 paymentId = p.id,
@@ -931,7 +930,7 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(busy = true, error = null)
         viewModelScope.launch {
             runCatching { block() }
-                .onSuccess { local.value = local.value.copy(busy = false, padOpen = false, collect = null, paymentAction = null, done = null, notice = label); loadLists() }
+                .onSuccess { local.value = local.value.copy(busy = false, padOpen = false, collect = null, paymentAction = null, methodChangeFor = null, done = null, notice = label); loadLists() }
                 .onFailure { e ->
                     val msg = if (e.message?.contains("privileges", true) == true) "Only an owner or manager can do that" else e.uiMessage("Couldn’t complete that — try again")
                     local.value = local.value.copy(busy = false, notice = msg)

@@ -832,8 +832,10 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                 // row here is money that actually stands.
                 items(s.paidToday) { p ->
                     Row(
+                        // Any cashier can open this now — the sheet offers only a method
+                        // change to a non-manager; reverse / refund stay owner/manager.
                         Modifier.fillMaxWidth().clip(RoundedCornerShape(9.dp))
-                            .clickable(enabled = vm.canManage) { vm.openPaymentAction(p) }
+                            .clickable { vm.openPaymentAction(p) }
                             .padding(vertical = 6.dp, horizontal = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -1593,20 +1595,65 @@ private fun PaymentActionDialog(p: mu.carfection.pos.core.network.TodayPaymentDt
                 isReversalRow -> Text("This entry IS a reversal — there's nothing further to undo on it.", color = TextMuted, fontSize = 13.sp)
                 alreadyReversed -> Text("This payment has already been reversed.", color = TextMuted, fontSize = 13.sp)
                 else -> {
-                    ActionButton("Refund — issue credit note", "Reverses the whole invoice and restocks any products.", Accent, AccentInk) { vm.refundInvoice(p) }
-                    // The owner reads this reason in the back office (Activity, Traceability,
-                    // Cash Flow) — reversing without saying why is not allowed.
-                    OutlinedTextField(
-                        reason, { reason = it },
-                        label = { Text("Reason for reversing (required)") },
-                        singleLine = true, modifier = Modifier.fillMaxWidth(),
-                    )
-                    ActionButton(
-                        "Reverse this payment only",
-                        if (reason.isBlank()) "Enter the reason above first." else "Undoes just this payment; the invoice becomes unpaid again.",
-                        InsetAlt, if (reason.isBlank()) TextMuted else TextPrimary,
-                        enabled = reason.isNotBlank(),
-                    ) { vm.reverseThisPayment(p, reason.trim()) }
+                    val from = payMethodOfWire(p.method)
+                    val targets = if (from != null) methodChangeTargets(from, vm.canManage) else emptyList()
+
+                    // ── change how it was paid (card declined at the terminal, etc.) ──
+                    if (targets.isNotEmpty()) {
+                        LaunchedEffect(p.id) { vm.startMethodChange(p) }
+                        val cs by vm.state.collectAsState()
+                        Text("Change payment method", color = TextPrimary, fontFamily = Condensed,
+                            fontSize = 15.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp)
+                        Text("Same amount, same bill — for a card declined at the terminal, run the new tender first.",
+                            color = TextMuted, fontSize = 12.sp)
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            targets.forEach { m ->
+                                val on = m == cs.methodChangePick
+                                Box(
+                                    Modifier.weight(1f).clip(RoundedCornerShape(10.dp))
+                                        .background(if (on) Accent else InsetAlt)
+                                        .clickable { vm.pickMethodChange(m) }
+                                        .padding(vertical = 9.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(m.label, color = if (on) AccentInk else TextPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold) }
+                            }
+                        }
+                        if (cs.methodChangePick != PayMethod.CASH) {
+                            OutlinedTextField(
+                                cs.methodChangeRef, { vm.setMethodChangeRef(it) },
+                                label = { Text(if (cs.methodChangePick == PayMethod.CHEQUE) "Cheque no. (optional)" else "New reference") },
+                                singleLine = true, modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                        val needRef = cs.methodChangePick != PayMethod.CASH &&
+                            cs.methodChangePick != PayMethod.CHEQUE && cs.methodChangeRef.isBlank()
+                        ActionButton(
+                            "Change to ${cs.methodChangePick.label}",
+                            if (needRef) "Enter the new reference first." else "Books the new tender and reverses the old one.",
+                            Accent, AccentInk, enabled = !needRef,
+                        ) { vm.confirmMethodChange() }
+                    }
+
+                    // ── reverse / refund stay owner-manager only ────────────────────
+                    if (vm.canManage) {
+                        if (targets.isNotEmpty()) Spacer(Modifier.height(4.dp))
+                        ActionButton("Refund — issue credit note", "Reverses the whole invoice and restocks any products.", Accent, AccentInk) { vm.refundInvoice(p) }
+                        // The owner reads this reason in the back office (Activity, Traceability,
+                        // Cash Flow) — reversing without saying why is not allowed.
+                        OutlinedTextField(
+                            reason, { reason = it },
+                            label = { Text("Reason for reversing (required)") },
+                            singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        )
+                        ActionButton(
+                            "Reverse this payment only",
+                            if (reason.isBlank()) "Enter the reason above first." else "Undoes just this payment; the invoice becomes unpaid again.",
+                            InsetAlt, if (reason.isBlank()) TextMuted else TextPrimary,
+                            enabled = reason.isNotBlank(),
+                        ) { vm.reverseThisPayment(p, reason.trim()) }
+                    } else if (targets.isEmpty()) {
+                        Text("Ask an owner or manager to correct this one.", color = TextMuted, fontSize = 13.sp)
+                    }
                 }
             }
             Box(
