@@ -1244,6 +1244,26 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     }
 
     /**
+     * Change a recorded payment's METHOD for the same amount on the same bill: one
+     * transaction inserts the negative mirror + the new line (nets to zero).
+     * Cashier-allowed; the server refuses a cash-SOURCE change for a non-manager.
+     */
+    suspend fun changePaymentMethod(
+        paymentId: String,
+        newMethod: String,           // cash | card | juice | bank_transfer | cheque
+        newExternalRef: String?,
+        sessionId: String?,
+        idempotencyKey: String,
+    ): PaymentDto =
+        client.postgrest.rpc("change_payment_method", buildJsonObject {
+            put("p_payment_id", paymentId)
+            put("p_new_method", newMethod)
+            if (newExternalRef != null) put("p_new_external_ref", newExternalRef) else put("p_new_external_ref", JsonNull)
+            if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
+            put("p_idempotency_key", idempotencyKey)
+        }).decodeAs()
+
+    /**
      * Full-reversal credit note against a paid/issued invoice (optional restock).
      * [stockLocationId] is where restocked units land — counter refunds pass the Shop so
      * they return to the same on-hand the sale drew from; null falls back to the tenant default.

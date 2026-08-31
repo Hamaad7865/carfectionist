@@ -633,7 +633,15 @@ git commit -m "feat(web): change a recorded payment's method from the sales page
 
 ---
 
-## Task 8: Web — recorded-payments list on the job card
+## Task 8: Web — recorded-payments list on the job card — DEFERRED (v1.1)
+
+`getJob` returns no payment rows today; adding the list means a new query, a
+`JobDetail` type change, a client component and session-role threading — real
+surface area for a path already fully covered by `/sales/[id]` (linked from the
+job). The declined-card case happens at the counter (tablet), not the job page.
+Ship this as a follow-up.
+
+<details><summary>original task</summary>
 
 **Files:**
 - Modify: `apps/web/src/lib/supabase/queries/jobs.ts`
@@ -669,6 +677,8 @@ Open a job with a paid invoice → the payment row shows "Change method" → swi
 git add apps/web/src/lib/supabase/queries/jobs.ts apps/web/src/features/jobs/JobCard.tsx
 git commit -m "feat(web): change a payment's method from the job card"
 ```
+
+</details>
 
 ---
 

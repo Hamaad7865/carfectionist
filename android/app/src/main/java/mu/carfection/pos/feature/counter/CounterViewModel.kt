@@ -123,6 +123,11 @@ data class CounterUiState(
     val listBusy: Boolean = false,
     val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
     val paymentAction: TodayPaymentDto? = null, // a tapped PAID TODAY row → reverse / refund
+    // Changing HOW a recorded payment was taken (card declined at the terminal after it
+    // was rung). methodChangeFor is the row being changed; pick/ref are the new tender.
+    val methodChangeFor: TodayPaymentDto? = null,
+    val methodChangePick: PayMethod = PayMethod.CARD,
+    val methodChangeRef: String = "",
     val notice: String? = null, // transient corrections feedback
     val oversell: OversellPrompt? = null, // adding this would drive stock negative — confirm first
     val pendingSettle: PendingSettle? = null, // a settle reached the server — basket is frozen
@@ -837,8 +842,45 @@ class CounterViewModel @Inject constructor(
     }
 
     fun openPaymentAction(p: TodayPaymentDto) { local.value = local.value.copy(paymentAction = p) }
-    fun closePaymentAction() { local.value = local.value.copy(paymentAction = null) }
+    fun closePaymentAction() { local.value = local.value.copy(paymentAction = null, methodChangeFor = null) }
     fun clearNotice() { local.value = local.value.copy(notice = null) }
+
+    // ── change a recorded payment's method (card → juice, etc.) ───────────────
+    /** Open the change-method step for [p]; no-op if there is no eligible target. */
+    fun startMethodChange(p: TodayPaymentDto) {
+        val from = payMethodOfWire(p.method) ?: return
+        val first = methodChangeTargets(from, canManage).firstOrNull() ?: return
+        local.value = local.value.copy(methodChangeFor = p, methodChangePick = first, methodChangeRef = "")
+    }
+    fun pickMethodChange(m: PayMethod) { local.value = local.value.copy(methodChangePick = m, methodChangeRef = "") }
+    fun setMethodChangeRef(t: String) { local.value = local.value.copy(methodChangeRef = t) }
+    fun cancelMethodChange() { local.value = local.value.copy(methodChangeFor = null) }
+
+    /**
+     * Book the new tender and reverse the old one — one server call, nets to zero.
+     * A card / Juice / bank change needs its reference; a cheque's is optional; cash
+     * needs none. The till is this device's open one (the RPC also resolves it).
+     */
+    fun confirmMethodChange() {
+        val p = local.value.methodChangeFor ?: return
+        val m = local.value.methodChangePick
+        val ref = local.value.methodChangeRef.trim()
+        if (m != PayMethod.CASH && m != PayMethod.CHEQUE && ref.isEmpty()) {
+            local.value = local.value.copy(notice = "Enter the new payment's reference first.")
+            return
+        }
+        val key = UUID.randomUUID().toString()
+        local.value = local.value.copy(methodChangeFor = null)
+        correction("Method changed — ${p.documents?.number ?: "invoice"}") {
+            api.changePaymentMethod(
+                paymentId = p.id,
+                newMethod = m.rpcValue ?: error("credit is not a change target"),
+                newExternalRef = ref.ifEmpty { null },
+                sessionId = local.value.till?.id,
+                idempotencyKey = key,
+            )
+        }
+    }
 
     // ── sales history: view past sales + reprint their receipts ────────────────
     fun openHistory() {
