@@ -224,6 +224,30 @@ export const voidDocument = async (sb: Client, id: string, reason: string) => {
 export const reversePayment = (sb: Client, paymentId: string, reason: string | null = null) =>
   callRpc<PaymentRow>(sb, "reverse_payment", { p_payment_id: paymentId, p_reason: reason });
 
+export interface ChangePaymentMethodArgs {
+  paymentId: string;
+  newMethod: "cash" | "card" | "juice" | "bank_transfer" | "cheque";
+  newExternalRef?: string | null;
+  /** Cash target only: what the customer handed over (rupees). Null ⇒ exact. */
+  newTendered?: number | null;
+  cashSessionId?: string | null;
+  idempotencyKey?: string | null;
+}
+
+/** Correct a recorded payment's METHOD for the same amount on the same bill:
+ *  one transaction inserts the negative mirror + the new line, nets to zero.
+ *  Cashier-allowed; the server enforces owner/manager only when changing AWAY
+ *  from cash. Not for `points`/`credit`, not for changing the amount. */
+export const changePaymentMethod = (sb: Client, a: ChangePaymentMethodArgs) =>
+  callRpc<PaymentRow>(sb, "change_payment_method", {
+    p_payment_id: a.paymentId,
+    p_new_method: a.newMethod,
+    p_new_external_ref: a.newExternalRef ?? null,
+    p_new_tendered: a.newTendered ?? null,
+    p_session_id: a.cashSessionId ?? null,
+    p_idempotency_key: a.idempotencyKey ?? null,
+  });
+
 /** Sign off the price WITHOUT putting a car on the board — same accept_quote
  *  RPC as the tablet's "signed, come back later" choice. Use convertQuoteToJob
  *  when the work starts today. */

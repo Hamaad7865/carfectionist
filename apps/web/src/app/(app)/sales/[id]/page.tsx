@@ -13,6 +13,7 @@ import * as rpc from "@/lib/supabase/rpc";
 import { btn } from "@/components/ui/button";
 import { RichContent } from "@/lib/rich/render";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
+import { methodChangeTargets } from "@/features/jobs/change-method";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
@@ -54,12 +55,47 @@ async function reversePaymentAction(formData: FormData) {
   redirect(`/sales/${documentId}`);
 }
 
+// Same negative-mirror + new-line correction as reverse_payment, but pinned to
+// the SAME amount and bill, so it is cashier-allowed. The card was declined at
+// the terminal after it had been recorded; this swaps the method for the one the
+// customer actually used. change_payment_method refuses a cash-SOURCE change for
+// a non-manager itself.
+async function changeMethodAction(formData: FormData) {
+  "use server";
+  await requireRole("owner", "manager", "cashier");
+  const paymentId = String(formData.get("paymentId") ?? "").trim();
+  const documentId = String(formData.get("documentId") ?? "").trim();
+  const newMethod = String(formData.get("newMethod") ?? "").trim() as
+    "cash" | "card" | "juice" | "bank_transfer" | "cheque";
+  const ref = String(formData.get("ref") ?? "").trim();
+  const tenderedRaw = String(formData.get("tendered") ?? "").trim();
+  const tendered = newMethod === "cash" && tenderedRaw ? Number(tenderedRaw) : null;
+  if (!paymentId || !documentId || !newMethod) return;
+  const sb = await createClient();
+  try {
+    // A sales-doc payment already has a cash_session_id; let the RPC resolve the
+    // open sibling of that till.
+    await rpc.changePaymentMethod(sb, {
+      paymentId,
+      newMethod,
+      newExternalRef: ref || null,
+      newTendered: tendered != null && Number.isFinite(tendered) ? tendered : null,
+      idempotencyKey: `sales-change-method:${paymentId}:${newMethod}`,
+    });
+  } catch (e) {
+    redirect(`/sales/${documentId}?changeError=${encodeURIComponent((e as Error).message)}`);
+  }
+  revalidatePath(`/sales/${documentId}`);
+  revalidatePath("/sales");
+  redirect(`/sales/${documentId}`);
+}
+
 export default async function DocumentDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ reverseError?: string }>;
+  searchParams: Promise<{ reverseError?: string; changeError?: string }>;
 }) {
   const { id } = await params;
   const [doc, session, sp, scheduledSends] = await Promise.all([
@@ -71,6 +107,9 @@ export default async function DocumentDetailPage({
   const canStatement = !!session && ["owner", "manager", "accountant"].includes(session.role);
   // reverse_payment is owner/manager only — same floor the RPC itself enforces.
   const canReversePayment = !!session && ["owner", "manager"].includes(session.role);
+  // change_payment_method is a pinned-amount correction — a cashier may do it
+  // (the RPC still refuses a cash-source change for a non-manager).
+  const canChangeMethod = !!session && ["owner", "manager", "cashier"].includes(session.role);
 
   // The car's journey — quotes and invoices sit inside the same five steps.
   const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
@@ -444,9 +483,9 @@ export default async function DocumentDetailPage({
               </div>
             )}
 
-            {sp.reverseError && (
+            {(sp.reverseError || sp.changeError) && (
               <div className="rounded-[13px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.06)] px-4 py-2.5 text-[12.5px] text-rose">
-                {sp.reverseError}
+                {sp.reverseError || sp.changeError}
               </div>
             )}
 
@@ -524,6 +563,52 @@ export default async function DocumentDetailPage({
                                   <Undo2 size={12} /> Confirm
                                 </button>
                               </form>
+                            </details>
+                          )}
+                          {/* Card declined at the terminal after it was recorded: swap the
+                              method, same amount, same bill. A cashier may do this — the RPC
+                              refuses a cash-source change for a non-manager. */}
+                          {canChangeMethod && !cancelled &&
+                            methodChangeTargets(p.method, { canManage: canReversePayment }).length > 0 && (
+                            <details className="mt-1">
+                              <summary className="cursor-pointer text-[11px] font-semibold text-link hover:underline">
+                                Change method
+                              </summary>
+                              <form action={changeMethodAction} className="mt-1.5 flex flex-wrap items-center gap-2">
+                                <input type="hidden" name="paymentId" value={p.id} />
+                                <input type="hidden" name="documentId" value={doc.id} />
+                                <select
+                                  name="newMethod"
+                                  required
+                                  className="rounded-[8px] border border-line bg-transparent px-2 py-1 text-[11.5px] text-body"
+                                >
+                                  {methodChangeTargets(p.method, { canManage: canReversePayment }).map((m) => (
+                                    <option key={m} value={m}>{METHOD_LABEL[m] ?? m}</option>
+                                  ))}
+                                </select>
+                                <input
+                                  type="text"
+                                  name="ref"
+                                  placeholder="New reference"
+                                  className="min-w-0 flex-1 rounded-[8px] border border-line bg-transparent px-2 py-1 text-[11.5px] text-body placeholder:text-faint"
+                                />
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  name="tendered"
+                                  placeholder="Cash received (if cash)"
+                                  className="w-32 rounded-[8px] border border-line bg-transparent px-2 py-1 text-[11.5px] text-body placeholder:text-faint"
+                                />
+                                <button
+                                  type="submit"
+                                  className="flex shrink-0 items-center gap-1 rounded-[8px] bg-link px-2.5 py-1 text-[11px] font-bold text-white"
+                                >
+                                  Confirm
+                                </button>
+                              </form>
+                              <p className="mt-1 text-[10.5px] text-faint">
+                                Same amount, same bill. Run the new tender first; enter its reference, or for cash what the customer handed over.
+                              </p>
                             </details>
                           )}
                         </li>
