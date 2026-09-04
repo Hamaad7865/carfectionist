@@ -186,9 +186,13 @@ class TillViewModel @Inject constructor(
                 // The system already knows what the drawer should hold, so fetch it NOW rather
                 // than on the way into the close dialog — the count field is on this screen.
                 sess?.id?.let { id ->
-                    runCatching { till.preClose(id) }.onSuccess { (_, expected, _) ->
-                        _s.value = _s.value.copy(expectedCash = expected)
-                    }
+                    runCatching { till.preClose(id) }
+                        .onSuccess { (_, expected, _) -> _s.value = _s.value.copy(expectedCash = expected) }
+                        // Swallowing this left the count box blank for the rest of the session:
+                        // expectedCash stays 0.00, so the effect that seeds the box never fires
+                        // again after the session-change effect clears it, and the cashier is
+                        // asked to count from nothing with no sign anything went wrong.
+                        .onFailure { _s.value = _s.value.copy(error = it.uiMessage()) }
                 }
             }
             .onFailure { _s.value = TillUiState(loading = false, error = it.uiMessage(), z = z, notice = notice) }
@@ -608,7 +612,7 @@ private fun CheckRegisterDialog(
         ) {
             Text("CHECK YOUR CASH REGISTER BEFORE CLOSING", color = TextPrimary, fontFamily = Condensed, fontSize = 20.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
             Text(
-                "Ticked payments are remitted to the bank when you validate. Anything left unticked keeps accumulating in the till.",
+                "Ticked payments are remitted to the bank when you validate — cash banks the takings and leaves the opening float in the drawer. Anything left unticked keeps accumulating in the till.",
                 color = TextSecondary, fontSize = 12.5.sp,
             )
             Spacer(Modifier.height(4.dp))
