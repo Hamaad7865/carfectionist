@@ -82,12 +82,14 @@ data class JobRow(val id: String)
  * two are read together — they must agree, and QuoteLineColumnsTest enforces it.
  */
 const val QUOTE_LINE_COLUMNS: String =
-    "product_id, title, description, description_richtext, unit_label, " +
+    "product_id, vehicle_id, title, description, description_richtext, unit_label, " +
         "qty, unit_price, discount_pct, discount_kind, discount_amount, vat_rate, line_kind, price_includes_vat"
 
 @Serializable
 data class QuoteLineDto(
     @SerialName("product_id") val productId: String? = null,
+    /** Which car this charge is for — null on a line that is not about a car. */
+    @SerialName("vehicle_id") val vehicleId: String? = null,
     val title: String,
     val description: String? = null,
     // Kept as a raw JsonElement on purpose. The tablet renders this tree and can add
@@ -295,6 +297,10 @@ data class JobServiceDetailDto(
 @Serializable data class PaidDocRefDto(val number: String? = null, val customers: JobCustomerDto? = null)
 
 // ── Checkout · sales history (view past sales + reprint) ─────────────────────
+/** Just the plate: what a grouped slip prints as its heading. */
+@Serializable
+data class SlipVehicleDto(val plate: String? = null)
+
 @Serializable
 data class SaleHistoryLineDto(
     val title: String = "",
@@ -313,6 +319,9 @@ data class SaleHistoryLineDto(
     // True: unit_price IS the typed VAT-inclusive figure (20260812000020) — print it as
     // stored; re-grossing it would put the VAT on twice.
     @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
+    // The car this charge is for, when the bill covers several — the slip groups its lines
+    // under the plate they belong to. Absent on an ordinary bill.
+    val vehicles: SlipVehicleDto? = null,
 )
 
 @Serializable

@@ -478,12 +478,25 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
                     }
                 }
                 val tt = vm.totals(s)
-                s.lines.forEachIndexed { i, l ->
-                    // The ledger's ex-VAT line amount (owner decision, 2026-08-14): the price
-                    // shows without VAT; the footer's VAT row carries the tax. The price box on
-                    // the card keeps the typed shelf figure — that is entry, not presentation.
-                    val lineTotal = tt.lineExclCents.getOrNull(i) ?: 0L
-                    LineCard(l, i, lineTotal, editable = vm.editable(s), ops = quoteLineOps(vm))
+                // One car, one flat list — exactly as it always was. Several, and the charges
+                // sit under the plate they belong to, each with its own subtotal, because that
+                // is the question the customer asks: what does MY Hilux cost.
+                s.carSections.forEach { (car, rows) ->
+                    if (s.multiCar) {
+                        CarHeading(
+                            car = car,
+                            subtotalCents = rows.sumOf { (i, _) -> tt.lineExclCents.getOrNull(i) ?: 0L },
+                            open = car != null && car.id == s.activeCarId,
+                            onClick = { car?.let { vm.showQuoteCar(it.id) } },
+                        )
+                    }
+                    rows.forEach { (i, l) ->
+                        // The ledger's ex-VAT line amount (owner decision, 2026-08-14): the price
+                        // shows without VAT; the footer's VAT row carries the tax. The price box on
+                        // the card keeps the typed shelf figure — that is entry, not presentation.
+                        val lineTotal = tt.lineExclCents.getOrNull(i) ?: 0L
+                        LineCard(l, i, lineTotal, editable = vm.editable(s), ops = quoteLineOps(vm))
+                    }
                 }
             }
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
@@ -1814,7 +1827,15 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
             if (!s.linesLoaded) {
                 Text("Loading the items…", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextMuted)
             }
-            s.lines.forEachIndexed { i, l ->
+            s.carSections.forEach { (car, rows) ->
+              if (s.multiCar) {
+                  CarHeading(
+                      car = car,
+                      subtotalCents = rows.sumOf { (i, _) -> totals.lineExclCents.getOrNull(i) ?: 0L },
+                      open = false, onClick = null,
+                  )
+              }
+              rows.forEach { (i, l) ->
                 // The ledger's ex-VAT line amount (owner decision, 2026-08-14).
                 val lineTotal = totals.lineExclCents.getOrNull(i) ?: 0L
                 val discNote = when {
@@ -1836,6 +1857,7 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
                     }
                     Text(formatMUR(lineTotal), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary)
                 }
+              }
             }
             // What they picked up while the car was in. NOT on the quotation — the quote is the
             // price they signed — but this is where the counter looks for them, so this is where
@@ -1853,6 +1875,37 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 18.sp, color = TextMuted,
         )
+    }
+}
+
+/**
+ * The plate a group of charges sits under, with that car's own subtotal.
+ *
+ * Only drawn when the quotation covers more than one car. The subtotal is ex-VAT, like
+ * every other figure on a customer document (2026-08-14) — the till slip prints the same
+ * grouping gross, because that is the basis a slip has always used.
+ */
+@Composable
+private fun CarHeading(car: QuoteCar?, subtotalCents: Long, open: Boolean, onClick: (() -> Unit)?) {
+    Row(
+        Modifier.fillMaxWidth()
+            .background(if (open) AccentSoft else InsetAlt, RoundedCornerShape(10.dp))
+            .border(if (open) 1.5.dp else 1.dp, if (open) AccentLine else Hairline, RoundedCornerShape(10.dp))
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(horizontal = 12.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp),
+    ) {
+        if (car?.plate != null) {
+            Box(Modifier.background(mu.carfection.pos.ui.theme.Plate, RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                Text(car.plate, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Color(0xFF151208))
+            }
+        }
+        Text(
+            car?.label?.ifBlank { "Vehicle" } ?: "Not for a car",
+            Modifier.weight(1f), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.5.sp,
+            color = if (open) Accent else TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Text(formatMUR(subtotalCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.5.sp, color = if (open) Accent else TextSecondary)
     }
 }
 

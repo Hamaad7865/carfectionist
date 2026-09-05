@@ -775,12 +775,22 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         discountValue: Double = 0.0, // % 0..100, or Rs (VAT-inclusive)
         // Why — required once the discount reaches into a carwash allowance (Allowance.kt).
         discountReason: String? = null,
+        /**
+         * The arrival condition reception recorded, per car: {"cars":[{vehicle_id, markers,
+         * photos}]}. Persisted on the DRAFT so the acceptance transaction stamps each car's
+         * job itself. It used to be held in memory and written afterwards, best-effort —
+         * three cars cannot ride a best-effort loop, and one dropped request lost a car's
+         * damage report. Omitted (null) leaves whatever the document already holds:
+         * save_draft preserves `intake` when the key is absent.
+         */
+        intake: kotlinx.serialization.json.JsonObject? = null,
     ): SavedDoc {
         val doc = buildJsonObject {
             if (existingId != null) put("id", existingId)
             put("doc_type", "quote")
             put("customer_id", customerId)
             if (vehicleId != null) put("vehicle_id", vehicleId) else put("vehicle_id", JsonNull)
+            if (intake != null) put("intake", intake)
             put("origin", "standalone")
             // Keys always present: the builder is authoritative for the order discount
             // (save_draft preserves them only when the keys are absent).
@@ -878,6 +888,36 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                 })
             } else put("p_signature", JsonNull)
         }).decodeAs<JobRow>().id
+
+    /**
+     * Accept a quotation covering ANY number of cars → one job per car, in one transaction.
+     *
+     * The RPC delegates a single-car quote straight back to convert_quote_to_job, so the
+     * ordinary quote takes exactly the path it always did. Idempotent: a re-tap returns the
+     * same jobs. Each job is stamped with ITS car's damage markers and before-photos from
+     * the quote's own `intake` — the server does that inside the transaction, so nothing is
+     * left to a follow-up call that might not arrive.
+     */
+    suspend fun convertQuoteToJobs(
+        quoteId: String,
+        technicianId: String? = null,
+        scheduledAt: String? = null,
+        signaturePath: String? = null,
+        signedName: String? = null,
+        agreedVia: String? = null,
+    ): List<String> =
+        client.postgrest.rpc("convert_quote_to_jobs", buildJsonObject {
+            put("p_quote_id", quoteId)
+            if (technicianId != null) put("p_technician_id", technicianId) else put("p_technician_id", JsonNull)
+            if (scheduledAt != null) put("p_scheduled_at", scheduledAt) else put("p_scheduled_at", JsonNull)
+            if (signaturePath != null || agreedVia != null) {
+                put("p_signature", buildJsonObject {
+                    if (signaturePath != null) put("path", signaturePath)
+                    if (agreedVia != null) put("via", agreedVia)
+                    if (signedName != null) put("name", signedName)
+                })
+            } else put("p_signature", JsonNull)
+        }).decodeList<JobRow>().map { it.id }
 
     // ── Writes — the shared RPCs (all invariants live server-side) ───────────
 
@@ -1058,7 +1098,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         "id, number, doc_type, status, issued_at, total_incl, vat_total, amount_paid, " +
             "customers(name, phone, email, points_balance), creator:app_users!documents_created_by_fkey(display_name), " +
             "bill_no, bill_to_brn, bill_to_vat_number, " +
-            "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat), " +
+            "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat, vehicles(plate)), " +
             "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"
 
     /** Past sales with lines + payments — the history list and its reprints. */

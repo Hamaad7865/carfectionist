@@ -89,7 +89,9 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
   if (!doc) return null;
 
   const [{ data: lines }, { data: bs }, { data: tmpl }] = await Promise.all([
-    sb.from("document_lines").select("*").eq("document_id", id).order("sort_order"),
+    // vehicles(...) rides along so a document covering several cars prints its charges
+    // under the right plate — the join is what makes the grouping possible at all.
+    sb.from("document_lines").select("*, vehicles(id, plate, make, model)").eq("document_id", id).order("sort_order"),
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).maybeSingle(),
   ]);
@@ -164,6 +166,16 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
     lines: (lines ?? []).map((l: any) => ({
       title: l.title,
       detail: l.description,
+      // Which car this charge is for. DocumentA4 draws a plate heading and a per-car
+      // subtotal only when a document actually covers more than one, so a single-car
+      // sheet is untouched.
+      vehicle: l.vehicles
+        ? {
+            id: String(l.vehicles.id),
+            plate: l.vehicles.plate ?? null,
+            label: [l.vehicles.make, l.vehicles.model].filter(Boolean).join(" ") || null,
+          }
+        : null,
       // Parsed, not cast: the tablet writes this column too, so a row can hold a
       // shape this build does not know. parseRichDoc returns null rather than
       // throwing, which would take out the print page and the emailed PDF at once.

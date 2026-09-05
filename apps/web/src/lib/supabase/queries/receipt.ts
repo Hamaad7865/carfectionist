@@ -24,6 +24,12 @@ export interface ReceiptLine {
   discountPct: number;
   /** "35%" / "Rs 50.00 off" — null when the line carries no discount. */
   discountLabel: string | null;
+  /**
+   * The plate of the car this charge is for, on a slip covering SEVERAL cars — the lines
+   * then print under a plate heading with that car's total. Null on the ordinary slip,
+   * which prints exactly as it always has.
+   */
+  plate?: string | null;
   unitExclCents: number;  // HT — the A4 ticket shows both HT and TTC
   totalExclCents: number;
   vatRate: number;
@@ -33,6 +39,8 @@ export interface ReceiptLine {
 export interface ReceiptLineRow extends DocLineRow {
   title: string;
   qty: number | string;
+  /** The joined vehicle row, when the query asked for it. */
+  vehicles?: { plate?: string | null } | null;
 }
 
 /**
@@ -58,6 +66,7 @@ export function receiptLineOf(l: ReceiptLineRow): ReceiptLine {
   return {
     qty,
     title: l.title,
+    plate: l.vehicles?.plate ?? null,
     unitInclCents: flagged ? unitStoredCents : grossCents(unitStoredCents, vatRate),
     totalInclCents: chargedIncl,
     fullInclCents: disc?.fullAmountCents ?? chargedIncl,
@@ -279,7 +288,9 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     // and names what each line saved, and both must come off the STORED discount.
     sb
       .from("document_lines")
-      .select("qty, title, unit_price, line_total_excl, line_vat, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat")
+      // vehicles(plate): a bill covering several cars groups its charges under the plate
+      // they belong to — the same grouping the A4 prints, on the same document.
+      .select("qty, title, unit_price, line_total_excl, line_vat, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat, vehicles(plate)")
       .eq("document_id", id)
       .order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),

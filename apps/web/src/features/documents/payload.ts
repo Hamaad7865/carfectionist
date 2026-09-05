@@ -13,6 +13,16 @@ const MAX_UNIT_LABEL = 24;
  */
 export const draftLineSchema = z.object({
   productId: z.string().nullable(),
+  /**
+   * Which car this charge is for. Null on an ordinary one-car document (the header
+   * says which car) and on a charge that is not about a car at all.
+   *
+   * Carried, never invented: save_draft deletes and re-inserts every line, so a
+   * payload that omits this strips the grouping off a quotation raised on the
+   * tablet the first time the back office saves it — the same way unit_label and
+   * description_richtext were once erased.
+   */
+  vehicleId: z.string().nullable().optional(),
   title: z.string(),
   // Legacy flat text. Kept for lines saved before rich content existed; for any
   // line that has a tree, this is DERIVED at the seam below and never trusted.
@@ -93,6 +103,7 @@ export function toRpcLines(lines: SaveDraftInput["lines"]): RpcDraftLine[] {
 
     return {
       product_id: l.productId,
+      vehicle_id: l.vehicleId ?? null,
       title: l.title,
       description: hasRich ? flat : (l.description ?? null),
       description_richtext: hasRich ? (l.rich ?? null) : null,

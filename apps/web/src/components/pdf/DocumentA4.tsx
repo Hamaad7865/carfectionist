@@ -1,4 +1,4 @@
-import type { CSSProperties } from "react";
+import { Fragment, type CSSProperties } from "react";
 import { amountInWordsMUR } from "@/lib/number-to-words";
 import { effectiveSections, type DocType, type SectionFlags } from "@/lib/pdf/fiscal-lock";
 import { RichContent } from "@/lib/rich/render";
@@ -28,6 +28,13 @@ export interface DocLineView {
   rateCents: number;
   amountCents: number;
   discountNote?: string | null;
+  /**
+   * The car this charge is for. Present on a document covering SEVERAL cars, where the
+   * lines group under a plate heading with a subtotal per car — that is the question the
+   * customer asks: what does my Hilux cost. Absent (or all-equal) prints the plain table
+   * exactly as a one-car document always has.
+   */
+  vehicle?: { id: string; plate: string | null; label?: string | null } | null;
 }
 
 export interface DocumentA4Props {
@@ -168,6 +175,17 @@ const s = {
   tdNo: { padding: "10px 4px 10px 14px", color: "#7a828a", verticalAlign: "top", whiteSpace: "nowrap" } as CSSProperties,
   td: { padding: "10px 12px", borderBottom: `1px solid ${HAIR}`, verticalAlign: "top" } as CSSProperties,
   tdNum: { padding: "10px 12px", borderBottom: `1px solid ${HAIR}`, textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", verticalAlign: "top" } as CSSProperties,
+  // The plate band that heads a car's charges on a multi-car document, and that car's
+  // ex-VAT subtotal on the right — the same basis as every other figure on the sheet.
+  carHeadCell: {
+    padding: "9px 12px 7px", background: "#eef1f4", borderTop: `1px solid ${HAIR}`,
+    borderBottom: `1px solid ${HAIR}`, fontWeight: 700, fontSize: "10px", letterSpacing: "0.4px",
+  } as CSSProperties,
+  carPlate: {
+    background: "#f4d03f", color: "#151208", padding: "2px 7px", borderRadius: "3px",
+    marginRight: "8px", fontFamily: "ui-monospace, monospace", letterSpacing: "0.5px",
+  } as CSSProperties,
+  carLabel: { color: "#101a24", textTransform: "uppercase" } as CSSProperties,
   lineTitle: { fontWeight: 500 } as CSSProperties,
   lineDetail: { color: MUTED, whiteSpace: "pre-wrap", marginTop: "2px", fontSize: "9.5px" } as CSSProperties,
 
@@ -211,12 +229,33 @@ function BoxLine({ label, value }: { label?: string; value: string }) {
   );
 }
 
+/** Groups by car; every line with no car shares one bucket, printed last as it sits. */
+function carKey(l: DocLineView): string {
+  return l.vehicle?.id ?? "";
+}
+
 export function DocumentA4(props: DocumentA4Props) {
   const { docType, number, issueDate, createdBy, from, billTo, lines } = props;
   const sections = effectiveSections(props.sectionConfig ?? {}, docType);
   const title = docType === "quote" ? "Quotation" : docType === "credit_note" ? "Credit Note" : "Invoice";
   const noun = title; // "Quotation From" / "Invoice For" etc.
   const terms = props.terms ?? [];
+
+  // The cars this document covers, in the order their charges appear, each with its own
+  // ex-VAT subtotal. One car (or none) means one group and no headings are drawn — an
+  // ordinary document prints exactly as it always did.
+  const groups: { key: string; plate: string | null; label: string; subtotalCents: number }[] = [];
+  for (const l of lines) {
+    const key = carKey(l);
+    const found = groups.find((g) => g.key === key);
+    if (found) found.subtotalCents += l.amountCents;
+    else groups.push({
+      key,
+      plate: l.vehicle?.plate ?? null,
+      label: l.vehicle ? (l.vehicle.label || "Vehicle") : "Other items",
+      subtotalCents: l.amountCents,
+    });
+  }
 
   const headerUrl = props.assets?.headerBannerUrl || DEFAULT_HEADER;
   const footerUrl = props.assets?.footerBannerUrl || DEFAULT_FOOTER;
@@ -289,8 +328,25 @@ export function DocumentA4(props: DocumentA4Props) {
           <tbody>
             {lines.map((l, i) => {
               const zebra = i % 2 === 1 ? { background: ZEBRA } : undefined;
+              // A heading before the first charge of each car, and only when this
+              // document actually covers more than one.
+              const heading = groups.length > 1 && (i === 0 || carKey(lines[i - 1]) !== carKey(l))
+                ? groups.find((g) => g.key === carKey(l))
+                : null;
               return (
-                <tr key={i} style={zebra}>
+                <Fragment key={i}>
+                {heading ? (
+                  <tr>
+                    <td style={s.carHeadCell} colSpan={4}>
+                      {heading.plate ? <span style={s.carPlate}>{heading.plate}</span> : null}
+                      <span style={s.carLabel}>{heading.label}</span>
+                    </td>
+                    <td style={{ ...s.carHeadCell, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                      {mur(heading.subtotalCents)}
+                    </td>
+                  </tr>
+                ) : null}
+                <tr style={zebra}>
                   <td style={{ ...s.tdNo, ...(zebra ?? {}), borderBottom: `1px solid ${HAIR}` }}>{i + 1}.</td>
                   <td style={{ ...s.td, ...(zebra ?? {}) }}>
                     <div style={s.lineTitle}>{l.title}</div>
@@ -309,6 +365,7 @@ export function DocumentA4(props: DocumentA4Props) {
                   <td style={{ ...s.tdNum, ...(zebra ?? {}) }}>{murRate(l.rateCents)}</td>
                   <td style={{ ...s.tdNum, ...(zebra ?? {}) }}>{mur(l.amountCents)}</td>
                 </tr>
+                </Fragment>
               );
             })}
           </tbody>

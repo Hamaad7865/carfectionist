@@ -1,6 +1,7 @@
 package mu.carfection.pos.core.data
 
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import mu.carfection.pos.core.database.CustomerEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -16,11 +17,19 @@ import org.junit.Test
  */
 class IntakeHandoffTest {
 
-    private fun handoff(phone: String? = "59856161", email: String? = null) = IntakeHandoff(
+    private fun car(id: String, plate: String, label: String, marks: Int = 0, photos: List<String> = emptyList()) =
+        HandoffCar(
+            vehicleId = id, plate = plate, label = label,
+            markers = JsonArray(List(marks) { JsonObject(emptyMap()) }), markerCount = marks, photoPaths = photos,
+        )
+
+    private fun handoff(
+        phone: String? = "59856161",
+        email: String? = null,
+        cars: List<HandoffCar> = listOf(car("v1", "2211 MR 23", "Hyundai Creta")),
+    ) = IntakeHandoff(
         customerId = "c1", customerName = "Lucas Lutchmoodoo",
-        customerPhone = phone, customerEmail = email,
-        vehicleId = "v1", plate = "2211 MR 23", vehLabel = "Hyundai Creta",
-        markers = JsonArray(emptyList()), markerCount = 0, photoPaths = emptyList(),
+        customerPhone = phone, customerEmail = email, cars = cars,
     )
 
     @Test
@@ -55,6 +64,37 @@ class IntakeHandoffTest {
         val created = CustomerEntity(id = "c9", name = "Vertex Motors Ltd", phone = "5800 1122", email = "accounts@vertex.mu")
         val h = handoff(phone = created.phone, email = created.email)
         assertEquals("accounts@vertex.mu", h.customerEmail)
+    }
+
+    /**
+     * Yogen drives in with three cars. That is ONE hand-over — the whole point of the change:
+     * reception ticks three, and the builder receives three, in the order they were ticked.
+     */
+    @Test
+    fun `every car ticked at reception reaches the builder, in order`() {
+        val h = handoff(cars = listOf(
+            car("v1", "2087 JL 25", "Toyota Hilux", marks = 2),
+            car("v2", "1234 AB 22", "Nissan Almera"),
+            car("v3", "9876 ZZ 19", "Suzuki Swift", marks = 1),
+        ))
+        assertEquals(listOf("v1", "v2", "v3"), h.cars.map { it.vehicleId })
+        assertEquals("2087 JL 25", h.plate)          // the first car heads the document
+        assertEquals(3, h.markerCount)               // damage notes across the whole visit
+    }
+
+    /**
+     * A one-car hand-over must read EXACTLY as it did before cars became a list — the quote
+     * builder reads plate/label/markers straight off it, and an ordinary quote is still the
+     * common case by far.
+     */
+    @Test
+    fun `one car still answers plate, label and markers as a single car did`() {
+        val h = handoff(cars = listOf(car("v9", "3344 QQ 21", "Kia Picanto", marks = 4, photos = listOf("p/1.jpg"))))
+        assertEquals("v9", h.vehicleId)
+        assertEquals("3344 QQ 21", h.plate)
+        assertEquals("Kia Picanto", h.vehLabel)
+        assertEquals(4, h.markerCount)
+        assertEquals(listOf("p/1.jpg"), h.photoPaths)
     }
 
     @Test

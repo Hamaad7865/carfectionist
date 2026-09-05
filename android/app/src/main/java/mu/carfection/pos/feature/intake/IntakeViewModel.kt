@@ -48,7 +48,10 @@ data class IntakeState(
     val nVat: String = "",
     val customer: CustomerEntity? = null,
     val vehicles: List<VehicleDto> = emptyList(),
-    val vehicle: VehicleDto? = null,
+    // Yogen brings three cars and they are one visit, not three trips to the counter:
+    // TICK the cars, and the condition below is captured per car through a plate tab.
+    val picked: List<VehicleDto> = emptyList(),
+    val activeId: String? = null,
     val addVehOpen: Boolean = false,
     val nvPlate: String = "",
     val nvMake: String = "",
@@ -56,9 +59,11 @@ data class IntakeState(
     val nvColour: String = "",
     val nvCategory: String = "",
     val markerType: DamageType = DamageType.SCRATCH,
-    val markers: List<DamageMarker> = emptyList(),
-    // intake condition photos: storage paths + signed thumbnail URLs
-    val photoPaths: List<String> = emptyList(),
+    // Condition is PER CAR — a scratch belongs to one bonnet. Keyed by vehicle id so
+    // each car's job card carries its own damage report and nobody else's.
+    val markersByCar: Map<String, List<DamageMarker>> = emptyMap(),
+    // intake condition photos: storage paths per car + signed thumbnail URLs
+    val photosByCar: Map<String, List<String>> = emptyMap(),
     val photoUrls: Map<String, String> = emptyMap(),
     val photoUploading: Boolean = false,
     val busy: Boolean = false,
@@ -69,7 +74,14 @@ data class IntakeState(
     // "Yan Toinette" and four "Lucas Lutchmoodoo", each with a made-up plate.
     val existingCustomer: CustomerEntity? = null,
     val plateTaken: mu.carfection.pos.core.network.PlateHolder? = null,
-)
+) {
+    /** The car whose tab is open. Everything in the condition panel belongs to this one. */
+    val vehicle: VehicleDto? get() = picked.firstOrNull { it.id == activeId } ?: picked.firstOrNull()
+    val markers: List<DamageMarker> get() = vehicle?.let { markersByCar[it.id] }.orEmpty()
+    val photoPaths: List<String> get() = vehicle?.let { photosByCar[it.id] }.orEmpty()
+    /** Damage notes across every ticked car — what the footer counts. */
+    val markerTotal: Int get() = picked.sumOf { markersByCar[it.id]?.size ?: 0 }
+}
 
 @HiltViewModel
 class IntakeViewModel @Inject constructor(
@@ -109,8 +121,11 @@ class IntakeViewModel @Inject constructor(
             }.onSuccess { path ->
                 val url = runCatching { api.signedPhotoUrl(path) }.getOrNull()
                 _s.update {
+                    // Files the shot against the car whose tab was open, not "the intake" —
+                    // three cars in the bay means three separate before-photo sets.
                     it.copy(
-                        photoUploading = false, photoPaths = it.photoPaths + path,
+                        photoUploading = false,
+                        photosByCar = it.photosByCar + (vehicle.id to (it.photosByCar[vehicle.id].orEmpty() + path)),
                         photoUrls = if (url != null) it.photoUrls + (path to url) else it.photoUrls,
                     )
                 }
@@ -247,18 +262,28 @@ class IntakeViewModel @Inject constructor(
             )
         }
         pickCustomer(CustomerEntity(h.customer.id, h.customer.name, h.customer.phone))
-        // pickCustomer refetches the cars; select the one they were trying to type.
-        _s.update { it.copy(vehicle = h.vehicle) }
+        // pickCustomer refetches the cars; tick the one they were trying to type.
+        _s.update { it.copy(picked = listOf(h.vehicle), activeId = h.vehicle.id) }
     }
 
     fun dismissPlateTaken() = _s.update { it.copy(plateTaken = null) }
 
     fun pickCustomer(c: CustomerEntity) {
-        _s.update { it.copy(customer = c, query = "", results = emptyList(), vehicles = emptyList(), vehicle = null) }
+        _s.update {
+            it.copy(
+                customer = c, query = "", results = emptyList(), vehicles = emptyList(),
+                picked = emptyList(), activeId = null, markersByCar = emptyMap(), photosByCar = emptyMap(),
+            )
+        }
         viewModelScope.launch { runCatching { api.fetchVehicles(c.id) }.onSuccess { vs -> _s.update { it.copy(vehicles = vs) } } }
     }
 
-    fun clearCustomer() = _s.update { it.copy(customer = null, vehicles = emptyList(), vehicle = null, addVehOpen = false) }
+    fun clearCustomer() = _s.update {
+        it.copy(
+            customer = null, vehicles = emptyList(), picked = emptyList(), activeId = null,
+            markersByCar = emptyMap(), photosByCar = emptyMap(), addVehOpen = false,
+        )
+    }
 
     fun toggleAddVeh() = _s.update { it.copy(addVehOpen = !it.addVehOpen, error = null) }
     fun setNvPlate(v: String) = _s.update { it.copy(nvPlate = v) }
@@ -277,7 +302,12 @@ class IntakeViewModel @Inject constructor(
                 val tenant = catalog.tenantId() ?: error("no tenant")
                 api.insertVehicle(NewVehicleDto(tenant, cust.id, plate, st.nvMake.trim().ifBlank { null }, st.nvModel.trim().ifBlank { null }, st.nvColour.trim().ifBlank { null }, st.nvCategory.trim().ifBlank { null }))
             }.onSuccess { v ->
-                _s.update { it.copy(vehicles = it.vehicles + v, vehicle = v, addVehOpen = false, nvPlate = "", nvMake = "", nvModel = "", nvColour = "", nvCategory = "") }
+                _s.update {
+                    it.copy(
+                        vehicles = it.vehicles + v, picked = it.picked + v, activeId = v.id,
+                        addVehOpen = false, nvPlate = "", nvMake = "", nvModel = "", nvColour = "", nvCategory = "",
+                    )
+                }
             }.onFailure { e ->
                 val dup = (e.message ?: "").contains("duplicate", true) || (e.message ?: "").contains("plate_normalized", true)
                 if (dup) {
@@ -291,11 +321,37 @@ class IntakeViewModel @Inject constructor(
         }
     }
 
-    fun pickVehicle(v: VehicleDto) = _s.update { it.copy(vehicle = v) }
+    /**
+     * Tick or untick a car. Ticking opens its tab, so the marks that follow land on the car
+     * the operator just chose. Unticking drops that car's condition record — it is not going
+     * on any job card, and keeping it would let a stray scratch reappear later.
+     */
+    fun toggleVehicle(v: VehicleDto) = _s.update {
+        if (it.picked.any { p -> p.id == v.id }) {
+            val rest = it.picked.filterNot { p -> p.id == v.id }
+            it.copy(
+                picked = rest,
+                activeId = if (it.activeId == v.id) rest.firstOrNull()?.id else it.activeId,
+                markersByCar = it.markersByCar - v.id,
+                photosByCar = it.photosByCar - v.id,
+            )
+        } else {
+            it.copy(picked = it.picked + v, activeId = v.id)
+        }
+    }
+
+    /** Switch the condition panel to another ticked car. */
+    fun showCar(id: String) = _s.update { if (it.picked.any { p -> p.id == id }) it.copy(activeId = id) else it }
+
     fun setMarkerType(t: DamageType) = _s.update { it.copy(markerType = t) }
-    fun addMarker(x: Float, y: Float) = _s.update { it.copy(markers = it.markers + DamageMarker(x, y, it.markerType.letter, it.markerType.color)) }
-    fun removeMarker(i: Int) = _s.update { it.copy(markers = it.markers.filterIndexed { j, _ -> j != i }) }
-    fun clearMarkers() = _s.update { it.copy(markers = emptyList()) }
+
+    private fun withActiveMarkers(f: (List<DamageMarker>) -> List<DamageMarker>) = _s.update { st ->
+        val id = st.vehicle?.id ?: return@update st
+        st.copy(markersByCar = st.markersByCar + (id to f(st.markersByCar[id].orEmpty())))
+    }
+    fun addMarker(x: Float, y: Float) = withActiveMarkers { it + DamageMarker(x, y, _s.value.markerType.letter, _s.value.markerType.color) }
+    fun removeMarker(i: Int) = withActiveMarkers { it.filterIndexed { j, _ -> j != i } }
+    fun clearMarkers() = withActiveMarkers { emptyList() }
 
     /**
      * Intake ends at the QUOTATION, not a job (the job is created when the quote is
@@ -306,18 +362,27 @@ class IntakeViewModel @Inject constructor(
     fun startQuotation(): Boolean {
         val st = _s.value
         val c = st.customer ?: return false
-        val v = st.vehicle ?: return false
-        val markersJson = buildJsonArray {
-            st.markers.forEach { m ->
-                add(buildJsonObject {
-                    // The shared Marker shape is PERCENT (0–100, 1dp) of the 260:520
-                    // diagram — the web renders `left: x%`. The pad captures fractions,
-                    // so scale at this seam.
-                    put("x", kotlin.math.round(m.xFrac * 1000.0) / 10.0)
-                    put("y", kotlin.math.round(m.yFrac * 1000.0) / 10.0)
-                    put("type", DamageType.entries.first { it.letter == m.letter }.label.lowercase())
-                })
-            }
+        if (st.picked.isEmpty()) return false
+        val cars = st.picked.map { v ->
+            val marks = st.markersByCar[v.id].orEmpty()
+            mu.carfection.pos.core.data.HandoffCar(
+                vehicleId = v.id, plate = v.plate,
+                label = listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" },
+                markers = buildJsonArray {
+                    marks.forEach { m ->
+                        add(buildJsonObject {
+                            // The shared Marker shape is PERCENT (0–100, 1dp) of the 260:520
+                            // diagram — the web renders `left: x%`. The pad captures fractions,
+                            // so scale at this seam.
+                            put("x", kotlin.math.round(m.xFrac * 1000.0) / 10.0)
+                            put("y", kotlin.math.round(m.yFrac * 1000.0) / 10.0)
+                            put("type", DamageType.entries.first { it.letter == m.letter }.label.lowercase())
+                        })
+                    }
+                },
+                markerCount = marks.size,
+                photoPaths = st.photosByCar[v.id].orEmpty(),
+            )
         }
         handoff.publish(
             IntakeHandoff(
@@ -325,9 +390,7 @@ class IntakeViewModel @Inject constructor(
                 // The number and email captured at reception, so the quote's WhatsApp/email
                 // fields are prefilled instead of staff retyping them off the customer's card.
                 customerPhone = c.phone, customerEmail = c.email,
-                vehicleId = v.id, plate = v.plate,
-                vehLabel = listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" },
-                markers = markersJson, markerCount = st.markers.size, photoPaths = st.photoPaths,
+                cars = cars,
             ),
         )
         _s.value = IntakeState()
@@ -338,7 +401,11 @@ class IntakeViewModel @Inject constructor(
 
     fun summary(s: IntakeState): String = when {
         s.customer == null -> "Pick a customer to begin."
-        s.vehicle == null -> "${s.customer.name} · pick a vehicle."
-        else -> "${s.customer.name} · ${s.vehicle.plate} · ${s.markers.size} damage note${if (s.markers.size == 1) "" else "s"}"
+        s.picked.isEmpty() -> "${s.customer.name} · pick a vehicle."
+        else -> {
+            val cars = if (s.picked.size == 1) s.picked.first().plate else "${s.picked.size} cars"
+            val n = s.markerTotal
+            "${s.customer.name} · $cars · $n damage note${if (n == 1) "" else "s"}"
+        }
     }
 }

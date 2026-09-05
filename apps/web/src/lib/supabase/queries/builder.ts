@@ -156,6 +156,7 @@ export interface LoadedDraft {
   comment: string;
   lines: {
     productId: string | null;
+    vehicleId: string | null;
     title: string;
     description: string;
     rich: RichDoc | null;
@@ -214,6 +215,9 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     lines: (lines ?? []).map((l: any) => ({
       productId: l.product_id,
+      // Which car the charge is for. Read back and sent again on the next save, or the
+      // back office opening a tablet quotation would flatten its grouping.
+      vehicleId: l.vehicle_id ?? null,
       title: l.title,
       description: l.description ?? "",
       rich: parseRichDoc(l.description_richtext),

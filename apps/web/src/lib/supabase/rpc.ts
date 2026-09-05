@@ -12,6 +12,8 @@ type Client = SupabaseClient<Database>;
 
 export interface RpcDraftLine {
   product_id: string | null;
+  /** Which car this charge is for; null on a line that is not about a car. */
+  vehicle_id: string | null;
   title: string;
   description: string | null;          // flat-text mirror of description_richtext
   description_richtext: RichDoc | null;

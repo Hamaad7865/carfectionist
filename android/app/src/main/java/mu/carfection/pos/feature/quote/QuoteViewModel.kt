@@ -117,6 +117,12 @@ data class QuoteLine(
      *  Set on lines added or re-priced under gross quoting; reopened old lines keep
      *  their stored net until someone actually types a new price. */
     val priceInclusive: Boolean = false,
+    /**
+     * Which car this charge is for. Null on a line that belongs to no car — a bottle of
+     * shampoo across the counter — and on every line of an ordinary one-car quote, where
+     * the document header already says which car it is.
+     */
+    val vehicleId: String? = null,
 ) {
     val unitCents: Long get() {
         val typed = (parseMoneyToCents(priceText) ?: 0L).coerceAtLeast(0)
@@ -187,6 +193,7 @@ fun storedLine(
         policyDefaults = policyDefaults,
         description = l.description,
         richJson = l.descriptionRichtext,
+        vehicleId = l.vehicleId,
         unitLabel = l.unitLabel.orEmpty(),
     )
 }
@@ -209,7 +216,13 @@ fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
     put("price_includes_vat", l.priceInclusive)
     // Only a typed-in line states one; a catalogue line leaves it to the product.
     if (l.lineKind != null) put("line_kind", l.lineKind) else put("line_kind", JsonNull)
+    // Which car the charge is for. Carried, never invented: save_draft re-inserts every
+    // line, so omitting this would strip the grouping off a quote on its next save.
+    if (l.vehicleId != null) put("vehicle_id", l.vehicleId) else put("vehicle_id", JsonNull)
 }
+
+/** A car on the quotation — the heading its charges sit under. */
+data class QuoteCar(val id: String, val plate: String?, val label: String)
 
 /** One bill raised against a quote, as the quote screen shows it. */
 data class BillRef(
@@ -282,6 +295,15 @@ data class QuoteState(
     val veh: String = "",
     val customerId: String? = null,
     val vehicleId: String? = null,
+    /**
+     * Every car this quotation covers, in the order reception ticked them.
+     *
+     * One car is the ordinary quote and nothing on screen changes. Two or more and the
+     * lines group under a plate heading, each car gets its own subtotal, and accepting
+     * opens one job card per car — [activeCarId] is the section a new line lands in.
+     */
+    val cars: List<QuoteCar> = emptyList(),
+    val activeCarId: String? = null,
     // ── a quote started from nothing (no intake) ──────────────────────────────
     // Reception raises quotes over the phone and for walk-ins who are not dropping the car
     // off, so the builder has to be able to pick its own customer and car.
@@ -427,7 +449,27 @@ data class QuoteState(
      *  same reason the web's askOwner() calls doSave() first. Only used for target="quote";
      *  the bill already has a real id by the time it can be opened at all. */
     val askOwnerBusy: Boolean = false,
-)
+) {
+    /** True when this quotation covers more than one car — the only time anything groups. */
+    val multiCar: Boolean get() = cars.size > 1
+
+    /**
+     * The car a NEW line belongs to. Null on a one-car quote: the document header already
+     * says which car it is, so an ordinary quotation saves exactly the lines it always did.
+     */
+    val lineCarId: String? get() = if (multiCar) (activeCarId ?: cars.firstOrNull()?.id) else null
+
+    /** Lines in car order, as they group on screen and on the printed document. */
+    val carSections: List<Pair<QuoteCar?, List<Pair<Int, QuoteLine>>>> get() {
+        val indexed = lines.withIndex().map { (i, l) -> i to l }
+        if (!multiCar) return listOf(null to indexed)
+        val byCar = cars.map { c -> c as QuoteCar? to indexed.filter { (_, l) -> l.vehicleId == c.id } }
+        // Charges that belong to no car — a bottle off the shelf — sit unheaded at the end,
+        // exactly where they print.
+        val loose = indexed.filter { (_, l) -> l.vehicleId == null || cars.none { c -> c.id == l.vehicleId } }
+        return if (loose.isEmpty()) byCar else byCar + listOf(null to loose)
+    }
+}
 
 /** A quote whose car was handed over — or whose job was CANCELLED — is finished
  *  business, off the working list. (Cancelled used to linger here forever.) */
@@ -549,6 +591,10 @@ class QuoteViewModel @Inject constructor(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
             who = h.customerName, vehPlate = h.plate, veh = h.vehLabel,
             customerId = h.customerId, vehicleId = h.vehicleId,
+            // Every car Yogen drove in with, in the order they were ticked. The first is
+            // the open section, so the first thing priced lands on the first car.
+            cars = h.cars.map { c -> QuoteCar(c.vehicleId, c.plate, c.label) },
+            activeCarId = h.cars.first().vehicleId,
             lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null,
             // A deposit % or time estimate picked on the PREVIOUS quote's accept panel must
             // not ride into this fresh one — it would raise a deposit invoice and stamp a job
@@ -666,6 +712,7 @@ class QuoteViewModel @Inject constructor(
         it.copy(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
             who = "", vehPlate = null, veh = "", customerId = null, vehicleId = null,
+            cars = emptyList(), activeCarId = null,
             lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null,
             estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT,
             depositAmtText = "", depositPending = false,
@@ -723,8 +770,35 @@ class QuoteViewModel @Inject constructor(
         it.copy(
             vehicleId = v?.id, vehPlate = v?.plate,
             veh = listOfNotNull(v?.make, v?.model).joinToString(" "),
+            cars = if (v == null) emptyList() else listOf(QuoteCar(v.id, v.plate, listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" })),
+            activeCarId = v?.id,
             pickerOpen = false,
         )
+    }
+
+    /**
+     * Another of this customer's cars onto the same quotation — the walk-in equivalent of
+     * ticking three at reception. One quote, one signature, one bill; a job card each.
+     */
+    fun addQuoteCar(v: mu.carfection.pos.core.network.VehicleDto) = _s.update { st ->
+        if (!editable(st) || st.cars.any { it.id == v.id }) return@update st.copy(pickerOpen = false)
+        val car = QuoteCar(v.id, v.plate, listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" })
+        // The first car has to be stamped onto the lines already typed, or they would look
+        // like charges belonging to nobody the moment a second car appears.
+        val first = st.cars.firstOrNull()?.id ?: st.vehicleId
+        st.copy(
+            cars = st.cars.ifEmpty { listOfNotNull(first?.let { QuoteCar(it, st.vehPlate, st.veh) }) } + car,
+            lines = if (st.cars.size <= 1 && first != null) st.lines.map { l -> if (l.vehicleId == null) l.copy(vehicleId = first) else l } else st.lines,
+            activeCarId = v.id, pickerOpen = false,
+        )
+    }
+
+    /** Open another car's section — where the next line will land. */
+    fun showQuoteCar(id: String) = _s.update { if (it.cars.any { c -> c.id == id }) it.copy(activeCarId = id) else it }
+
+    /** Move one charge to another car (or to none). */
+    fun setLineCar(i: Int, vehicleId: String?) = _s.update { st ->
+        if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(vehicleId = vehicleId) else l })
     }
 
     /** Send (or re-send) a saved quotation, any time after it was raised. */
@@ -748,6 +822,9 @@ class QuoteViewModel @Inject constructor(
                 customerEmail = q.customers?.email, customerPhone = q.customers?.phone,
                 veh = listOfNotNull(q.vehicles?.make, q.vehicles?.model).joinToString(" "),
                 customerId = q.customerId, vehicleId = q.vehicleId,
+                // Cleared here and rebuilt from THIS quote's lines below — carrying the last
+                // quote's cars over would head another customer's charges with their plate.
+                cars = emptyList(), activeCarId = null,
                 // The saved order discount comes back into the basket controls.
                 basketMode = if (q.discountKind == "amount") DiscountMode.AMT else DiscountMode.PCT,
                 basketText = when {
@@ -783,6 +860,22 @@ class QuoteViewModel @Inject constructor(
                 .onSuccess { ls ->
                     _s.update { st ->
                         st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat, st.products, st.carwashPct, st.policyDefaults) })
+                    }
+                    // Which cars this quotation covers is READ BACK from the lines, never
+                    // stored twice: the lines are the record, so a quote reopened on the
+                    // other tablet groups exactly as it was written.
+                    val carIds = ls.mapNotNull { it.vehicleId }.distinct()
+                    if (carIds.size > 1) {
+                        val known = q.customerId?.let { cid -> runCatching { api.fetchVehicles(cid) }.getOrNull() }.orEmpty()
+                        _s.update { st ->
+                            st.copy(
+                                cars = carIds.map { id ->
+                                    val v = known.firstOrNull { it.id == id }
+                                    QuoteCar(id, v?.plate, listOfNotNull(v?.make, v?.model).joinToString(" ").ifBlank { "Vehicle" })
+                                },
+                                activeCarId = st.activeCarId ?: carIds.first(),
+                            )
+                        }
                     }
                 }
                 .onFailure { e -> _s.update { it.copy(error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})") } }
@@ -834,9 +927,13 @@ class QuoteViewModel @Inject constructor(
 
     fun addProduct(p: ProductEntity) = _s.update { st ->
         if (!editable(st)) return@update st
-        val i = st.lines.indexOfFirst { it.productId == p.id }
+        // Same product, DIFFERENT car, is a different charge: a wash on the Hilux must not
+        // bump the quantity of the wash on the Swift. Only merge within one car's section.
+        val car = st.lineCarId
+        val i = st.lines.indexOfFirst { it.productId == p.id && it.vehicleId == car }
         val lines = if (i >= 0) st.lines.mapIndexed { j, l -> if (j == i) l.copy(qty = l.qty + 1) else l }
         else st.lines + quoteLine(p.id, p.name, p.sellingPriceCents, p.vatRatePct, gross = st.pricesInclVat, discountPolicy = policyOf(p.discountPolicy, p.kind, st.policyDefaults), carwashPct = st.carwashPct, policyDefaults = st.policyDefaults, priceInclusive = p.priceInclusive)
+            .copy(vehicleId = car)
         st.copy(lines = lines)
     }
 
@@ -856,6 +953,7 @@ class QuoteViewModel @Inject constructor(
                 discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
                 carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
                 priceInclusive = st.pricesInclVat,
+                vehicleId = st.lineCarId,
             ),
         )
     }
@@ -1036,7 +1134,7 @@ class QuoteViewModel @Inject constructor(
         val cid = s.customerId ?: return
         _s.update { it.copy(askOwnerBusy = true) }
         viewModelScope.launch {
-            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason) }
+            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)) }
                 .onSuccess { d ->
                     _s.update { it.copy(askOwnerBusy = false, quoteId = d.id, savedRef = d.number ?: it.savedRef) }
                     openOverride("quote")
@@ -1159,8 +1257,11 @@ class QuoteViewModel @Inject constructor(
                     ),
                 )
             }.onSuccess { v ->
+                val had = _s.value.cars.isNotEmpty()
                 _s.update { it.copy(busy = false, newVehOpen = false, pickVehicles = it.pickVehicles + v) }
-                pickQuoteVehicle(v)
+                // A car added to a quotation that already covers one JOINS it, rather than
+                // replacing it — otherwise adding Yogen's third car would drop the first two.
+                if (had) addQuoteCar(v) else pickQuoteVehicle(v)
             }.onFailure { e ->
                 // Name the holder rather than dead-ending on "already exists" — that is what
                 // drove staff to invent placeholder plates in the first place.
@@ -1459,6 +1560,29 @@ class QuoteViewModel @Inject constructor(
         s.lines.forEachIndexed { i, l -> add(quoteLineJson(l, i)) }
     }
 
+    /**
+     * What reception recorded, per car, as `documents.intake` holds it:
+     * {"cars":[{vehicle_id, markers, photos}]}.
+     *
+     * Saved onto the DRAFT so the acceptance transaction stamps each car's job itself.
+     * Null when this quote came from no intake — save_draft then preserves whatever the
+     * document already holds instead of blanking it.
+     */
+    private fun intakeJson(s: QuoteState): JsonObject? {
+        val h = s.intake ?: return null
+        return buildJsonObject {
+            put("cars", buildJsonArray {
+                h.cars.forEach { c ->
+                    add(buildJsonObject {
+                        put("vehicle_id", c.vehicleId)
+                        put("markers", c.markers)
+                        put("photos", buildJsonArray { c.photoPaths.forEach { p -> add(buildJsonObject { put("path", p) }) } })
+                    })
+                }
+            })
+        }
+    }
+
     fun askDelete() = _s.update { it.copy(confirmDelete = true, error = null) }
     fun cancelDelete() = _s.update { it.copy(confirmDelete = false) }
 
@@ -1509,7 +1633,7 @@ class QuoteViewModel @Inject constructor(
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason) }
+            runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)) }
                 .onSuccess { d -> _s.update { it.copy(busy = false, quoteId = d.id, savedRef = d.number ?: "Draft saved") } }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
@@ -1538,7 +1662,7 @@ class QuoteViewModel @Inject constructor(
                 // quote is frozen — save_draft refuses "cannot edit an issued document" —
                 // so it converts as-is; the RPC is idempotent and hands back the same job.
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason).id
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 // Signed, but the work is not starting today — no job, no card on the board.
                 // "Create job" on this quote raises it whenever the customer comes back.
@@ -1580,17 +1704,25 @@ class QuoteViewModel @Inject constructor(
                     loadQuotes()
                     return@runCatching Triple(quoteId, null, null)
                 }
-                val jobId = api.convertQuoteToJob(quoteId, s.crew.firstOrNull(), signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" }, agreedVia = s.agreedVia)
-                // Book the car in, with how long it should take. Safe to retry: the conversion
-                // is idempotent, so a failed schedule write simply re-runs against the same job.
-                api.setJobSchedule(jobId, scheduledIso(s), s.estimateMinutes)
+                // ONE JOB PER CAR. A quote covering one car returns one job, from the very
+                // same path it always took — the RPC delegates it. Yogen's three come back as
+                // three cards, each already carrying its own damage report and photos, stamped
+                // inside the acceptance transaction rather than by a follow-up call.
+                val jobIds = api.convertQuoteToJobs(quoteId, s.crew.firstOrNull(), signaturePath = sigPath, signedName = s.who.takeUnless { it.isBlank() || it == "—" }, agreedVia = s.agreedVia)
+                val jobId = jobIds.firstOrNull() ?: error("The quote was accepted but no job came back")
+                // Book the cars in, with how long they should take. Safe to retry: the
+                // conversion is idempotent, so a failed schedule write re-runs against the
+                // same jobs.
+                jobIds.forEach { id -> runCatching { api.setJobSchedule(id, scheduledIso(s), s.estimateMinutes) } }
 
-                // convert_quote_to_job set the LEAD; everyone else picked on the accept panel
-                // goes into job_technicians. Best-effort per person: a crew member failing to
-                // attach must not fail an accepted quote that already has its job.
+                // convert_quote_to_jobs set the LEAD on each; everyone else picked on the accept
+                // panel goes into job_technicians. Best-effort per person: a crew member failing
+                // to attach must not fail an accepted quote that already has its jobs.
                 catalog.tenantId()?.let { tenant ->
-                    s.crew.drop(1).forEach { uid ->
-                        runCatching { api.addJobTechnician(tenant, jobId, uid) }
+                    jobIds.forEach { id ->
+                        s.crew.drop(1).forEach { uid ->
+                            runCatching { api.addJobTechnician(tenant, id, uid) }
+                        }
                     }
                 }
 
@@ -1608,23 +1740,12 @@ class QuoteViewModel @Inject constructor(
 
                 Triple(quoteId, jobId, depositInvoice)
             }.onSuccess { (quoteId, jobId, depositInvoice) ->
-                // Stamp what reception recorded onto the new job — best-effort; the
-                // job exists either way and the board still opens it.
-                // Only when a job was actually created. Accepting without starting the work
-                // leaves the condition record on the quote; it lands on the job when one is
-                // raised later.
-                val stampOn = jobId
-                if (stampOn != null) s.intake?.let { h ->
-                    viewModelScope.launch {
-                        if (h.markerCount > 0) runCatching { api.setJobDamageMarkers(stampOn, h.markers) }
-                        h.photoPaths.forEach { p ->
-                            runCatching {
-                                val tenant = catalog.tenantId() ?: return@runCatching
-                                api.insertJobPhotoRecord(tenant, stampOn, p, "before")
-                            }
-                        }
-                    }
-                }
+                // The condition record is NOT stamped here any more. It rides on the quote
+                // (save_draft → documents.intake) and convert_quote_to_jobs writes each car's
+                // markers and photos onto that car's job inside the acceptance transaction.
+                // This used to be a best-effort follow-up call: with one car a dropped request
+                // silently lost the damage report, and with three there was no way to say which
+                // car's report was lost. One writer, one transaction.
                 // Hand the bill to Checkout with the deposit already dialled in. The cashier
                 // still presses the button — the customer's money is theirs to take, not ours.
                 // On a quotation tablet there is no Checkout: the invoice is raised all the
@@ -1662,7 +1783,7 @@ class QuoteViewModel @Inject constructor(
             runCatching {
                 // same freeze rule as accept: only drafts can be re-saved
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason).id
+                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val draft = api.convertQuoteToInvoice(quoteId)
                 // Already issued (by the board, say) — nothing to add to, hand it back as it stands.
@@ -1746,6 +1867,7 @@ class QuoteViewModel @Inject constructor(
                 discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
                 carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
                 priceInclusive = st.pricesInclVat,
+                vehicleId = st.lineCarId,
             ),
         )
     }
@@ -1946,7 +2068,7 @@ class QuoteViewModel @Inject constructor(
         _s.update { it.copy(sendBusy = true, sendError = null, sendDone = null) }
         viewModelScope.launch {
             val saved = runCatching {
-                if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason).id
+                if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                 else s.quoteId ?: error("This quote hasn't been saved yet")
             }.getOrElse { e ->
                 _s.update { it.copy(sendBusy = false, sendError = e.uiMessage()) }

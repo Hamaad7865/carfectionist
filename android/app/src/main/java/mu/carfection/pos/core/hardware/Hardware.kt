@@ -66,6 +66,13 @@ data class ReceiptLine(
     val grossInclCents: Long = inclCents,
     /** Set only for a percentage discount, so the slip can say "Discount 35.0% / 608.30". */
     val discountPct: Double = 0.0,
+    /**
+     * The plate of the car this charge is for, on a slip covering SEVERAL cars — the lines
+     * then print under a plate heading with that car's total. Null on the ordinary slip,
+     * which prints exactly as it always has. Mirrors ReceiptLine.plate on the web
+     * (queries/receipt.ts): the customer's paper and the emailed copy are one document.
+     */
+    val plate: String? = null,
 ) {
     /** What this line saved the customer, VAT-inclusive. 0 = print no discount sub-lines. */
     val discountInclCents: Long get() = (grossInclCents - inclCents).coerceAtLeast(0)
@@ -283,7 +290,17 @@ object ReceiptText {
         val nameW = (w - qtyW - numW * 2).coerceAtLeast(6)
         fun itemsTable(lines: List<ReceiptLine>) {
             appendLine("Qty ".take(qtyW).padEnd(qtyW) + "Designation".take(nameW).padEnd(nameW) + "UP".padStart(numW) + "Total".padStart(numW))
-            lines.forEach { l ->
+            // One heading per car when the bill covers more than one. Gross figures here,
+            // ex-VAT on the A4 — each surface keeps the basis it has always printed.
+            val plates = lines.map { it.plate }.distinct()
+            var lastPlate: String? = null
+            lines.forEachIndexed { i, l ->
+                if (plates.size > 1 && (i == 0 || l.plate != lastPlate)) {
+                    val carTotal = lines.filter { it.plate == l.plate }.sumOf { it.inclCents }
+                    if (i > 0) appendLine("")
+                    appendLine(bold((l.plate ?: "Other items").take(w - numW).padEnd(w - numW) + plain(carTotal).padStart(numW)))
+                }
+                lastPlate = l.plate
                 // The item itself carries the weight; its discount sub-lines stay light, so the
                 // eye lands on what was bought and what it cost — as on the studio's own slip.
                 appendLine(

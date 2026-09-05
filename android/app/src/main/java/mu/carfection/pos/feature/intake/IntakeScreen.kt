@@ -89,7 +89,7 @@ fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltView
         // title row
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("RECEPTION · INTAKE", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
-            Text("Customer → vehicle → condition → quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+            Text("Customer → cars → condition → quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
         }
 
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -106,13 +106,19 @@ fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltView
         // footer
         Row(Modifier.fillMaxWidth().card().padding(start = 18.dp, top = 11.dp, end = 12.dp, bottom = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
             Text(viewModel.summary(s), Modifier.weight(1f), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            val ready = s.customer != null && s.vehicle != null && !s.photoUploading
+            val ready = s.customer != null && s.picked.isNotEmpty() && !s.photoUploading
             Box(
                 Modifier.height(54.dp).background(if (ready) Accent else InsetAlt, RoundedCornerShape(13.dp))
                     .clickable(enabled = ready) { if (viewModel.startQuotation()) onStartQuote() }
                     .padding(horizontal = 30.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text("Start quotation →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.5.sp, letterSpacing = 0.3.sp, color = if (ready) AccentInk else TextMuted) }
+            ) {
+                Text(
+                    if (s.picked.size > 1) "Start quotation · ${s.picked.size} cars →" else "Start quotation →",
+                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.5.sp, letterSpacing = 0.3.sp,
+                    color = if (ready) AccentInk else TextMuted,
+                )
+            }
         }
     }
 }
@@ -203,13 +209,20 @@ private fun VehicleCard(s: IntakeState, vm: IntakeViewModel) {
     val enabled = s.customer != null
     Column(Modifier.fillMaxWidth().card().padding(horizontal = 16.dp, vertical = 14.dp).alpha(if (enabled) 1f else 0.5f), verticalArrangement = Arrangement.spacedBy(11.dp)) {
         Row(Modifier.fillMaxWidth().height(34.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text("VEHICLE", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = secLabel, letterSpacing = 1.6.sp, color = TextMuted)
+            Text("VEHICLES", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = secLabel, letterSpacing = 1.6.sp, color = TextMuted)
             Spacer(Modifier.weight(1f))
             if (enabled && !s.addVehOpen) OutlineBtn("+ Add vehicle") { vm.toggleAddVeh() }
         }
+        // TICK the cars — one customer, as many cars as they drove in with. Ticking a car
+        // also opens its tab in the condition panel, so the marks that follow land on it.
         s.vehicles.forEach { v ->
-            val sel = v.id == s.vehicle?.id
-            Row(Modifier.fillMaxWidth().background(if (sel) AccentSoft else Color(0xFFF1F4F7), RoundedCornerShape(12.dp)).border(if (sel) 1.5.dp else 1.dp, if (sel) AccentLine else Color(0x12101A24), RoundedCornerShape(12.dp)).clickable(enabled = enabled) { vm.pickVehicle(v) }.padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            val sel = s.picked.any { it.id == v.id }
+            Row(Modifier.fillMaxWidth().background(if (sel) AccentSoft else Color(0xFFF1F4F7), RoundedCornerShape(12.dp)).border(if (sel) 1.5.dp else 1.dp, if (sel) AccentLine else Color(0x12101A24), RoundedCornerShape(12.dp)).clickable(enabled = enabled) { vm.toggleVehicle(v) }.padding(horizontal = 12.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(
+                    Modifier.size(22.dp).background(if (sel) Accent else Color.Transparent, RoundedCornerShape(6.dp))
+                        .border(if (sel) 0.dp else 1.5.dp, if (sel) Color.Transparent else Color(0x35101A24), RoundedCornerShape(6.dp)),
+                    contentAlignment = Alignment.Center,
+                ) { if (sel) Text("✓", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AccentInk) }
                 Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) { Text(v.plate, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, letterSpacing = 0.5.sp, color = Color(0xFF151208)) }
                 Text(listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" }, Modifier.weight(1f), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 v.colour?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted) }
@@ -274,6 +287,26 @@ private fun ConditionCard(s: IntakeState, vm: IntakeViewModel, modifier: Modifie
                 Spacer(Modifier.width(8.dp))
             }
             CountBadge("${s.markers.size} marked")
+        }
+        // One tab per ticked car. The diagram, the photos and the count below all belong to
+        // the car on the open tab — three cars in the bay is three condition reports, not one.
+        if (s.picked.size > 1) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                s.picked.forEach { v ->
+                    val open = v.id == s.vehicle?.id
+                    val n = s.markersByCar[v.id]?.size ?: 0
+                    Row(
+                        Modifier.height(36.dp)
+                            .background(if (open) AccentSoft else InsetAlt, RoundedCornerShape(9.dp))
+                            .border(if (open) 1.5.dp else 1.dp, if (open) AccentLine else Hairline, RoundedCornerShape(9.dp))
+                            .clickable { vm.showCar(v.id) }.padding(horizontal = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        Text(v.plate, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = if (open) Accent else TextSecondary)
+                        if (n > 0) Text("$n", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, color = if (open) Accent else TextMuted)
+                    }
+                }
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             DamageType.entries.forEach { t ->

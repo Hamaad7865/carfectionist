@@ -48,6 +48,7 @@ private fun receiptLineOf(l: SaleHistoryLineDto): ReceiptLine {
     return ReceiptLine(
         title = l.title,
         qty = l.qty,
+        plate = l.vehicles?.plate,
         inclCents = chargedIncl,
         unitInclCents = if (l.priceIncludesVat) unit else grossCents(unit, rate),
         grossInclCents = fullIncl,

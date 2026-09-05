@@ -291,7 +291,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     // 1000.00. Squashing it to a 2dp net (869.57) re-grossed a cent off — the
     // 1000.01 the owner reported (20260812000020).
     // No product to ask, so the row's own Service/Product control decides the allowance too.
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: typed, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, vehicleId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: typed, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -524,7 +524,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                           // A price_includes_vat product carries the EXACT gross the owner typed
                           // (20260812000030); shelfCents shows it verbatim instead of re-grossing a
                           // net, so its 9,900 dash cam lands on 9,900.00, not 9,900.01.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat), priceInclusive: p.priceIncludesVat || ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, vehicleId: null, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat), priceInclusive: p.priceIncludesVat || ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"

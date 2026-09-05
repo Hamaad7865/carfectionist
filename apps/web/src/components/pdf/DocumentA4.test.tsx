@@ -201,3 +201,55 @@ describe("DocumentA4 — a line that explains itself", () => {
     expect(html).toContain("table { page-break-inside: avoid; }");
   });
 });
+
+/**
+ * Yogen brings three cars. He signs ONE quotation and pays ONE bill, but the question he
+ * asks at the counter is "what does my Hilux cost" — so the charges group under the plate
+ * they belong to, each with that car's own subtotal.
+ */
+describe("DocumentA4 — one document, several cars", () => {
+  const hilux = { id: "v1", plate: "2087 JL 25", label: "Toyota Hilux" };
+  const swift = { id: "v2", plate: "9876 ZZ 19", label: "Suzuki Swift" };
+  const multi: DocumentA4Props = {
+    ...base,
+    lines: [
+      { title: "Full detail", qty: 1, rateCents: 500000, amountCents: 500000, vehicle: hilux },
+      { title: "Wax", qty: 1, rateCents: 100000, amountCents: 100000, vehicle: hilux },
+      { title: "Interior clean", qty: 1, rateCents: 250000, amountCents: 250000, vehicle: swift },
+      { title: "Air freshener", qty: 1, rateCents: 20000, amountCents: 20000 },
+    ],
+    subtotalCents: 870000,
+    vatCents: 130500,
+    totalCents: 1000500,
+  };
+  const html = renderToStaticMarkup(<DocumentA4 {...multi} />);
+
+  it("heads each car's charges with its plate", () => {
+    expect(html).toContain("2087 JL 25");
+    expect(html).toContain("9876 ZZ 19");
+    expect(html).toContain("Toyota Hilux");
+  });
+
+  it("subtotals each car ex-VAT — the basis every other figure on the sheet uses", () => {
+    // Hilux: 5,000 + 1,000. Swift: 2,500. Neither is the document total.
+    expect(html).toContain("6,000.00");
+    expect(html).toContain("2,500.00");
+  });
+
+  it("puts charges that belong to no car under their own heading, last", () => {
+    expect(html).toContain("Other items");
+    expect(html.indexOf("Other items")).toBeGreaterThan(html.indexOf("9876 ZZ 19"));
+  });
+
+  it("the grand total is still the document's own — grouping is presentation, not money", () => {
+    expect(html).toContain("10,005.00");
+  });
+
+  it("a one-car document draws no headings at all", () => {
+    const one = renderToStaticMarkup(
+      <DocumentA4 {...base} lines={base.lines.map((l) => ({ ...l, vehicle: hilux }))} />,
+    );
+    expect(one).not.toContain("2087 JL 25");
+    expect(one).not.toContain("Other items");
+  });
+});

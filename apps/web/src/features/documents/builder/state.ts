@@ -6,6 +6,11 @@ import type { RichDoc } from "@/lib/rich/types";
 export interface BuilderLine {
   key: string;
   productId: string | null; // null = ad-hoc typed line
+  /**
+   * Which car this charge is for, on a document covering more than one. Null on the
+   * ordinary single-car document, where the header already says which car it is.
+   */
+  vehicleId: string | null;
   title: string;
   /** Flat text from a row saved before rich content existed. Read-only now. */
   description: string;
@@ -75,6 +80,7 @@ export function newKey(): string {
 export function toSaveDraftLines(lines: BuilderLine[]) {
   return lines.map((l) => ({
     productId: l.productId,
+    vehicleId: l.vehicleId,
     title: l.title,
     description: l.description || null,
     rich: l.rich,
@@ -93,7 +99,7 @@ export function toSaveDraftLines(lines: BuilderLine[]) {
 export function blankLine(): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.
-  return { key: newKey(), productId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, "service"), vatRatePct: 15, lineKind: "service", priceInclusive: false };
+  return { key: newKey(), productId: null, vehicleId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, "service"), vatRatePct: 15, lineKind: "service", priceInclusive: false };
 }
 
 export type BuilderAction =

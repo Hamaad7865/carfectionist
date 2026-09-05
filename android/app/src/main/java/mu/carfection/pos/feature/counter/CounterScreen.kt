@@ -2186,7 +2186,19 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
                 Text("UP", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
                 Text("Total", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
             }
-            lines.forEach { l ->
+            // The same per-car grouping the printed slip and the web card use — the paper in
+            // the customer's hand and the copy in their inbox are one document.
+            val plates = lines.map { it.plate }.distinct()
+            lines.forEachIndexed { i, l ->
+                if (plates.size > 1 && (i == 0 || lines[i - 1].plate != l.plate)) {
+                    Row(Modifier.fillMaxWidth().padding(top = if (i == 0) 0.dp else 5.dp, bottom = 1.dp)) {
+                        Text(l.plate ?: "Other items", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, modifier = Modifier.weight(1f))
+                        Text(
+                            plainSlip(lines.filter { it.plate == l.plate }.sumOf { it.inclCents }),
+                            color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.End,
+                        )
+                    }
+                }
                 Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
                     Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.width(24.dp))
                     Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))

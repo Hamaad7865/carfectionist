@@ -138,7 +138,7 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
   // which renders as a silently empty list rather than an error.
   // fetchAllRows pages past PostgREST's 1000-row cap — a "find any job" feature
   // that quietly stops at row 1000 is worse than no feature.
-  const [jobs, customers, vehicles, users, timers, linkedDocs] = await Promise.all([
+  const [jobs, customers, vehicles, users, timers, linkedDocs, docJobs] = await Promise.all([
     fetchAllRows<Record<string, unknown>>(() =>
       scopeJobs(sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, cancelled_at, cancel_reason, paused_at, paused_ms, source_quote_id")),
     ),
@@ -151,6 +151,12 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
     // carry it as well) — which is exactly why the doc_type filter below matters.
     fetchAllRows<RawDoc & { job_id: string; source_document_id: string | null }>(() =>
       sb.from("documents").select(DOC_COLS).not("job_id", "is", null),
+    ),
+    // One document can cover SEVERAL jobs — a bill for the three cars Yogen brought in.
+    // documents.job_id names only the first of them, so without this the other two cars
+    // read as never invoiced on the board while their money is sitting on one bill.
+    fetchAllRows<{ document_id: string; job_id: string }>(() =>
+      sb.from("document_jobs").select("document_id, job_id"),
     ),
   ]);
 
@@ -167,6 +173,13 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
   const docsOf = (jobId: string): RawDoc[] => [...(byJob.get(jobId)?.values() ?? [])];
 
   for (const d of linkedDocs) add(d.job_id, d);
+
+  // Every other job the same documents cover.
+  const docById = new Map(linkedDocs.map((d) => [d.id, d] as const));
+  for (const l of docJobs) {
+    const d = docById.get(l.document_id);
+    if (d) add(l.job_id, d);
+  }
 
   // A job's source quote is normally among the linked docs (convert_quote_to_job stamps
   // job_id on it). An older job's quote may not be — fetch the stragglers by id so the

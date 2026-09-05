@@ -95,6 +95,7 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     if (!prod) throw new Error("product not found");
     return {
       product_id: l.productId,
+      vehicle_id: null, // a counter sale is not about a car
       title: prod.name as string,
       // A counter sale is a product off the shelf rung up at the till — there is no
       // authoring surface here and never will be, so both stay null deliberately.
