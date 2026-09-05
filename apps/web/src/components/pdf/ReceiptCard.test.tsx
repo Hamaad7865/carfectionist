@@ -274,3 +274,47 @@ describe("lines the slip must never print", () => {
     expect(render({ logoUrl: "https://example.test/logo.png" })).not.toContain("CARFECTIONIST</div>");
   });
 });
+
+/**
+ * One bill, three cars — the same grouping the tablet's printed slip uses, so the paper in
+ * the customer's hand and the copy in their inbox stay one document (receipt parity).
+ */
+describe("a bill covering several cars groups its charges by plate", () => {
+  const threeCars = () =>
+    render({
+      lines: [
+        line({ title: "4G LTE CAR DASH CAM", unitInclCents: 990001, fullInclCents: 990001, totalInclCents: 990001, plate: "8978 JZ 20" }),
+        line({ title: "Labor", unitInclCents: 20000, fullInclCents: 20000, totalInclCents: 20000, plate: "8978 JZ 20" }),
+        line({ title: "BODY POLISH SUV", unitInclCents: 880000, fullInclCents: 880000, totalInclCents: 880000, plate: "1727 JZ 19" }),
+        line({ title: "CERAMIC PACK SEDAN", unitInclCents: 198000, fullInclCents: 198000, totalInclCents: 198000, plate: "7890 JK 22" }),
+      ],
+      subtotalInclCents: 2088001, discountInclCents: 0, totalCents: 2088001, vatCents: 272348,
+    });
+
+  it("names every car", () => {
+    const html = threeCars();
+    for (const p of ["8978 JZ 20", "1727 JZ 19", "7890 JK 22"]) expect(html).toContain(p);
+  });
+
+  it("totals each car GROSS, as a slip always states money", () => {
+    // The GT86 took two charges: 9,900.01 + 200.00. The A4 states this same group ex-VAT.
+    expect(threeCars()).toContain("10100.01");
+  });
+
+  it("keeps each charge under its own car", () => {
+    const html = threeCars();
+    const gt86 = html.indexOf("8978 JZ 20");
+    const vitz = html.indexOf("1727 JZ 19");
+    expect(html.indexOf("4G LTE CAR DASH CAM")).toBeGreaterThan(gt86);
+    expect(html.indexOf("4G LTE CAR DASH CAM")).toBeLessThan(vitz);
+    expect(html.indexOf("BODY POLISH SUV")).toBeGreaterThan(vitz);
+  });
+
+  it("an ordinary one-car slip carries no plate headings", () => {
+    const html = render({
+      lines: [line({ title: "WASH & VACUUM", unitInclCents: 71500, fullInclCents: 71500, totalInclCents: 71500, plate: "8978 JZ 20" })],
+      subtotalInclCents: 71500, discountInclCents: 0, totalCents: 71500, vatCents: 9326,
+    });
+    expect(html).not.toContain("8978 JZ 20");
+  });
+});
