@@ -235,6 +235,26 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             ?.id
     }.getOrNull()
 
+    /**
+     * Every job card this quotation produced — one per car it covered.
+     *
+     * `documents.job_id` names ONE job, so a quotation for three cars offered a single
+     * "View job" that always opened the same card; the other two were reachable only by
+     * hunting the board. `jobs.source_quote_id` is the real link (indexed as
+     * idx_jobs_source_quote_vehicle), and reading it back fixes quotations already raised.
+     *
+     * Ordered by creation, which is the order convert_quote_to_jobs walked the cars in —
+     * the order their charges first appear on the quotation.
+     */
+    suspend fun fetchJobsForQuote(quoteId: String): List<QuoteJobDto> = runCatching {
+        client.postgrest.from("jobs")
+            .select(Columns.raw("id, status, vehicle_id, vehicles(plate, make, model)")) {
+                filter { eq("source_quote_id", quoteId) }
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+            }
+            .decodeList<QuoteJobDto>()
+    }.getOrElse { emptyList() }
+
     suspend fun fetchQuoteLines(quoteId: String): List<QuoteLineDto> =
         client.postgrest.from("document_lines")
             .select(Columns.raw(QUOTE_LINE_COLUMNS)) {

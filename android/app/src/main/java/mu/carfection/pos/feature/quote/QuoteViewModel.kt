@@ -225,6 +225,30 @@ fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
 data class QuoteCar(val id: String, val plate: String?, val label: String)
 
 /**
+ * A job card this quotation produced, and the car it is for. Three cars on one quotation
+ * means three of these — [QuoteState.jobId] is the first, which is all `documents.job_id`
+ * ever knew and why "View job" used to open the same card whichever car you meant.
+ */
+data class QuoteJobRef(val id: String, val plate: String?, val label: String) {
+    /** "JOB-11DF" — the board's own short reference for the card. */
+    val code: String get() = "JOB-" + id.take(4).uppercase()
+}
+
+/**
+ * The board's cards as the quotation screen names them: the plate, the car, and the
+ * JOB-XXXX reference. A car with nothing recorded but a plate still reads as a car rather
+ * than a blank row, and the order the board returned is kept — that is the order the cars'
+ * charges first appear on the quotation.
+ */
+internal fun quoteJobRefs(rows: List<mu.carfection.pos.core.network.QuoteJobDto>): List<QuoteJobRef> =
+    rows.map { r ->
+        QuoteJobRef(
+            r.id, r.vehicles?.plate,
+            listOfNotNull(r.vehicles?.make, r.vehicles?.model).joinToString(" ").ifBlank { "Vehicle" },
+        )
+    }
+
+/**
  * The "not for a car" bucket in the car list — a bottle of wax off the shelf, a call-out
  * fee. Selectable like a car so those charges have somewhere to be typed, and never a real
  * vehicle id: it stands for the absence of one.
@@ -407,6 +431,12 @@ data class QuoteState(
     val intake: IntakeHandoff? = null,
     // the job this quote is already linked to — when set, the quote is converted (view, don't re-create)
     val jobId: String? = null,
+    /**
+     * EVERY job card this quotation produced, one per car. `jobId` stays the first of them
+     * so every branch that only asks "is there a job yet" reads exactly as it always did;
+     * the screen offers a card per car only when there is more than one.
+     */
+    val jobs: List<QuoteJobRef> = emptyList(),
     // lifecycle flow strip: was there an intake, and has the client signed?
     val hasIntake: Boolean = false,
     val signed: Boolean = false,
@@ -618,7 +648,7 @@ class QuoteViewModel @Inject constructor(
             estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", discountReason = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
-            intake = h, jobId = null,
+            intake = h, jobId = null, jobs = emptyList(),
             // bills too: the last quote's invoice showing on a brand-new one is not a
             // cosmetic slip — it is a bill for another visit, priced, on this customer's screen.
             hasIntake = true, signed = false, billed = false, bills = emptyList(),
@@ -734,7 +764,7 @@ class QuoteViewModel @Inject constructor(
             depositAmtText = "", depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", discountReason = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
-            intake = null, jobId = null, hasIntake = false, signed = false, billed = false, bills = emptyList(),
+            intake = null, jobId = null, jobs = emptyList(), hasIntake = false, signed = false, billed = false, bills = emptyList(),
             customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
             pickerOpen = true, pickQuery = "", pickResults = emptyList(), pickVehicles = emptyList(),
             // A fresh quote is a different document — an approval taken out for whatever was
@@ -861,7 +891,7 @@ class QuoteViewModel @Inject constructor(
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
-                lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, query = "",
+                lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, jobs = emptyList(), query = "",
                 // Don't inherit the last quote's deposit/estimate into this one (audit #7).
                 estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
                 sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
@@ -874,6 +904,7 @@ class QuoteViewModel @Inject constructor(
                     .map { BillRef(it.id, it.number, it.status, rupeesToCents(it.totalIncl)) },
             )
         }
+        loadQuoteJobs(q.id)
         viewModelScope.launch {
             runCatching { api.fetchQuoteLines(q.id) }
                 .onSuccess { ls ->
@@ -1394,7 +1425,10 @@ class QuoteViewModel @Inject constructor(
                     catalog.tenantId()?.let { tenant ->
                         crew.drop(1).forEach { uid -> runCatching { api.addJobTechnician(tenant, jobId, uid) } }
                     }
-                    _s.update { it.copy(busy = false, jobId = jobId, createdJobId = jobId) }
+                    _s.update { st ->
+                        st.copy(busy = false, jobId = jobId, createdJobId = jobId,
+                            jobs = listOf(QuoteJobRef(jobId, st.vehPlate, st.veh.ifBlank { "Vehicle" })))
+                    }
                     loadQuotes()
                 }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
@@ -1573,7 +1607,28 @@ class QuoteViewModel @Inject constructor(
         Instant.ofEpochMilli(s.startAt ?: System.currentTimeMillis()).toString()
 
     /** Open the job this quote already produced on the Jobs board (a quote maps to one job). */
-    fun viewJob() { _s.value.jobId?.let { openJobBus.request(it) } }
+    fun viewJob(jobId: String? = null) { (jobId ?: _s.value.jobId)?.let { openJobBus.request(it) } }
+
+    /**
+     * Read back every job card this quotation produced — one per car it covered.
+     *
+     * Read, never inferred: a quotation reopened tomorrow, or on the other tablet, or one
+     * raised before any of this existed, still knows all of its cards. A late reply is
+     * dropped unless the same quotation is still open, so it can never land on another.
+     */
+    private fun loadQuoteJobs(quoteId: String) = viewModelScope.launch {
+        val rows = api.fetchJobsForQuote(quoteId)
+        if (rows.isEmpty()) return@launch
+        _s.update { st ->
+            if (st.quoteId != quoteId) st
+            else st.copy(
+                jobs = quoteJobRefs(rows),
+                // documents.job_id named only the first card; if it named none, the board's
+                // own link is still the truth about whether this quotation produced work.
+                jobId = st.jobId ?: rows.first().id,
+            )
+        }
+    }
 
     private fun linesJson(s: QuoteState): JsonArray = buildJsonArray {
         s.lines.forEachIndexed { i, l -> add(quoteLineJson(l, i)) }
@@ -1711,7 +1766,7 @@ class QuoteViewModel @Inject constructor(
                         it.copy(
                             busy = false, quoteId = quoteId, status = "accepted",
                             acceptOpen = false, intake = null, signed = sigPath != null || it.agreedVia != null,
-                            jobId = null, createdJobId = null,
+                            jobId = null, jobs = emptyList(), createdJobId = null,
                             billed = it.billed || goodsInvoice != null,
                             // Reuses the deposit hand-off: on a paying till this walks the
                             // operator straight to Checkout with the pad already waiting.
@@ -1780,6 +1835,8 @@ class QuoteViewModel @Inject constructor(
                         depositPending = depositInvoice != null,
                     )
                 }
+                // Three cars accepted means three cards; the screen offers each one.
+                loadQuoteJobs(quoteId)
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

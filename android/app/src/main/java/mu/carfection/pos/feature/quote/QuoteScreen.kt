@@ -153,6 +153,8 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
                 Text(if (jobId != null) "Quote accepted" else "Send quotation", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
                 Text(
                     when {
+                        jobId != null && s.jobs.size > 1 ->
+                            "${s.jobs.size} job cards created, one per car. Send the signed quotation to the customer:"
                         jobId != null -> "JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:"
                         s.status == "draft" -> "Send this quotation to the customer so they can agree to it:"
                         else -> "Send ${s.ref} to the customer — again if they have already had it:"
@@ -1209,14 +1211,15 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                     fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 17.sp, color = TextSecondary,
                                 )
                             }
-                            Box(Modifier.fillMaxWidth().height(46.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.viewJob(); onViewJob() }, contentAlignment = Alignment.Center) {
-                                Text("View job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent)
-                            }
+                            JobCards(s, primary = false) { id -> vm.viewJob(id); onViewJob() }
                         } else {
-                            Box(Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { vm.viewJob(); onViewJob() }, contentAlignment = Alignment.Center) {
-                                Text("View job →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk)
-                            }
-                            Text("This quote has been accepted — JOB-${s.jobId.take(4).uppercase()} is on the board.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+                            JobCards(s, primary = true) { id -> vm.viewJob(id); onViewJob() }
+                            Text(
+                                if (s.jobs.size > 1)
+                                    "This quote has been accepted — ${s.jobs.size} job cards are on the board, one for each car."
+                                else "This quote has been accepted — JOB-${s.jobId.take(4).uppercase()} is on the board.",
+                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+                            )
                         }
                     }
                     // Signed, but the work never started — the customer took the price away
@@ -1273,13 +1276,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                 Text("Billed — collect it at the paying till", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary)
                             }
                         }
-                        if (s.jobId != null) {
-                            Box(
-                                Modifier.fillMaxWidth().height(46.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp))
-                                    .clickable { vm.viewJob(); onViewJob() },
-                                contentAlignment = Alignment.Center,
-                            ) { Text("View job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent) }
-                        }
+                        if (s.jobId != null) JobCards(s, primary = false) { id -> vm.viewJob(id); onViewJob() }
                         Text(
                             "This quote is billed, and an issued bill cannot be changed. Anything else they pick up is a counter sale in Checkout.",
                             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 16.sp, color = TextMuted,
@@ -2002,6 +1999,54 @@ private fun CarTab(car: QuoteCar?, lineCount: Int, subtotalCents: Long, open: Bo
  * every other figure on a customer document (2026-08-14) — the till slip prints the same
  * grouping gross, because that is the basis a slip has always used.
  */
+
+/**
+ * "View job" — one card, or one row per car when the visit brought several.
+ *
+ * A quotation covering three cars produces THREE job cards, and a single button could only
+ * ever open one of them: it went through documents.job_id, which names the first car and
+ * knows nothing of the other two. Yogen's Vitz opened every time, and the Eclipse and the
+ * GT86 were reachable only by hunting the board.
+ *
+ * Each row names the car, so the cashier picks the card they mean. One car keeps the plain
+ * button it always had — [primary] is the full-width accented one offered when there is
+ * nothing else competing for the tap.
+ */
+@Composable
+private fun JobCards(s: QuoteState, primary: Boolean, onOpen: (String?) -> Unit) {
+    when {
+        s.jobs.size > 1 -> s.jobs.forEach { j ->
+            Row(
+                Modifier.fillMaxWidth().height(46.dp)
+                    .border(1.dp, AccentLine, RoundedCornerShape(13.dp))
+                    .clickable { onOpen(j.id) }
+                    .padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                j.plate?.let { plate ->
+                    Box(Modifier.background(mu.carfection.pos.ui.theme.Plate, RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
+                        Text(plate, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, letterSpacing = 0.5.sp, color = Color(0xFF151208))
+                    }
+                }
+                Text(
+                    j.label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp,
+                    color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f),
+                )
+                Text(j.code, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Accent)
+            }
+        }
+        primary -> Box(
+            Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp)).clickable { onOpen(null) },
+            contentAlignment = Alignment.Center,
+        ) { Text("View job →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk) }
+        else -> Box(
+            Modifier.fillMaxWidth().height(46.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { onOpen(null) },
+            contentAlignment = Alignment.Center,
+        ) { Text("View job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent) }
+    }
+}
+
 @Composable
 private fun CarHeading(car: QuoteCar?, subtotalCents: Long, open: Boolean, onClick: (() -> Unit)?) {
     Row(

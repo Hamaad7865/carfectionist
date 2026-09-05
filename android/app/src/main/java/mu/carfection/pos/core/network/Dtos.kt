@@ -189,6 +189,18 @@ data class FlowCertRefDto(
 )
 @Serializable data class JobTechDto(@SerialName("display_name") val displayName: String? = null)
 
+/**
+ * One of the job cards a quotation produced. A visit that brought three cars produces
+ * THREE — `documents.job_id` names only the first, so the quote screen reads them back
+ * through `jobs.source_quote_id` and offers each car its own card.
+ */
+@Serializable data class QuoteJobDto(
+    val id: String,
+    val status: String = "",
+    @SerialName("vehicle_id") val vehicleId: String? = null,
+    val vehicles: JobVehicleDto? = null,
+)
+
 @Serializable data class JobPhotoDto(
     val id: String,
     // Present only on the multi-job select (the customer history) — the per-job

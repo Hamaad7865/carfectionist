@@ -31,6 +31,9 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
   }
 
   const JOB_COLS = "id, status, created_at, scheduled_at, started_at, ready_at, delivered_at, source_quote_id, damage_markers, vehicle_id";
+  // How many job cards this quotation produced. A visit that brought three cars produced
+  // three, and the strip must say so rather than name one of them silently.
+  let siblingJobs = 0;
   if (input.jobId) {
     const { data } = await sb.from("jobs").select(JOB_COLS).eq("id", input.jobId).maybeSingle();
     job = data;
@@ -43,8 +46,17 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
       const { data } = await sb.from("jobs").select(JOB_COLS).eq("id", anchorDoc.job_id).maybeSingle();
       job = data;
     } else if (anchorDoc.doc_type === "quote") {
-      const { data } = await sb.from("jobs").select(JOB_COLS).eq("source_quote_id", anchorDoc.id).maybeSingle();
-      job = data;
+      // NOT maybeSingle: a quotation covering three cars produced three job cards, and
+      // asking for one row back returned an error — the strip then showed no job at all
+      // on exactly the documents that had the most work behind them. The first card is
+      // the one documents.job_id would have named; the count says there are others.
+      const { data } = await sb
+        .from("jobs")
+        .select(JOB_COLS)
+        .eq("source_quote_id", anchorDoc.id)
+        .order("created_at", { ascending: true });
+      siblingJobs = (data ?? []).length;
+      job = (data ?? [])[0] ?? null;
     }
   }
 
@@ -167,7 +179,9 @@ export async function getDealFlow(input: { documentId?: string; jobId?: string }
       detail: job
         ? [
             { scheduled: "Scheduled", in_progress: "In progress", ready: "Ready", delivered: "Delivered", cancelled: "Cancelled" }[job.status as string] ?? job.status,
-            plate,
+            // One card per car: name the count instead of one car's plate, which would
+            // read as though the other two cars were not on the board.
+            siblingJobs > 1 ? `${siblingJobs} cards, one per car` : plate,
           ].filter(Boolean).join(" · ")
         : plate,
       href: job ? `/jobs/${job.id}` : null,
