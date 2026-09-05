@@ -224,6 +224,13 @@ fun quoteLineJson(l: QuoteLine, sortOrder: Int): JsonObject = buildJsonObject {
 /** A car on the quotation — the heading its charges sit under. */
 data class QuoteCar(val id: String, val plate: String?, val label: String)
 
+/**
+ * The "not for a car" bucket in the car list — a bottle of wax off the shelf, a call-out
+ * fee. Selectable like a car so those charges have somewhere to be typed, and never a real
+ * vehicle id: it stands for the absence of one.
+ */
+const val NO_CAR = "__none__"
+
 /** One bill raised against a quote, as the quote screen shows it. */
 data class BillRef(
     val id: String,
@@ -456,8 +463,17 @@ data class QuoteState(
     /**
      * The car a NEW line belongs to. Null on a one-car quote: the document header already
      * says which car it is, so an ordinary quotation saves exactly the lines it always did.
+     * Null too when the "not for a car" bucket is the one open — that is the whole point of
+     * having it, so a bottle of wax can be typed without landing on somebody's bonnet.
      */
-    val lineCarId: String? get() = if (multiCar) (activeCarId ?: cars.firstOrNull()?.id) else null
+    val lineCarId: String? get() = when {
+        !multiCar -> null
+        activeCarId == NO_CAR -> null
+        else -> activeCarId ?: cars.firstOrNull()?.id
+    }
+
+    /** Which bucket the car screen has open — a vehicle id, or [NO_CAR]. */
+    val selectedCarKey: String get() = activeCarId ?: cars.firstOrNull()?.id ?: NO_CAR
 
     /** Lines in car order, as they group on screen and on the printed document. */
     val carSections: List<Pair<QuoteCar?, List<Pair<Int, QuoteLine>>>> get() {
@@ -793,8 +809,11 @@ class QuoteViewModel @Inject constructor(
         )
     }
 
-    /** Open another car's section — where the next line will land. */
-    fun showQuoteCar(id: String) = _s.update { if (it.cars.any { c -> c.id == id }) it.copy(activeCarId = id) else it }
+    /** Open another car's section — where the next line will land. [NO_CAR] opens the
+     *  charges that belong to no car. */
+    fun showQuoteCar(id: String) = _s.update {
+        if (id == NO_CAR || it.cars.any { c -> c.id == id }) it.copy(activeCarId = id) else it
+    }
 
     /** Move one charge to another car (or to none). */
     fun setLineCar(i: Int, vehicleId: String?) = _s.update { st ->

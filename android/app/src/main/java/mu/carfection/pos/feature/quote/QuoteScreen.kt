@@ -449,20 +449,24 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(Color(0x66101A24)).clickable(onClick = vm::closeLines))
         Column(
-            Modifier.align(Alignment.CenterEnd).width(720.dp).fillMaxHeight()
+            Modifier.align(Alignment.CenterEnd).width(if (s.multiCar) 1180.dp else 720.dp).fillMaxHeight()
                 .background(CardBg).border(1.dp, Hairline),
         ) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 15.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp),
             ) {
-                Text("QUOTE LINES", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.2.sp, color = TextPrimary)
+                Text(if (s.multiCar) "THE CARS" else "QUOTE LINES", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.2.sp, color = TextPrimary)
                 Text(
-                    "${s.lines.size} line${if (s.lines.size == 1) "" else "s"}",
+                    if (s.multiCar) "${s.cars.size} cars · ${s.lines.size} line${if (s.lines.size == 1) "" else "s"}"
+                    else "${s.lines.size} line${if (s.lines.size == 1) "" else "s"}",
                     fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextMuted,
                 )
                 Spacer(Modifier.weight(1f))
-                Text("tap a line to change it", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted)
+                Text(
+                    if (s.multiCar) "pick a car, then price it" else "tap a line to change it",
+                    fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+                )
                 Box(
                     Modifier.size(42.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(12.dp))
                         .clickable(onClick = vm::closeLines),
@@ -470,27 +474,48 @@ private fun BoxScope.QuoteLinesSheet(s: QuoteState, vm: QuoteViewModel) {
                 ) { Text("✕", fontFamily = Barlow, fontSize = 16.sp, color = TextSecondary) }
             }
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
-            Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                if (s.lines.isEmpty()) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text("No lines yet", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextMuted)
-                        Text("Tap services and products on the left", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+            val tt = vm.totals(s)
+            val sections = s.carSections
+            // ONE CAR: the flat list, exactly as it always was.
+            // SEVERAL: the cars stand down the left and the one you pick fills the right —
+            // three cars is three prices to keep straight, and a single scrolling list makes
+            // you hold which plate you are under in your head.
+            Row(Modifier.weight(1f).fillMaxWidth()) {
+                if (s.multiCar) {
+                    Column(
+                        Modifier.width(320.dp).fillMaxHeight().background(Inset)
+                            .verticalScroll(rememberScrollState()).padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        sections.forEach { (car, rows) ->
+                            CarTab(
+                                car = car,
+                                lineCount = rows.size,
+                                subtotalCents = rows.sumOf { (i, _) -> tt.lineExclCents.getOrNull(i) ?: 0L },
+                                open = (car?.id ?: NO_CAR) == s.selectedCarKey,
+                                onClick = { vm.showQuoteCar(car?.id ?: NO_CAR) },
+                            )
+                        }
                     }
+                    Box(Modifier.width(1.dp).fillMaxHeight().background(Hairline))
                 }
-                val tt = vm.totals(s)
-                // One car, one flat list — exactly as it always was. Several, and the charges
-                // sit under the plate they belong to, each with its own subtotal, because that
-                // is the question the customer asks: what does MY Hilux cost.
-                s.carSections.forEach { (car, rows) ->
-                    if (s.multiCar) {
-                        CarHeading(
-                            car = car,
-                            subtotalCents = rows.sumOf { (i, _) -> tt.lineExclCents.getOrNull(i) ?: 0L },
-                            open = car != null && car.id == s.activeCarId,
-                            onClick = { car?.let { vm.showQuoteCar(it.id) } },
-                        )
+                val shown = if (!s.multiCar) sections.firstOrNull()?.second.orEmpty()
+                    else (sections.firstOrNull { (car, _) -> (car?.id ?: NO_CAR) == s.selectedCarKey } ?: sections.firstOrNull())?.second.orEmpty()
+                Column(
+                    Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState())
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                    verticalArrangement = Arrangement.spacedBy(7.dp),
+                ) {
+                    if (shown.isEmpty()) {
+                        Column(Modifier.fillMaxWidth().padding(vertical = 40.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                if (s.multiCar) "Nothing on this car yet" else "No lines yet",
+                                fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, color = TextMuted,
+                            )
+                            Text("Tap services and products on the left", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+                        }
                     }
-                    rows.forEach { (i, l) ->
+                    shown.forEach { (i, l) ->
                         // The ledger's ex-VAT line amount (owner decision, 2026-08-14): the price
                         // shows without VAT; the footer's VAT row carries the tax. The price box on
                         // the card keeps the typed shelf figure — that is entry, not presentation.
@@ -524,7 +549,7 @@ private fun BoxScope.BillLinesSheet(s: QuoteState, vm: QuoteViewModel) {
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(Color(0x66101A24)).clickable(onClick = vm::closeBillLines))
         Column(
-            Modifier.align(Alignment.CenterEnd).width(720.dp).fillMaxHeight()
+            Modifier.align(Alignment.CenterEnd).width(if (s.multiCar) 1180.dp else 720.dp).fillMaxHeight()
                 .background(CardBg).border(1.dp, Hairline),
         ) {
             Row(
@@ -1015,7 +1040,11 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 ) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            if (s.lines.isEmpty()) "No lines yet — tap to add" else "Open the ${s.lines.size} line${if (s.lines.size == 1) "" else "s"}",
+                            when {
+                                s.multiCar -> "${s.cars.size} cars · ${s.lines.size} line${if (s.lines.size == 1) "" else "s"}"
+                                s.lines.isEmpty() -> "No lines yet — tap to add"
+                                else -> "Open the ${s.lines.size} line${if (s.lines.size == 1) "" else "s"}"
+                            },
                             fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = Accent,
                         )
                         Spacer(Modifier.weight(1f))
@@ -1875,6 +1904,42 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 18.sp, color = TextMuted,
         )
+    }
+}
+
+/**
+ * One car in the list down the left of the lines screen: its plate, what it is, how much is
+ * on it so far. Tapping it shows that car's charges — and makes it the car the next product
+ * tapped in the catalogue lands on, which is why the open one is unmistakable.
+ */
+@Composable
+private fun CarTab(car: QuoteCar?, lineCount: Int, subtotalCents: Long, open: Boolean, onClick: () -> Unit) {
+    Column(
+        Modifier.fillMaxWidth()
+            .background(if (open) CardBg else Color(0x0A101A24), RoundedCornerShape(12.dp))
+            .border(if (open) 2.dp else 1.dp, if (open) Accent else Hairline, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        if (car?.plate != null) {
+            Box(Modifier.background(mu.carfection.pos.ui.theme.Plate, RoundedCornerShape(5.dp)).padding(horizontal = 9.dp, vertical = 4.dp)) {
+                Text(car.plate, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, letterSpacing = 0.5.sp, color = Color(0xFF151208))
+            }
+        }
+        Text(
+            car?.label?.ifBlank { "Vehicle" } ?: "Not for a car",
+            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+            color = if (open) TextPrimary else TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (lineCount == 0) "nothing yet" else "$lineCount line${if (lineCount == 1) "" else "s"}",
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+            )
+            Spacer(Modifier.weight(1f))
+            Text(formatMUR(subtotalCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (open) Accent else TextSecondary)
+        }
     }
 }
 
