@@ -996,7 +996,13 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         )
                         if (showItemCount) Text("$itemCount item${if (itemCount == 1) "" else "s"}", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                         // Vehicle — for a job/service invoice, WHICH car we worked on.
-                        if (vehicle != null && (!vehicle.plate.isNullOrBlank() || !vehicle.make.isNullOrBlank() || !vehicle.model.isNullOrBlank())) {
+                        //
+                        // Only when the bill IS about one car. On a bill covering three, this
+                        // header named the first of them over everybody's lines, which reads as
+                        // "all of this was done to the GT86" — so with several cars the plates
+                        // move down onto the lines they actually belong to.
+                        val billCars = s.collectLines.mapNotNull { it.vehicles?.plate }.distinct()
+                        if (billCars.size <= 1 && vehicle != null && (!vehicle.plate.isNullOrBlank() || !vehicle.make.isNullOrBlank() || !vehicle.model.isNullOrBlank())) {
                             Spacer(Modifier.height(12.dp))
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                                 vehicle.plate?.takeIf { it.isNotBlank() }?.let { plate ->
@@ -1020,7 +1026,38 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                             if (s.collect != null) {
                                 if (s.collectLines.isNotEmpty()) {
                                     // Every line, discounts included, so what's shown reconciles with the total.
-                                    s.collectLines.forEach { l ->
+                                    // Grouped by car when the bill covers more than one: the customer
+                                    // paying for three cars is owed the answer to "what am I paying for
+                                    // each one", and one flat list under a single plate does not give it.
+                                    val groups = s.collectLines.groupBy { it.vehicles?.plate }
+                                    val order = s.collectLines.mapNotNull { it.vehicles?.plate }.distinct() +
+                                        (if (s.collectLines.any { it.vehicles?.plate == null }) listOf(null) else emptyList())
+                                    if (billCars.size > 1) {
+                                        order.forEach { plate ->
+                                            val rows = groups[plate].orEmpty()
+                                            if (rows.isEmpty()) return@forEach
+                                            val veh = rows.firstNotNullOfOrNull { it.vehicles }
+                                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                                                if (plate != null) {
+                                                    Box(Modifier.background(Plate, RoundedCornerShape(6.dp)).padding(horizontal = 9.dp, vertical = 3.dp)) {
+                                                        Text(plate.uppercase(), color = Color(0xFF151208), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 1.sp)
+                                                    }
+                                                }
+                                                Text(
+                                                    veh?.label?.takeIf { it.isNotBlank() } ?: if (plate == null) "Other items" else "Vehicle",
+                                                    color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f),
+                                                )
+                                                Text(
+                                                    formatMUR(rows.sumOf { rupeesToCents(it.lineTotalExcl) + rupeesToCents(it.lineVat) }),
+                                                    color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                                                )
+                                            }
+                                            rows.forEach { l ->
+                                                val incl = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
+                                                BillLine(if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString(), l.title, incl)
+                                            }
+                                        }
+                                    } else s.collectLines.forEach { l ->
                                         val incl = rupeesToCents(l.lineTotalExcl) + rupeesToCents(l.lineVat)
                                         BillLine(if (l.qty % 1.0 == 0.0) l.qty.toInt().toString() else l.qty.toString(), l.title, incl)
                                     }

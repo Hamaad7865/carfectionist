@@ -460,3 +460,93 @@ class ReceiptTextTest {
         assertFalse(render(consolidatedDoc().copy(changeCents = 0)).contains("Change"))
     }
 }
+
+/**
+ * The customer paid one bill for three cars, so the paper has to say which car each charge
+ * was for — the same grouping the checkout panel and the A4 print, in the slip's own gross
+ * money. Pinned here because it is the surface nobody can re-open and check: whatever the
+ * printer put on that paper is what the customer walked out with.
+ */
+class ReceiptTextMultiCarTest {
+
+    private val biz = ReceiptBiz(
+        name = "Carfectionist", address = "Helvetia, 80840 Moka, MU", brn = "C22190760",
+        vatNo = "VAT28070619", phone = "+230 5258 8854", logoFile = null, footer = "Thank you for visiting.",
+    )
+
+    /** The real bill from the emulator run: two charges on the GT86, one each on two others. */
+    private fun threeCars() = ReceiptDoc(
+        biz = biz,
+        invoiceNo = "INV-0110",
+        dateTime = "05-09-2026 23:45:00",
+        cashier = "NICK",
+        customer = "nick summer test",
+        lines = listOf(
+            ReceiptLine("4G LTE CAR DASH CAM", 1.0, inclCents = 990001, unitInclCents = 990001, plate = "8978 JZ 20"),
+            ReceiptLine("Labor", 1.0, inclCents = 20000, unitInclCents = 20000, plate = "8978 JZ 20"),
+            ReceiptLine("BODY POLISH SUV", 1.0, inclCents = 880000, unitInclCents = 880000, plate = "1727 JZ 19"),
+            ReceiptLine("CERAMIC PACK SEDAN", 1.0, inclCents = 198000, unitInclCents = 198000, plate = "7890 JK 22"),
+        ),
+        subtotalCents = 2088001,
+        vatRatePct = 15,
+        vatCents = 272348,
+        discountCents = 0,
+        totalCents = 2088001,
+        payLabel = "Cash",
+        paidCents = 2088001,
+        changeCents = 0,
+        onAccount = false,
+    )
+
+    private fun render(d: ReceiptDoc) = ReceiptText.render(d, 48)
+
+    @Test
+    fun `each car heads its own charges`() {
+        val out = render(threeCars())
+        listOf("8978 JZ 20", "1727 JZ 19", "7890 JK 22").forEach {
+            assertTrue("the slip must name $it", out.contains(it))
+        }
+    }
+
+    @Test
+    fun `a car's heading carries that car's total, gross`() {
+        val out = render(threeCars())
+        // The GT86 took two charges: 9,900.01 + 200.00. The slip is VAT-INCLUSIVE, so this
+        // is the gross figure — the A4 states the same group ex-VAT, by design.
+        val head = out.lines().first { it.contains("8978 JZ 20") }
+        assertTrue("the GT86's heading must total its two charges: $head", head.contains("10100.01"))
+    }
+
+    @Test
+    fun `every car's heading sums to the bill total`() {
+        val d = threeCars()
+        assertEquals(d.totalCents, d.lines.sumOf { it.inclCents })
+    }
+
+    @Test
+    fun `the charges stay under the car they belong to`() {
+        val out = render(threeCars()).lines()
+        val gt86 = out.indexOfFirst { it.contains("8978 JZ 20") }
+        val vitz = out.indexOfFirst { it.contains("1727 JZ 19") }
+        val dashcam = out.indexOfFirst { it.contains("4G LTE CAR DASH CAM") }
+        val polish = out.indexOfFirst { it.contains("BODY POLISH SUV") }
+        assertTrue("the dash cam belongs under the GT86", dashcam > gt86 && dashcam < vitz)
+        assertTrue("the polish belongs under the Vitz", polish > vitz)
+    }
+
+    /** One car — the ordinary sale — prints exactly as it always did: no plate headings. */
+    @Test
+    fun `a single-car bill prints no headings at all`() {
+        val one = threeCars().let { d -> d.copy(lines = d.lines.map { it.copy(plate = "8978 JZ 20") }) }
+        assertFalse(render(one).contains("8978 JZ 20"))
+    }
+
+    /** A counter sale carries no car at all, and must not sprout an "Other items" heading. */
+    @Test
+    fun `a counter sale is untouched`() {
+        val none = threeCars().let { d -> d.copy(lines = d.lines.map { it.copy(plate = null) }) }
+        val out = render(none)
+        assertFalse(out.contains("Other items"))
+        assertTrue(out.contains("4G LTE CAR DASH CAM"))
+    }
+}

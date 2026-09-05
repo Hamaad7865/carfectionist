@@ -297,9 +297,16 @@ data class JobServiceDetailDto(
 @Serializable data class PaidDocRefDto(val number: String? = null, val customers: JobCustomerDto? = null)
 
 // ── Checkout · sales history (view past sales + reprint) ─────────────────────
-/** Just the plate: what a grouped slip prints as its heading. */
+/** The car a charge is for, as a grouped bill and slip head it. */
 @Serializable
-data class SlipVehicleDto(val plate: String? = null)
+data class SlipVehicleDto(
+    val plate: String? = null,
+    val make: String? = null,
+    val model: String? = null,
+) {
+    /** "Nissan GT86" — what the counter panel prints beside the plate. */
+    val label: String get() = listOfNotNull(make?.takeIf { it.isNotBlank() }, model?.takeIf { it.isNotBlank() }).joinToString(" ")
+}
 
 @Serializable
 data class SaleHistoryLineDto(

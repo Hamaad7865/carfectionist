@@ -1031,6 +1031,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 // The lines moved to a panel of their own. This column is the summary — what the
                 // quote comes to and what happens next — and it no longer has to share its height
                 // with a list that grows, or with a line opened for its discount and its bullets.
+                // WHICH CAR AM I PRICING? The catalogue is on the left of this same screen, so
+                // the car has to be switchable from here — picking it inside the lines sheet and
+                // closing it left you tapping products with no idea whose bonnet they landed on.
+                if (s.multiCar) CarSwitcher(s, vm)
                 Box(
                     Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp)
                         .height(56.dp).background(AccentSoft, RoundedCornerShape(13.dp))
@@ -1903,6 +1907,54 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
                 "Sent — the customer has been shown these prices. Revise to change them: a new quote carrying these lines, with this one kept as the record.",
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 18.sp, color = TextMuted,
+        )
+    }
+}
+
+/**
+ * The car the next product will be added to, switchable without leaving the catalogue.
+ *
+ * One chip per car (plus the not-for-a-car bucket once something is in it), the open one
+ * marked, and a plain line underneath saying where the next tap lands — because on a quote
+ * covering three cars, "which car is this for" is the question being answered on every
+ * single tap, and the answer must never be somewhere else on the screen.
+ */
+@Composable
+private fun CarSwitcher(s: QuoteState, vm: QuoteViewModel) {
+    val tt = vm.totals(s)
+    val sections = s.carSections
+    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            sections.forEach { (car, rows) ->
+                // The loose bucket earns a chip only once something is actually in it: an empty
+                // "Not for a car" tab beside two plates is a question nobody asked.
+                if (car == null && rows.isEmpty()) return@forEach
+                val key = car?.id ?: NO_CAR
+                val open = key == s.selectedCarKey
+                Column(
+                    Modifier.background(if (open) Accent else InsetAlt, RoundedCornerShape(11.dp))
+                        .border(if (open) 0.dp else 1.dp, if (open) Color.Transparent else Hairline, RoundedCornerShape(11.dp))
+                        .clickable(enabled = vm.editable(s)) { vm.showQuoteCar(key) }
+                        .padding(horizontal = 11.dp, vertical = 7.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        car?.plate ?: car?.label ?: "Other",
+                        fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 12.5.sp,
+                        color = if (open) AccentInk else TextSecondary, maxLines = 1,
+                    )
+                    Text(
+                        formatMUR(rows.sumOf { (i, _) -> tt.lineExclCents.getOrNull(i) ?: 0L }),
+                        fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 11.sp,
+                        color = if (open) AccentInk.copy(alpha = 0.75f) else TextMuted,
+                    )
+                }
+            }
+        }
+        val openCar = s.cars.firstOrNull { it.id == s.selectedCarKey }
+        Text(
+            "Adding to " + (openCar?.plate ?: openCar?.label ?: "no car — counter items"),
+            fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, color = TextMuted,
         )
     }
 }
