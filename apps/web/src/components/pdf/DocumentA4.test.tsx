@@ -252,4 +252,45 @@ describe("DocumentA4 — one document, several cars", () => {
     expect(one).not.toContain("2087 JL 25");
     expect(one).not.toContain("Other items");
   });
+
+  /**
+   * The cashier prices the Hilux, switches to the Swift, then goes BACK to the Hilux —
+   * exactly what the car switcher invites. Lines are stored in the order they were typed,
+   * so the Hilux's charges arrive scattered. It must still be named once, with ONE
+   * subtotal: heading it twice printed Rs 6,000 twice against an Rs 8,500 document.
+   */
+  describe("a car whose charges were typed out of order", () => {
+    const interleaved = renderToStaticMarkup(
+      <DocumentA4
+        {...base}
+        lines={[
+          { title: "Full detail", qty: 1, rateCents: 500000, amountCents: 500000, vehicle: hilux },
+          { title: "Interior clean", qty: 1, rateCents: 250000, amountCents: 250000, vehicle: swift },
+          { title: "Wax", qty: 1, rateCents: 100000, amountCents: 100000, vehicle: hilux },
+        ]}
+        subtotalCents={850000}
+        vatCents={127500}
+        totalCents={977500}
+      />,
+    );
+    const times = (needle: string) => interleaved.split(needle).length - 1;
+
+    it("names each car exactly once", () => {
+      expect(times("2087 JL 25")).toBe(1);
+      expect(times("9876 ZZ 19")).toBe(1);
+    });
+
+    it("states each car's subtotal once, and they add up to the document's", () => {
+      // Hilux 5,000 + 1,000 = 6,000; Swift 2,500. 6,000 + 2,500 = 8,500 = subtotalCents.
+      expect(times("6,000.00")).toBe(1);
+      expect(times("2,500.00")).toBe(2); // the Swift's line amount AND its subtotal
+      expect(interleaved).toContain("8,500.00");
+    });
+
+    it("gathers the scattered charges under their own car, in the order it was first worked on", () => {
+      expect(interleaved.indexOf("Full detail")).toBeLessThan(interleaved.indexOf("Wax"));
+      expect(interleaved.indexOf("Wax")).toBeLessThan(interleaved.indexOf("Interior clean"));
+      expect(interleaved.indexOf("2087 JL 25")).toBeLessThan(interleaved.indexOf("9876 ZZ 19"));
+    });
+  });
 });

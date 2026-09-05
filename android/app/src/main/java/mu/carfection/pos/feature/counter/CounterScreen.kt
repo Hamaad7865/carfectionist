@@ -2216,7 +2216,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         DashRule()
         // ── items: Qty | Designation | UP | Total ───────────────────────────────
         @Composable
-        fun ItemsTable(lines: List<mu.carfection.pos.core.hardware.ReceiptLine>) {
+        fun ItemsTable(rawLines: List<mu.carfection.pos.core.hardware.ReceiptLine>) {
             Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
                 Text("Qty", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.width(24.dp))
                 Text("Designation", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.weight(1f))
@@ -2225,6 +2225,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             }
             // The same per-car grouping the printed slip and the web card use — the paper in
             // the customer's hand and the copy in their inbox are one document.
+            val lines = mu.carfection.pos.core.hardware.orderByCar(rawLines) { it.plate }
             val plates = lines.map { it.plate }.distinct()
             lines.forEachIndexed { i, l ->
                 if (plates.size > 1 && (i == 0 || lines[i - 1].plate != l.plate)) {

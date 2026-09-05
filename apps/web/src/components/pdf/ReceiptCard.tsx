@@ -1,4 +1,5 @@
 import { code128B } from "./barcode";
+import { orderByCar } from "@/lib/car-groups";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 
 /**
@@ -35,8 +36,12 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
   const bc = code128B(r.barcodeValue);
   const BH = 32;
   const hasLines = r.lines.length > 0;
+  // Car by car, in the order the cashier worked. A heading is drawn when the car changes
+  // from the line before it, which only reads right if a car's charges are adjacent — and
+  // as typed they are not. See orderByCar.
+  const lines = orderByCar(r.lines, (l) => l.plate ?? "");
   // The distinct cars on this bill. One (or none) prints the plain list it always did.
-  const carPlates = Array.from(new Set(r.lines.map((l) => l.plate ?? null)));
+  const carPlates = Array.from(new Set(lines.map((l) => l.plate ?? null)));
   // Tender rows state that money changed hands — never on a quote, and never on a dead invoice.
   const showTenders = !r.voided && r.isInvoice;
 
@@ -145,15 +150,15 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
             <span style={{ width: 54, textAlign: "right", flexShrink: 0 }}>UP</span>
             <span style={{ width: 58, textAlign: "right", flexShrink: 0 }}>Total</span>
           </div>
-          {r.lines.map((l, i) => (
+          {lines.map((l, i) => (
             <div key={i} style={{ marginTop: 3 }}>
               {/* The plate this charge belongs to, when the bill covers more than one car.
                   Gross totals here, ex-VAT on the A4 — each surface keeps the basis it has
                   always printed; the same grouping, stated in that surface's own money. */}
-              {carPlates.length > 1 && (i === 0 || r.lines[i - 1].plate !== l.plate) && (
+              {carPlates.length > 1 && (i === 0 || lines[i - 1].plate !== l.plate) && (
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: i === 0 ? 0 : 6, borderTop: i === 0 ? undefined : `1px dashed ${RULE}`, paddingTop: i === 0 ? 0 : 5, fontWeight: 700, fontSize: 11 }}>
                   <span>{l.plate ?? "Other items"}</span>
-                  <span className="num">{plain(r.lines.filter((x) => x.plate === l.plate).reduce((a, x) => a + x.totalInclCents, 0))}</span>
+                  <span className="num">{plain(lines.filter((x) => x.plate === l.plate).reduce((a, x) => a + x.totalInclCents, 0))}</span>
                 </div>
               )}
               <div style={{ display: "flex", alignItems: "baseline", fontWeight: 700 }}>

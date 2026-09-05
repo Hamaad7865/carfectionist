@@ -317,4 +317,28 @@ describe("a bill covering several cars groups its charges by plate", () => {
     });
     expect(html).not.toContain("8978 JZ 20");
   });
+
+  /**
+   * The cashier priced the GT86, moved to the Vitz, then came BACK to the GT86. Charges are
+   * stored as they were typed, so the GT86's arrive scattered — and a slip that heads a car
+   * wherever its plate changes named it twice, printing its whole 10,100.01 both times.
+   */
+  it("names a car once even when its charges were typed out of order", () => {
+    const html = render({
+      lines: [
+        line({ title: "4G LTE CAR DASH CAM", unitInclCents: 990001, fullInclCents: 990001, totalInclCents: 990001, plate: "8978 JZ 20" }),
+        line({ title: "BODY POLISH SUV", unitInclCents: 880000, fullInclCents: 880000, totalInclCents: 880000, plate: "1727 JZ 19" }),
+        line({ title: "Labor", unitInclCents: 20000, fullInclCents: 20000, totalInclCents: 20000, plate: "8978 JZ 20" }),
+      ],
+      subtotalInclCents: 1890001, discountInclCents: 0, totalCents: 1890001, vatCents: 246522,
+    });
+    const times = (needle: string) => html.split(needle).length - 1;
+    expect(times("8978 JZ 20")).toBe(1);
+    expect(times("1727 JZ 19")).toBe(1);
+    // Stated once, and only once: 9,900.01 + 200.00 for the GT86.
+    expect(times("10100.01")).toBe(1);
+    // Both of the GT86's charges sit under it, ahead of the other car.
+    expect(html.indexOf("4G LTE CAR DASH CAM")).toBeLessThan(html.indexOf("Labor"));
+    expect(html.indexOf("Labor")).toBeLessThan(html.indexOf("BODY POLISH SUV"));
+  });
 });

@@ -549,4 +549,46 @@ class ReceiptTextMultiCarTest {
         assertFalse(out.contains("Other items"))
         assertTrue(out.contains("4G LTE CAR DASH CAM"))
     }
+
+    /**
+     * The cashier priced the GT86, moved to the Vitz, then came BACK to the GT86 — exactly
+     * what the car switcher invites. Charges are stored as they were typed, so the GT86's
+     * arrive scattered; heading a car wherever its plate changes named it twice and printed
+     * its whole 10100.01 under each heading.
+     */
+    private fun outOfOrder() = threeCars().copy(
+        lines = listOf(
+            ReceiptLine("4G LTE CAR DASH CAM", 1.0, inclCents = 990001, unitInclCents = 990001, plate = "8978 JZ 20"),
+            ReceiptLine("BODY POLISH SUV", 1.0, inclCents = 880000, unitInclCents = 880000, plate = "1727 JZ 19"),
+            ReceiptLine("Labor", 1.0, inclCents = 20000, unitInclCents = 20000, plate = "8978 JZ 20"),
+        ),
+        subtotalCents = 1890001, totalCents = 1890001, paidCents = 1890001, vatCents = 246522,
+    )
+
+    @Test
+    fun `a car typed out of order is named once, with one total`() {
+        val out = render(outOfOrder())
+        assertEquals("the GT86 must be headed once", 1, out.lines().count { it.contains("8978 JZ 20") })
+        assertEquals("the Vitz must be headed once", 1, out.lines().count { it.contains("1727 JZ 19") })
+        assertEquals("its total must be stated once", 1, out.lines().count { it.contains("10100.01") })
+    }
+
+    @Test
+    fun `scattered charges are gathered under their own car`() {
+        val out = render(outOfOrder()).lines()
+        val dashcam = out.indexOfFirst { it.contains("4G LTE CAR DASH CAM") }
+        val labor = out.indexOfFirst { it.contains("Labor") }
+        val polish = out.indexOfFirst { it.contains("BODY POLISH SUV") }
+        assertTrue("both GT86 charges print together, ahead of the Vitz", dashcam < labor && labor < polish)
+    }
+
+    /** Reordering is presentation only — every charge still prints, and they still add up. */
+    @Test
+    fun `no charge is lost or duplicated by the reordering`() {
+        val d = outOfOrder()
+        val ordered = orderByCar(d.lines) { it.plate }
+        assertEquals(d.lines.size, ordered.size)
+        assertEquals(d.lines.sumOf { it.inclCents }, ordered.sumOf { it.inclCents })
+        assertEquals(d.lines.toSet(), ordered.toSet())
+    }
 }

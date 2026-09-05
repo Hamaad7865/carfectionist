@@ -1,5 +1,6 @@
 import { Fragment, type CSSProperties } from "react";
 import { amountInWordsMUR } from "@/lib/number-to-words";
+import { orderByCar } from "@/lib/car-groups";
 import { effectiveSections, type DocType, type SectionFlags } from "@/lib/pdf/fiscal-lock";
 import { RichContent } from "@/lib/rich/render";
 import type { RichDoc } from "@/lib/rich/types";
@@ -235,7 +236,11 @@ function carKey(l: DocLineView): string {
 }
 
 export function DocumentA4(props: DocumentA4Props) {
-  const { docType, number, issueDate, createdBy, from, billTo, lines } = props;
+  const { docType, number, issueDate, createdBy, from, billTo } = props;
+  // Car by car, in the order the cashier worked — never as typed. A heading is drawn when
+  // the car changes from the line before, so a car whose charges are scattered through the
+  // list would be headed twice, each time claiming its whole subtotal. See orderByCar.
+  const lines = orderByCar(props.lines, carKey);
   const sections = effectiveSections(props.sectionConfig ?? {}, docType);
   const title = docType === "quote" ? "Quotation" : docType === "credit_note" ? "Credit Note" : "Invoice";
   const noun = title; // "Quotation From" / "Invoice For" etc.

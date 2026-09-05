@@ -79,6 +79,30 @@ data class ReceiptLine(
 }
 
 /**
+ * One customer, several cars — and one rule for what order their charges print in.
+ *
+ * Both slips head a car's charges with its plate the same cheap way: when this line's car
+ * differs from the one before it. That only reads right if a car's charges are ADJACENT,
+ * and as the cashier types them they are not — pricing the Hilux, switching to the Swift,
+ * then switching BACK to the Hilux (exactly what the car switcher invites) leaves them
+ * interleaved, and the Hilux is headed twice, each heading claiming its FULL total.
+ *
+ * So the lines are put in car order before anything renders them, and adjacency becomes
+ * true by construction. Cars keep the order their first charge appeared in — the order the
+ * cashier worked — and charges belonging to no car come last, where they print.
+ *
+ * The web says this in the same words (apps/web/src/lib/car-groups.ts · orderByCar); the
+ * counter's own bill list groups explicitly and needs no reordering.
+ */
+fun <T> orderByCar(lines: List<T>, plateOf: (T) -> String?): List<T> {
+    // LinkedHashMap keeps insertion order, so the buckets come out in first-appearance order.
+    val buckets = LinkedHashMap<String, MutableList<T>>()
+    for (l in lines) buckets.getOrPut(plateOf(l) ?: "") { mutableListOf() }.add(l)
+    val loose = buckets.remove("").orEmpty()
+    return buckets.values.flatten() + loose
+}
+
+/**
  * The receipt as a structured document — one source of truth rendered two ways:
  * the on-screen paper slip (ReceiptPaper composable) and the printer's plain text
  * (ReceiptText.render). Modelled on the studio's retail till slip.
@@ -288,10 +312,11 @@ object ReceiptText {
         val qtyW = 4
         val numW = if (w >= 48) 10 else 8
         val nameW = (w - qtyW - numW * 2).coerceAtLeast(6)
-        fun itemsTable(lines: List<ReceiptLine>) {
+        fun itemsTable(rawLines: List<ReceiptLine>) {
             appendLine("Qty ".take(qtyW).padEnd(qtyW) + "Designation".take(nameW).padEnd(nameW) + "UP".padStart(numW) + "Total".padStart(numW))
             // One heading per car when the bill covers more than one. Gross figures here,
             // ex-VAT on the A4 — each surface keeps the basis it has always printed.
+            val lines = orderByCar(rawLines) { it.plate }
             val plates = lines.map { it.plate }.distinct()
             var lastPlate: String? = null
             lines.forEachIndexed { i, l ->
