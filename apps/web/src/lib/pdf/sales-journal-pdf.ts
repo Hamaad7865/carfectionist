@@ -36,8 +36,18 @@ export function toJournalTables(j: SalesJournal): JournalTable[] {
       title: "Payments",
       head: ["Payment method", "Quantity", "Amount"],
       rows: j.payments.map((p) => ({ label: p.label, cells: [String(p.n), money(p.cents)] })),
-      note: { label: "Subtotal (excl credits)", cells: [null, money(j.paymentsSubtotalCents)] },
-      total: { label: "Total", cells: [null, money(j.paymentsTotalCents)] },
+      // The same bridge the screen shows. A printed journal that still claimed
+      // "subtotal = total" would contradict the page it was printed from.
+      notes: [
+        { label: "Money in (received this period)", cells: [null, money(j.paymentsSubtotalCents)] },
+        ...(j.settlingEarlierCents !== 0
+          ? [{ label: "…of which settled earlier bills", cells: [null, money(j.settlingEarlierCents)] }]
+          : []),
+        ...(j.onAccountCents !== 0
+          ? [{ label: "On account (invoiced, not yet paid)", cells: [null, money(j.onAccountCents)] }]
+          : []),
+      ],
+      total: { label: "Total invoiced", cells: [null, money(j.paymentsTotalCents)] },
     },
     {
       title: "Categories",

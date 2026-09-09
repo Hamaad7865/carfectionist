@@ -46,10 +46,15 @@ describe("SalesJournalA4", () => {
     expect(html).toContain("Avg Rs 3,587.85");
   });
 
-  it("shows the unpaid balance as the gap between tendered and takings", () => {
-    // d2 went out on account: Rs 5,195.70 tendered against Rs 7,175.70 sold.
-    expect(html).toContain("Subtotal (excl credits)");
+  it("bridges from the money that came in to what the period sold", () => {
+    // d2 went out on account: Rs 5,195.70 collected against Rs 7,175.70 sold, so
+    // the printed journal has to NAME the Rs 1,980.00 gap rather than leaving the
+    // reader to subtract two rows that no longer have to agree.
+    expect(html).toContain("Money in (received this period)");
     expect(html).toContain("Rs 5,195.70");
+    expect(html).toContain("On account (invoiced, not yet paid)");
+    expect(html).toContain("Rs 1,980.00");
+    expect(html).toContain("Total invoiced");
   });
 
   it("builds real table markup — one cell per column, on every row", () => {

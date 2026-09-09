@@ -1,5 +1,5 @@
 import { formatMUR } from "@/lib/money";
-import type { SalesJournal } from "@/lib/supabase/queries/sales-journal";
+import type { SalesJournal, JournalInvoiceRef } from "@/lib/supabase/queries/sales-journal";
 import { rangeLabel, shortRangeLabel, type Range } from "./periods";
 
 // The Cashmag "Journal de ventes": one period, aggregated once, broken down five
@@ -213,27 +213,52 @@ export function SalesJournalView({
             {cmp && <span className="text-right">Prior</span>}
           </div>
           {j.payments.length === 0 ? (
-            <Empty label="Nothing was tendered in this period." />
+            <Empty label="No money was taken in this period." />
           ) : (
             j.payments.map((p) => (
-              <div key={p.method} className={ROW} style={grid("1fr 150px 180px")}>
-                <span className="font-semibold text-body">{p.label}</span>
-                <span className="num text-right text-muted">{p.n}</span>
-                <span className="num text-right font-bold text-ink">{money(p.cents)}</span>
-                {cmp && <PriorCell now={p.cents} prev={lookup(prior?.payments, p.label)?.cents ?? 0} />}
-              </div>
+              <Drawer
+                key={p.method}
+                cols={grid("1fr 150px 180px")}
+                label={p.label}
+                qty={p.n}
+                cents={p.cents}
+                invoices={p.invoices}
+                prior={cmp ? <PriorCell now={p.cents} prev={lookup(prior?.payments, p.label)?.cents ?? 0} /> : null}
+              />
             ))
           )}
-          {/* Cashmag's "S/TOTAL (HORS CRÉDITS)" — money actually tendered. The gap
-              between this and Total is what went out on account. */}
+          {/* The bridge. Money in is what reached the shop THIS period, whatever it
+              settled; Total is what this period SOLD. They only match when nobody
+              paid late, so the two lines between them explain the gap:
+                  invoiced = (money in − settling earlier bills) + on account */}
           <div className={`${ROW} italic text-muted`} style={grid("1fr 150px 180px")}>
-            <span>Subtotal (excl credits)</span>
+            <span>Money in (received this period)</span>
             <span />
             <span className="num text-right font-bold">{money(j.paymentsSubtotalCents)}</span>
             {cmp && <PriorCell now={j.paymentsSubtotalCents} prev={prior!.paymentsSubtotalCents} />}
           </div>
+          {j.settlingEarlierCents !== 0 && (
+            <Drawer
+              cols={grid("1fr 150px 180px")}
+              label="…of which settled earlier bills"
+              cents={j.settlingEarlierCents}
+              invoices={j.settlingEarlier}
+              muted
+              prior={cmp ? <PriorCell now={j.settlingEarlierCents} prev={prior!.settlingEarlierCents} /> : null}
+            />
+          )}
+          {j.onAccountCents !== 0 && (
+            <Drawer
+              cols={grid("1fr 150px 180px")}
+              label="On account (invoiced, not yet paid)"
+              cents={j.onAccountCents}
+              invoices={j.onAccount}
+              tone="text-amber-ink"
+              prior={cmp ? <PriorCell now={j.onAccountCents} prev={prior!.onAccountCents} /> : null}
+            />
+          )}
           <div className={TOTAL} style={grid("1fr 150px 180px")}>
-            <span>Total</span>
+            <span>Total invoiced</span>
             <span />
             <span className="num text-right text-brand">{money(j.paymentsTotalCents)}</span>
             {cmp && <PriorCell now={j.paymentsTotalCents} prev={prior!.paymentsTotalCents} />}
@@ -315,4 +340,74 @@ export function SalesJournalView({
 
 function Empty({ label = "Nothing sold in this period." }: { label?: string }) {
   return <div className="px-5 py-10 text-center text-[14.5px] font-medium text-faint">{label}</div>;
+}
+
+/**
+ * A money row that opens to show the bills behind it.
+ *
+ * Native <details>, not a client component: this whole screen is a server component
+ * whose state lives in the URL, and one expandable row is not worth shipping
+ * JavaScript for. It also means the rows stay open when the page is printed.
+ */
+function Drawer({
+  cols, label, qty, cents, invoices, prior, tone = "text-ink", muted = false,
+}: {
+  cols: React.CSSProperties;
+  label: string;
+  qty?: number;
+  cents: number;
+  invoices: JournalInvoiceRef[];
+  prior?: React.ReactNode;
+  tone?: string;
+  muted?: boolean;
+}) {
+  const head = (
+    <div className={`${ROW} ${muted ? "italic text-muted" : ""}`} style={cols}>
+      <span className={`flex items-center gap-1.5 ${muted ? "" : "font-semibold text-body"}`}>
+        {invoices.length > 0 && (
+          <span className="select-none text-[10px] text-faint transition-transform group-open:rotate-90">▶</span>
+        )}
+        {label}
+        {invoices.length > 0 && (
+          <span className="num text-[11.5px] font-medium text-faint">
+            ({invoices.length} {invoices.length === 1 ? "bill" : "bills"})
+          </span>
+        )}
+      </span>
+      <span className="num text-right text-muted">{qty ?? ""}</span>
+      <span className={`num text-right font-bold ${tone}`}>{money(cents)}</span>
+      {prior}
+    </div>
+  );
+
+  // Nothing to open into — render the plain row rather than an empty disclosure.
+  if (invoices.length === 0) return head;
+
+  return (
+    <details className="group">
+      <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">{head}</summary>
+      <div className="border-b border-line bg-sub">
+        {invoices.map((r) => (
+          <div
+            key={r.id}
+            className="grid items-center gap-3 px-5 py-2 pl-10 text-[12.5px] text-muted"
+            style={{ gridTemplateColumns: "1fr 150px 180px" }}
+          >
+            <span className="flex items-center gap-2 truncate">
+              <span className="num font-semibold text-body">{r.number ?? "—"}</span>
+              <span className="truncate">{r.customer ?? "Walk-in customer"}</span>
+              {/* Why this bill is here at all when it was raised in another period. */}
+              {r.earlier && (
+                <span className="shrink-0 rounded-full bg-band px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-amber-ink">
+                  billed {r.businessDay}
+                </span>
+              )}
+            </span>
+            <span />
+            <span className="num text-right font-semibold text-body">{money(r.cents)}</span>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
 }
