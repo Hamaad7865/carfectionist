@@ -130,20 +130,27 @@ export async function createStaffAction(input: z.input<typeof createSchema>): Pr
 
 const pinSchema = z.object({ id: z.string().min(1), pin: z.string().trim().regex(/^[0-9]{4}$/, "PIN must be exactly 4 digits") });
 export async function setStaffPinAction(input: z.input<typeof pinSchema>): Promise<Result> {
-  const ctx = await requireRole("owner");
-  const p = pinSchema.safeParse(input);
-  if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid PIN" };
-  const sb = await createClient();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (sb as any).rpc("set_staff_pin", {
-    p_app_user_id: p.data.id,
-    p_pin: p.data.pin,
-    p_device_verifier: await mintDeviceVerifier(p.data.pin),
-  });
-  if (error) return { ok: false, error: error.message };
-  await auditAdmin(sb, ctx, "staff_pin_set", p.data.id, { name: await nameOf(sb, p.data.id) });
-  revalidatePath("/settings/team");
-  return { ok: true };
+  // A thrown server action is opaque in production (only a digest reaches the client),
+  // so any unexpected failure is caught and RETURNED — the operator sees what actually
+  // went wrong instead of a frozen button, and the message is diagnosable.
+  try {
+    const ctx = await requireRole("owner");
+    const p = pinSchema.safeParse(input);
+    if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid PIN" };
+    const sb = await createClient();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error } = await (sb as any).rpc("set_staff_pin", {
+      p_app_user_id: p.data.id,
+      p_pin: p.data.pin,
+      p_device_verifier: await mintDeviceVerifier(p.data.pin),
+    });
+    if (error) return { ok: false, error: error.message };
+    await auditAdmin(sb, ctx, "staff_pin_set", p.data.id, { name: await nameOf(sb, p.data.id) });
+    revalidatePath("/settings/team");
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? `${e.message}` : String(e) };
+  }
 }
 
 export async function clearStaffPinAction(id: string): Promise<Result> {
