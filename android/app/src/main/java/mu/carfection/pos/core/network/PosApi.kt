@@ -192,7 +192,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, invoices:documents!source_document_id(id, number, doc_type, status, total_incl), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(120) // deep enough that the search bar reaches past the last few days
@@ -1121,11 +1121,13 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat, vehicles(plate, make, model)), " +
             "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"
 
-    /** Past sales with lines + payments — the history list and its reprints. */
+    /** Past sales with lines + payments — the history list and its reprints.
+     *  No void bills: there is no receipt to reprint for money the shop handed
+     *  back (etienne's void INV-0204 kept surfacing next to the bill that stood). */
     suspend fun fetchSalesHistory(limit: Long = 60): List<SaleHistoryDto> =
         client.postgrest.from("documents")
             .select(Columns.raw(SALE_COLS)) {
-                filter { eq("doc_type", "invoice"); neq("status", "draft") }
+                filter { eq("doc_type", "invoice"); neq("status", "draft"); neq("status", "void") }
                 order("issued_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(limit)
             }

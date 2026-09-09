@@ -522,8 +522,9 @@ data class QuoteState(
 /**
  * Is this quote finished business — off the working list?
  *
- * Delivered or cancelled work was already retired. Two more count as dead and were not:
+ * Delivered or cancelled work was already retired. Three more count as dead and were not:
  *  - the quote itself was VOIDED (cancel_job now does this to the quote that produced the job);
+ *  - a REVISION of it has gone out, so this price no longer stands;
  *  - every invoice raised from it has been voided, which is the shop saying the billing was
  *    undone. A00023 sat in the live list on exactly that footing, with both its invoices void.
  *
@@ -533,6 +534,12 @@ data class QuoteState(
 private fun QuoteRowDto.isRetired(): Boolean {
     if (status == "void" || status == "declined" || status == "expired") return true
     if (job?.status == "delivered" || job?.status == "cancelled") return true
+    // A quote that has been REVISED is last week's price — the revision carries the work
+    // now, so the original drops off the list the moment that revision stops being a
+    // draft. (etienne gerare's A00179 and A00180, Rs 1,320 then Rs 1,650, both sat here.)
+    // revisionOf, not source: duplicate_document hangs a plain COPY off the same column
+    // and a copy replaces nothing. Mirrors the web working list.
+    if (invoices.any { it.docType == "quote" && it.revisionOf == id && it.status != "draft" && it.status != "void" }) return true
     // Retired once the money question is closed, which happens two ways:
     //  • every bill it ever had was voided — nothing owed, nothing booked (A00023);
     //  • or a bill has been PAID — the work is agreed, billed and settled, and the

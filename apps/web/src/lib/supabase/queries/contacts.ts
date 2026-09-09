@@ -83,7 +83,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
   const [custRes, vehRes, docRes, supRes, bsRes] = await Promise.all([
     sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, is_company, wa_opt_out, points_balance").order("name"),
     sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes, is_active, is_coated"),
-    sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at"),
+    sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at, revision_of"),
     sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
     sb.from("business_settings").select("point_value_rupees, points_enabled").limit(1).maybeSingle(),
   ]);
@@ -146,6 +146,19 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
       ? await sb.from("documents").select("id, number").in("id", docRefIds)
       : { data: [] as { id: string; number: string | null }[] };
     const numberById = new Map((refDocs ?? []).map((d) => [d.id, d.number]));
+
+    // The history panel tells the story of the work that stands. Void paperwork is
+    // archive material, and a quote a revision replaced is last week's price — the
+    // working list (documents.ts) retires both, and the customer's story does too.
+    // Derived, not stamped: void the revision and the original returns on its own.
+    // revision_of, never source_document_id: a plain COPY hangs off that column
+    // and retires nothing.
+    const supersededIds = new Set(
+      docs
+        .filter((d) => d.doc_type === "quote" && d.revision_of && !["draft", "void"].includes(d.status))
+        .map((d) => d.revision_of as string),
+    );
+
     selected = {
       ...base,
       spendCents: spendByCust.get(selId) ?? 0,
@@ -154,7 +167,7 @@ export async function getContacts(selectedId?: string): Promise<ContactsData> {
         .filter((v) => v.customer_id === selId)
         .map((v) => ({ id: v.id, plate: v.plate, make: v.make, model: v.model, year: v.year, color: v.color, category: v.category, vin: v.vin, notes: v.notes, isActive: v.is_active ?? true, isCoated: v.is_coated ?? false })),
       history: docs
-        .filter((d) => d.customer_id === selId)
+        .filter((d) => d.customer_id === selId && d.status !== "void" && !supersededIds.has(d.id))
         .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
         .map((d) => ({
           id: d.id,

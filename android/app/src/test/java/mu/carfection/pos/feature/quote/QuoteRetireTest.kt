@@ -19,16 +19,26 @@ class QuoteRetireTest {
         status: String = "accepted",
         job: String? = null,
         invoices: List<Pair<String, String>> = emptyList(),
+        children: List<FlowInvoiceRefDto> = emptyList(),
     ) = QuoteRowDto(
         id = "q1", number = "A00023", status = status,
         job = job?.let { JobStatusRefDto(it) },
-        invoices = invoices.mapIndexed { i, (num, st) -> FlowInvoiceRefDto("i$i", num, "invoice", st) },
+        invoices = invoices.mapIndexed { i, (num, st) -> FlowInvoiceRefDto("i$i", num, "invoice", st) } + children,
     )
+
+    /** A revision of q1 — the quote that replaces it. */
+    private fun revision(number: String, status: String) =
+        FlowInvoiceRefDto(id = "r-$number", number = number, docType = "quote", status = status, revisionOf = "q1")
+
+    /** A plain COPY of q1: same parent column in PostgREST, but it replaces nothing. */
+    private fun copy(number: String, status: String) =
+        FlowInvoiceRefDto(id = "c-$number", number = number, docType = "quote", status = status, revisionOf = null)
 
     /** Mirrors QuoteViewModel.isRetired — kept in step by these cases. */
     private fun retired(q: QuoteRowDto): Boolean {
         if (q.status == "void" || q.status == "declined" || q.status == "expired") return true
         if (q.job?.status == "delivered" || q.job?.status == "cancelled") return true
+        if (q.invoices.any { it.docType == "quote" && it.revisionOf == q.id && it.status != "draft" && it.status != "void" }) return true
         val bills = q.invoices.filter { it.docType == "invoice" }
         if (bills.isEmpty()) return false
         return bills.all { it.status == "void" } || bills.any { it.status == "paid" }
@@ -101,6 +111,39 @@ class QuoteRetireTest {
     fun `cancelled and delivered work stays retired`() {
         assertTrue(retired(quote(job = "cancelled")))
         assertTrue(retired(quote(job = "delivered")))
+    }
+
+    /**
+     * The owner's case: etienne gerare's A00179 (Rs 1,320) and A00180 (Rs 1,650) sat side by
+     * side, two minutes apart, and nobody at the counter could say which price stood. The
+     * revision carries the work; the quote it replaced leaves the list.
+     */
+    @Test
+    fun `a quote that has been revised leaves the working list`() {
+        assertTrue(retired(quote(children = listOf(revision("A00180", "accepted")))))
+        assertTrue(retired(quote(children = listOf(revision("A00180", "issued")))))
+    }
+
+    /** A revision still being typed is not the price yet — both stay until it goes out. */
+    @Test
+    fun `a draft revision does not retire the quote it came from`() {
+        assertFalse(retired(quote(children = listOf(revision("A00180", "draft")))))
+    }
+
+    /** And if that revision is voided, the original is the live price again. */
+    @Test
+    fun `a voided revision hands the work back`() {
+        assertFalse(retired(quote(children = listOf(revision("A00180", "void")))))
+    }
+
+    /**
+     * The false positive this rule must not have: duplicate_document hangs a plain copy off
+     * the same PostgREST relationship. A copy is somebody's new paperwork — it replaces
+     * nothing, and the quote it was copied from is still live business.
+     */
+    @Test
+    fun `a copy of the quote leaves it on the list`() {
+        assertFalse(retired(quote(children = listOf(copy("A00181", "accepted")))))
     }
 
     @Test
