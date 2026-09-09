@@ -1966,11 +1966,19 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
         }
 
         Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
+        // Says what the header actually offers. Once a bill on this quotation's line is
+        // standing, Revise is gone (canReviseQuote) and telling the operator to use it
+        // sends them hunting for a button that is not there — and, if they find it on
+        // another screen, into a refusal from revise_quote. The bill is the door then.
+        val canRevise = canReviseQuote(s.billed, s.supersededBills.size)
+        val howToChange =
+            if (canRevise) " Revise to change them: a new quote carrying these lines, with this one kept as the record."
+            else " These prices are billed now — anything else they take goes on that bill."
         Text(
             if (accepted)
-                "Signed — the customer agreed to these prices, so they stay exactly as agreed. Revise to change them: a new quote carrying these lines, with this one kept as the record."
+                "Signed — the customer agreed to these prices, so they stay exactly as agreed.$howToChange"
             else
-                "Sent — the customer has been shown these prices. Revise to change them: a new quote carrying these lines, with this one kept as the record.",
+                "Sent — the customer has been shown these prices.$howToChange",
             Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, lineHeight = 18.sp, color = TextMuted,
         )
