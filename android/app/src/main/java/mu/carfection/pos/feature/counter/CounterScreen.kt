@@ -792,6 +792,17 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                     // read as .12 a cent below what the pad actually collects (audit #12).
                     val remaining = mu.carfection.pos.core.money.rupeesToCents(b.totalIncl) - mu.carfection.pos.core.money.rupeesToCents(b.amountPaid)
                     val partly = b.status == "partly_paid"
+                    // A draft has no number yet (it is issued as the payment is taken), so the
+                    // bare word "Invoice" read like something had gone missing. Say what the
+                    // row is — an OPEN bill, and which quote it was raised from.
+                    val isDraft = b.status == "draft" && b.number == null
+                    val billLabel = when {
+                        b.number != null -> b.number
+                        isDraft -> b.sourceDocumentId?.let { s.quoteNumbers[it] }
+                            ?.let { "OPEN BILL · from quote $it" }
+                            ?: "OPEN BILL · not yet issued"
+                        else -> "Invoice"
+                    }
                     Row(
                         Modifier.fillMaxWidth().background(Tile, RoundedCornerShape(12.dp))
                             .border(1.dp, Hairline, RoundedCornerShape(12.dp))
@@ -799,7 +810,7 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Column(Modifier.weight(1f)) {
-                            Text(b.number ?: "Invoice", color = TextMuted, fontFamily = Mono, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
+                            Text(billLabel, color = if (isDraft) Accent else TextMuted, fontFamily = Mono, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                             Text(b.customers?.name ?: "—", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         Column(horizontalAlignment = Alignment.End) {

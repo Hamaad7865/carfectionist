@@ -1115,6 +1115,21 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList<DocNumberDto>().firstOrNull()?.number
     }.getOrNull()
 
+    /** Numbers for a batch of document ids in ONE round trip — the TO COLLECT list names
+     *  each open bill's source quote ("OPEN BILL · from quote A00156") so a draft with no
+     *  number of its own still says where it came from. Best-effort: an unreachable server
+     *  leaves the label at "not yet issued" rather than failing the list. */
+    suspend fun fetchDocNumbers(ids: List<String>): Map<String, String?> =
+        if (ids.isEmpty()) emptyMap()
+        else runCatching {
+            client.postgrest.from("documents")
+                .select(Columns.raw("id, number")) {
+                    filter { isIn("id", ids) }
+                }
+                .decodeList<DocIdNumberDto>()
+                .associate { it.id to it.number }
+        }.getOrDefault(emptyMap())
+
     /**
      * One job's service description (notes + checklist) — the payment screen's "what was this
      * for" detail on a collect. Scoped narrow on purpose: fetchJobs()/JobBoardDto pulls the whole
