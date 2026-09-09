@@ -137,10 +137,22 @@ try {
   // This is the shop's live shape: the Rs 1,650 draft already sits on the job, and
   // issuing it would take the same goods off the shelf a second time. The guard has
   // to be on the transition, not only on the two RPCs that raise a bill.
+  // The RPCs can no longer BUILD this shape — billing the parent over the
+  // revision's draft hands that draft back instead of minting a rival
+  // (20260910000010, the line keeps one bill) — so the legacy rows are written
+  // the way the live data actually looks, and the guard is proven on the shape
+  // it must still catch.
   const q4 = await quote(600);
   const { rows: [rev4] } = await c.query("select (revise_quote($1)).id as id", [q4]);
   const { rows: [inv4b] } = await c.query("select (convert_quote_to_invoice($1)).id as id", [rev4.id]);
-  const { rows: [inv4a] } = await c.query("select (convert_quote_to_invoice($1)).id as id", [q4]);
+  const { rows: [inv4a] } = await c.query(
+    `insert into documents (tenant_id, doc_type, status, customer_id, vehicle_id, source_document_id, created_by)
+     select tenant_id, 'invoice', 'draft', customer_id, vehicle_id, $2, null
+       from documents where id = $1 returning id`, [q4, q4]);
+  await c.query(
+    `insert into document_lines (tenant_id, document_id, product_id, title, qty, unit_price, discount_pct, vat_rate, sort_order, line_kind, price_includes_vat)
+     select tenant_id, $2, product_id, title, qty, unit_price, discount_pct, vat_rate, sort_order, line_kind, price_includes_vat
+       from document_lines where document_id = $1`, [q4, inv4a.id]);
   await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv4a.id, `v:${inv4a.id}`]);
   const { rows: [bill4a] } = await c.query("select number from documents where id = $1", [inv4a.id]);
 
