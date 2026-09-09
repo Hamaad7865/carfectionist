@@ -444,6 +444,8 @@ export interface StatementLine {
   date: string; // yyyy-mm-dd
   kind: "invoice" | "payment" | "credit_note";
   ref: string | null;
+  /** Document id behind the row — the invoice/credit id, or the payment's own invoice. */
+  refId: string | null;
   detail: string;
   debitCents: number;
   creditCents: number;
@@ -700,23 +702,23 @@ export async function getCustomerStatement(customerId: string, from?: string, to
     // fetchAllRows: a fleet customer's lifetime history can exceed the 1000-row cap.
     fetchAllRows(() => sb.from("documents").select("id, doc_type, number, total_incl, issue_date").eq("customer_id", customerId).in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"])),
     // Payments against this customer's documents (credits). Reversal mirrors keep the sign.
-    fetchAllRows(() => sb.from("payments").select("id, amount, received_at, method, documents!inner(number, customer_id)").eq("documents.customer_id", customerId)),
+    fetchAllRows(() => sb.from("payments").select("id, amount, received_at, method, document_id, documents!inner(number, customer_id)").eq("documents.customer_id", customerId)),
   ]);
   const docRes = { data: docRows };
   const payRes = { data: payRows };
 
-  type Ev = { date: string; kind: StatementLine["kind"]; ref: string | null; detail: string; debit: number; credit: number; seq: number };
+  type Ev = { date: string; kind: StatementLine["kind"]; ref: string | null; refId: string | null; detail: string; debit: number; credit: number; seq: number };
   const evs: Ev[] = [];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const d of (docRes.data ?? []) as any[]) {
     if (!d.issue_date) continue;
     const cents = rupeesToCents(Number(d.total_incl));
-    if (d.doc_type === "invoice") evs.push({ date: d.issue_date, kind: "invoice", ref: d.number, detail: "Invoice", debit: cents, credit: 0, seq: 0 });
-    else evs.push({ date: d.issue_date, kind: "credit_note", ref: d.number, detail: "Credit note", debit: 0, credit: cents, seq: 1 });
+    if (d.doc_type === "invoice") evs.push({ date: d.issue_date, kind: "invoice", ref: d.number, refId: d.id, detail: "Invoice", debit: cents, credit: 0, seq: 0 });
+    else evs.push({ date: d.issue_date, kind: "credit_note", ref: d.number, refId: d.id, detail: "Credit note", debit: 0, credit: cents, seq: 1 });
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const p of (payRes.data ?? []) as any[]) {
-    evs.push({ date: muDate(p.received_at as string), kind: "payment", ref: p.documents?.number ?? null, detail: `Payment · ${STMT_METHOD[p.method] ?? p.method}`, debit: 0, credit: rupeesToCents(Number(p.amount)), seq: 2 });
+    evs.push({ date: muDate(p.received_at as string), kind: "payment", ref: p.documents?.number ?? null, refId: p.document_id ?? null, detail: `Payment · ${STMT_METHOD[p.method] ?? p.method}`, debit: 0, credit: rupeesToCents(Number(p.amount)), seq: 2 });
   }
   // by date, then debits (invoices) before credits on the same day
   evs.sort((a, b) => (a.date < b.date ? -1 : a.date > b.date ? 1 : a.seq - b.seq));
@@ -734,7 +736,7 @@ export async function getCustomerStatement(customerId: string, from?: string, to
     bal += e.debit - e.credit;
     invoiced += e.debit;
     settled += e.credit;
-    lines.push({ date: e.date, kind: e.kind, ref: e.ref, detail: e.detail, debitCents: e.debit, creditCents: e.credit, balanceCents: bal });
+    lines.push({ date: e.date, kind: e.kind, ref: e.ref, refId: e.refId, detail: e.detail, debitCents: e.debit, creditCents: e.credit, balanceCents: bal });
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { customerId, customerName: (cust as any).name, openingCents: opening, lines, invoicedCents: invoiced, settledCents: settled, closingCents: bal };
