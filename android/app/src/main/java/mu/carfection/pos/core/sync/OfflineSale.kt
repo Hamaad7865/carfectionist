@@ -99,6 +99,10 @@ data class OfflineSaleLine(
     val discountKind: String = "percent",
     val discountAmountInclCents: Long = 0,
     val vatRatePct: Double,
+    // price_includes_vat: the unit IS the typed gross and the DB extracts the VAT.
+    // Defaults false so rows captured before this field existed replay exactly as
+    // they always did (net + VAT) rather than failing to decode.
+    val priceInclusive: Boolean = false,
 )
 
 /** One tender against the sale — the split table, or a single method. */

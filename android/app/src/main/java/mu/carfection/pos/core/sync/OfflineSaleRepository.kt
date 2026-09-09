@@ -328,6 +328,7 @@ internal fun SaleLineSpec.toOffline() = OfflineSaleLine(
     discountKind = discountKind,
     discountAmountInclCents = discountAmountInclCents,
     vatRatePct = vatRatePct,
+    priceInclusive = priceInclusive,
 )
 
 internal fun OfflineSaleLine.toSpec() = SaleLineSpec(
@@ -339,6 +340,7 @@ internal fun OfflineSaleLine.toSpec() = SaleLineSpec(
     vatRatePct = vatRatePct,
     discountKind = discountKind,
     discountAmountInclCents = discountAmountInclCents,
+    priceInclusive = priceInclusive,
 )
 
 internal fun Tender.toOffline() = OfflineTender(

@@ -612,6 +612,9 @@ class QuoteViewModel @Inject constructor(
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
     private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
     private val overrideApi: OverrideApi,
+    // The till that rang it — issue_document stamps the service for the cash-up.
+    // Null when nothing is open (reception billing): the sale still lands in the day.
+    private val till: mu.carfection.pos.core.data.TillRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(QuoteState())
     val state = _s.asStateFlow()
@@ -1891,7 +1894,7 @@ class QuoteViewModel @Inject constructor(
                     val goodsInvoice = if (!hasService(s)) {
                         runCatching {
                             val inv = api.convertQuoteToInvoice(quoteId)
-                            if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
+                            if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                             inv
                         }.getOrNull()
                     } else null
@@ -1955,7 +1958,7 @@ class QuoteViewModel @Inject constructor(
                 val depositInvoice = if (s.depositCents > 0) {
                     runCatching {
                         val inv = api.convertQuoteToInvoice(quoteId)
-                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}")
+                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                         inv.id
                     }.getOrNull()
                 } else null
@@ -2238,7 +2241,7 @@ class QuoteViewModel @Inject constructor(
                 val saved = api.saveDraft(doc, billLinesJson(s))
                 // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
                 // key spent on the void one would refuse its replacement for ever.
-                if (issue) api.issueDocument(saved.id, "inv:${saved.id}") else saved
+                if (issue) api.issueDocument(saved.id, "inv:${saved.id}", sessionId = till.current.value?.id) else saved
             }.onSuccess { doc ->
                 _s.update {
                     it.copy(
