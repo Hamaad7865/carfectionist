@@ -156,6 +156,13 @@ data class QuoteRowDto(
     // Flow strip: did this quote start at reception, and has the client signed?
     val intake: kotlinx.serialization.json.JsonElement? = null,
     @SerialName("accepted_signature") val acceptedSignature: kotlinx.serialization.json.JsonElement? = null,
+    /**
+     * The quote this one REVISES, when it is a revision rather than a fresh quotation.
+     * The builder needs it to know the price was already agreed once: a revision is
+     * corrected with Update, not re-negotiated through the whole accept ceremony.
+     * Distinct from source_document_id, which a plain copy carries too.
+     */
+    @SerialName("revision_of") val revisionOf: String? = null,
     // live invoices derived from this quote ("Bill now"/auto-billing) - the billed marker
     val invoices: List<FlowInvoiceRefDto> = emptyList(),
     // the job this quote produced — its status retires the quote from the list once delivered
@@ -165,6 +172,19 @@ data class QuoteRowDto(
 )
 
 @Serializable data class JobStatusRefDto(val status: String = "")
+
+/**
+ * The live bill standing against a job — what accepting a revision VOIDS and re-issues at
+ * the new price (convert_quote_to_job's re-price branch). Read so the operator is told
+ * which document is about to be retired, and for how much, before a tap moves the money.
+ */
+@Serializable data class JobBillDto(
+    val id: String,
+    val number: String? = null,
+    val status: String = "",
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+)
 
 // ── Lifecycle flow refs (embedded on the jobs board) ──────────────────────────
 @Serializable

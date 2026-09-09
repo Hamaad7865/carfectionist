@@ -192,7 +192,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, revision_of, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(120) // deep enough that the search bar reaches past the last few days
@@ -246,6 +246,24 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * Ordered by creation, which is the order convert_quote_to_jobs walked the cars in —
      * the order their charges first appear on the quotation.
      */
+    /**
+     * The live bill on a job — the one accepting a revision would void and re-raise at the
+     * new price. Best-effort: it only feeds a warning, and failing to read it must never
+     * block the correction itself.
+     */
+    suspend fun fetchJobLiveBill(jobId: String): JobBillDto? = runCatching {
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, number, status, total_incl, amount_paid")) {
+                filter {
+                    eq("job_id", jobId); eq("doc_type", "invoice")
+                    neq("status", "void"); neq("status", "draft")
+                }
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(1)
+            }
+            .decodeList<JobBillDto>().firstOrNull()
+    }.getOrNull()
+
     suspend fun fetchJobsForQuote(quoteId: String): List<QuoteJobDto> = runCatching {
         client.postgrest.from("jobs")
             .select(Columns.raw("id, status, vehicle_id, vehicles(plate, make, model)")) {

@@ -224,6 +224,7 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     if (s.pickerOpen) QuoteCustomerPicker(s, viewModel)
     if (s.confirmDelete) DiscardDraftDialog(s, viewModel)
     if (s.declineOpen) DeclineQuoteDialog(s, viewModel)
+    if (s.updateConfirmOpen) UpdateRevisionDialog(s, viewModel)
     if (s.datePickerOpen) StartDatePicker(s, viewModel)
     if (s.timePickerOpen) StartTimePicker(s, viewModel)
     // "Ask the owner": one dialog, either target — see QuoteViewModel.openOverride.
@@ -1369,7 +1370,25 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                     Text(if (s.busy) "Working…" else "Customer declined", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Danger)
                                 }
                             }
-                            Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
+                            // A REVISION is a price that was agreed once already: the customer
+                            // signed the original, and the car is on the board with its crew and
+                            // its slot. Asking all of that again answers nothing, so it corrects
+                            // with one button. Everything else still goes through the accept panel.
+                            if (s.revisionOf != null) {
+                                val ready = s.lines.isNotEmpty() && !s.busy && !s.updateChecking
+                                Box(
+                                    Modifier.weight(1.6f).height(52.dp)
+                                        .background(if (ready) Accent else InsetAlt, RoundedCornerShape(13.dp))
+                                        .clickable(enabled = ready) { vm.askUpdate() },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        if (s.busy) "Updating…" else if (s.updateChecking) "Checking…" else "Update",
+                                        fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                                        color = if (ready) AccentInk else TextMuted,
+                                    )
+                                }
+                            } else Box(Modifier.weight(1.6f).height(52.dp).background(if (s.lines.isNotEmpty()) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = s.lines.isNotEmpty()) { vm.openAccept() }, contentAlignment = Alignment.Center) {
                                 // Nothing to put on the board when it is goods only — say so here
                                 // rather than promising a job the accept panel will not create.
                                 Text(if (!work) "Accept — goods only" else if (s.jobId != null) "Accept → update job" else "Accept → create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
@@ -2539,6 +2558,63 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                         .clickable { if (s.customerId != null) vm.closePicker() else vm.back() },
                     contentAlignment = Alignment.Center,
                 ) { Text(if (s.customerId != null) "Skip" else "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+            }
+        }
+    }
+}
+
+/**
+ * What an Update is about to do to the money.
+ *
+ * Correcting a revision is quiet everywhere else — the crew, the booking and the signature
+ * all stay as they were. The bill does not: where the job already carries an issued or paid
+ * one, accepting the new price VOIDS it and re-raises it, carrying any deposit across. That
+ * is a real fiscal document being retired on one tap, so it is named, with its number and
+ * both totals, before anything happens.
+ */
+@Composable
+private fun UpdateRevisionDialog(s: QuoteState, vm: QuoteViewModel) {
+    val bill = s.updateBill
+    Dialog(onDismissRequest = vm::cancelUpdate) {
+        Column(
+            Modifier.width(470.dp).background(CardBg, RoundedCornerShape(18.dp))
+                .border(1.dp, Hairline, RoundedCornerShape(18.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                "THIS RE-PRICES THEIR BILL",
+                fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary,
+            )
+            Text(
+                buildString {
+                    append(bill?.number ?: "The bill on this job")
+                    append(" for ")
+                    append(formatMUR(mu.carfection.pos.core.money.rupeesToCents(bill?.totalIncl ?: 0.0)))
+                    append(" will be voided and re-issued at ")
+                    append(formatMUR(vm.totals(s).totalCents))
+                    append(". ")
+                    // A deposit is not lost, and saying so stops the operator collecting twice.
+                    if ((bill?.amountPaid ?: 0.0) > 0.0) {
+                        append("The ")
+                        append(formatMUR(mu.carfection.pos.core.money.rupeesToCents(bill?.amountPaid ?: 0.0)))
+                        append(" already paid moves across to the new bill — do not collect it again. ")
+                    }
+                    append("The quotation keeps its crew, its booking and the signature already on it.")
+                },
+                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, lineHeight = 18.sp, color = TextSecondary,
+            )
+            Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                OutlineBtn("Cancel", Modifier.weight(1f), 48) { vm.cancelUpdate() }
+                Box(
+                    Modifier.weight(1.4f).height(48.dp).background(Accent, RoundedCornerShape(13.dp))
+                        .clickable(enabled = !s.busy) { vm.confirmUpdate() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        if (s.busy) "Updating…" else "Update and re-bill",
+                        fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = AccentInk,
+                    )
+                }
             }
         }
     }

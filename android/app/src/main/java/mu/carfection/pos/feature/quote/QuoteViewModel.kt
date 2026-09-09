@@ -55,6 +55,7 @@ import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteLineDto
 import mu.carfection.pos.core.network.QuoteRowDto
 import mu.carfection.pos.core.network.SendOutcome
+import mu.carfection.pos.core.network.JobBillDto
 import mu.carfection.pos.core.network.SupersededBill
 import mu.carfection.pos.core.network.TechnicianDto
 import mu.carfection.pos.core.network.UserNameDto
@@ -473,6 +474,17 @@ data class QuoteState(
      * Empty for virtually every quote; a row hides Revise and shows the warning.
      */
     val supersededBills: List<SupersededBill> = emptyList(),
+    /**
+     * The quote this draft REVISES, when it is one. The price was agreed once already, so a
+     * revision is corrected with Update — no technician, no booking, no second signature —
+     * rather than walked through the whole accept ceremony again.
+     */
+    val revisionOf: String? = null,
+    /** The live bill an Update would void and re-raise; null when there is nothing to retire. */
+    val updateBill: JobBillDto? = null,
+    /** The confirm shown before an Update moves money. */
+    val updateConfirmOpen: Boolean = false,
+    val updateChecking: Boolean = false,
     // "Send to customer" (post-accept): prefill + progress
     val customerEmail: String? = null,
     val customerPhone: String? = null,
@@ -685,7 +697,7 @@ class QuoteViewModel @Inject constructor(
             intake = h, jobId = null, jobs = emptyList(),
             // bills too: the last quote's invoice showing on a brand-new one is not a
             // cosmetic slip — it is a bill for another visit, priced, on this customer's screen.
-            hasIntake = true, signed = false, billed = false, bills = emptyList(), supersededBills = emptyList(),
+            hasIntake = true, signed = false, billed = false, bills = emptyList(), supersededBills = emptyList(), revisionOf = null, updateBill = null, updateConfirmOpen = false,
             // Set from THIS handoff's customer, never left over from a previously-opened one —
             // carrying the last customer's contact would WhatsApp a signed quote to the wrong
             // person. Intake now passes the contact it captured, so the send dialog is prefilled
@@ -798,7 +810,7 @@ class QuoteViewModel @Inject constructor(
             depositAmtText = "", depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", discountReason = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
-            intake = null, jobId = null, jobs = emptyList(), hasIntake = false, signed = false, billed = false, bills = emptyList(), supersededBills = emptyList(),
+            intake = null, jobId = null, jobs = emptyList(), hasIntake = false, signed = false, billed = false, bills = emptyList(), supersededBills = emptyList(), revisionOf = null, updateBill = null, updateConfirmOpen = false,
             customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
             pickerOpen = true, pickQuery = "", pickResults = emptyList(), pickVehicles = emptyList(),
             // A fresh quote is a different document — an approval taken out for whatever was
@@ -933,6 +945,8 @@ class QuoteViewModel @Inject constructor(
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
                 signed = q.acceptedSignature != null && q.acceptedSignature !is kotlinx.serialization.json.JsonNull,
                 billed = q.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" },
+                revisionOf = q.revisionOf,
+                updateBill = null, updateConfirmOpen = false, updateChecking = false,
                 bills = q.invoices
                     .filter { it.docType == "invoice" && it.status != "void" }
                     .map { BillRef(it.id, it.number, it.status, rupeesToCents(it.totalIncl)) },
@@ -1497,6 +1511,66 @@ class QuoteViewModel @Inject constructor(
     // The panel opens on what the quote actually contains rather than on "yes" every time.
     // Still a toggle: a service quote signed today for work booked next month turns it off,
     // and the rare products-only job turns it on.
+    /**
+     * UPDATE — the whole ceremony a revision does not need.
+     *
+     * A revision is a price that was already agreed once: the customer signed the original,
+     * the car is already on the board with its technician and its slot. Walking that back
+     * through "start the work / assign a crew / sign again" asks four questions whose
+     * answers have not changed, so this saves the corrected lines and accepts them directly.
+     * convert_quote_to_job coalesces the technician, the booking and the signature, so
+     * passing nothing leaves all three exactly as they were.
+     *
+     * The one thing that is NOT quiet is the money: where the job already carries an issued
+     * or paid bill, accepting re-prices it — the old bill is voided and re-raised at the new
+     * total, with any deposit carried across. That is named before it happens.
+     */
+    fun askUpdate() {
+        val s = _s.value
+        if (s.busy || s.updateChecking) return
+        val job = s.jobId
+        if (job == null) { confirmUpdate(); return }   // nothing billed to retire
+        _s.update { it.copy(updateChecking = true, error = null) }
+        viewModelScope.launch {
+            val bill = api.fetchJobLiveBill(job)
+            if (bill == null) { _s.update { it.copy(updateChecking = false) }; confirmUpdate() }
+            else _s.update { it.copy(updateChecking = false, updateBill = bill, updateConfirmOpen = true) }
+        }
+    }
+
+    fun cancelUpdate() = _s.update { it.copy(updateConfirmOpen = false, updateBill = null) }
+
+    /**
+     * Save the corrected lines, then accept them. Against the job when there is one — that
+     * is the branch that retires the old bill and re-raises it — otherwise a plain accept.
+     * No signature is passed: agreed_via records HOW it was agreed instead, so the document
+     * says "revised" rather than carrying a blank where evidence should be.
+     */
+    fun confirmUpdate() {
+        val s = _s.value
+        if (s.busy) return
+        val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
+        discountBlockReason(s)?.let { reason -> _s.update { it.copy(error = reason, updateConfirmOpen = false) }; return }
+        _s.update { it.copy(busy = true, error = null, updateConfirmOpen = false) }
+        viewModelScope.launch {
+            runCatching {
+                val quoteId =
+                    if (s.status == "draft")
+                        api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
+                    else s.quoteId ?: error("This quote hasn't been saved yet")
+                if (s.jobId != null) api.convertQuoteToJobs(quoteId, technicianId = null, agreedVia = "revision")
+                else api.acceptQuoteOnly(quoteId, agreedVia = "revision")
+                quoteId
+            }.onSuccess { id ->
+                _s.update { it.copy(busy = false, status = "accepted", savedRef = "Updated ✓", updateBill = null) }
+                loadQuotes()
+                loadSupersededBills(id)
+            }.onFailure { e ->
+                _s.update { it.copy(busy = false, updateBill = null, error = e.uiMessage("Couldn't update this quotation")) }
+            }
+        }
+    }
+
     fun openAccept() = _s.update { it.copy(acceptOpen = true, startJobNow = hasService(it), agreedVia = null) }
 
     /** Signing here, or agreed elsewhere. Picking a channel puts the pad away. */
