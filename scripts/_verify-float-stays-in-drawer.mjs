@@ -10,7 +10,10 @@
 //                  is there; no negative remittance.
 //   D. UNTICKED  — leaving CASH unticked is unchanged: nothing banked, the whole
 //                  count carried on.
-//   E. THE Z     — the frozen totals carry the corrected figure as `float_final`.
+//   E. THE Z     — the frozen totals carry float_final = the standing float (this
+//                  migration's behaviour). NOTE: 20260909000040 later re-scoped that
+//                  line to the COUNTED drawer (see _verify-final-float-whole-drawer.mjs);
+//                  this check verifies THIS migration in isolation, not current prod.
 import { readFileSync } from "node:fs";
 import pg from "pg";
 import { DB_URL } from "./_env.mjs";
@@ -91,7 +94,9 @@ try {
   check("B. the float stays in the drawer, the takings go to the bank",
     Number(b.float_out) === FLOAT && Number(b.remitted) === 500 && Number(b.banked) === 500,
     `float_out ${b.float_out}, remitted ${b.remitted}, banked ${b.banked}`);
-  check("E. the Z freezes the corrected figure as float_final",
+  // This migration froze float_final as the standing float; 20260909000040 later
+  // re-scoped it to the counted drawer. Asserted here for THIS migration in isolation.
+  check("E. this migration freezes float_final as the standing float (later re-scoped)",
     Number(b.float_final) === FLOAT, `float_final ${b.float_final}`);
 
   await c.query("rollback to savepoint s1");
