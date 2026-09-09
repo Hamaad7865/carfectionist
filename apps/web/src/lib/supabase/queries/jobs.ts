@@ -6,6 +6,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { jobClock } from "@/features/jobs/clock";
 import { JOB_COLUMNS as COLUMNS } from "@/features/jobs/columns";
 import { pickDoc, pickQuote, liveInvoices, outstandingCents, toJobDoc, type JobDoc, type RawDoc } from "@/features/jobs/job-docs";
+import { getSupersededBills, type SupersededBill } from "./document";
 import type { Marker } from "@/features/intake/damage";
 
 // Lives in features/jobs/columns so client components can read it without
@@ -195,17 +196,6 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
   // .in() with hundreds of uuids builds a multi-KB URL; chunk it so these never trip the
   // request-line limit once the shop has years of history.
   const quoteIds = [...new Set([...linkedDocs.filter((d) => d.doc_type === "quote").map((d) => d.id), ...missingQuoteIds])];
-  const [missingQuotePages, orphanPages] = await Promise.all([
-    Promise.all(chunk(missingQuoteIds, 100).map((ids) => sb.from("documents").select(DOC_COLS).in("id", ids))),
-    // An invoice raised from a quote BEFORE the job existed has job_id = null; it links
-    // back only through source_document_id → the quote. Without this pass the row claims
-    // "not invoiced" on a job that has been billed.
-    Promise.all(
-      chunk(quoteIds, 100).map((ids) =>
-        sb.from("documents").select(DOC_COLS).eq("doc_type", "invoice").is("job_id", null).in("source_document_id", ids),
-      ),
-    ),
-  ]);
 
   const rowsOf = (pages: { data: unknown; error: { message: string } | null }[]) =>
     pages.flatMap((r) => {
@@ -213,6 +203,9 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
       return (r.data ?? []) as (RawDoc & { source_document_id: string | null })[];
     });
 
+  const missingQuotePages = await Promise.all(
+    chunk(missingQuoteIds, 100).map((ids) => sb.from("documents").select(DOC_COLS).in("id", ids)),
+  );
   for (const d of rowsOf(missingQuotePages)) {
     const jobId = jobOfSourceQuote.get(d.id);
     if (jobId) add(jobId, d);
@@ -221,6 +214,48 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
   // Which job each quote belongs to — used to route an orphan invoice back to its job.
   const jobOfQuote = new Map<string, string>(jobOfSourceQuote);
   for (const d of linkedDocs) if (d.doc_type === "quote") jobOfQuote.set(d.id, d.job_id);
+
+  // The quotes this job's price descends FROM. A quote that was revised leaves its
+  // bill on the quote it REPLACED, and that one carries no job at all — so the pass
+  // below, which only knows the quotes the job holds, would never go looking for it
+  // (INV-0204: Rs 1,320 issued, on no screen, counted as revenue and owed by nobody).
+  // The replaced quote inherits its revision's job, so the bill lands on the right car.
+  //
+  // Bounded — a corrupted source_document_id cycle must not spin the board — and it
+  // costs nothing at all when nothing on the board was ever revised, which is usual.
+  const seenQuotes = new Set(quoteIds);
+  let frontier = [...linkedDocs.filter((d) => d.doc_type === "quote"), ...rowsOf(missingQuotePages)];
+  for (let depth = 0; depth < 6 && frontier.length > 0; depth++) {
+    const parentIds = [
+      ...new Set(frontier.map((d) => d.source_document_id).filter((id): id is string => !!id && !seenQuotes.has(id))),
+    ];
+    if (parentIds.length === 0) break;
+    const parents = rowsOf(
+      await Promise.all(
+        chunk(parentIds, 100).map((ids) =>
+          sb.from("documents").select(DOC_COLS).eq("doc_type", "quote").in("id", ids),
+        ),
+      ),
+    );
+    for (const parent of parents) {
+      seenQuotes.add(parent.id);
+      quoteIds.push(parent.id);
+      if (jobOfQuote.has(parent.id)) continue;
+      const revision = frontier.find((d) => d.source_document_id === parent.id);
+      const jobId = revision ? jobOfQuote.get(revision.id) : undefined;
+      if (jobId) jobOfQuote.set(parent.id, jobId);
+    }
+    frontier = parents;
+  }
+
+  // An invoice raised from a quote BEFORE the job existed has job_id = null; it links
+  // back only through source_document_id → the quote. Without this pass the row claims
+  // "not invoiced" on a job that has been billed.
+  const orphanPages = await Promise.all(
+    chunk(quoteIds, 100).map((ids) =>
+      sb.from("documents").select(DOC_COLS).eq("doc_type", "invoice").is("job_id", null).in("source_document_id", ids),
+    ),
+  );
   for (const d of rowsOf(orphanPages)) {
     const jobId = d.source_document_id ? jobOfQuote.get(d.source_document_id) : undefined;
     if (jobId) add(jobId, d);
@@ -307,6 +342,13 @@ export interface JobDetail {
   running: boolean;
   paused: boolean;
   documents: JobDocument[];
+  /**
+   * Bills raised from a quotation this job's quote REPLACED, that no job owns.
+   * They carry job_id = null and point at the superseded quote, so the query
+   * above — "documents where job_id = this job" — cannot see them, and the board
+   * has always read as though they did not exist.
+   */
+  supersededBills: SupersededBill[];
   // The timeline. Raw ISO so the card can recompute the estimated finish on every
   // tick — a paused job's ETA slides, and a value frozen on the server would lie.
   createdAt: string | null;
@@ -388,6 +430,14 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const j: any = job;
+
+  // Anchored on the job's own quote: its source_document_id is the only link back
+  // to a bill raised before the price was revised. Falls back to any document on
+  // the job, so a job made without a source quote is still checked.
+  const anchorId: string | null =
+    (j.source_quote_id as string | null) ?? documents.find((d) => d.docType === "quote")?.id ?? documents[0]?.id ?? null;
+  const supersededBills = anchorId ? await getSupersededBills(anchorId) : [];
+
   return {
     job: {
       id: j.id,
@@ -418,6 +468,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       pausedMs: Number(j.paused_ms ?? 0),
       estimatedMinutes: j.estimated_minutes ?? null,
       fromQuote: j.source_quote_id != null,
+      supersededBills,
     },
     ref: {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

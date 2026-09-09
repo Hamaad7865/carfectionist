@@ -55,6 +55,7 @@ import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.QuoteLineDto
 import mu.carfection.pos.core.network.QuoteRowDto
 import mu.carfection.pos.core.network.SendOutcome
+import mu.carfection.pos.core.network.SupersededBill
 import mu.carfection.pos.core.network.TechnicianDto
 import mu.carfection.pos.core.network.UserNameDto
 import mu.carfection.pos.core.network.pinErrorCopy
@@ -446,6 +447,13 @@ data class QuoteState(
      *  customer picks up go on the bill and not on the quotation — which left the operator
      *  looking at an unchanged quote wondering where the two bottles they just added went. */
     val bills: List<BillRef> = emptyList(),
+    /**
+     * Bills left standing on a quotation this one REPLACED — raised at the counter
+     * before the price was revised, attached to no job, and therefore on no screen.
+     * The counter could not see INV-0204 anywhere while it was being charged again.
+     * Empty for virtually every quote; a row hides Revise and shows the warning.
+     */
+    val supersededBills: List<SupersededBill> = emptyList(),
     // "Send to customer" (post-accept): prefill + progress
     val customerEmail: String? = null,
     val customerPhone: String? = null,
@@ -651,7 +659,7 @@ class QuoteViewModel @Inject constructor(
             intake = h, jobId = null, jobs = emptyList(),
             // bills too: the last quote's invoice showing on a brand-new one is not a
             // cosmetic slip — it is a bill for another visit, priced, on this customer's screen.
-            hasIntake = true, signed = false, billed = false, bills = emptyList(),
+            hasIntake = true, signed = false, billed = false, bills = emptyList(), supersededBills = emptyList(),
             // Set from THIS handoff's customer, never left over from a previously-opened one —
             // carrying the last customer's contact would WhatsApp a signed quote to the wrong
             // person. Intake now passes the contact it captured, so the send dialog is prefilled
@@ -764,7 +772,7 @@ class QuoteViewModel @Inject constructor(
             depositAmtText = "", depositPending = false,
             basketMode = DiscountMode.PCT, basketText = "", discountReason = "", query = "",
             savedRef = null, createdJobId = null, createdInvoiceRef = null, error = null,
-            intake = null, jobId = null, jobs = emptyList(), hasIntake = false, signed = false, billed = false, bills = emptyList(),
+            intake = null, jobId = null, jobs = emptyList(), hasIntake = false, signed = false, billed = false, bills = emptyList(), supersededBills = emptyList(),
             customerEmail = null, customerPhone = null, sendBusy = false, sendDone = null, sendError = null,
             pickerOpen = true, pickQuery = "", pickResults = emptyList(), pickVehicles = emptyList(),
             // A fresh quote is a different document — an approval taken out for whatever was
@@ -905,6 +913,7 @@ class QuoteViewModel @Inject constructor(
             )
         }
         loadQuoteJobs(q.id)
+        loadSupersededBills(q.id)
         viewModelScope.launch {
             runCatching { api.fetchQuoteLines(q.id) }
                 .onSuccess { ls ->
@@ -1616,6 +1625,16 @@ class QuoteViewModel @Inject constructor(
      * raised before any of this existed, still knows all of its cards. A late reply is
      * dropped unless the same quotation is still open, so it can never land on another.
      */
+    /**
+     * Whether a bill from a quotation this one replaced is still standing. Best-effort:
+     * a warning that cannot be fetched must not stop the quote from opening — the RPCs
+     * refuse the double-bill regardless, so this is what the operator SEES, not the guard.
+     */
+    private fun loadSupersededBills(quoteId: String) = viewModelScope.launch {
+        val rows = runCatching { api.supersededBills(quoteId) }.getOrNull() ?: return@launch
+        _s.update { st -> if (st.quoteId != quoteId) st else st.copy(supersededBills = rows) }
+    }
+
     private fun loadQuoteJobs(quoteId: String) = viewModelScope.launch {
         val rows = api.fetchJobsForQuote(quoteId)
         if (rows.isEmpty()) return@launch

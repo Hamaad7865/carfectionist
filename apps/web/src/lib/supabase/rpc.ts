@@ -101,6 +101,31 @@ export const convertQuoteToInvoice = (sb: Client, quoteId: string) =>
 export const reviseQuote = (sb: Client, quoteId: string) =>
   callRpc<DocumentRow>(sb, "revise_quote", { p_quote_id: quoteId });
 
+/**
+ * Bills raised somewhere on this document's REVISION LINE that no job owns.
+ *
+ * A quote accepted at the counter is billed and issued on the spot; revise it and
+ * that bill hangs off the superseded quote, where neither the revision's page nor
+ * the job can see it — still counted as revenue, still an open receivable, its
+ * stock already off the shelf. The RPC walks source_document_id all the way back,
+ * because a revision can itself be revised (migration 20260909000010).
+ *
+ * Empty for almost every document; a row means something needs voiding or crediting.
+ */
+export interface SupersededBillRow {
+  id: string;
+  number: string | null;
+  status: string;
+  total_incl: number | string;
+  amount_paid: number | string;
+  issued_at: string | null;
+  quote_id: string | null;
+  quote_number: string | null;
+}
+
+export const supersededBills = (sb: Client, documentId: string) =>
+  callRpc<SupersededBillRow[]>(sb, "superseded_bills", { p_document_id: documentId });
+
 export const duplicateDocument = (sb: Client, id: string) =>
   callRpc<DocumentRow>(sb, "duplicate_document", { p_id: id });
 

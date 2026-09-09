@@ -78,6 +78,27 @@ data class JobRow(val id: String)
 )
 
 /**
+ * A bill left standing on a quotation's REVISION LINE: raised from a quote this one
+ * replaced, and attached to no job — so neither the revision's screen nor the board
+ * has ever shown it, while it is still counted as revenue and still owed.
+ *
+ * Almost always empty. A row means the same goods are about to be charged twice, and
+ * the bill needs voiding (unpaid) or crediting (paid) before this quote is billed.
+ * Read from the superseded_bills RPC — migration 20260909000010.
+ */
+@Serializable data class SupersededBill(
+    val id: String,
+    val number: String? = null,
+    val status: String,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+    @SerialName("quote_number") val quoteNumber: String? = null,
+) {
+    /** Money has changed hands: only a credit note is an honest correction. */
+    val paid: Boolean get() = amountPaid > 0.0
+}
+
+/**
  * The column list fetchQuoteLines() asks PostgREST for. Lives beside the DTO so the
  * two are read together — they must agree, and QuoteLineColumnsTest enforces it.
  */

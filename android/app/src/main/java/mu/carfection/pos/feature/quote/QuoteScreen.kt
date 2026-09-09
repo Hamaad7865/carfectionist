@@ -95,6 +95,7 @@ import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentLine
 import mu.carfection.pos.ui.theme.AccentSoft
 import mu.carfection.pos.ui.theme.Barlow
+import mu.carfection.pos.ui.theme.Warning
 import mu.carfection.pos.ui.theme.CardBg
 import mu.carfection.pos.ui.theme.Condensed
 import mu.carfection.pos.ui.theme.Danger
@@ -601,6 +602,57 @@ private fun BoxScope.BillLinesSheet(s: QuoteState, vm: QuoteViewModel) {
 }
 
 /**
+ * What is still owed on a quotation this one replaced.
+ *
+ * The whole harm of the case this exists for is silence: the bill hangs off the
+ * SUPERSEDED quote, so it appeared on neither this screen nor the job, while the
+ * journal counted it as revenue and the customer's statement showed it as owed.
+ * So it says which bill, how much, and which of the two corrections applies.
+ */
+@Composable
+private fun SupersededBillsCard(s: QuoteState) {
+    Column(
+        Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(13.dp))
+            .border(1.dp, Warning.copy(alpha = 0.45f), RoundedCornerShape(13.dp))
+            .padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            if (s.supersededBills.size == 1) "AN EARLIER BILL IS STILL STANDING" else "EARLIER BILLS ARE STILL STANDING",
+            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.5.sp, color = Warning,
+        )
+        Text(
+            "Raised from a quotation this one replaced, and on no job — so it shows nowhere else, " +
+                "while it is still counted as takings and still owed. Settle it before this work is billed.",
+            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 16.sp, color = TextSecondary,
+        )
+        s.supersededBills.forEach { b ->
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        b.number ?: "Not numbered",
+                        fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextPrimary,
+                    )
+                    Text(
+                        // Money already taken cannot be voided away — only a credit note is honest.
+                        (b.quoteNumber?.let { "from $it · " } ?: "") +
+                            if (b.paid) "paid — raise a credit note" else "unpaid — void it",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = Warning,
+                    )
+                }
+                Text(
+                    formatMUR(mu.carfection.pos.core.money.rupeesToCents(b.totalIncl)),
+                    fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary,
+                )
+            }
+        }
+    }
+}
+
+/**
  * The bill (or bills) standing against this quote.
  *
  * The quotation is the price the customer signed for the WORK. A bottle of wax they pick up
@@ -902,7 +954,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         // Revising is the only thing left to DO to a quote the customer has been shown, so it
         // belongs with the other header actions rather than buried under the lines.
         if (s.quoteId != null && !vm.editable(s) && s.status != "void") {
-            Box(
+            // ...unless a bill raised from this line is still standing, in which case the
+            // negotiation is over: revise_quote refuses it (the same rule the web has had
+            // since it hid Revise on a billed quote), so offering the button could only
+            // produce an error. "+ Add to bill", just below, is the door that still works —
+            // what they picked up goes on the BILL, not on a re-signed quotation.
+            if (s.supersededBills.isEmpty()) Box(
                 Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
                     .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
                     .clickable(enabled = !s.busy) { vm.reviseQuote() }.padding(horizontal = 13.dp),
@@ -1183,6 +1240,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 // had nowhere to see them. The bill says so, here, next to the totals.
                 // Not while they are signing: that panel needs the height, and the bill is
                 // not what is being agreed to.
+                // A bill from a quotation this one replaced. It belongs to no job and shows
+                // on no other screen — the counter charged INV-0204's two wipers a second
+                // time with nothing anywhere saying the first bill existed.
+                if (s.supersededBills.isNotEmpty() && !s.acceptOpen) SupersededBillsCard(s)
                 if (s.bills.isNotEmpty() && !s.acceptOpen) BillsCard(s, vm)
                 when {
                     // Already converted: a quote maps to exactly one job, so don't offer to make

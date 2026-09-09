@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import Link from "next/link";
 import { Printer, FileMinus, FileText, Receipt, ArrowRight, Check, Undo2 } from "lucide-react";
-import { getDocumentDetail } from "@/lib/supabase/queries/document";
+import { getDocumentDetail, getSupersededBills } from "@/lib/supabase/queries/document";
 import { getDealFlow } from "@/lib/supabase/queries/flow";
 import { FlowStepper } from "@/components/flow/FlowStepper";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -16,6 +16,7 @@ import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { methodChangeTargets } from "@/features/jobs/change-method";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
+import { SupersededBillNotice } from "@/features/documents/SupersededBillNotice";
 import { DuplicateButton } from "@/features/documents/DuplicateButton";
 import { VoidButton } from "@/features/documents/VoidButton";
 import { CreditNoteButton } from "@/features/documents/CreditNoteButton";
@@ -98,8 +99,12 @@ export default async function DocumentDetailPage({
   searchParams: Promise<{ reverseError?: string; changeError?: string }>;
 }) {
   const { id } = await params;
-  const [doc, session, sp, scheduledSends] = await Promise.all([
+  const [doc, session, sp, scheduledSends, supersededBills] = await Promise.all([
     getDocumentDetail(id), getSessionContext(), searchParams, getScheduledSends(id),
+    // A bill raised from a quotation this one replaced, that no job owns. Not
+    // reachable from anywhere else on this page: it hangs off the SUPERSEDED
+    // quote, so neither the flow stepper nor "Go to invoice" has ever mentioned it.
+    getSupersededBills(id),
   ]);
   if (!doc) notFound();
   if (doc.status === "draft") redirect(`/sales/${id}/edit`);
@@ -178,8 +183,13 @@ export default async function DocumentDetailPage({
             {/* What is still queued to go out. Scheduling a send used to be a one-way trip:
                 a toast, then nothing anywhere ever mentioned it again. */}
             <ScheduledSends documentId={doc.id} sends={scheduledSends} />
-            {/* Revising is negotiation; a billed quote is past negotiating. */}
-            {doc.docType === "quote" && !billedHref && <ReviseButton quoteId={doc.id} />}
+            {/* Revising is negotiation; a billed quote is past negotiating — including
+                one billed through a quotation this one replaced, which billedHref cannot
+                see (that bill hangs off the superseded quote). revise_quote refuses both
+                cases; this stops the button offering what the RPC will only reject. */}
+            {doc.docType === "quote" && !billedHref && supersededBills.length === 0 && (
+              <ReviseButton quoteId={doc.id} />
+            )}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}
             {canVoid && <VoidButton documentId={doc.id} number={doc.number} />}
             {canCredit && <CreditNoteButton invoiceId={doc.id} number={doc.number} />}
@@ -193,6 +203,12 @@ export default async function DocumentDetailPage({
                 <Link href={billedHref} className={btn("primary")}>
                   Go to invoice <ArrowRight size={15} />
                 </Link>
+              ) : supersededBills.length > 0 ? (
+                // Billing this quote is refused while a bill from the quotation it
+                // replaced is still standing — the same goods would be charged twice.
+                // The notice above says which bill and what to do about it; the button
+                // returns as soon as that bill is voided or credited.
+                null
               ) : (
                 <ConvertButton quoteId={doc.id} />
               ))}
@@ -204,6 +220,10 @@ export default async function DocumentDetailPage({
             <FlowStepper steps={flow} />
           </div>
         )}
+
+        {/* Above everything the page normally shows: an unretired bill is the one
+            thing here that is costing money right now. */}
+        <SupersededBillNotice bills={supersededBills} />
 
         {/* Quote -> job actions must not be trapped behind intake data: a quote
             created via "+ New document" has no markers/photos, yet still needs

@@ -837,6 +837,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     suspend fun reviseQuote(quoteId: String): SavedDoc =
         client.postgrest.rpc("revise_quote", buildJsonObject { put("p_quote_id", quoteId) }).decodeAs()
 
+    /**
+     * Bills raised from a quotation this one REPLACED that no job owns — the ones the
+     * screens cannot otherwise see. The web reads the same RPC, so both apps warn with
+     * the same words. Empty for virtually every quote.
+     */
+    suspend fun supersededBills(documentId: String): List<SupersededBill> =
+        client.postgrest.rpc("superseded_bills", buildJsonObject { put("p_document_id", documentId) }).decodeList()
+
     /** Create a job-linked draft document (invoice/quote) — one live doc per job per type. */
     suspend fun createDocumentFromJob(jobId: String, docType: String): SavedDoc =
         client.postgrest.rpc("create_document_from_job", buildJsonObject {

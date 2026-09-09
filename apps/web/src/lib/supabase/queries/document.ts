@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import * as rpc from "@/lib/supabase/rpc";
 import { presentLine, presentLineDiscount, type PresentedDiscount } from "@/lib/money";
 import { rupeesToCents } from "@/lib/money";
 import { signVehiclePhotos } from "@/lib/supabase/storage";
@@ -93,6 +94,43 @@ export interface DocumentDetail {
     discount: PresentedDiscount | null;
   }[];
   payments: PaymentView[];
+}
+
+/** A live bill left standing on a quote's revision line — see rpc.supersededBills. */
+export interface SupersededBill {
+  id: string;
+  number: string | null;
+  status: string;
+  totalCents: number;
+  paidCents: number;
+  /** The superseded quote it was raised from — the reason nothing else shows it. */
+  quoteId: string | null;
+  quoteNumber: string | null;
+}
+
+/**
+ * What the screens must not let staff miss. Almost always empty: a row here means a
+ * bill for these goods is already out there, counted and owed, and the document being
+ * looked at knows nothing about it.
+ *
+ * Never throws — a warning that can 500 a page is worse than no warning.
+ */
+export async function getSupersededBills(documentId: string): Promise<SupersededBill[]> {
+  const sb = await createClient();
+  try {
+    const rows = await rpc.supersededBills(sb, documentId);
+    return (rows ?? []).map((b) => ({
+      id: b.id,
+      number: b.number,
+      status: b.status,
+      totalCents: rupeesToCents(Number(b.total_incl)),
+      paidCents: rupeesToCents(Number(b.amount_paid)),
+      quoteId: b.quote_id,
+      quoteNumber: b.quote_number,
+    }));
+  } catch {
+    return [];
+  }
 }
 
 export async function getDocumentDetail(id: string): Promise<DocumentDetail | null> {
