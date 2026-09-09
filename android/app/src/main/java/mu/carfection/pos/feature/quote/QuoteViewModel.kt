@@ -1795,6 +1795,14 @@ class QuoteViewModel @Inject constructor(
                         )
                     }
                     loadQuotes()
+                    // The bill above is best-effort by design — a hiccup must not un-accept a
+                    // signed quote — and one of the things it now fails on is a bill left
+                    // standing by a quotation this one replaced. Swallowed, that reads as an
+                    // accepted quote with no bill and no reason given: the exact silence this
+                    // whole change exists to end. Re-read, so the warning card appears and
+                    // names what is blocking it. (loadSupersededBills fires on quote OPEN;
+                    // this state was reached without one.)
+                    loadSupersededBills(quoteId)
                     return@runCatching Triple(quoteId, null, null)
                 }
                 // ONE JOB PER CAR. A quote covering one car returns one job, from the very
