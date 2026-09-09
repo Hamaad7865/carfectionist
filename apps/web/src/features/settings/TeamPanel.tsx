@@ -52,30 +52,52 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
   async function create() {
     setError(null);
     setBusy(true);
-    const r = await createStaffAction(f);
-    setBusy(false);
-    if (r.ok) { setOpen(false); setF({ displayName: "", email: "", password: "", role: "cashier", pin: "" }); router.refresh(); }
-    else setError(r.error);
+    try {
+      const r = await createStaffAction(f);
+      if (r.ok) { setOpen(false); setF({ displayName: "", email: "", password: "", role: "cashier", pin: "" }); router.refresh(); }
+      else setError(r.error);
+    } catch {
+      setError("Couldn't create the login — please try again.");
+    } finally {
+      setBusy(false);
+    }
   }
   async function changeRole(id: string, role: string) {
     setRowError(null);
-    const r = await setRoleAction({ id, role: role as (typeof ROLES)[number] });
-    if (r.ok) router.refresh(); else setRowError(r.error);
+    try {
+      const r = await setRoleAction({ id, role: role as (typeof ROLES)[number] });
+      if (r.ok) router.refresh(); else setRowError(r.error);
+    } catch {
+      setRowError("Couldn't change the role — please try again.");
+    }
   }
   function openPin(m: TeamMember) { setPinFor(m); setPinDraft(""); setPinError(null); }
   async function savePin() {
     if (!pinFor) return;
     setPinError(null); setPinBusy(true);
-    const r = await setStaffPinAction({ id: pinFor.id, pin: pinDraft });
-    setPinBusy(false);
-    if (r.ok) { setPinFor(null); router.refresh(); } else setPinError(r.error);
+    // finally, never a bare setPinBusy(false) after the await: if the action THREW
+    // (as it did when the Worker's crypto blew up) the flag would never clear and the
+    // button would hang on "Saving…" forever. A thrown action must still free the UI.
+    try {
+      const r = await setStaffPinAction({ id: pinFor.id, pin: pinDraft });
+      if (r.ok) { setPinFor(null); router.refresh(); } else setPinError(r.error);
+    } catch {
+      setPinError("Couldn't save the PIN — please try again.");
+    } finally {
+      setPinBusy(false);
+    }
   }
   async function clearPin() {
     if (!pinFor) return;
     setPinBusy(true);
-    const r = await clearStaffPinAction(pinFor.id);
-    setPinBusy(false);
-    if (r.ok) { setPinFor(null); router.refresh(); } else setPinError(r.error);
+    try {
+      const r = await clearStaffPinAction(pinFor.id);
+      if (r.ok) { setPinFor(null); router.refresh(); } else setPinError(r.error);
+    } catch {
+      setPinError("Couldn't remove the PIN — please try again.");
+    } finally {
+      setPinBusy(false);
+    }
   }
 
   // ── Manage modal ──
@@ -89,47 +111,75 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
   function toggleMod(href: string) {
     setModSel((s) => (s.includes(href) ? s.filter((h) => h !== href) : [...s, href]));
   }
+  // Every handler below runs its action inside try/finally so the busy flag always
+  // clears — a server action that THROWS (not just returns {ok:false}) must never
+  // leave a button frozen on "Saving…".
   async function saveModules(reset = false) {
     if (!manage) return;
     setMError(null); setMMsg(null); setMBusy(true);
-    const r = await setModulesAction({ id: manage.id, modules: reset ? null : modSel });
-    setMBusy(false);
-    if (r.ok) { setMMsg(reset ? "Access reset to role default." : "Module access saved."); router.refresh(); } else setMError(r.error);
+    try {
+      const r = await setModulesAction({ id: manage.id, modules: reset ? null : modSel });
+      if (r.ok) { setMMsg(reset ? "Access reset to role default." : "Module access saved."); router.refresh(); } else setMError(r.error);
+    } catch {
+      setMError("Couldn't save module access — please try again.");
+    } finally {
+      setMBusy(false);
+    }
   }
   async function saveActive(active: boolean) {
     if (!manage) return;
     setMError(null); setMBusy(true);
-    const r = await setActiveAction(manage.id, active);
-    setMBusy(false);
-    if (r.ok) { setManage({ ...manage, active }); router.refresh(); } else setMError(r.error);
+    try {
+      const r = await setActiveAction(manage.id, active);
+      if (r.ok) { setManage({ ...manage, active }); router.refresh(); } else setMError(r.error);
+    } catch {
+      setMError("Couldn't change access — please try again.");
+    } finally {
+      setMBusy(false);
+    }
   }
   async function savePassword() {
     if (!manage) return;
     setMError(null); setMMsg(null); setMBusy(true);
-    const r = await resetPasswordAction({ id: manage.id, password: pw });
-    setMBusy(false);
-    if (r.ok) { setPw(""); setMMsg("Password updated."); } else setMError(r.error);
+    try {
+      const r = await resetPasswordAction({ id: manage.id, password: pw });
+      if (r.ok) { setPw(""); setMMsg("Password updated."); } else setMError(r.error);
+    } catch {
+      setMError("Couldn't update the password — please try again.");
+    } finally {
+      setMBusy(false);
+    }
   }
   async function saveIdentity() {
     if (!manage) return;
     setMError(null); setMMsg(null); setMBusy(true);
-    const r = await updateStaffIdentityAction({ id: manage.id, displayName: idName, email: idEmail });
-    setMBusy(false);
-    if (r.ok) {
-      // Keep the open dialog honest — its header still shows the old name.
-      setManage({ ...manage, name: idName, email: idEmail });
-      setMMsg("Name and email saved.");
-      router.refresh();
-    } else setMError(r.error);
+    try {
+      const r = await updateStaffIdentityAction({ id: manage.id, displayName: idName, email: idEmail });
+      if (r.ok) {
+        // Keep the open dialog honest — its header still shows the old name.
+        setManage({ ...manage, name: idName, email: idEmail });
+        setMMsg("Name and email saved.");
+        router.refresh();
+      } else setMError(r.error);
+    } catch {
+      setMError("Couldn't save the details — please try again.");
+    } finally {
+      setMBusy(false);
+    }
   }
   const identityDirty = !!manage && (idName.trim() !== manage.name || idEmail.trim() !== (manage.email ?? ""));
   async function del() {
     if (!manage) return;
     if (!confirm(`Delete ${manage.name}? This removes their login permanently.`)) return;
     setMError(null); setMBusy(true);
-    const r = await deleteStaffAction(manage.id);
-    setMBusy(false);
-    if (r.ok) { setManage(null); router.refresh(); } else setMError(r.error);
+    try {
+      const r = await deleteStaffAction(manage.id);
+      if (r.ok) { setManage(null); router.refresh(); } else setMError(r.error);
+    } catch {
+      setMError("Couldn't delete the login — please try again.");
+    } finally {
+      setMBusy(false);
+    }
   }
 
   return (

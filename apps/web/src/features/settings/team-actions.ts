@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { pbkdf2Sync, randomBytes } from "node:crypto";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -12,14 +11,27 @@ import { logAudit } from "@/lib/supabase/audit";
  * The tills' offline sign-in verifier, minted here because this server action is one of
  * the two places the plaintext PIN legitimately exists (the other is the pos-auth edge
  * function at a successful sign-in). PBKDF2-HMAC-SHA256 — parameters and format are
- * mirrored by the Android PinHasher and pos-auth; the three must stay in lockstep. The
+ * mirrored by the Android PinSecurity and pos-auth; the three must stay in lockstep. The
  * bcrypt pin_hash the server verifies against never leaves the server.
+ *
+ * Web Crypto (crypto.subtle), NOT node:crypto's pbkdf2Sync. This runs in a Cloudflare
+ * Worker (OpenNext), where the synchronous pbkdf2Sync is not implemented and THROWS —
+ * which took the whole server action down before it could even call set_staff_pin, so
+ * the PIN never saved and the button hung on "Saving…" forever. subtle.deriveBits is the
+ * one PBKDF2 path guaranteed on both the Worker and Node, and is byte-for-byte the same
+ * code as pos-auth's mintVerifier (standard padded base64, so the format is identical).
  */
-function mintDeviceVerifier(pin: string): string {
-  const iterations = 310_000;
-  const salt = randomBytes(16);
-  const dk = pbkdf2Sync(pin, salt, iterations, 32, "sha256");
-  return `pbkdf2:sha256:${iterations}:${salt.toString("base64")}:${dk.toString("base64")}`;
+const VERIFIER_ITERATIONS = 310_000;
+const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
+async function mintDeviceVerifier(pin: string): Promise<string> {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pin), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: salt as BufferSource, iterations: VERIFIER_ITERATIONS },
+    key,
+    256,
+  );
+  return `pbkdf2:sha256:${VERIFIER_ITERATIONS}:${b64(salt)}:${b64(new Uint8Array(bits))}`;
 }
 
 type Result = { ok: true } | { ok: false; error: string };
@@ -37,11 +49,20 @@ async function nameOf(sb: any, id: string): Promise<string> {
   return ((data?.display_name ?? "") as string).replace(/\s*\(.*\)\s*$/, "").trim() || "a teammate";
 }
 
-/** Record an owner admin/security action against the acting owner, for the Activity log. */
+/**
+ * Record an owner admin/security action against the acting owner, for the Activity log.
+ * Wrapped whole in try/catch: audit is a side-record and must NEVER be the reason an
+ * admin action fails (logAudit already swallows its own insert, but selfAppUserId reads
+ * the DB too — a hiccup there must not take the surrounding action down with it).
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function auditAdmin(sb: any, ctx: SessionContext, eventType: string, targetId: string, payload: Record<string, unknown>) {
-  const actorId = await selfAppUserId(sb, ctx.userId);
-  await logAudit(sb, { tenantId: ctx.tenantId, actorId, eventType, refType: "app_user", refId: targetId, payload });
+  try {
+    const actorId = await selfAppUserId(sb, ctx.userId);
+    await logAudit(sb, { tenantId: ctx.tenantId, actorId, eventType, refType: "app_user", refId: targetId, payload });
+  } catch {
+    /* never let audit failure surface to the user */
+  }
 }
 
 const pinField = z
@@ -97,7 +118,7 @@ export async function createStaffAction(input: z.input<typeof createSchema>): Pr
     const { error: pinErr } = await (sb as any).rpc("set_staff_pin", {
       p_app_user_id: (row as { id: string }).id,
       p_pin: p.data.pin,
-      p_device_verifier: mintDeviceVerifier(p.data.pin),
+      p_device_verifier: await mintDeviceVerifier(p.data.pin),
     });
     if (pinErr) return { ok: false, error: `Login created, but the PIN failed: ${pinErr.message}` };
   }
@@ -117,7 +138,7 @@ export async function setStaffPinAction(input: z.input<typeof pinSchema>): Promi
   const { error } = await (sb as any).rpc("set_staff_pin", {
     p_app_user_id: p.data.id,
     p_pin: p.data.pin,
-    p_device_verifier: mintDeviceVerifier(p.data.pin),
+    p_device_verifier: await mintDeviceVerifier(p.data.pin),
   });
   if (error) return { ok: false, error: error.message };
   await auditAdmin(sb, ctx, "staff_pin_set", p.data.id, { name: await nameOf(sb, p.data.id) });
