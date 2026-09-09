@@ -3,8 +3,8 @@ import type { SalesJournal, JournalInvoiceRef } from "@/lib/supabase/queries/sal
 import { rangeLabel, shortRangeLabel, type Range } from "./periods";
 
 // The Cashmag "Journal de ventes": one period, aggregated once, broken down five
-// ways down the page. Every section foots to the same pair of totals — that is
-// the report's whole point, so the totals rows are deliberately loud.
+// ways down the page. Every section foots to the same pair of totals — the MONEY
+// RECEIVED in the period — so the totals rows are deliberately loud.
 //
 // Server component: the whole screen is URL state, so there is nothing to hydrate.
 
@@ -95,12 +95,17 @@ export function SalesJournalView({
             compared with <span className="font-semibold text-body">{shortRangeLabel(priorRange)}</span>
           </div>
         )}
+        {/* The basis, stated where nobody can miss it: this is money received, not
+            invoices issued. Anyone filing the VAT figures needs to know that. */}
+        <div className="mt-1 text-[12px] font-medium text-faint">
+          Cash basis — every figure is money received in this period, not invoices issued.
+        </div>
       </div>
 
       {/* ── KPI tiles ── */}
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <div className="rounded-[15px] border border-line bg-card p-5">
-          <div className="text-[13px] font-semibold text-muted">Tickets / Invoices</div>
+          <div className="text-[13px] font-semibold text-muted">Bills settled</div>
           <div className="num mt-2 text-[32px] font-extrabold text-ink-strong">{j.tickets}</div>
           {cmp && (
             <div className="mt-1.5 flex items-baseline gap-2">
@@ -111,7 +116,7 @@ export function SalesJournalView({
         </div>
 
         <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-          <div className="text-[13px] font-semibold text-[#3d5978]">Total sales incl tax</div>
+          <div className="text-[13px] font-semibold text-[#3d5978]">Total received incl tax</div>
           <div className="num mt-2 text-[32px] font-extrabold text-[#0f2f5e]">{money(j.totalInclCents)}</div>
           <div className="num mt-1 text-[12.5px] font-medium text-[#3d5978]">Avg {money(j.avgInclCents)}</div>
           {cmp && (
@@ -136,7 +141,7 @@ export function SalesJournalView({
         <div className="min-w-[620px]">
           <div className={HEAD} style={grid("1fr 150px 160px 160px")}>
             <span>Sale method</span>
-            <span className="text-right">Tickets / Invoices</span>
+            <span className="text-right">Bills settled</span>
             <span className="text-right">Total excl tax</span>
             <span className="text-right">Total incl tax</span>
             {cmp && <span className="text-right">Prior incl</span>}
@@ -240,14 +245,12 @@ export function SalesJournalView({
               prior={cmp ? <PriorCell now={j.settlingEarlierCents} prev={prior!.settlingEarlierCents} /> : null}
             />
           )}
-          {/* THE TOTAL OF THIS CARD IS THE MONEY, and only the money.
-              It used to end at what the period INVOICED, so an unpaid bill inflated
-              the bottom line of a payments section — Rs 11,449.21 on 25/08 against
-              Rs 6,169.21 actually taken. The owner reads this card to know what came
-              in, so it now foots to exactly that.
-              This is the one section that deliberately does NOT foot to
-              totalInclCents; every other one still does, and On account below carries
-              the invoiced figure so the two can still be reconciled by eye. */}
+          {/* THE TOTAL OF THIS CARD IS THE MONEY, and since the whole report went
+              cash-basis (the owner's call, 9 Sep 2026) that figure is also the
+              report's headline: sale methods, taxes, categories and user logs all
+              foot to this same number now. What was INVOICED survives only in the
+              "of Rs X invoiced" note below — the bridge that reconciles the money
+              with the bills, by eye. */}
           <div className={TOTAL} style={grid("1fr 150px 180px")}>
             <span>Total</span>
             <span />
@@ -311,7 +314,7 @@ export function SalesJournalView({
         <div className="min-w-[620px]">
           <div className={HEAD} style={grid("1fr 150px 160px 160px")}>
             <span>Label</span>
-            <span className="text-right">Tickets / Invoices</span>
+            <span className="text-right">Bills settled</span>
             <span className="text-right">Excluding tax</span>
             <span className="text-right">With tax</span>
             {cmp && <span className="text-right">Prior incl</span>}
@@ -342,7 +345,7 @@ export function SalesJournalView({
   );
 }
 
-function Empty({ label = "Nothing sold in this period." }: { label?: string }) {
+function Empty({ label = "Nothing in this period." }: { label?: string }) {
   return <div className="px-5 py-10 text-center text-[14.5px] font-medium text-faint">{label}</div>;
 }
 

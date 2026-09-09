@@ -9,21 +9,34 @@ import { MU_OFFSET_MS } from "@/lib/mu-date";
 // other shape: ONE period, aggregated once, broken down five ways down the page —
 // sale methods, taxes, payments, categories, users.
 //
-// Money conventions are inherited verbatim from daily-summary.ts, or the two
-// reports would contradict each other on the same dates:
-//   • grouped by `business_day`, not issue_date
+// ── CASH-RECEIVED BASIS (the owner's call, 9 Sep 2026) ───────────────────────
+// Every figure on this report is money that REACHED the business inside the
+// period, whatever bill it settled — not what was invoiced. A bill raised on the
+// 25th and paid on the 2nd is takings for the 2nd and nothing for the 25th; an
+// unpaid bill is not takings at all (it survives only as the ruled-off "On
+// account" line). This puts the Taxes section on a cash basis too: the MRA only
+// accepts that if the business is approved for cash accounting, which the owner
+// acknowledged when choosing it. What was INVOICED still exists as the
+// reconciliation figure under the payments card ("of Rs X invoiced") — and in
+// Daily Summary, whose Encaissements columns still date money by its bill. The
+// two reports therefore disagree by design; they answer different questions.
+//
+// Document conventions shared with daily-summary.ts:
 //   • only issued / partly_paid / paid count (drafts and VOIDs never do)
-//   • credit notes NET DOWN the period (they carry a -1 sign)
-//   • "tickets" counts sales invoices only — a credit note reduces money, it is
-//     not itself a sale
+//   • credit notes carry positive totals and one NEGATIVE mirror payment each;
+//     the mirrors net every section down, exactly as a refund should
 //   • sale method = which till rang it; no session → "Back office"
 //
 // ── The invariant that makes this report correct ─────────────────────────────
-// Every section foots to the SAME pair of totals. In the owner's reference
-// period: 7196.26 excl / 8275.70 incl, five times over. That only holds if the
-// line-derived sections (taxes, categories) are built from each document's
-// subtotal_excl — the figure AFTER a whole-sale discount — rather than from raw
-// line totals, which only carry the per-line discount. See allocate() below.
+// Every section foots to the SAME pair of totals: the money received in the
+// period. In the owner's reference period: 7196.26 excl / 8275.70 incl, five
+// times over. VAT and categories are LINE-derived, but money arrives per
+// PAYMENT — so each document's line figures are scaled to the share of the bill
+// that was actually paid inside the period (see the allocation pass below).
+// When a bill is fully settled here that share is 1 and the figures are the
+// document's own; a part-payment contributes its fraction; a credit-note mirror
+// contributes negatively. The split itself is `allocate()` — largest-remainder,
+// so no cent is invented or lost and the footing holds to the cent.
 
 /** A sale with no till session — invoiced at the desk from a job or a quote.
  *  Not a sale-method row any more (the journal shows one method, the shop); it
@@ -92,12 +105,18 @@ export interface UserRow {
 export interface SalesJournal {
   from: string;
   to: string;
-  /** KPI tiles */
+  /** KPI tiles — all on the money-in basis */
+  /** Bills that received money in the period (an unpaid bill is not settled). */
   tickets: number;
+  /** Money received in the period, VAT inclusive. THE headline figure. */
   totalInclCents: number;
+  /** The ex-VAT content of that money (payments allocated across bill lines). */
   totalExclCents: number;
+  /** The VAT content of that money — cash basis, see the header comment. */
   vatCents: number;
+  /** Money in per settled bill. */
   avgInclCents: number;
+  /** Distinct customers behind the period's money. */
   clients: number;
   clientInclCents: number;
   clientAvgInclCents: number;
@@ -107,7 +126,8 @@ export interface SalesJournal {
   payments: PaymentRow[];
   /** Money that came IN during the period, by the day it was RECEIVED — the drawer
    *  view, and what the Z reports. Not the same as what was invoiced: a bill raised
-   *  on the 25th and settled on the 2nd is takings for the 2nd. */
+   *  on the 25th and settled on the 2nd is takings for the 2nd.
+   *  Equals totalInclCents — the footing every section now shares. */
   paymentsSubtotalCents: number;
   /** …of which settled bills raised BEFORE this period. The bridge line that
    *  explains why money in and invoiced differ. */
@@ -118,13 +138,10 @@ export interface SalesJournal {
   onAccountCents: number;
   /** Which bills those are — who owes what, for the on-account dropdown. */
   onAccount: JournalInvoiceRef[];
-  /** What the period SOLD. Equals totalInclCents.
-   *
-   *  The identity this section foots to:
-   *      totalIncl = (paymentsSubtotal − settlingEarlier) + onAccount
+  /** What the period INVOICED — kept only for the on-account reconciliation:
+   *      invoiced = (money in − settling earlier bills) + on account
    *  i.e. everything invoiced was either settled inside the period or is owed.
-   *  It replaces the old `paymentsSubtotal + credit = total`, which only held
-   *  while payments were dated by their document instead of by themselves. */
+   *  It is NOT the report's total any more; totalInclCents is the money. */
   paymentsTotalCents: number;
   categories: CategoryRow[];
   users: UserRow[];
@@ -167,10 +184,13 @@ export interface RawPayment {
    *  the document's business_day — that conflation is what made 25 August read
    *  Rs 4,204.20 of cash when only Rs 1,564.20 was taken. */
   received_at?: string | null;
+  /** Who took the money — the name a payment counts under in User logs. Falls back
+   *  to the bill's issuer when null (back-office recorded settlements). */
+  received_by?: string | null;
 }
 /** The parent bill of a payment, including bills raised outside the period. Carries
- *  only what the payments section needs to name and date them — never lines, so an
- *  out-of-period bill can never leak into revenue, tax or category totals. */
+ *  its money columns too: a stranger's payment still has to be split into ex-VAT
+ *  and VAT for the taxes and categories sections. */
 export interface RawPaymentDoc {
   id: string;
   number: string | null;
@@ -180,6 +200,9 @@ export interface RawPaymentDoc {
   cash_session_id: string | null;
   issued_by: string | null;
   issued_at?: string | null;
+  total_incl: number | string;
+  subtotal_excl: number | string;
+  vat_total: number | string;
 }
 export interface RawLine {
   document_id: string;
@@ -196,9 +219,12 @@ export interface RawLine {
 export interface JournalInput {
   docs: RawDoc[];
   payments: RawPayment[];
+  /** Lines of BOTH the period's documents and any stranger bills its payments
+   *  settled — a stranger's money still has a VAT and category content. */
   lines: RawLine[];
   /** Parent bills of payments raised OUTSIDE the period. The in-period ones come
-   *  from `docs`; this only carries the strangers, so revenue can never see them. */
+   *  from `docs`; on this cash-basis report the strangers' money counts in full,
+   *  allocated through their own lines. */
   paymentDocs?: RawPaymentDoc[];
   sessionDevice: Map<string, string>; // cash_session_id → device_code
   deviceName: Map<string, string>; // device_code → friendly name
@@ -336,104 +362,11 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   if (docs.length === 0 && !anyMoney) return empty(from, to);
   const sign = (d: RawDoc) => (d.doc_type === "credit_note" ? -1 : 1);
 
-  // 2. Document-level figures — the totals every section must foot to.
-  let tickets = 0, totalIncl = 0, totalExcl = 0, vat = 0, clientIncl = 0;
-  const clientIds = new Set<string>();
-  const saleMethod: SaleMethodRow = { label: input.saleMethodLabel ?? DEFAULT_SALE_METHOD, tickets: 0, exclCents: 0, inclCents: 0 };
-  const byUser = new Map<string, UserRow>();
-
-  for (const d of docs) {
-    const s = sign(d);
-    const incl = s * rupeesToCents(Number(d.total_incl));
-    const excl = s * rupeesToCents(Number(d.subtotal_excl));
-    totalIncl += incl;
-    totalExcl += excl;
-    vat += s * rupeesToCents(Number(d.vat_total));
-    if (d.doc_type === "invoice") tickets += 1;
-
-    if (d.customer_id) {
-      clientIds.add(d.customer_id);
-      clientIncl += incl;
-    }
-
-    // Sale method is the SHOP, one row — Cashmag's "SALES [CAFECTIONIST]". The
-    // owner does not split takings by terminal here: a job invoiced at the desk
-    // and a wash rung on a tablet are both just a sale. Which till rang it is
-    // still available as a filter (see `filters.device`), and Daily Summary
-    // still breaks it out per till for cash-up.
-    saleMethod.tickets += d.doc_type === "invoice" ? 1 : 0;
-    saleMethod.exclCents += excl;
-    saleMethod.inclCents += incl;
-
-    const seller = d.issued_by ? (sellerName.get(d.issued_by) ?? "—") : "—";
-    const u = byUser.get(seller) ?? { label: seller, tickets: 0, exclCents: 0, inclCents: 0 };
-    u.tickets += d.doc_type === "invoice" ? 1 : 0;
-    u.exclCents += excl;
-    u.inclCents += incl;
-    byUser.set(seller, u);
-  }
-
-  // 3. Line-derived sections, on ALLOCATED figures.
-  //    Each document's subtotal_excl and vat_total are split across its own lines
-  //    in proportion to the raw line totals. When there is no whole-sale discount
-  //    this is the identity; when there is one, it scales every line down so the
-  //    taxes and categories still add up to the document.
-  const byTax = new Map<number, TaxRow>();
-  const byCategory = new Map<string, CategoryRow>();
-
-  for (const d of docs) {
-    const own = linesByDoc.get(d.id);
-    if (!own || own.length === 0) continue;
-    const s = sign(d);
-
-    const rawExcl = own.map((l) => rupeesToCents(Number(l.line_total_excl)));
-    const rawVat = own.map((l) => rupeesToCents(Number(l.line_vat)));
-    const exclAlloc = allocate(rupeesToCents(Number(d.subtotal_excl)), rawExcl);
-    const vatAlloc = allocate(rupeesToCents(Number(d.vat_total)), rawVat);
-
-    own.forEach((l, i) => {
-      const excl = s * exclAlloc[i];
-      const tax = s * vatAlloc[i];
-      const ratePct = Number(l.vat_rate);
-      // Gross = what the line would have been at list price, before BOTH the per-line discount
-      // and this line's share of the whole-sale discount — stated in the SAME (net) basis as
-      // `excl`, so `gross - excl` is a real discount. A price_includes_vat line stores unit_price
-      // as the GROSS, so extract VAT first; otherwise unit_price is already net (20260812000030).
-      const listCents = rupeesToCents(Number(l.qty) * Number(l.unit_price));
-      const gross = s * (l.price_includes_vat === true ? netFromGrossCents(listCents, ratePct) : listCents);
-
-      const t = byTax.get(ratePct) ?? { label: taxLabel(ratePct), ratePct, taxCents: 0, discountCents: 0, exclCents: 0, inclCents: 0 };
-      t.taxCents += tax;
-      t.exclCents += excl;
-      t.inclCents += excl + tax;
-      t.discountCents += gross - excl;
-      byTax.set(ratePct, t);
-
-      const cat = (l.products?.category ?? "").trim() || UNCATEGORISED;
-      const c = byCategory.get(cat) ?? { label: cat, qty: 0, pct: 0, exclCents: 0, inclCents: 0 };
-      c.qty += s * Number(l.qty);
-      c.exclCents += excl;
-      c.inclCents += excl + tax;
-      byCategory.set(cat, c);
-    });
-  }
-
-  // 4. Payments — the MONEY side, and the one part of this report that is not
-  //    driven by business_day.
-  //
-  //    A payment belongs to the day it was RECEIVED, not to the day its bill was
-  //    raised. Those are the same day for a counter sale and different for anyone
-  //    who settles later, and conflating them is what made 25 August 2026 report
-  //    Rs 4,204.20 of cash when Rs 1,564.20 was all that reached the drawer: two of
-  //    KHADAFEE JAWAHEERKHAN's bills were raised on the 25th and paid on 2 September,
-  //    and both were being counted on the 25th.
-  //
-  //    So three quantities exist per period, and only two of them tie:
-  //      • invoiced      — Σ total_incl over the period's documents (totalIncl)
-  //      • money in      — Σ payments received inside the period, whatever they settle
-  //      • on account    — invoiced here, still unsettled when the period closed
-  //    with  invoiced = (money in − settling earlier bills) + on account.
-  //    The old code forced money-in to equal invoiced, which is why it was wrong.
+  // 2. The MONEY — every counted payment, once. A payment counts when it arrived
+  //    inside the period (the fetch scoped that) and its bill passes the filters.
+  //    Everything else in this report derives from that one list: the method rows,
+  //    the headline totals, the VAT, the categories, whose name the money lands
+  //    under. Nothing about an unpaid bill reaches the figures any more.
   const docById = new Map<string, RawDoc>(input.docs.map((d) => [d.id, d]));
   const customerName = input.customerName ?? new Map<string, string>();
 
@@ -483,10 +416,16 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   const listOf = (m: Map<string, JournalInvoiceRef>) =>
     [...m.values()].sort((a, b) => (b.businessDay < a.businessDay ? -1 : b.businessDay > a.businessDay ? 1 : Math.abs(b.cents) - Math.abs(a.cents)));
 
+  const userName = (id: string | null | undefined) => (id ? (sellerName.get(id) ?? "—") : "—");
+
   const paid = new Map<string, PaymentRow>();
   const paidByDoc = new Map<string, number>();       // in-period bills, settled in-period
   const earlierRefs = new Map<string, JournalInvoiceRef>();
   const perMethodRefs = new Map<string, Map<string, JournalInvoiceRef>>();
+
+  /** One payment that counts, with its cents and the user who took the money. */
+  interface Counted { cents: number; user: string; }
+  const countedByDoc = new Map<string, Counted[]>();
 
   for (const p of payments) {
     if (!paymentPassesFilters(p.document_id)) continue;
@@ -505,6 +444,14 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
       if (ref.earlier) rollUp(earlierRefs, ref);
       else paidByDoc.set(p.document_id, (paidByDoc.get(p.document_id) ?? 0) + cents);
     }
+
+    const doc = docOf(p.document_id);
+    if (doc) {
+      const user = userName(p.received_by ?? doc.issued_by);
+      const list = countedByDoc.get(p.document_id);
+      if (list) list.push({ cents, user });
+      else countedByDoc.set(p.document_id, [{ cents, user }]);
+    }
   }
 
   const paymentRows = [...paid.values()]
@@ -517,6 +464,121 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   const paymentsSubtotalCents = paymentRows.reduce((a, r) => a + r.cents, 0);
   const settlingEarlier = listOf(earlierRefs);
   const settlingEarlierCents = settlingEarlier.reduce((a, r) => a + r.cents, 0);
+
+  // 3. Cash-basis sections. Each document is scaled to the share of its bill that
+  //    the period's payments actually settled, then that share is split across the
+  //    lines exactly as before (allocate(), largest-remainder). A fully-settled
+  //    bill lands at share 1 — the document's own figures, to the cent; a
+  //    part-payment carries its fraction of VAT, discount and category into the
+  //    period; a credit-note mirror is negative and nets everything down.
+  let totalIncl = 0, totalExcl = 0, clientIncl = 0;
+  const settledInvoices = new Set<string>();          // invoice bills that took money
+  const clientIds = new Set<string>();
+  // Sale method is the SHOP, one row — Cashmag's "SALES [CARFECTIONIST]". The owner
+  // does not split takings by terminal here: a job invoiced at the desk and a wash
+  // rung on a tablet are both just a sale. Which till rang it is still available as
+  // a filter (see `filters.device`), and Daily Summary breaks it out per till for
+  // cash-up.
+  const saleMethod: SaleMethodRow = { label: input.saleMethodLabel ?? DEFAULT_SALE_METHOD, tickets: 0, exclCents: 0, inclCents: 0 };
+  const byUser = new Map<string, UserRow>();
+  const userBills = new Map<string, Set<string>>();   // user → the invoice bills they took money on
+  const byTax = new Map<number, TaxRow>();
+  const byCategory = new Map<string, CategoryRow>();
+
+  for (const [docId, list] of countedByDoc) {
+    const doc = docOf(docId)!;
+    const paidIncl = list.reduce((a, c) => a + c.cents, 0);
+    if (paidIncl === 0) continue; // fully refunded inside the period: no takings either way
+
+    if (doc.doc_type === "invoice" && list.some((c) => c.cents > 0)) settledInvoices.add(docId);
+    if (doc.customer_id) {
+      clientIds.add(doc.customer_id);
+      clientIncl += paidIncl;
+    }
+
+    const docIncl = rupeesToCents(Number(doc.total_incl));
+    const docExcl = rupeesToCents(Number(doc.subtotal_excl));
+    if (docIncl === 0) continue; // a free bill has no VAT content to allocate
+    const share = paidIncl / docIncl;
+    const paidExcl = Math.round(docExcl * share);
+
+    totalIncl += paidIncl;
+    totalExcl += paidExcl;
+    saleMethod.exclCents += paidExcl;
+    saleMethod.inclCents += paidIncl;
+
+    // The ex-VAT content of each individual payment — users are per-payment, the
+    // ex-VAT is per-bill, so the bill's paid ex-VAT is split pro-rata over the
+    // payments that settled it (the same allocate trick, one level up).
+    const exclByPayment = allocate(paidExcl, list.map((c) => c.cents));
+    list.forEach((c, i) => {
+      const u = byUser.get(c.user) ?? { label: c.user, tickets: 0, exclCents: 0, inclCents: 0 };
+      u.inclCents += c.cents;
+      u.exclCents += exclByPayment[i];
+      if (c.cents > 0 && doc.doc_type === "invoice") {
+        const bills = userBills.get(c.user) ?? new Set<string>();
+        bills.add(docId);
+        userBills.set(c.user, bills);
+      }
+      byUser.set(c.user, u);
+    });
+
+    // Line-derived sections — the paid share of each line.
+    const own = linesByDoc.get(docId);
+    if (!own || own.length === 0) continue;
+
+    const rawExcl = own.map((l) => rupeesToCents(Number(l.line_total_excl)));
+    const rawVat = own.map((l) => rupeesToCents(Number(l.line_vat)));
+    const exclAlloc = allocate(docExcl, rawExcl);
+    const vatAlloc = allocate(rupeesToCents(Number(doc.vat_total)), rawVat);
+    // List-price (gross) basis for the discount column, scaled the same way. A
+    // price_includes_vat line stores unit_price as the GROSS, so extract VAT first
+    // (20260812000030); otherwise unit_price is already net.
+    const grossOf = own.map((l) => {
+      const listCents = rupeesToCents(Number(l.qty) * Number(l.unit_price));
+      return l.price_includes_vat === true ? netFromGrossCents(listCents, Number(l.vat_rate)) : listCents;
+    });
+    const paidGross = Math.round(grossOf.reduce((a, b) => a + b, 0) * share);
+    // Three independent largest-remainder splits — excl, VAT, gross — each footing
+    // to its doc-level paid figure, so every column foots AND every row keeps the
+    // identity incl = excl + tax. (Deriving tax as incl − excl per line instead
+    // would flip signs on a mixed-rate document: a zero-rated line next to a 15%
+    // one shares the incl split differently than the excl split.)
+    const paidVat = paidIncl - paidExcl;
+    const linePaidExcl = allocate(paidExcl, exclAlloc);
+    const linePaidTax = allocate(paidVat, vatAlloc);
+    const linePaidGross = allocate(paidGross, grossOf);
+
+    own.forEach((l, i) => {
+      const excl = linePaidExcl[i];
+      const tax = linePaidTax[i];
+      const ratePct = Number(l.vat_rate);
+
+      const t = byTax.get(ratePct) ?? { label: taxLabel(ratePct), ratePct, taxCents: 0, discountCents: 0, exclCents: 0, inclCents: 0 };
+      t.taxCents += tax;
+      t.exclCents += excl;
+      t.inclCents += excl + tax;
+      t.discountCents += linePaidGross[i] - excl;
+      byTax.set(ratePct, t);
+
+      const cat = (l.products?.category ?? "").trim() || UNCATEGORISED;
+      const c = byCategory.get(cat) ?? { label: cat, qty: 0, pct: 0, exclCents: 0, inclCents: 0 };
+      c.qty += share * Number(l.qty); // fractional for a part-payment — shown to 2dp
+      c.exclCents += excl;
+      c.inclCents += excl + tax;
+      byCategory.set(cat, c);
+    });
+  }
+
+  const tickets = settledInvoices.size;
+  saleMethod.tickets = tickets;
+  for (const u of byUser.values()) u.tickets = userBills.get(u.label)?.size ?? 0;
+
+  // 4. What the period INVOICED — no longer the report's total (that is the money
+  //    above), but the anchor the on-account reconciliation hangs off:
+  //      invoiced = (money in − settling earlier bills) + on account
+  let invoicedIncl = 0;
+  for (const d of docs) invoicedIncl += sign(d) * rupeesToCents(Number(d.total_incl));
 
   // On account: raised in this period, not settled inside it. A partly-settled bill
   // contributes only its unpaid remainder, so the identity above holds to the cent.
@@ -539,7 +601,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     tickets,
     totalInclCents: totalIncl,
     totalExclCents: totalExcl,
-    vatCents: vat,
+    vatCents: totalIncl - totalExcl,
     avgInclCents: tickets ? Math.round(totalIncl / tickets) : 0,
     clients: clientIds.size,
     clientInclCents: clientIncl,
@@ -552,7 +614,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     settlingEarlier,
     onAccountCents,
     onAccount,
-    paymentsTotalCents: totalIncl,
+    paymentsTotalCents: invoicedIncl,
     categories,
     users: [...byUser.values()].sort((a, b) => b.inclCents - a.inclCents),
   };
@@ -601,7 +663,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     fetchAllRows<any>(() =>
       sb
         .from("payments")
-        .select("id, document_id, method, amount, received_at")
+        .select("id, document_id, method, amount, received_at, received_by")
         .gte("received_at", MU_DAY_START(from))
         .lte("received_at", MU_DAY_END(to)),
     ),
@@ -621,20 +683,28 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
       )
     : [];
   // Tills and sellers must cover the strangers too, or a filter would silently drop
-  // every payment that settled an older bill.
+  // every payment that settled an older bill. User logs are keyed by who RECEIVED
+  // the money, so the app_users lookup must cover received_by as well.
   const everyDoc = [...docs, ...paymentDocs];
   const sessionIds = [...new Set(everyDoc.map((d) => d.cash_session_id).filter(Boolean))] as string[];
-  const sellerIds = [...new Set(everyDoc.map((d) => d.issued_by).filter(Boolean))] as string[];
+  const sellerIds = [
+    ...new Set([
+      ...everyDoc.map((d) => d.issued_by).filter(Boolean),
+      ...payments.map((p) => p.received_by).filter(Boolean),
+    ]),
+  ] as string[];
   const customerIds = [...new Set(everyDoc.map((d) => d.customer_id).filter(Boolean))] as string[];
 
-  // Lines stay keyed to docIds ONLY. A stranger's lines must never be fetched: they
-  // would land in revenue, tax and category totals for a period that never sold them.
+  // Lines cover the stranger bills as well now: their money counts in full, so its
+  // VAT and category content has to come from somewhere. They can only ever reach
+  // the totals THROUGH a payment — the aggregation never iterates docs alone.
+  const lineDocIds = [...docIds, ...strangerIds];
   const [lines, sessions, sellers, devices, customers, settings] = await Promise.all([
     fetchAllRows<any>(() =>
       sb
         .from("document_lines")
         .select("id, document_id, title, qty, unit_price, vat_rate, line_total_excl, line_vat, price_includes_vat, products(name, category)")
-        .in("document_id", docIds),
+        .in("document_id", lineDocIds),
     ),
     sessionIds.length ? fetchAllRows<any>(() => sb.from("cash_sessions").select("id, device_id").in("id", sessionIds)) : Promise.resolve([] as any[]),
     sellerIds.length ? fetchAllRows<any>(() => sb.from("app_users").select("id, display_name").in("id", sellerIds)) : Promise.resolve([] as any[]),
@@ -703,7 +773,11 @@ export function facetsOf(input: JournalInput): JournalFacets {
     devices.add(code ? (input.deviceName.get(code) ?? code) : BACK_OFFICE);
     users.add(d.issued_by ? (input.sellerName.get(d.issued_by) ?? "—") : "—");
   }
-  for (const l of input.lines) services.add((l.products?.name ?? l.title ?? "").trim() || "Ad-hoc item");
+  // Services come from the period's OWN documents only. The fetch now carries
+  // stranger bills' lines too (their money needs them), but a service the period
+  // never sold has no business in the period's filter dropdown.
+  const inPeriod = new Set(input.docs.map((d) => d.id));
+  for (const l of input.lines) if (inPeriod.has(l.document_id)) services.add((l.products?.name ?? l.title ?? "").trim() || "Ad-hoc item");
   const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b));
   return { devices: sorted(devices), services: sorted(services), users: sorted(users) };
 }

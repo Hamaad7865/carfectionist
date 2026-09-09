@@ -2,13 +2,17 @@ import { describe, it, expect } from "vitest";
 import { buildSalesJournal, allocate, facetsOf, saleMethodLabelFor, BACK_OFFICE, UNCATEGORISED, type JournalInput } from "./sales-journal";
 
 // The property this report lives or dies by: EVERY section foots to the same
-// pair of totals. If taxes, categories or users ever disagree with sale methods,
-// the journal is wrong no matter how plausible each section looks alone.
+// pair of totals — the MONEY RECEIVED in the period, the cash basis the owner
+// chose on 9 Sep 2026. If taxes, categories or users ever disagree with the
+// payments card, the journal is wrong no matter how plausible each section
+// looks alone.
 //
 // The fixture below is built to reproduce the owner's Cashmag reference period
-// (28–29 July 2026) exactly — 3 tickets, 8275.70 incl, 7196.26 excl, 1079.44
-// tax, 577.30 discount, cash 1980.00 / card 5195.70 / juice 1100.00,
-// Anshika 6295.70 over 2 tickets, Nicolas 1980.00 over 1.
+// (28–29 July 2026) exactly — every bill raised AND settled inside the period,
+// so money-in equals invoiced and the figures match the old report to the cent:
+// 3 tickets, 8275.70 incl, 7196.26 excl, 1079.44 tax, 577.30 discount,
+// cash 1980.00 / card 5195.70 / juice 1100.00, Anshika 6295.70 over 2 tickets,
+// Nicolas 1980.00 over 1.
 
 const FROM = "2026-07-28";
 const TO = "2026-07-29";
@@ -50,6 +54,8 @@ const J = (over: Partial<JournalInput> = {}) => buildSalesJournal(FROM, TO, inpu
 /** The invariant, as an assertion — reused by every scenario below. */
 function expectFooting(j: ReturnType<typeof J>) {
   const sum = <T,>(rows: T[], pick: (r: T) => number) => rows.reduce((a, r) => a + pick(r), 0);
+  // The headline IS the money — that is the cash basis.
+  expect(j.totalInclCents).toBe(j.paymentsSubtotalCents);
   expect(sum(j.saleMethods, (r) => r.exclCents)).toBe(j.totalExclCents);
   expect(sum(j.saleMethods, (r) => r.inclCents)).toBe(j.totalInclCents);
   expect(sum(j.taxes, (r) => r.exclCents)).toBe(j.totalExclCents);
@@ -59,13 +65,10 @@ function expectFooting(j: ReturnType<typeof J>) {
   expect(sum(j.categories, (r) => r.inclCents)).toBe(j.totalInclCents);
   expect(sum(j.users, (r) => r.exclCents)).toBe(j.totalExclCents);
   expect(sum(j.users, (r) => r.inclCents)).toBe(j.totalInclCents);
-  expect(j.paymentsTotalCents).toBe(j.totalInclCents);
-  // The payments identity. It USED to be "money in == invoiced", which only held
-  // because every payment was dated by its document instead of by itself. Money
-  // that settles an older bill is takings today and revenue back then, so the two
-  // legitimately differ and the bridge is what has to balance:
+  // And the reconciliation: what was invoiced is the money that settled bills of
+  // this period (money in minus what settled OLDER bills) plus what is still owed.
   //     invoiced = (money in − settling earlier bills) + on account
-  expect(j.paymentsSubtotalCents - j.settlingEarlierCents + j.onAccountCents).toBe(j.totalInclCents);
+  expect(j.paymentsSubtotalCents - j.settlingEarlierCents + j.onAccountCents).toBe(j.paymentsTotalCents);
   expect(sum(j.settlingEarlier, (r) => r.cents)).toBe(j.settlingEarlierCents);
   expect(sum(j.onAccount, (r) => r.cents)).toBe(j.onAccountCents);
   // Every payment row's dropdown must add up to the row it hangs off.
@@ -154,12 +157,31 @@ describe("sales journal — the reference period", () => {
     expect(j.categories.map((c) => c.pct.toFixed(2))).toEqual(["42.83", "38.41", "18.76"]);
   });
 
-  it("attributes each ticket to the user who issued it", () => {
+  it("attributes money to the bill's issuer when nobody specific received it", () => {
+    // Payments with no received_by (back-office recorded settlements) fall back
+    // to the issuer — the same names the invoiced-basis report showed.
     const j = J();
     expect(j.users).toEqual([
       { label: "Anshika", tickets: 2, exclCents: 547_452, inclCents: 629_570 },
       { label: "Nicolas", tickets: 1, exclCents: 172_174, inclCents: 198_000 },
     ]);
+  });
+
+  it("attributes money to the user who RECEIVED it, when the till says so", () => {
+    // Nicolas rings d1's card payment on Anshika's day off; Anshika later takes
+    // d3's cash. The cash-basis User logs follow the money, not the sale.
+    const j = J({
+      payments: [
+        { document_id: "d1", method: "card", amount: 5195.70, received_by: "u2" },
+        { document_id: "d2", method: "juice", amount: 1100.00 },
+        { document_id: "d3", method: "cash", amount: 1980.00, received_by: "u1" },
+      ],
+    });
+    expect(j.users).toEqual([
+      { label: "Nicolas", tickets: 1, exclCents: 451_800, inclCents: 519_570 },
+      { label: "Anshika", tickets: 2, exclCents: 267_826, inclCents: 308_000 },
+    ]);
+    expectFooting(j);
   });
 
   it("foots across every section", () => {
@@ -195,7 +217,10 @@ describe("sales journal — whole-sale discount", () => {
     expect(j.taxes[0].discountCents).toBe(20_000); // 1000.00 gross − 800.00 net
   });
 
-  it("survives a document discounted to nothing", () => {
+  it("shows NOTHING for a document discounted to nothing — no money, no figures", () => {
+    // A 100% discount makes the bill free; a free bill takes no money; and on a
+    // cash basis what takes no money shows nowhere. (Under the old invoiced basis
+    // it at least carried its list price into the discount column.)
     const j = buildSalesJournal(FROM, TO, input({
       ...overridden,
       docs: [{ ...overridden.docs![0], total_incl: 0, subtotal_excl: 0, vat_total: 0 }],
@@ -203,7 +228,9 @@ describe("sales journal — whole-sale discount", () => {
     }));
     expectFooting(j);
     expect(j.totalInclCents).toBe(0);
-    expect(j.taxes[0].discountCents).toBe(100_000); // the whole list price was given away
+    expect(j.taxes).toEqual([]);
+    expect(j.categories).toEqual([]);
+    expect(j.onAccountCents).toBe(0); // nothing invoiced, nothing owed
   });
 
   it("does NOT invent a discount for a price_includes_vat line sold at list", () => {
@@ -223,11 +250,18 @@ describe("sales journal — whole-sale discount", () => {
 });
 
 describe("sales journal — credit notes", () => {
+  // A credit note carries positive totals and one NEGATIVE mirror payment (its
+  // document_id is the credit note itself) — that mirror is what nets a cash-basis
+  // period down, exactly as the drawer experienced the refund.
   const withCredit = () =>
     buildSalesJournal(FROM, TO, input({
       docs: [
         ...input().docs,
         { id: "cn", doc_type: "credit_note", business_day: TO, total_incl: 1100.00, subtotal_excl: 956.52, vat_total: 143.48, customer_id: null, issued_by: "u1", cash_session_id: null, issued_at: null },
+      ],
+      payments: [
+        ...input().payments,
+        { document_id: "cn", method: "juice", amount: -1100.00, received_at: "2026-07-29T16:00:00Z" },
       ],
       lines: [
         ...input().lines,
@@ -235,11 +269,12 @@ describe("sales journal — credit notes", () => {
       ],
     }));
 
-  it("nets the period DOWN and is not counted as a ticket", () => {
+  it("nets the period DOWN and is not counted as a settled bill", () => {
     const j = withCredit();
     expect(j.tickets).toBe(3); // still 3 — a credit note reduces money, it is not a sale
     expect(j.totalInclCents).toBe(827_570 - 110_000);
     expect(j.totalExclCents).toBe(719_626 - 95_652);
+    expect(j.vatCents).toBe(107_944 - 14_348);
   });
 
   it("reverses the category it was raised against, and still foots", () => {
@@ -248,6 +283,13 @@ describe("sales journal — credit notes", () => {
     expect(wash.exclCents).toBe(276_435 - 95_652);
     expect(wash.qty).toBe(2); // 3 sold, 1 returned
     expectFooting(j);
+  });
+
+  it("nets the refund out of the method it was refunded on", () => {
+    const j = withCredit();
+    const juice = j.payments.find((p) => p.method === "juice")!;
+    expect(juice.cents).toBe(0); // 1100.00 taken, 1100.00 refunded
+    expect(juice.n).toBe(2);
   });
 });
 
@@ -260,13 +302,19 @@ describe("sales journal — payments vs credit sales", () => {
     expect(j.settlingEarlierCents).toBe(0);
   });
 
-  it("S/TOTAL falls below Total when a ticket is delivered on account", () => {
-    // d3 goes home unpaid — the money is owed, not tendered.
+  it("drops an on-account ticket from EVERY figure — it is owed, not tendered", () => {
+    // d3 goes home unpaid. On the cash basis it is not takings and never was: the
+    // headline, the taxes, the categories and the users all fall to the money,
+    // and the unpaid bill survives only as the ruled-off on-account line.
     const j = J({ payments: input().payments.filter((p) => p.document_id !== "d3") });
     expect(j.paymentsSubtotalCents).toBe(827_570 - 198_000);
-    expect(j.paymentsTotalCents).toBe(827_570); // the period still sold 8275.70
+    expect(j.totalInclCents).toBe(827_570 - 198_000); // the headline IS the money now
+    expect(j.tickets).toBe(2);                         // d3 never settled
+    expect(j.totalExclCents).toBe(719_626 - 172_174);  // d3's ex-VAT left with it
+    expect(j.categories.map((c) => c.label)).toEqual(["CAR COLOGNE", "CAR WASH EXPERTS"]); // SERVICES FEE gone
+    expect(j.paymentsTotalCents).toBe(827_570); // the period still INVOICED 8275.70…
     expect(j.paymentsSubtotalCents).toBeLessThan(j.paymentsTotalCents);
-    expect(j.onAccountCents).toBe(198_000);
+    expect(j.onAccountCents).toBe(198_000); // …and the gap is exactly d3
     expect(j.onAccount.map((r) => r.id)).toEqual(["d3"]);
     expectFooting(j);
   });
@@ -281,13 +329,24 @@ describe("sales journal — payments vs credit sales", () => {
     expect(j.onAccount[0]).toMatchObject({ number: "INV-3", customer: "Yash", cents: 198_000, earlier: false });
   });
 
-  it("counts a PART payment as tendered, and only the remainder as owed", () => {
+  it("counts a PART payment as tendered, carrying its fraction of VAT and category", () => {
+    // d3 settles 980.00 of 1980.00 inside the period. The money counts in full;
+    // its ex-VAT and VAT content ride along at the bill's own ratio (98000 of
+    // 198000 incl → 85217 excl + 12783 VAT, from 1721.74 / 258.26), and the
+    // categories take d3's lines at the same ~49.5% share.
     const j = J({
       payments: [
         ...input().payments.filter((p) => p.document_id !== "d3"),
         { document_id: "d3", method: "cash", amount: 980.00, received_at: "2026-07-29T13:50:00Z" },
       ],
     });
+    expect(j.totalInclCents).toBe(629_570 + 98_000);
+    expect(j.totalExclCents).toBe(547_452 + 85_217);
+    expect(j.vatCents).toBe(94_901); // 980.00 at the bill's own VAT ratio
+    expect(j.tickets).toBe(3); // a partly-settled bill still settled
+    const fee = j.categories.find((c) => c.label === "SERVICES FEE")!;
+    expect(fee.exclCents).toBe(66_818); // 1350.00 × 980/1980, largest-remainder
+    expect(fee.inclCents).toBe(76_841);
     expect(j.onAccountCents).toBe(198_000 - 98_000);
     expectFooting(j);
   });
@@ -309,22 +368,32 @@ describe("sales journal — money is dated by when it ARRIVED", () => {
     expect(j.onAccountCents).toBe(198_000); // it shows as owed instead, not as cash
   });
 
-  it("counts money that settles an EARLIER bill, and says so", () => {
-    // Nothing was invoiced in this window; a customer walks in and clears d0.
+  it("counts money that settles an EARLIER bill — in full, VAT and all", () => {
+    // Nothing was invoiced in this window; a customer walks in and clears d0, an
+    // old wash bill. On the cash basis that money is this period's takings
+    // outright: its ex-VAT, its VAT and its category all travel with it.
     const j = buildSalesJournal("2026-08-01", "2026-08-01", {
       ...input(),
       docs: [],
-      lines: [],
+      lines: [
+        { document_id: "d0", qty: 1, unit_price: 1043.48, vat_rate: 15, line_total_excl: 1043.48, line_vat: 156.52, products: { name: "Exterior wash", category: "CAR WASH EXPERTS" } },
+      ],
       payments: [{ document_id: "d0", method: "cash", amount: 1200.00, received_at: "2026-08-01T09:00:00Z" }],
       paymentDocs: [{
         id: "d0", number: "INV-0165", business_day: "2026-07-20", customer_id: "c9",
         doc_type: "invoice", cash_session_id: "s1", issued_by: "u1", issued_at: "2026-07-20T09:00:00Z",
+        total_incl: 1200.00, subtotal_excl: 1043.48, vat_total: 156.52,
       }],
       customerName: new Map([["c9", "KHADAFEE JAWAHEERKHAN"]]),
     });
     expect(j.paymentsSubtotalCents).toBe(120_000);   // the drawer took it today
     expect(j.settlingEarlierCents).toBe(120_000);    // …but it sold nothing today
-    expect(j.totalInclCents).toBe(0);
+    expect(j.totalInclCents).toBe(120_000);          // and the headline is still the money
+    expect(j.totalExclCents).toBe(104_348);
+    expect(j.vatCents).toBe(15_652);
+    expect(j.tickets).toBe(1);                       // a settled bill is a settled bill
+    expect(j.categories.map((c) => [c.label, c.exclCents, c.inclCents])).toEqual([["CAR WASH EXPERTS", 104_348, 120_000]]);
+    expect(j.paymentsTotalCents).toBe(0);            // nothing was invoiced in the window
     expect(j.settlingEarlier[0]).toMatchObject({ number: "INV-0165", customer: "KHADAFEE JAWAHEERKHAN", earlier: true });
     expectFooting(j);
   });
@@ -424,7 +493,7 @@ describe("sales journal — edges", () => {
     const j = J({
       lines: [{ document_id: "d1", title: "Custom polish", qty: 1, unit_price: 4518.00, vat_rate: 15, line_total_excl: 4518.00, line_vat: 677.70, products: null }],
       docs: input().docs.filter((d) => d.id === "d1"),
-      payments: [],
+      payments: [{ document_id: "d1", method: "card", amount: 5195.70, received_at: "2026-07-28T05:31:00Z" }],
     });
     expect(j.categories.map((c) => c.label)).toEqual([UNCATEGORISED]);
     expectFooting(j);
@@ -433,13 +502,18 @@ describe("sales journal — edges", () => {
   it("separates tax bands and orders them by rate", () => {
     const j = J({
       docs: [{ id: "z", doc_type: "invoice", business_day: FROM, total_incl: 1150.00, subtotal_excl: 1100.00, vat_total: 50.00, customer_id: null, issued_by: "u1", cash_session_id: null, issued_at: null }],
-      payments: [],
+      payments: [{ document_id: "z", method: "cash", amount: 1150.00, received_at: "2026-07-28T10:00:00Z" }],
       lines: [
         { document_id: "z", qty: 1, unit_price: 1000.00, vat_rate: 0, line_total_excl: 1000.00, line_vat: 0, products: { name: "Exempt item", category: "OTHER" } },
         { document_id: "z", qty: 1, unit_price: 100.00, vat_rate: 15, line_total_excl: 100.00, line_vat: 15.00, products: { name: "Wax", category: "OTHER" } },
       ],
     });
     expect(j.taxes.map((t) => t.label)).toEqual(["Zero-rated", "Standard rate"]);
+    // The zero-rated line carries no VAT even though the money was one payment
+    // across both bands — the split is by each line's own VAT allocation.
+    const [zero, std] = j.taxes;
+    expect(zero).toMatchObject({ exclCents: 100_000, taxCents: 0, inclCents: 100_000 });
+    expect(std).toMatchObject({ exclCents: 10_000, taxCents: 5_000, inclCents: 15_000 });
     expectFooting(j);
   });
 });
