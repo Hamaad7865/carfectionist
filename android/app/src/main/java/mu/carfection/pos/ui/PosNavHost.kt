@@ -312,7 +312,14 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                         PosTab.SALE ->
                             if (showTill) TillScreen(onBack = { rootViewModel.setShowTill(false) }, onOpened = { rootViewModel.setShowTill(false) })
                             else if (showSettlement) mu.carfection.pos.feature.settlement.SettlementScreen(onBack = { rootViewModel.setShowSettlement(false) })
-                            else CounterScreen(onOpenTill = { rootViewModel.setShowTill(true) }, onOpenSettlement = { rootViewModel.setShowSettlement(true) })
+                            else CounterScreen(
+                                onOpenTill = { rootViewModel.setShowTill(true) },
+                                onOpenSettlement = { rootViewModel.setShowSettlement(true) },
+                                // TO COLLECT provenance chips: the bus request is latched first,
+                                // then the tab switches — the Quote/Jobs ViewModel consumes it.
+                                onGoQuotes = { rootViewModel.navigate(PosTab.QUOTE) },
+                                onGoJobs = { rootViewModel.navigate(PosTab.JOBS) },
+                            )
                         PosTab.INTAKE -> IntakeScreen(onStartQuote = { rootViewModel.navigate(PosTab.QUOTE) })
                         PosTab.QUOTE -> QuoteScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onViewJob = { rootViewModel.navigate(PosTab.JOBS) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) })
                         PosTab.JOBS -> JobsScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) }, onGoQuotes = { rootViewModel.navigate(PosTab.QUOTE) })

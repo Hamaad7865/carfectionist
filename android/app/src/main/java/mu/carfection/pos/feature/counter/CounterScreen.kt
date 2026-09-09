@@ -124,6 +124,8 @@ import mu.carfection.pos.ui.theme.Warning
 fun CounterScreen(
     onOpenTill: () -> Unit,
     onOpenSettlement: () -> Unit,
+    onGoQuotes: () -> Unit = {},
+    onGoJobs: () -> Unit = {},
     viewModel: CounterViewModel = hiltViewModel(),
 ) {
     val s by viewModel.state.collectAsState()
@@ -155,7 +157,7 @@ fun CounterScreen(
         }
         Spacer(Modifier.height(12.dp))
 
-        if (s.mode == CheckoutMode.LIST) CollectList(s, viewModel)
+        if (s.mode == CheckoutMode.LIST) CollectList(s, viewModel, onGoQuotes, onGoJobs)
         else Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             // ── vertical category rail (collapsible; scrolls independently) ──────
             // Wider + bolder than the designer's 190dp/12.5sp: the owner reads this rail
@@ -760,7 +762,7 @@ private fun PointsPickerDialog(s: CounterUiState, vm: CounterViewModel) {
 
 // ─── Collect list: TO COLLECT (outstanding invoices) + PAID TODAY ─────────────
 @Composable
-private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
+private fun CollectList(s: CounterUiState, vm: CounterViewModel, onGoQuotes: () -> Unit, onGoJobs: () -> Unit) {
     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         // left: new walk-in + TO COLLECT
         Column(
@@ -812,6 +814,39 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel) {
                         Column(Modifier.weight(1f)) {
                             Text(billLabel, color = if (isDraft) Accent else TextMuted, fontFamily = Mono, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold)
                             Text(b.customers?.name ?: "—", color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            // Provenance chips — tappable, so a cashier who asks "what did they
+                            // sign?" or "where's the car?" lands on the answer instead of guessing.
+                            // Issued invoices carry their source quote too, not just open bills.
+                            val quoteNo = b.sourceDocumentId?.let { s.quoteNumbers[it] }
+                            if (quoteNo != null || b.jobId != null) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    if (quoteNo != null) {
+                                        Text("quote $quoteNo", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp,
+                                            modifier = Modifier
+                                                .background(AccentSoft, RoundedCornerShape(7.dp))
+                                                .clickable { vm.openBillQuote(b.sourceDocumentId!!); onGoQuotes() }
+                                                .padding(horizontal = 7.dp, vertical = 2.dp))
+                                    }
+                                    if (b.jobId != null) {
+                                        // The board's own short reference, so the chip and the
+                                        // work-order card name the same thing (JOB-D4B3).
+                                        val jobRef = "JOB-" + b.jobId!!.take(4).uppercase()
+                                        val jobState = when (b.jobs?.status) {
+                                            "ready" -> "car ready"
+                                            "delivered" -> "delivered"
+                                            "in_progress" -> "in progress"
+                                            "paused" -> "paused"
+                                            "scheduled" -> "scheduled"
+                                            else -> "on the board"
+                                        }
+                                        Text("$jobRef · $jobState", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp,
+                                            modifier = Modifier
+                                                .background(AccentSoft, RoundedCornerShape(7.dp))
+                                                .clickable { vm.openBillJob(b.jobId!!); onGoJobs() }
+                                                .padding(horizontal = 7.dp, vertical = 2.dp))
+                                    }
+                                }
+                            }
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text(formatMUR(remaining), color = TextPrimary, fontFamily = Mono, fontSize = 14.sp, fontWeight = FontWeight.Bold)
