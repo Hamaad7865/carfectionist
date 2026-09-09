@@ -184,6 +184,10 @@ data class FlowInvoiceRefDto(
     @SerialName("doc_type") val docType: String = "",
     val status: String = "",
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    // Set when this child is a REVISION of the quote it hangs off, rather than a bill
+    // raised from it or a plain copy of it. Only the quotes list asks for it; every
+    // other embed omits it and decodes null.
+    @SerialName("revision_of") val revisionOf: String? = null,
 )
 
 @Serializable

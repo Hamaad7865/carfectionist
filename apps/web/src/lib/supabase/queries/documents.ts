@@ -84,6 +84,22 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
     ].filter((id) => !liveQuoteIds.has(id)),
   );
 
+  // A quote that has been REVISED is last week's price. The revision carries the
+  // work now, so the original drops out of the working list the moment that
+  // revision stops being a draft — and comes back on its own if the revision is
+  // voided, because this is derived, not stamped.
+  //
+  // revision_of, never source_document_id: duplicate_document writes that column
+  // for a plain copy, and a copy retires nothing.
+  const { data: revRows } = await sb
+    .from("documents")
+    .select("number, revision_of")
+    .eq("doc_type", "quote")
+    .not("revision_of", "is", null)
+    .not("status", "in", "(draft,void)");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supersededBy = new Map<string, string | null>(((revRows ?? []) as any[]).map((r) => [r.revision_of as string, (r.number as string) ?? null]));
+
   // WHY the car was dropped — straight off jobs.cancel_reason now that a
   // cancellation records itself on the job (it used to live only in the audit
   // event, which is why the quote could never explain itself).
@@ -106,13 +122,14 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
     }
   }
 
-  // Both sets end up as one "id in (…)" filter; kept apart for the reason chip.
-  const archivedIds = [...new Set([...creditedSet, ...deadQuoteSet])];
+  // All three sets end up as one "id in (…)" filter; kept apart for the reason chip.
+  const archivedIds = [...new Set([...creditedSet, ...deadQuoteSet, ...supersededBy.keys()])];
 
   // A document is archived when it is dead paperwork — void, the credit note
   // that killed a bill, the invoice that credit note reversed, a quote the
-  // customer declined or that expired — or when a human filed it away. Derived
-  // rather than stamped, so a status change tidies itself with no backfill.
+  // customer declined, that expired, or that a revision has replaced — or when a
+  // human filed it away. Derived rather than stamped, so a status change tidies
+  // itself with no backfill.
   const DEAD_QUOTE = "and(doc_type.eq.quote,status.in.(declined,expired))";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const applyScope = (q: any) => {
@@ -182,12 +199,18 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
               ? "Credited"
               : deadQuoteSet.has(d.id)
                 ? "Job cancelled"
+                : supersededBy.has(d.id)
+                ? "Revised"
                 : d.doc_type === "quote" && d.status === "declined"
                 ? "Declined"
                 : d.doc_type === "quote" && d.status === "expired"
                   ? "Expired"
                   : "Archived",
-      archivedNote: archivedView ? (noteByQuote.get(d.id) ?? null) : null,
+      archivedNote: !archivedView
+        ? null
+        : supersededBy.has(d.id)
+          ? (supersededBy.get(d.id) ? `Replaced by ${supersededBy.get(d.id)}` : "Replaced by a newer revision")
+          : (noteByQuote.get(d.id) ?? null),
     };
   });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -65,6 +65,10 @@ export interface DocumentDetail {
   comment: string | null;
   sourceId: string | null;
   sourceNumber: string | null;
+  /** The revision that replaced this quote, when one has gone out. The superseded
+   *  quote leaves the working list, so its page has to say where the work went. */
+  revisedById: string | null;
+  revisedByNumber: string | null;
   creditedByNumber: string | null;
   jobId: string | null;
   /** The job's live status — drives the "hand over on account" action on an open bill. */
@@ -179,6 +183,25 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
       ? j.checklist.map((c: any) => ({ label: String(c?.label ?? ""), done: !!c?.done })).filter((c: { label: string }) => c.label)
       : [];
   }
+  // Where the work went when this quote was revised. Only a live revision counts:
+  // a draft one is not the price yet, and a voided one never was.
+  let revisedById: string | null = null;
+  let revisedByNumber: string | null = null;
+  if (d.doc_type === "quote") {
+    const { data: rev } = await sb
+      .from("documents")
+      .select("id, number")
+      .eq("revision_of", id)
+      .eq("doc_type", "quote")
+      .not("status", "in", "(draft,void)")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    revisedById = (rev as any)?.id ?? null;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    revisedByNumber = (rev as any)?.number ?? null;
+  }
   let creditedByNumber: string | null = null;
   if (d.doc_type === "invoice") {
     const { data: cn } = await sb.from("documents").select("number").eq("source_document_id", id).eq("doc_type", "credit_note").neq("status", "void").order("created_at", { ascending: false }).limit(1).maybeSingle();
@@ -263,6 +286,8 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     comment: d.comment ?? null,
     sourceId: d.source_document_id ?? null,
     sourceNumber,
+    revisedById,
+    revisedByNumber,
     creditedByNumber,
     jobId: d.job_id ?? null,
     jobStatus,

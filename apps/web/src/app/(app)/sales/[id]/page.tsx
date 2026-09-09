@@ -269,6 +269,18 @@ export default async function DocumentDetailPage({
           </div>
         )}
 
+        {/* This quote has been replaced. It keeps its number, its lines and its
+            signature, but it is not the price any more — and it has left the working
+            list, so this banner is the only thing that can say where the work went. */}
+        {doc.revisedById && (
+          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(245,166,35,0.3)] bg-[rgba(245,166,35,0.07)] px-4 py-2.5 text-[12.5px] text-body">
+            <ArrowRight size={15} className="text-amber-ink" />
+            Revised — replaced by{" "}
+            <Link href={`/sales/${doc.revisedById}`} className="font-bold text-link hover:underline">{doc.revisedByNumber ?? "the newer quote"}</Link>
+            {" "}— this one is filed in the archive.
+          </div>
+        )}
+
         {isInvoice && doc.creditedByNumber && (
           <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
             <FileMinus size={15} className="text-pink" />
