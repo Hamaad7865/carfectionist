@@ -20,6 +20,8 @@ export interface RawParams {
   usr?: string;
   t0?: string;
   t1?: string;
+  /** Open receipt modal for this document id (outside the report state — never parsed, never in the PDF). */
+  receipt?: string;
 }
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;

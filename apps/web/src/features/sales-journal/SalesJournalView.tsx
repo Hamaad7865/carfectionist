@@ -75,11 +75,14 @@ export function SalesJournalView({
   prior,
   priorRange,
   businessName,
+  query,
 }: {
   journal: SalesJournal;
   prior?: SalesJournal | null;
   priorRange?: Range | null;
   businessName: string;
+  /** The current report query (period + filters) — receipt links hang ?receipt= off it. */
+  query: string;
 }) {
   const cmp = !!prior;
   /** Append the comparison column to a grid template when comparing. */
@@ -231,6 +234,7 @@ export function SalesJournalView({
                 qty={p.n}
                 cents={p.cents}
                 invoices={p.invoices}
+                query={query}
                 prior={cmp ? <PriorCell now={p.cents} prev={lookup(prior?.payments, p.label)?.cents ?? 0} /> : null}
               />
             ))
@@ -244,6 +248,7 @@ export function SalesJournalView({
               label="…of which settled earlier bills"
               cents={j.settlingEarlierCents}
               invoices={j.settlingEarlier}
+              query={query}
               muted
               prior={cmp ? <PriorCell now={j.settlingEarlierCents} prev={prior!.settlingEarlierCents} /> : null}
             />
@@ -268,6 +273,7 @@ export function SalesJournalView({
               note={`of ${money(j.paymentsTotalCents)} invoiced`}
               cents={j.onAccountCents}
               invoices={j.onAccount}
+              query={query}
               tone="text-amber-ink"
               divider
               prior={cmp ? <PriorCell now={j.onAccountCents} prev={prior!.onAccountCents} /> : null}
@@ -360,7 +366,7 @@ function Empty({ label = "Nothing in this period." }: { label?: string }) {
  * JavaScript for. It also means the rows stay open when the page is printed.
  */
 function Drawer({
-  cols, label, note, qty, cents, invoices, prior, tone = "text-ink", muted = false, divider = false,
+  cols, label, note, qty, cents, invoices, query, prior, tone = "text-ink", muted = false, divider = false,
 }: {
   cols: React.CSSProperties;
   label: string;
@@ -369,6 +375,8 @@ function Drawer({
   qty?: number;
   cents: number;
   invoices: JournalInvoiceRef[];
+  /** Current report query — receipt links hang ?receipt= off it, staying on this screen. */
+  query: string;
   prior?: React.ReactNode;
   tone?: string;
   muted?: boolean;
@@ -429,16 +437,15 @@ function Drawer({
                   billed {r.businessDay}
                 </span>
               )}
-              {/* The paper the customer got: the thermal receipt, in a new tab. */}
-              <a
-                href={`/print/receipt/${r.id}`}
-                target="_blank"
-                rel="noreferrer"
+              {/* The paper the customer got: opens as a modal over this screen. */}
+              <Link
+                href={`/sales-journal?${query}&receipt=${encodeURIComponent(r.id)}`}
+                scroll={false}
                 title="View receipt"
                 className={btn("subtle", "sm", "h-7 px-2 text-[11.5px]")}
               >
                 <Receipt size={13} /> Receipt
-              </a>
+              </Link>
             </span>
             <span />
             <span className="num text-right font-semibold text-body">{money(r.cents)}</span>
