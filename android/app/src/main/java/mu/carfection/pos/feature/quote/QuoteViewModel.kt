@@ -284,6 +284,25 @@ data class BillRef(
  * that is the price the customer agreed, and no amount of tapping here re-opens it.
  * Everything after them was added at the counter and is a line like any other.
  */
+/**
+ * May this quotation still be revised?
+ *
+ * Revising is negotiation, and a quote with a live bill against it is past negotiating —
+ * revise_quote refuses it, so the button must not be offered where it could only error.
+ * Two different bills can be in the way, and both have to be checked:
+ *
+ *  • [billed] — this quote's OWN live bill, the ordinary goods-only counter sale.
+ *  • [supersededCount] — a bill raised from a quote this one REPLACED, which is the case
+ *    no screen could see at all (INV-0204). public.superseded_bills deliberately leaves
+ *    a quote's own bill out of that count (20260909000030), so it cannot stand in for
+ *    the first check.
+ *
+ * A DRAFT bill blocks nothing: it is not a bill yet, and the RPC allows it.
+ * Pulled out of the composable so the rule can be tested without one.
+ */
+fun canReviseQuote(billed: Boolean, supersededCount: Int): Boolean =
+    !billed && supersededCount == 0
+
 fun billLineEditable(index: Int, quotedCount: Int, lineCount: Int) =
     index >= quotedCount && index >= 0 && index < lineCount
 

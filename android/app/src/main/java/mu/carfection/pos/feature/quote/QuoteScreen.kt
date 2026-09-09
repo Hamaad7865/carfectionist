@@ -954,12 +954,20 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         // Revising is the only thing left to DO to a quote the customer has been shown, so it
         // belongs with the other header actions rather than buried under the lines.
         if (s.quoteId != null && !vm.editable(s) && s.status != "void") {
-            // ...unless a bill raised from this line is still standing, in which case the
+            // ...unless a bill on this quotation's line is still standing, in which case the
             // negotiation is over: revise_quote refuses it (the same rule the web has had
             // since it hid Revise on a billed quote), so offering the button could only
             // produce an error. "+ Add to bill", just below, is the door that still works —
             // what they picked up goes on the BILL, not on a re-signed quotation.
-            if (s.supersededBills.isEmpty()) Box(
+            //
+            // BOTH halves are needed, and it is not obvious why. supersededBills covers a
+            // bill raised from a quote this one REPLACED — the case no screen could see.
+            // It deliberately does NOT include this quote's own bill (20260909000030: that
+            // is the ordinary shape of a counter sale, not a warning), so on its own it
+            // would let the button back onto every billed counter quote, where the RPC
+            // still refuses. `billed` is that other half — the web's billedHref by another
+            // name.
+            if (canReviseQuote(s.billed, s.supersededBills.size)) Box(
                 Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
                     .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
                     .clickable(enabled = !s.busy) { vm.reviseQuote() }.padding(horizontal = 13.dp),
