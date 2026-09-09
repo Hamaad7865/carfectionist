@@ -46,15 +46,15 @@ describe("SalesJournalA4", () => {
     expect(html).toContain("Avg Rs 3,587.85");
   });
 
-  it("bridges from the money that came in to what the period sold", () => {
-    // d2 went out on account: Rs 5,195.70 collected against Rs 7,175.70 sold, so
-    // the printed journal has to NAME the Rs 1,980.00 gap rather than leaving the
-    // reader to subtract two rows that no longer have to agree.
-    expect(html).toContain("Money in (received this period)");
+  it("totals the money, and rules what is still owed off below it", () => {
+    // d2 went out on account: Rs 5,195.70 collected against Rs 7,175.70 sold. The
+    // Payments total is the Rs 5,195.70 that actually arrived — an unpaid bill is
+    // not takings — and the Rs 1,980.00 owed is named beneath it, carrying the
+    // invoiced figure so the two can still be reconciled by eye.
     expect(html).toContain("Rs 5,195.70");
-    expect(html).toContain("On account (invoiced, not yet paid)");
+    expect(html).toContain("On account (not yet paid) — of Rs 7,175.70 invoiced");
     expect(html).toContain("Rs 1,980.00");
-    expect(html).toContain("Total invoiced");
+    expect(html).not.toContain("Total invoiced");
   });
 
   it("builds real table markup — one cell per column, on every row", () => {

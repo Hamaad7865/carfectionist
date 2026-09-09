@@ -32,10 +32,14 @@ export interface JournalTable {
   /** the leading label column header, then the right-aligned column headers */
   head: string[];
   rows: JournalTableRow[];
-  /** Italic pre-total lines — the bridge between what came in and what was sold,
-   *  e.g. "Money in", "…of which settled earlier bills", "On account". */
+  /** Italic pre-total lines, counted INSIDE the total — e.g. "…of which settled
+   *  earlier bills", which is money the drawer really took. */
   notes?: JournalTableRow[];
   total: JournalTableRow;
+  /** Lines printed BELOW the total and deliberately NOT part of it — e.g. money
+   *  still owed on account, which is not money taken. Ruled off so the page cannot
+   *  be read as though the figure were included above. */
+  afterTotal?: JournalTableRow[];
 }
 
 export interface SalesJournalA4Props {
@@ -152,6 +156,14 @@ export function SalesJournalA4(p: SalesJournalA4Props) {
                   </td>
                 ))}
               </tr>
+              {(t.afterTotal ?? []).map((n) => (
+                <tr key={n.label}>
+                  <td style={{ ...td, borderTop: `2px solid ${LINE}`, borderBottom: "none", color: MUTED }}>{n.label}</td>
+                  {n.cells.map((c, i) => (
+                    <td key={i} style={{ ...td, ...right, borderTop: `2px solid ${LINE}`, borderBottom: "none", color: MUTED, fontWeight: 700 }}>{c ?? ""}</td>
+                  ))}
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>
