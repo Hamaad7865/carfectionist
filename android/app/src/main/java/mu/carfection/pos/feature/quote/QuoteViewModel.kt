@@ -608,6 +608,7 @@ class QuoteViewModel @Inject constructor(
     private val openJobBus: OpenJobBus,
     private val collectBus: mu.carfection.pos.core.data.CollectBus,
     private val billQuoteBus: mu.carfection.pos.core.data.BillQuoteBus,
+    private val openQuoteBus: mu.carfection.pos.core.data.OpenQuoteBus,
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
     private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
     private val overrideApi: OverrideApi,
@@ -646,6 +647,7 @@ class QuoteViewModel @Inject constructor(
         loadQuotes()
         loadTechnicians()
         collectBillRequests()
+        collectOpenRequests()
         // Reception hands over a customer+vehicle (+condition) — open a fresh builder on it.
         viewModelScope.launch {
             intakeBus.pending.collect { h -> if (h != null) { intakeBus.consume(); beginFromIntake(h) } }
@@ -727,6 +729,25 @@ class QuoteViewModel @Inject constructor(
                     if (row == null) { _s.update { it.copy(error = "That quote could not be opened to bill it.") }; return@onSuccess }
                     openQuote(row)
                     _s.update { it.copy(pendingBillOnOpen = true) }
+                }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
+            }
+        }
+    }
+
+    /** Checkout's TO COLLECT chips: a cashier tapping the quote named on an open bill wants
+     *  to SEE what was agreed — the bill itself already exists, so unlike [collectBillRequests]
+     *  this must not arm bill-on-open and risk a second bill from the same quote. */
+    private fun collectOpenRequests() {
+        viewModelScope.launch {
+            openQuoteBus.pending.collect { quoteId ->
+                if (quoteId == null) return@collect
+                openQuoteBus.consume()
+                runCatching {
+                    val rows = api.fetchQuotes()
+                    rows.firstOrNull { it.id == quoteId }
+                }.onSuccess { row ->
+                    if (row == null) { _s.update { it.copy(error = "That quote could not be opened.") }; return@onSuccess }
+                    openQuote(row)
                 }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
             }
         }

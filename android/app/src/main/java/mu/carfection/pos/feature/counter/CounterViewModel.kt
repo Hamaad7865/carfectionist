@@ -590,6 +590,8 @@ class CounterViewModel @Inject constructor(
     private val offlineSales: mu.carfection.pos.core.sync.OfflineSaleRepository,
     private val connectivity: mu.carfection.pos.core.sync.ConnectivityObserver,
     private val overrideApi: OverrideApi,
+    private val openJobBus: mu.carfection.pos.core.data.OpenJobBus,
+    private val openQuoteBus: mu.carfection.pos.core.data.OpenQuoteBus,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(CounterUiState())
@@ -751,8 +753,9 @@ class CounterViewModel @Inject constructor(
             // back office), so a re-collected sale shows exactly once.
             val reversedIds = paidRaw.mapNotNull { it.reversesPaymentId }.toSet()
             val paid = paidRaw.filter { it.reversesPaymentId == null && it.id !in reversedIds }
-            // Name the quotes behind the open bills — one batched round trip, drafts only.
-            val quoteIds = bills.filter { it.status == "draft" }.mapNotNull { it.sourceDocumentId }.distinct()
+            // Name the quotes behind the bills — one batched round trip. Issued invoices
+            // carry their source quote too ("INV-0119 · from quote A00101"), not just drafts.
+            val quoteIds = bills.mapNotNull { it.sourceDocumentId }.distinct()
             val quoteNumbers = api.fetchDocNumbers(quoteIds)
             local.value = local.value.copy(bills = bills, paidToday = paid, listBusy = false, quoteNumbers = quoteNumbers)
         }
@@ -1054,6 +1057,12 @@ class CounterViewModel @Inject constructor(
     }
 
     /** Tap an outstanding invoice → open the pad to collect its balance. */
+    /** TO COLLECT provenance chips — the quote a bill was raised from, and the job behind
+     *  it. The chip latches the bus request; the shell's callback switches the tab, and the
+     *  Quote/Jobs ViewModel consumes the request when it comes to exist. */
+    fun openBillQuote(quoteId: String) { openQuoteBus.request(quoteId) }
+    fun openBillJob(jobId: String) { openJobBus.request(jobId) }
+
     fun collectOn(bill: OutstandingInvoiceDto, amountCents: Long? = null) {
         // Starting a new collection would rotate saleKey and abandon an in-flight settle.
         if (frozenBySettle()) return
