@@ -14,14 +14,24 @@ import { logAudit } from "@/lib/supabase/audit";
  * mirrored by the Android PinSecurity and pos-auth; the three must stay in lockstep. The
  * bcrypt pin_hash the server verifies against never leaves the server.
  *
- * Web Crypto (crypto.subtle), NOT node:crypto's pbkdf2Sync. This runs in a Cloudflare
- * Worker (OpenNext), where the synchronous pbkdf2Sync is not implemented and THROWS —
- * which took the whole server action down before it could even call set_staff_pin, so
- * the PIN never saved and the button hung on "Saving…" forever. subtle.deriveBits is the
- * one PBKDF2 path guaranteed on both the Worker and Node, and is byte-for-byte the same
- * code as pos-auth's mintVerifier (standard padded base64, so the format is identical).
+ * 100k iterations, NOT the 310k that pos-auth and Android use — because this runs in a
+ * Cloudflare Worker (OpenNext), and the Worker's Web Crypto (and node:crypto, which is
+ * backed by it) HARD-CAPS PBKDF2 at 100,000: subtle.deriveBits with 310k throws
+ * "iteration counts above 100000 are not supported". That threw before set_staff_pin was
+ * ever called, so the PIN never saved and the button hung on "Saving…". (The cap is a
+ * production-Workers limit; local `wrangler dev`/workerd does NOT enforce it, so it only
+ * shows up once deployed.)
+ *
+ * Parity is preserved anyway: the verifier is self-describing (pbkdf2:sha256:<iters>:…)
+ * and BOTH verifiers read the iteration count back from the stored string —
+ * PinSecurity.verify (Android) and pos-auth's verifierMatches (Deno) each parse parts[2]
+ * — so a 100k web-minted verifier validates correctly on the tablets and in the edge
+ * function. pos-auth keeps minting at 310k on Deno (uncapped); Android keeps 310k. Only
+ * this Worker-bound mint is capped, and the count travels with each verifier. A 4-digit
+ * PIN's real protection is the server-side bcrypt pin_hash and lockout, not the offline
+ * verifier's iteration count, so 100k here is not a meaningful security change.
  */
-const VERIFIER_ITERATIONS = 310_000;
+const VERIFIER_ITERATIONS = 100_000; // Cloudflare Workers Web Crypto PBKDF2 maximum
 const b64 = (b: Uint8Array) => btoa(String.fromCharCode(...b));
 async function mintDeviceVerifier(pin: string): Promise<string> {
   const salt = crypto.getRandomValues(new Uint8Array(16));
