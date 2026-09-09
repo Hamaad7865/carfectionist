@@ -16,7 +16,7 @@ export function toJournalTables(j: SalesJournal): JournalTable[] {
   return [
     {
       title: "Sale methods",
-      head: ["Sale method", "Tickets / Invoices", "Total excl tax", "Total incl tax"],
+      head: ["Sale method", "Bills settled", "Total excl tax", "Total incl tax"],
       rows: j.saleMethods.map((m) => ({ label: m.label, cells: [String(m.tickets), money(m.exclCents), money(m.inclCents)] })),
       total: { label: "Total", cells: [String(j.tickets), money(j.totalExclCents), money(j.totalInclCents)] },
     },
@@ -66,7 +66,7 @@ export function toJournalTables(j: SalesJournal): JournalTable[] {
     },
     {
       title: "User logs",
-      head: ["Label", "Tickets / Invoices", "Excluding tax", "With tax"],
+      head: ["Label", "Bills settled", "Excluding tax", "With tax"],
       rows: j.users.map((u) => ({ label: u.label, cells: [String(u.tickets), money(u.exclCents), money(u.inclCents)] })),
       total: { label: "Total", cells: [String(j.tickets), money(j.totalExclCents), money(j.totalInclCents)] },
     },
@@ -77,6 +77,7 @@ export function toJournalPdfProps(j: SalesJournal, businessName: string, priorRa
   return {
     businessName,
     periodLabel: rangeLabel({ from: j.from, to: j.to }),
+    basisNote: "Cash basis — every figure is money received in this period, not invoices issued.",
     comparedWith: priorRange ? shortRangeLabel(priorRange) : null,
     tickets: j.tickets,
     totalInclLabel: money(j.totalInclCents),

@@ -41,16 +41,17 @@ describe("SalesJournalA4", () => {
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 
-  it("carries the KPI figures", () => {
-    expect(html).toContain("Rs 7,175.70"); // total incl
-    expect(html).toContain("Avg Rs 3,587.85");
+  it("carries the KPI figures — the MONEY, not the invoiced", () => {
+    expect(html).toContain("Rs 5,195.70"); // total received incl tax
+    expect(html).toContain("Avg Rs 5,195.70"); // money in per settled bill (just d1)
+    expect(html).toContain("Cash basis"); // the basis disclaimer travels with the sheet
   });
 
   it("totals the money, and rules what is still owed off below it", () => {
-    // d2 went out on account: Rs 5,195.70 collected against Rs 7,175.70 sold. The
-    // Payments total is the Rs 5,195.70 that actually arrived — an unpaid bill is
-    // not takings — and the Rs 1,980.00 owed is named beneath it, carrying the
-    // invoiced figure so the two can still be reconciled by eye.
+    // d2 went out on account: Rs 5,195.70 collected against Rs 7,175.70 invoiced.
+    // The whole report is cash-basis now, so the Payments total is the same figure
+    // every other section foots to — and the Rs 1,980.00 owed is named beneath it,
+    // carrying the invoiced figure so the two can still be reconciled by eye.
     expect(html).toContain("Rs 5,195.70");
     expect(html).toContain("On account (not yet paid) — of Rs 7,175.70 invoiced");
     expect(html).toContain("Rs 1,980.00");

@@ -45,6 +45,9 @@ export interface JournalTable {
 export interface SalesJournalA4Props {
   businessName: string;
   periodLabel: string;
+  /** The cash-basis disclaimer, printed under the period so the filed sheet
+   *  cannot be mistaken for an invoiced-basis journal. */
+  basisNote?: string | null;
   comparedWith?: string | null;
   tickets: number;
   totalInclLabel: string;
@@ -71,6 +74,9 @@ export function SalesJournalA4(p: SalesJournalA4Props) {
         </div>
         <div style={{ fontSize: 19, fontWeight: 800, marginTop: 3 }}>Sales Journal</div>
         <div style={{ fontSize: 11.5, color: MUTED, marginTop: 3 }}>{p.periodLabel}</div>
+        {p.basisNote && (
+          <div style={{ fontSize: 9.5, color: FAINT, marginTop: 2 }}>{p.basisNote}</div>
+        )}
         {p.comparedWith && (
           <div style={{ fontSize: 10, color: FAINT, marginTop: 2 }}>compared with {p.comparedWith}</div>
         )}
@@ -79,8 +85,8 @@ export function SalesJournalA4(p: SalesJournalA4Props) {
       {/* ── KPI tiles ── */}
       <div style={{ display: "flex", gap: 8, marginTop: 12, breakInside: "avoid" }}>
         {[
-          { k: "Tickets / Invoices", v: String(p.tickets), sub: null as string | null },
-          { k: "Total sales incl tax", v: p.totalInclLabel, sub: p.avgLabel },
+          { k: "Bills settled", v: String(p.tickets), sub: null as string | null },
+          { k: "Total received incl tax", v: p.totalInclLabel, sub: p.avgLabel },
           { k: "Clients", v: String(p.clients), sub: p.clientsSubLabel },
         ].map((t, i) => (
           <div
