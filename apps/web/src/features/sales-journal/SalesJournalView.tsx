@@ -1,4 +1,7 @@
+import Link from "next/link";
+import { Receipt } from "lucide-react";
 import { formatMUR } from "@/lib/money";
+import { btn } from "@/components/ui/button";
 import type { SalesJournal, JournalInvoiceRef } from "@/lib/supabase/queries/sales-journal";
 import { rangeLabel, shortRangeLabel, type Range } from "./periods";
 
@@ -411,14 +414,31 @@ function Drawer({
             style={{ gridTemplateColumns: "1fr 150px 180px" }}
           >
             <span className="flex items-center gap-2 truncate">
-              <span className="num font-semibold text-body">{r.number ?? "—"}</span>
-              <span className="truncate">{r.customer ?? "Walk-in customer"}</span>
+              {/* The bill itself: opens the invoice screen (lines, payments, corrections). */}
+              <Link
+                href={`/sales/${r.id}`}
+                title={`Open ${r.number ?? "invoice"}`}
+                className="flex min-w-0 items-center gap-2 truncate rounded hover:underline"
+              >
+                <span className="num shrink-0 font-semibold text-brand">{r.number ?? "—"}</span>
+                <span className="truncate">{r.customer ?? "Walk-in customer"}</span>
+              </Link>
               {/* Why this bill is here at all when it was raised in another period. */}
               {r.earlier && (
                 <span className="shrink-0 rounded-full bg-band px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-amber-ink">
                   billed {r.businessDay}
                 </span>
               )}
+              {/* The paper the customer got: the thermal receipt, in a new tab. */}
+              <a
+                href={`/print/receipt/${r.id}`}
+                target="_blank"
+                rel="noreferrer"
+                title="View receipt"
+                className={btn("subtle", "sm", "h-7 px-2 text-[11.5px]")}
+              >
+                <Receipt size={13} /> Receipt
+              </a>
             </span>
             <span />
             <span className="num text-right font-semibold text-body">{money(r.cents)}</span>
