@@ -158,6 +158,19 @@ export function SalesJournalIcon(props: IconProps) {
   );
 }
 
+// Reconciliation — the scales, pans holding steady. (lucide scale)
+export function ReconciliationIcon(props: IconProps) {
+  return (
+    <svg {...base(props, "nav-ic-scale")}>
+      <path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+      <path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z" />
+      <path d="M7 21h10" />
+      <path d="M12 3v18" />
+      <path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2" />
+    </svg>
+  );
+}
+
 // Accounting & Reports — the bars grow, left to right.
 export function ReportsIcon(props: IconProps) {
   return (
@@ -239,6 +252,7 @@ export const ANIMATED_NAV_ICONS: Record<string, ComponentType<IconProps>> = {
   "/certificates": CertificatesIcon,
   "/purchases": PurchasesIcon,
   "/sales-journal": SalesJournalIcon,
+  "/reconciliation": ReconciliationIcon,
   "/reports": ReportsIcon,
   "/enquiries": EnquiriesIcon,
   "/messages": MessagesIcon,

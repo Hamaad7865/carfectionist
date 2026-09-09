@@ -19,6 +19,7 @@ const SUBS: Record<string, string> = {
   "/certificates": "Warranty certificates",
   "/purchases": "Suppliers, orders & expenses",
   "/sales-journal": "Period sales, broken down five ways",
+  "/reconciliation": "Who owes what, and when they paid",
   "/reports": "Accounting & reports",
   "/enquiries": "Public enquiry inbox",
   "/settings": "Business, team & templates",

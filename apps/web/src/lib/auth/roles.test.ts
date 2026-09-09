@@ -41,4 +41,19 @@ describe("per-user module access", () => {
   it("offers Sales Journal in the per-user module toggles", () => {
     expect(TOGGLEABLE_MODULES.some((m) => m.href === "/sales-journal")).toBe(true);
   });
+
+  it("gates Reconciliation like the rest of accounting", () => {
+    // Who owes what and when they paid — same floor as Reports.
+    expect(hasModule("owner", [], "/reconciliation")).toBe(true);
+    expect(hasModule("manager", null, "/reconciliation")).toBe(true);
+    expect(hasModule("accountant", null, "/reconciliation")).toBe(true);
+    expect(hasModule("cashier", null, "/reconciliation")).toBe(false);
+    expect(hasModule("technician", null, "/reconciliation")).toBe(false);
+    // …and the owner can still revoke it from one user
+    expect(hasModule("manager", ["/reports"], "/reconciliation")).toBe(false);
+  });
+
+  it("offers Reconciliation in the per-user module toggles", () => {
+    expect(TOGGLEABLE_MODULES.some((m) => m.href === "/reconciliation")).toBe(true);
+  });
 });
