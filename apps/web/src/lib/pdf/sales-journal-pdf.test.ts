@@ -67,18 +67,32 @@ describe("sales journal PDF — the figures match the screen", () => {
     expect(t.total.cells).toEqual([null, "Rs 1,079.44", "Rs 577.30", "Rs 7,196.26", "Rs 8,275.70"]);
   });
 
-  it("payments, bridged from money in to what was invoiced", () => {
+  it("payments total the MONEY, and nothing but the money", () => {
     const t = table("Payments");
     expect(t.rows.map((r) => [r.label, ...r.cells])).toEqual([
       ["Cash", "1", "Rs 1,980.00"],
       ["Bank card", "1", "Rs 5,195.70"],
       ["Juice", "1", "Rs 1,100.00"],
     ]);
-    // Everything was settled on the day, so there is nothing to bridge.
-    expect(t.notes!.map((n) => [n.label, ...n.cells])).toEqual([
-      ["Money in (received this period)", null, "Rs 8,275.70"],
-    ]);
+    // Everything was settled on the day and nothing is owed, so the card is just
+    // its methods: nothing to explain above the total, nothing ruled off below it.
+    expect(t.notes ?? []).toEqual([]);
+    expect(t.afterTotal ?? []).toEqual([]);
     expect(t.total.cells).toEqual([null, "Rs 8,275.70"]);
+  });
+
+  it("rules money still owed off BELOW the total, never into it", () => {
+    // d3 goes home unpaid. The card must still foot to the Rs 6,295.70 that
+    // actually came in — an unpaid bill is not takings.
+    const owed = buildSalesJournal(FROM, TO, {
+      ...input,
+      payments: input.payments.filter((p) => p.document_id !== "d3"),
+    });
+    const t = toJournalTables(owed).find((x) => x.title === "Payments")!;
+    expect(t.total.cells).toEqual([null, "Rs 6,295.70"]);
+    expect(t.afterTotal!.map((n) => [n.label, ...n.cells])).toEqual([
+      ["On account (not yet paid) — of Rs 8,275.70 invoiced", null, "Rs 1,980.00"],
+    ]);
   });
 
   it("categories, with each share of ex-VAT", () => {

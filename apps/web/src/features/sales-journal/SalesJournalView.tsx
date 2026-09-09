@@ -227,16 +227,9 @@ export function SalesJournalView({
               />
             ))
           )}
-          {/* The bridge. Money in is what reached the shop THIS period, whatever it
-              settled; Total is what this period SOLD. They only match when nobody
-              paid late, so the two lines between them explain the gap:
-                  invoiced = (money in − settling earlier bills) + on account */}
-          <div className={`${ROW} italic text-muted`} style={grid("1fr 150px 180px")}>
-            <span>Money in (received this period)</span>
-            <span />
-            <span className="num text-right font-bold">{money(j.paymentsSubtotalCents)}</span>
-            {cmp && <PriorCell now={j.paymentsSubtotalCents} prev={prior!.paymentsSubtotalCents} />}
-          </div>
+          {/* Money that arrived this period but settled a bill raised earlier. It IS
+              part of the total below — the drawer took it — but it explains why the
+              takings and the day's sales differ, so it is called out before the line. */}
           {j.settlingEarlierCents !== 0 && (
             <Drawer
               cols={grid("1fr 150px 180px")}
@@ -247,22 +240,33 @@ export function SalesJournalView({
               prior={cmp ? <PriorCell now={j.settlingEarlierCents} prev={prior!.settlingEarlierCents} /> : null}
             />
           )}
+          {/* THE TOTAL OF THIS CARD IS THE MONEY, and only the money.
+              It used to end at what the period INVOICED, so an unpaid bill inflated
+              the bottom line of a payments section — Rs 11,449.21 on 25/08 against
+              Rs 6,169.21 actually taken. The owner reads this card to know what came
+              in, so it now foots to exactly that.
+              This is the one section that deliberately does NOT foot to
+              totalInclCents; every other one still does, and On account below carries
+              the invoiced figure so the two can still be reconciled by eye. */}
+          <div className={TOTAL} style={grid("1fr 150px 180px")}>
+            <span>Total</span>
+            <span />
+            <span className="num text-right text-brand">{money(j.paymentsSubtotalCents)}</span>
+            {cmp && <PriorCell now={j.paymentsSubtotalCents} prev={prior!.paymentsSubtotalCents} />}
+          </div>
+          {/* Below the total on purpose: money still owed is not money taken. */}
           {j.onAccountCents !== 0 && (
             <Drawer
               cols={grid("1fr 150px 180px")}
-              label="On account (invoiced, not yet paid)"
+              label="On account (not yet paid)"
+              note={`of ${money(j.paymentsTotalCents)} invoiced`}
               cents={j.onAccountCents}
               invoices={j.onAccount}
               tone="text-amber-ink"
+              divider
               prior={cmp ? <PriorCell now={j.onAccountCents} prev={prior!.onAccountCents} /> : null}
             />
           )}
-          <div className={TOTAL} style={grid("1fr 150px 180px")}>
-            <span>Total invoiced</span>
-            <span />
-            <span className="num text-right text-brand">{money(j.paymentsTotalCents)}</span>
-            {cmp && <PriorCell now={j.paymentsTotalCents} prev={prior!.paymentsTotalCents} />}
-          </div>
         </div>
       </Card>
 
@@ -350,29 +354,39 @@ function Empty({ label = "Nothing sold in this period." }: { label?: string }) {
  * JavaScript for. It also means the rows stay open when the page is printed.
  */
 function Drawer({
-  cols, label, qty, cents, invoices, prior, tone = "text-ink", muted = false,
+  cols, label, note, qty, cents, invoices, prior, tone = "text-ink", muted = false, divider = false,
 }: {
   cols: React.CSSProperties;
   label: string;
+  /** Quiet second line under the label — context that is not itself a figure. */
+  note?: string;
   qty?: number;
   cents: number;
   invoices: JournalInvoiceRef[];
   prior?: React.ReactNode;
   tone?: string;
   muted?: boolean;
+  /** Sits BELOW the card's total: a rule above it says "this is not in that figure". */
+  divider?: boolean;
 }) {
   const head = (
-    <div className={`${ROW} ${muted ? "italic text-muted" : ""}`} style={cols}>
-      <span className={`flex items-center gap-1.5 ${muted ? "" : "font-semibold text-body"}`}>
-        {invoices.length > 0 && (
-          <span className="select-none text-[10px] text-faint transition-transform group-open:rotate-90">▶</span>
-        )}
-        {label}
-        {invoices.length > 0 && (
-          <span className="num text-[11.5px] font-medium text-faint">
-            ({invoices.length} {invoices.length === 1 ? "bill" : "bills"})
-          </span>
-        )}
+    <div
+      className={`${ROW} ${muted ? "italic text-muted" : ""} ${divider ? "border-t border-line" : ""}`}
+      style={cols}
+    >
+      <span className={muted ? "" : "font-semibold text-body"}>
+        <span className="flex items-center gap-1.5">
+          {invoices.length > 0 && (
+            <span className="select-none text-[10px] text-faint transition-transform group-open:rotate-90">▶</span>
+          )}
+          {label}
+          {invoices.length > 0 && (
+            <span className="num text-[11.5px] font-medium text-faint">
+              ({invoices.length} {invoices.length === 1 ? "bill" : "bills"})
+            </span>
+          )}
+        </span>
+        {note && <span className="mt-0.5 block pl-[18px] text-[11.5px] font-medium text-faint">{note}</span>}
       </span>
       <span className="num text-right text-muted">{qty ?? ""}</span>
       <span className={`num text-right font-bold ${tone}`}>{money(cents)}</span>
