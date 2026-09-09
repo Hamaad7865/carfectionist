@@ -130,6 +130,9 @@ class JobsViewModel @Inject constructor(
     private val sendApi: DocumentSendApi,
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
     private val a4: mu.carfection.pos.core.print.JobCardPrinter,
+    // The till that rang it — issue_document stamps the service for the cash-up.
+    // Null when nothing is open (workshop billing): the sale still lands in the day.
+    private val till: mu.carfection.pos.core.data.TillRepository,
 ) : ViewModel() {
     private var appUserId: String? = null
     private val _s = MutableStateFlow(JobsState())
@@ -267,15 +270,33 @@ class JobsViewModel @Inject constructor(
                         if (job.vehicleId != null) put("vehicle_id", job.vehicleId) else put("vehicle_id", JsonNull)
                         put("origin", "from_job")
                     }
+                    // Full line shape like the counter/quote paths (web RpcDraftLine):
+                    // the thin copy used to omit discount_kind/discount_amount/
+                    // price_includes_vat and hardcoded vat_rate 15, so it diverged
+                    // the moment the shop's VAT moved or the till quoted gross.
+                    val vat = catalog.vatDefault()
+                    // A typed amount is what the customer pays on a gross-quoting
+                    // shop — store it as typed and let the ledger extract the VAT
+                    // (price_includes_vat), same rule as the counter's ad-hoc lines.
+                    val inclusive = catalog.pricesInclVat()
                     val lines = buildJsonArray {
                         add(buildJsonObject {
                             put("product_id", JsonNull); put("title", s.invoiceService.ifBlank { "Detailing service" })
-                            put("qty", 1); put("unit_price", centsToRupees(cents)); put("discount_pct", 0); put("vat_rate", 15); put("sort_order", 0)
+                            put("description", JsonNull); put("description_richtext", JsonNull)
+                            put("unit_label", JsonNull)
+                            put("qty", 1); put("unit_price", centsToRupees(cents))
+                            put("discount_pct", 0); put("discount_kind", "percent"); put("discount_amount", 0.0)
+                            put("vat_rate", vat); put("sort_order", 0)
+                            put("price_includes_vat", inclusive)
+                            put("line_kind", JsonNull); put("vehicle_id", JsonNull)
                         })
                     }
                     api.saveDraft(doc, lines)
                 }
-                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}").number
+                // The till that rang it — this is what puts the sale under its service
+                // on the cash-up. Null when nothing is open (workshop billing): the
+                // sale still lands in the day, just not in a service.
+                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}", sessionId = till.current.value?.id).number
                 else draft.number
             }.onSuccess { n -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${n ?: "Invoice"} created — collect it in Checkout") } }
                 .onFailure { e ->
