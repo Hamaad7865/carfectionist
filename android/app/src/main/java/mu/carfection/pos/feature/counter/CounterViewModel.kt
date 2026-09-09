@@ -119,6 +119,9 @@ data class CounterUiState(
     // checkout mode: the TO COLLECT / PAID TODAY list, or a walk-in cart
     val mode: CheckoutMode = CheckoutMode.LIST,
     val bills: List<OutstandingInvoiceDto> = emptyList(),
+    /** Source-quote number per open bill (keyed by source_document_id) — a draft has no
+     *  number of its own, so the list badges it "OPEN BILL · from quote A00156" instead. */
+    val quoteNumbers: Map<String, String?> = emptyMap(),
     val paidToday: List<TodayPaymentDto> = emptyList(),
     val listBusy: Boolean = false,
     val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
@@ -748,7 +751,10 @@ class CounterViewModel @Inject constructor(
             // back office), so a re-collected sale shows exactly once.
             val reversedIds = paidRaw.mapNotNull { it.reversesPaymentId }.toSet()
             val paid = paidRaw.filter { it.reversesPaymentId == null && it.id !in reversedIds }
-            local.value = local.value.copy(bills = bills, paidToday = paid, listBusy = false)
+            // Name the quotes behind the open bills — one batched round trip, drafts only.
+            val quoteIds = bills.filter { it.status == "draft" }.mapNotNull { it.sourceDocumentId }.distinct()
+            val quoteNumbers = api.fetchDocNumbers(quoteIds)
+            local.value = local.value.copy(bills = bills, paidToday = paid, listBusy = false, quoteNumbers = quoteNumbers)
         }
     }
 

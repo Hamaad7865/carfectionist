@@ -304,6 +304,10 @@ data class JobBoardDto(
 @Serializable
 data class DocNumberDto(val number: String? = null)
 
+/** id + number, for naming in one round trip the quotes a list of open bills came from. */
+@Serializable
+data class DocIdNumberDto(val id: String, val number: String? = null)
+
 @Serializable
 data class OutstandingInvoiceDto(
     val id: String,
