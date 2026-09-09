@@ -10,15 +10,16 @@ import type { ReactNode } from "react";
 import { btn } from "@/components/ui/button";
 
 /** The Cashmag-style ticket popup: the receipt card + Print (A4 ticket) —
- *  opened by ?t=<id> on the tickets view, closed by dropping the param. */
-export function TicketPopup({ r, docId, emailSlot }: { r: ReceiptData; docId: string; emailSlot?: ReactNode }) {
+ *  opened by ?t=<id> on the tickets view (or ?receipt=<id> on the sales
+ *  journal — see [param]), closed by dropping the param. */
+export function TicketPopup({ r, docId, emailSlot, param = "t" }: { r: ReceiptData; docId: string; emailSlot?: ReactNode; param?: string }) {
   const router = useRouter();
   const pathname = usePathname();
   const sp = useSearchParams();
 
   function close() {
     const p = new URLSearchParams(sp.toString());
-    p.delete("t");
+    p.delete(param);
     const q = p.toString();
     router.replace(q ? `${pathname}?${q}` : pathname);
   }
