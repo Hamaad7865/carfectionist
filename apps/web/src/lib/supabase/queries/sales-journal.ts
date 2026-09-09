@@ -56,11 +56,24 @@ export interface TaxRow {
   exclCents: number;
   inclCents: number;
 }
+/** One bill behind a payment row — what the method's dropdown lists. */
+export interface JournalInvoiceRef {
+  id: string;
+  number: string | null;
+  customer: string | null;
+  cents: number;
+  /** The day the BILL was raised, which is not always the day the money arrived. */
+  businessDay: string;
+  /** True when the bill predates this period — a customer settling an old debt. */
+  earlier: boolean;
+}
 export interface PaymentRow {
   method: string;
   label: string;
   n: number;
   cents: number;
+  /** Every bill this method settled inside the period, newest first. */
+  invoices: JournalInvoiceRef[];
 }
 export interface CategoryRow {
   label: string;
@@ -92,9 +105,26 @@ export interface SalesJournal {
   saleMethods: SaleMethodRow[];
   taxes: TaxRow[];
   payments: PaymentRow[];
-  /** Σ of real payment rows — Cashmag's "S/TOTAL (EXCL CREDITS)". */
+  /** Money that came IN during the period, by the day it was RECEIVED — the drawer
+   *  view, and what the Z reports. Not the same as what was invoiced: a bill raised
+   *  on the 25th and settled on the 2nd is takings for the 2nd. */
   paymentsSubtotalCents: number;
-  /** …plus whatever was delivered on account. Equals totalInclCents by construction. */
+  /** …of which settled bills raised BEFORE this period. The bridge line that
+   *  explains why money in and invoiced differ. */
+  settlingEarlierCents: number;
+  /** The bills behind that figure, for the "settling earlier bills" dropdown. */
+  settlingEarlier: JournalInvoiceRef[];
+  /** Invoiced in this period and still unsettled at the end of it. */
+  onAccountCents: number;
+  /** Which bills those are — who owes what, for the on-account dropdown. */
+  onAccount: JournalInvoiceRef[];
+  /** What the period SOLD. Equals totalInclCents.
+   *
+   *  The identity this section foots to:
+   *      totalIncl = (paymentsSubtotal − settlingEarlier) + onAccount
+   *  i.e. everything invoiced was either settled inside the period or is owed.
+   *  It replaces the old `paymentsSubtotal + credit = total`, which only held
+   *  while payments were dated by their document instead of by themselves. */
   paymentsTotalCents: number;
   categories: CategoryRow[];
   users: UserRow[];
@@ -126,8 +156,31 @@ export interface RawDoc {
   issued_by: string | null;
   cash_session_id: string | null;
   issued_at?: string | null;
+  /** Shown in the payment and on-account dropdowns. */
+  number?: string | null;
 }
-export interface RawPayment { document_id: string; method: string; amount: number | string }
+export interface RawPayment {
+  document_id: string;
+  method: string;
+  amount: number | string;
+  /** When the money actually arrived. The journal groups payments by THIS, never by
+   *  the document's business_day — that conflation is what made 25 August read
+   *  Rs 4,204.20 of cash when only Rs 1,564.20 was taken. */
+  received_at?: string | null;
+}
+/** The parent bill of a payment, including bills raised outside the period. Carries
+ *  only what the payments section needs to name and date them — never lines, so an
+ *  out-of-period bill can never leak into revenue, tax or category totals. */
+export interface RawPaymentDoc {
+  id: string;
+  number: string | null;
+  business_day: string;
+  customer_id: string | null;
+  doc_type: "invoice" | "credit_note";
+  cash_session_id: string | null;
+  issued_by: string | null;
+  issued_at?: string | null;
+}
 export interface RawLine {
   document_id: string;
   title?: string | null;
@@ -144,9 +197,13 @@ export interface JournalInput {
   docs: RawDoc[];
   payments: RawPayment[];
   lines: RawLine[];
+  /** Parent bills of payments raised OUTSIDE the period. The in-period ones come
+   *  from `docs`; this only carries the strangers, so revenue can never see them. */
+  paymentDocs?: RawPaymentDoc[];
   sessionDevice: Map<string, string>; // cash_session_id → device_code
   deviceName: Map<string, string>; // device_code → friendly name
   sellerName: Map<string, string>; // app_user id → display name
+  customerName?: Map<string, string>; // customer id → name, for the dropdowns
   /** The shop's one sale method, e.g. "SALES [CARFECTIONIST]". See below. */
   saleMethodLabel?: string;
   filters?: SalesJournalFilters;
@@ -218,7 +275,9 @@ const empty = (from: string, to: string): SalesJournal => ({
   tickets: 0, totalInclCents: 0, totalExclCents: 0, vatCents: 0, avgInclCents: 0,
   clients: 0, clientInclCents: 0, clientAvgInclCents: 0,
   saleMethods: [], taxes: [], payments: [],
-  paymentsSubtotalCents: 0, paymentsTotalCents: 0,
+  paymentsSubtotalCents: 0, settlingEarlierCents: 0, settlingEarlier: [],
+  onAccountCents: 0, onAccount: [],
+  paymentsTotalCents: 0,
   categories: [], users: [],
 });
 
@@ -265,9 +324,16 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     return true;
   });
 
-  if (docs.length === 0) return empty(from, to);
-
   const keep = new Set(docs.map((d) => d.id));
+  const strangerById = new Map<string, RawPaymentDoc>((input.paymentDocs ?? []).map((d) => [d.id, d]));
+
+  // A period can sell nothing and still take money — a customer walking in to clear
+  // an old bill. Bailing out on docs alone would report that day as blank and lose
+  // the takings. But money against a bill we hold NEITHER way (filtered out, or a
+  // draft) counts for nothing, so the shortcut still fires for a filter that matches
+  // nothing at all.
+  const anyMoney = payments.some((p) => keep.has(p.document_id) || strangerById.has(p.document_id));
+  if (docs.length === 0 && !anyMoney) return empty(from, to);
   const sign = (d: RawDoc) => (d.doc_type === "credit_note" ? -1 : 1);
 
   // 2. Document-level figures — the totals every section must foot to.
@@ -352,24 +418,117 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     });
   }
 
-  // 4. Payments. The subtotal is the real tendered money; the total additionally
-  //    carries whatever was delivered on account, so it always equals the
-  //    period's takings — which is exactly Cashmag's
-  //    "S/TOTAL (HORS CRÉDITS)" vs "Total" pair.
+  // 4. Payments — the MONEY side, and the one part of this report that is not
+  //    driven by business_day.
+  //
+  //    A payment belongs to the day it was RECEIVED, not to the day its bill was
+  //    raised. Those are the same day for a counter sale and different for anyone
+  //    who settles later, and conflating them is what made 25 August 2026 report
+  //    Rs 4,204.20 of cash when Rs 1,564.20 was all that reached the drawer: two of
+  //    KHADAFEE JAWAHEERKHAN's bills were raised on the 25th and paid on 2 September,
+  //    and both were being counted on the 25th.
+  //
+  //    So three quantities exist per period, and only two of them tie:
+  //      • invoiced      — Σ total_incl over the period's documents (totalIncl)
+  //      • money in      — Σ payments received inside the period, whatever they settle
+  //      • on account    — invoiced here, still unsettled when the period closed
+  //    with  invoiced = (money in − settling earlier bills) + on account.
+  //    The old code forced money-in to equal invoiced, which is why it was wrong.
+  const docById = new Map<string, RawDoc>(input.docs.map((d) => [d.id, d]));
+  const customerName = input.customerName ?? new Map<string, string>();
+
+  /** The document behind a payment, whether or not it belongs to this period. */
+  const docOf = (id: string): RawDoc | RawPaymentDoc | null => docById.get(id) ?? strangerById.get(id) ?? null;
+
+  // Filters are document-level, so a payment inherits its bill's dimensions. For a
+  // bill raised outside the period we hold its till, its seller and its time but
+  // never its lines — so a `service` filter cannot be evaluated on it, and it is
+  // excluded rather than guessed at.
+  const paymentPassesFilters = (docId: string): boolean => {
+    if (keep.has(docId)) return true;          // in-period: already filtered above
+    const d = strangerById.get(docId);
+    if (!d) return false;                       // draft, void, or a doc we never fetched
+    if (filters.service) return false;
+    const code = d.cash_session_id ? sessionDevice.get(d.cash_session_id) : null;
+    const device = code ? (deviceName.get(code) ?? code) : BACK_OFFICE;
+    if (filters.device && device !== filters.device) return false;
+    const seller = d.issued_by ? (sellerName.get(d.issued_by) ?? "—") : "—";
+    if (filters.user && seller !== filters.user) return false;
+    if ((t0 !== null || t1 !== null) && d.issued_at) {
+      const at = muMinuteOfDay(d.issued_at);
+      if (t0 !== null && at < t0) return false;
+      if (t1 !== null && at > t1) return false;
+    }
+    return true;
+  };
+
+  const refOf = (docId: string, cents: number): JournalInvoiceRef | null => {
+    const d = docOf(docId);
+    if (!d) return null;
+    return {
+      id: d.id,
+      number: d.number ?? null,
+      customer: d.customer_id ? (customerName.get(d.customer_id) ?? null) : null,
+      cents,
+      businessDay: d.business_day,
+      earlier: !keep.has(docId),
+    };
+  };
+  /** Collapse repeat settlements of one bill into a single dropdown entry. */
+  const rollUp = (into: Map<string, JournalInvoiceRef>, ref: JournalInvoiceRef) => {
+    const seen = into.get(ref.id);
+    if (seen) seen.cents += ref.cents;
+    else into.set(ref.id, { ...ref });
+  };
+  const listOf = (m: Map<string, JournalInvoiceRef>) =>
+    [...m.values()].sort((a, b) => (b.businessDay < a.businessDay ? -1 : b.businessDay > a.businessDay ? 1 : Math.abs(b.cents) - Math.abs(a.cents)));
+
   const paid = new Map<string, PaymentRow>();
+  const paidByDoc = new Map<string, number>();       // in-period bills, settled in-period
+  const earlierRefs = new Map<string, JournalInvoiceRef>();
+  const perMethodRefs = new Map<string, Map<string, JournalInvoiceRef>>();
+
   for (const p of payments) {
-    if (!keep.has(p.document_id)) continue;
-    const row = paid.get(p.method) ?? { method: p.method, label: METHOD_LABEL[p.method] ?? p.method, n: 0, cents: 0 };
+    if (!paymentPassesFilters(p.document_id)) continue;
+    const cents = rupeesToCents(Number(p.amount)); // the amount carries its own sign
+    const row = paid.get(p.method)
+      ?? { method: p.method, label: METHOD_LABEL[p.method] ?? p.method, n: 0, cents: 0, invoices: [] };
     row.n += 1;
-    row.cents += rupeesToCents(Number(p.amount)); // the amount carries its own sign
+    row.cents += cents;
     paid.set(p.method, row);
+
+    const ref = refOf(p.document_id, cents);
+    if (ref) {
+      const per = perMethodRefs.get(p.method) ?? new Map<string, JournalInvoiceRef>();
+      rollUp(per, ref);
+      perMethodRefs.set(p.method, per);
+      if (ref.earlier) rollUp(earlierRefs, ref);
+      else paidByDoc.set(p.document_id, (paidByDoc.get(p.document_id) ?? 0) + cents);
+    }
   }
-  const paymentRows = [...paid.values()].sort((a, b) => {
-    const ai = METHOD_ORDER.indexOf(a.method as (typeof METHOD_ORDER)[number]);
-    const bi = METHOD_ORDER.indexOf(b.method as (typeof METHOD_ORDER)[number]);
-    return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
-  });
+
+  const paymentRows = [...paid.values()]
+    .map((r) => ({ ...r, invoices: listOf(perMethodRefs.get(r.method) ?? new Map()) }))
+    .sort((a, b) => {
+      const ai = METHOD_ORDER.indexOf(a.method as (typeof METHOD_ORDER)[number]);
+      const bi = METHOD_ORDER.indexOf(b.method as (typeof METHOD_ORDER)[number]);
+      return (ai < 0 ? 99 : ai) - (bi < 0 ? 99 : bi);
+    });
   const paymentsSubtotalCents = paymentRows.reduce((a, r) => a + r.cents, 0);
+  const settlingEarlier = listOf(earlierRefs);
+  const settlingEarlierCents = settlingEarlier.reduce((a, r) => a + r.cents, 0);
+
+  // On account: raised in this period, not settled inside it. A partly-settled bill
+  // contributes only its unpaid remainder, so the identity above holds to the cent.
+  const onAccountMap = new Map<string, JournalInvoiceRef>();
+  for (const d of docs) {
+    const owed = sign(d) * rupeesToCents(Number(d.total_incl)) - (paidByDoc.get(d.id) ?? 0);
+    if (owed === 0) continue;
+    const ref = refOf(d.id, owed);
+    if (ref) onAccountMap.set(d.id, ref);
+  }
+  const onAccount = listOf(onAccountMap);
+  const onAccountCents = onAccount.reduce((a, r) => a + r.cents, 0);
 
   // 5. Ordering + the category share.
   const categories = [...byCategory.values()].sort((a, b) => b.exclCents - a.exclCents);
@@ -389,6 +548,10 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     taxes: [...byTax.values()].sort((a, b) => a.ratePct - b.ratePct),
     payments: paymentRows,
     paymentsSubtotalCents,
+    settlingEarlierCents,
+    settlingEarlier,
+    onAccountCents,
+    onAccount,
     paymentsTotalCents: totalIncl,
     categories,
     users: [...byUser.values()].sort((a, b) => b.inclCents - a.inclCents),
@@ -404,32 +567,69 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
 /** A fresh empty input each call — a shared one would hand every caller the same
  *  mutable Maps. */
 const emptyInput = (): JournalInput => ({
-  docs: [], payments: [], lines: [],
-  sessionDevice: new Map(), deviceName: new Map(), sellerName: new Map(),
+  docs: [], payments: [], lines: [], paymentDocs: [],
+  sessionDevice: new Map(), deviceName: new Map(), sellerName: new Map(), customerName: new Map(),
 });
+
+/** The period as an instant range in Mauritius local time. business_day is already a
+ *  local date; payments.received_at is a timestamptz, so it has to be bracketed
+ *  explicitly or a late-evening payment lands on the wrong day. */
+const MU_DAY_START = (d: string) => `${d}T00:00:00.000+04:00`;
+const MU_DAY_END = (d: string) => `${d}T23:59:59.999+04:00`;
 
 /** One round-trip for a period. Shared by the page, the PDF and the comparison run. */
 export async function fetchJournalInput(from: string, to: string): Promise<JournalInput> {
   const sb = await createClient();
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const docs = await fetchAllRows<any>(() =>
-    sb
-      .from("documents")
-      .select("id, doc_type, business_day, total_incl, subtotal_excl, vat_total, customer_id, issued_by, cash_session_id, issued_at")
-      .in("doc_type", ["invoice", "credit_note"])
-      .in("status", ["issued", "partly_paid", "paid"]) // drafts and VOIDs never count
-      .gte("business_day", from)
-      .lte("business_day", to),
-  );
+  const DOC_COLUMNS = "id, doc_type, business_day, total_incl, subtotal_excl, vat_total, customer_id, issued_by, cash_session_id, issued_at, number";
+  const LIVE = ["issued", "partly_paid", "paid"]; // drafts and VOIDs never count
 
-  if (docs.length === 0) return emptyInput();
+  // Two independent axes, deliberately fetched apart:
+  //   • what was INVOICED here — documents by business_day. Drives revenue.
+  //   • what money CAME IN here — payments by received_at. Drives the payments
+  //     section, and reaches bills raised long before this period.
+  const [docs, payments] = await Promise.all([
+    fetchAllRows<any>(() =>
+      sb
+        .from("documents")
+        .select(DOC_COLUMNS)
+        .in("doc_type", ["invoice", "credit_note"])
+        .in("status", LIVE)
+        .gte("business_day", from)
+        .lte("business_day", to),
+    ),
+    fetchAllRows<any>(() =>
+      sb
+        .from("payments")
+        .select("id, document_id, method, amount, received_at")
+        .gte("received_at", MU_DAY_START(from))
+        .lte("received_at", MU_DAY_END(to)),
+    ),
+  ]);
+
+  // Nothing sold AND nothing collected — only then is the period genuinely blank.
+  if (docs.length === 0 && payments.length === 0) return emptyInput();
 
   const docIds = docs.map((d) => d.id);
-  const sessionIds = [...new Set(docs.map((d) => d.cash_session_id).filter(Boolean))] as string[];
-  const sellerIds = [...new Set(docs.map((d) => d.issued_by).filter(Boolean))] as string[];
+  // Bills settled here but raised elsewhere. Fetched with the same status filter, so
+  // money against a draft or a voided bill is dropped exactly as it always was.
+  const inPeriod = new Set<string>(docIds);
+  const strangerIds = [...new Set(payments.map((p) => p.document_id).filter((id: string) => id && !inPeriod.has(id)))] as string[];
+  const paymentDocs = strangerIds.length
+    ? await fetchAllRows<any>(() =>
+        sb.from("documents").select(DOC_COLUMNS).in("id", strangerIds).in("status", LIVE),
+      )
+    : [];
+  // Tills and sellers must cover the strangers too, or a filter would silently drop
+  // every payment that settled an older bill.
+  const everyDoc = [...docs, ...paymentDocs];
+  const sessionIds = [...new Set(everyDoc.map((d) => d.cash_session_id).filter(Boolean))] as string[];
+  const sellerIds = [...new Set(everyDoc.map((d) => d.issued_by).filter(Boolean))] as string[];
+  const customerIds = [...new Set(everyDoc.map((d) => d.customer_id).filter(Boolean))] as string[];
 
-  const [payments, lines, sessions, sellers, devices, settings] = await Promise.all([
-    fetchAllRows<any>(() => sb.from("payments").select("id, document_id, method, amount").in("document_id", docIds)),
+  // Lines stay keyed to docIds ONLY. A stranger's lines must never be fetched: they
+  // would land in revenue, tax and category totals for a period that never sold them.
+  const [lines, sessions, sellers, devices, customers, settings] = await Promise.all([
     fetchAllRows<any>(() =>
       sb
         .from("document_lines")
@@ -439,6 +639,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     sessionIds.length ? fetchAllRows<any>(() => sb.from("cash_sessions").select("id, device_id").in("id", sessionIds)) : Promise.resolve([] as any[]),
     sellerIds.length ? fetchAllRows<any>(() => sb.from("app_users").select("id, display_name").in("id", sellerIds)) : Promise.resolve([] as any[]),
     fetchAllRows<any>(() => sb.from("devices").select("device_code, display_name")),
+    customerIds.length ? fetchAllRows<any>(() => sb.from("customers").select("id, name").in("id", customerIds)) : Promise.resolve([] as any[]),
     // Rides along in the same round-trip — it names the single sale-method row.
     sb.from("business_settings").select("trading_name").limit(1).maybeSingle(),
   ]);
@@ -446,10 +647,12 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
   return {
     docs: docs as RawDoc[],
     payments: payments as RawPayment[],
+    paymentDocs: paymentDocs as RawPaymentDoc[],
     lines: lines as RawLine[],
     sessionDevice: new Map(sessions.map((s) => [s.id, s.device_id])),
     deviceName: new Map(devices.map((d) => [d.device_code, d.display_name || d.device_code])),
     sellerName: new Map(sellers.map((u) => [u.id, u.display_name || "—"])),
+    customerName: new Map(customers.map((c) => [c.id, c.name as string])),
     saleMethodLabel: saleMethodLabelFor(settings.data?.trading_name || "Carfectionist"),
   };
   /* eslint-enable @typescript-eslint/no-explicit-any */

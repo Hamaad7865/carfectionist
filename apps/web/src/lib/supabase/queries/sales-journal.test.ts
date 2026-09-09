@@ -16,17 +16,20 @@ const TO = "2026-07-29";
 const input = (over: Partial<JournalInput> = {}): JournalInput => ({
   docs: [
     // Anshika, on the till, 09:30 MU
-    { id: "d1", doc_type: "invoice", business_day: FROM, total_incl: 5195.70, subtotal_excl: 4518.00, vat_total: 677.70, customer_id: null, issued_by: "u1", cash_session_id: "s1", issued_at: "2026-07-28T05:30:00Z" },
+    { id: "d1", doc_type: "invoice", business_day: FROM, total_incl: 5195.70, subtotal_excl: 4518.00, vat_total: 677.70, customer_id: null, issued_by: "u1", cash_session_id: "s1", issued_at: "2026-07-28T05:30:00Z", number: "INV-1" },
     // Anshika, back office, 14:00 MU
-    { id: "d2", doc_type: "invoice", business_day: FROM, total_incl: 1100.00, subtotal_excl: 956.52, vat_total: 143.48, customer_id: null, issued_by: "u1", cash_session_id: null, issued_at: "2026-07-28T10:00:00Z" },
-    // Nicolas, on the till, 17:45 MU
-    { id: "d3", doc_type: "invoice", business_day: TO, total_incl: 1980.00, subtotal_excl: 1721.74, vat_total: 258.26, customer_id: null, issued_by: "u2", cash_session_id: "s1", issued_at: "2026-07-29T13:45:00Z" },
+    { id: "d2", doc_type: "invoice", business_day: FROM, total_incl: 1100.00, subtotal_excl: 956.52, vat_total: 143.48, customer_id: null, issued_by: "u1", cash_session_id: null, issued_at: "2026-07-28T10:00:00Z", number: "INV-2" },
+    // Nicolas, on the till, 17:45 MU. Stays a WALK-IN: the reference period is all
+    // walk-ins, and a test above pins clients at zero.
+    { id: "d3", doc_type: "invoice", business_day: TO, total_incl: 1980.00, subtotal_excl: 1721.74, vat_total: 258.26, customer_id: null, issued_by: "u2", cash_session_id: "s1", issued_at: "2026-07-29T13:45:00Z", number: "INV-3" },
   ],
   payments: [
-    { document_id: "d1", method: "card", amount: 5195.70 },
-    { document_id: "d2", method: "juice", amount: 1100.00 },
-    { document_id: "d3", method: "cash", amount: 1980.00 },
+    { document_id: "d1", method: "card", amount: 5195.70, received_at: "2026-07-28T05:31:00Z" },
+    { document_id: "d2", method: "juice", amount: 1100.00, received_at: "2026-07-28T10:01:00Z" },
+    { document_id: "d3", method: "cash", amount: 1980.00, received_at: "2026-07-29T13:46:00Z" },
   ],
+  paymentDocs: [],
+  customerName: new Map([["c1", "Yash"]]),
   lines: [
     // d1 carries the whole 577.30 discount, as per-line discount
     { document_id: "d1", qty: 2, unit_price: 1800.00, vat_rate: 15, line_total_excl: 3081.91, line_vat: 462.29, products: { name: "Cologne treatment", category: "CAR COLOGNE" } },
@@ -57,6 +60,16 @@ function expectFooting(j: ReturnType<typeof J>) {
   expect(sum(j.users, (r) => r.exclCents)).toBe(j.totalExclCents);
   expect(sum(j.users, (r) => r.inclCents)).toBe(j.totalInclCents);
   expect(j.paymentsTotalCents).toBe(j.totalInclCents);
+  // The payments identity. It USED to be "money in == invoiced", which only held
+  // because every payment was dated by its document instead of by itself. Money
+  // that settles an older bill is takings today and revenue back then, so the two
+  // legitimately differ and the bridge is what has to balance:
+  //     invoiced = (money in − settling earlier bills) + on account
+  expect(j.paymentsSubtotalCents - j.settlingEarlierCents + j.onAccountCents).toBe(j.totalInclCents);
+  expect(sum(j.settlingEarlier, (r) => r.cents)).toBe(j.settlingEarlierCents);
+  expect(sum(j.onAccount, (r) => r.cents)).toBe(j.onAccountCents);
+  // Every payment row's dropdown must add up to the row it hangs off.
+  for (const p of j.payments) expect(sum(p.invoices, (r) => r.cents)).toBe(p.cents);
 }
 
 describe("allocate", () => {
@@ -243,6 +256,8 @@ describe("sales journal — payments vs credit sales", () => {
     const j = J();
     expect(j.paymentsSubtotalCents).toBe(827_570);
     expect(j.paymentsTotalCents).toBe(827_570);
+    expect(j.onAccountCents).toBe(0);
+    expect(j.settlingEarlierCents).toBe(0);
   });
 
   it("S/TOTAL falls below Total when a ticket is delivered on account", () => {
@@ -251,6 +266,90 @@ describe("sales journal — payments vs credit sales", () => {
     expect(j.paymentsSubtotalCents).toBe(827_570 - 198_000);
     expect(j.paymentsTotalCents).toBe(827_570); // the period still sold 8275.70
     expect(j.paymentsSubtotalCents).toBeLessThan(j.paymentsTotalCents);
+    expect(j.onAccountCents).toBe(198_000);
+    expect(j.onAccount.map((r) => r.id)).toEqual(["d3"]);
+    expectFooting(j);
+  });
+
+  it("names who is on account, and for how much", () => {
+    // A named client this time — "on account" is a debt, and a debt has an owner.
+    const j = J({
+      docs: input().docs.map((d) => (d.id === "d3" ? { ...d, customer_id: "c1" } : d)),
+      payments: input().payments.filter((p) => p.document_id !== "d3"),
+    });
+    expect(j.onAccount).toHaveLength(1);
+    expect(j.onAccount[0]).toMatchObject({ number: "INV-3", customer: "Yash", cents: 198_000, earlier: false });
+  });
+
+  it("counts a PART payment as tendered, and only the remainder as owed", () => {
+    const j = J({
+      payments: [
+        ...input().payments.filter((p) => p.document_id !== "d3"),
+        { document_id: "d3", method: "cash", amount: 980.00, received_at: "2026-07-29T13:50:00Z" },
+      ],
+    });
+    expect(j.onAccountCents).toBe(198_000 - 98_000);
+    expectFooting(j);
+  });
+});
+
+// The bug this section exists to prevent, in its own words: on 25 August 2026 the
+// journal reported Rs 4,204.20 of cash because two of KHADAFEE JAWAHEERKHAN's bills
+// were raised that day and settled on 2 September, and the report dated their money
+// by the bill instead of by the payment. Rs 1,564.20 was all that reached the drawer.
+describe("sales journal — money is dated by when it ARRIVED", () => {
+  /** d3 (1980.00, raised on the 29th) is settled long after the period closes. */
+  const settledLater = () =>
+    J({ payments: input().payments.filter((p) => p.document_id !== "d3") });
+
+  it("leaves a late settlement out of the period that raised the bill", () => {
+    const j = settledLater();
+    expect(j.payments.find((p) => p.method === "cash")).toBeUndefined();
+    expect(j.paymentsSubtotalCents).toBe(629_570);
+    expect(j.onAccountCents).toBe(198_000); // it shows as owed instead, not as cash
+  });
+
+  it("counts money that settles an EARLIER bill, and says so", () => {
+    // Nothing was invoiced in this window; a customer walks in and clears d0.
+    const j = buildSalesJournal("2026-08-01", "2026-08-01", {
+      ...input(),
+      docs: [],
+      lines: [],
+      payments: [{ document_id: "d0", method: "cash", amount: 1200.00, received_at: "2026-08-01T09:00:00Z" }],
+      paymentDocs: [{
+        id: "d0", number: "INV-0165", business_day: "2026-07-20", customer_id: "c9",
+        doc_type: "invoice", cash_session_id: "s1", issued_by: "u1", issued_at: "2026-07-20T09:00:00Z",
+      }],
+      customerName: new Map([["c9", "KHADAFEE JAWAHEERKHAN"]]),
+    });
+    expect(j.paymentsSubtotalCents).toBe(120_000);   // the drawer took it today
+    expect(j.settlingEarlierCents).toBe(120_000);    // …but it sold nothing today
+    expect(j.totalInclCents).toBe(0);
+    expect(j.settlingEarlier[0]).toMatchObject({ number: "INV-0165", customer: "KHADAFEE JAWAHEERKHAN", earlier: true });
+    expectFooting(j);
+  });
+
+  it("lists the bills behind each method, only for this period", () => {
+    const j = J();
+    const card = j.payments.find((p) => p.method === "card")!;
+    expect(card.invoices).toHaveLength(1);
+    expect(card.invoices[0]).toMatchObject({ number: "INV-1", cents: 519_570, earlier: false });
+    const cash = j.payments.find((p) => p.method === "cash")!;
+    expect(cash.invoices.map((r) => r.number)).toEqual(["INV-3"]);
+  });
+
+  it("rolls two settlements of one bill into a single dropdown entry", () => {
+    const j = J({
+      payments: [
+        ...input().payments.filter((p) => p.document_id !== "d3"),
+        { document_id: "d3", method: "cash", amount: 980.00, received_at: "2026-07-29T13:50:00Z" },
+        { document_id: "d3", method: "cash", amount: 1000.00, received_at: "2026-07-29T16:20:00Z" },
+      ],
+    });
+    const cash = j.payments.find((p) => p.method === "cash")!;
+    expect(cash.n).toBe(2);                       // two tenders
+    expect(cash.invoices).toHaveLength(1);        // one bill
+    expect(cash.invoices[0].cents).toBe(198_000);
     expectFooting(j);
   });
 });

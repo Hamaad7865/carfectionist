@@ -32,8 +32,9 @@ export interface JournalTable {
   /** the leading label column header, then the right-aligned column headers */
   head: string[];
   rows: JournalTableRow[];
-  /** italic pre-total line, e.g. "Subtotal (excl credits)" */
-  note?: JournalTableRow;
+  /** Italic pre-total lines — the bridge between what came in and what was sold,
+   *  e.g. "Money in", "…of which settled earlier bills", "On account". */
+  notes?: JournalTableRow[];
   total: JournalTableRow;
 }
 
@@ -132,14 +133,14 @@ export function SalesJournalA4(p: SalesJournalA4Props) {
                   </tr>
                 ))
               )}
-              {t.note && (
-                <tr>
-                  <td style={{ ...td, fontStyle: "italic", color: MUTED }}>{t.note.label}</td>
-                  {t.note.cells.map((c, i) => (
+              {(t.notes ?? []).map((n) => (
+                <tr key={n.label}>
+                  <td style={{ ...td, fontStyle: "italic", color: MUTED }}>{n.label}</td>
+                  {n.cells.map((c, i) => (
                     <td key={i} style={{ ...td, ...right, fontStyle: "italic", color: MUTED, fontWeight: 700 }}>{c ?? ""}</td>
                   ))}
                 </tr>
-              )}
+              ))}
               <tr>
                 <td style={{ ...td, background: HEAD, fontWeight: 800, borderBottom: "none" }}>{t.total.label}</td>
                 {t.total.cells.map((c, i) => (

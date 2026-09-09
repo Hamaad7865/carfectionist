@@ -45,7 +45,7 @@ describe("sales journal PDF — structure", () => {
   it("gives every row exactly as many cells as the header has columns", () => {
     for (const t of tables) {
       const expected = t.head.length - 1; // the label column is not in `cells`
-      for (const r of [...t.rows, t.total, ...(t.note ? [t.note] : [])]) {
+      for (const r of [...t.rows, t.total, ...(t.notes ?? [])]) {
         expect(r.cells).toHaveLength(expected);
       }
     }
@@ -67,14 +67,17 @@ describe("sales journal PDF — the figures match the screen", () => {
     expect(t.total.cells).toEqual([null, "Rs 1,079.44", "Rs 577.30", "Rs 7,196.26", "Rs 8,275.70"]);
   });
 
-  it("payments, with the excl-credits subtotal", () => {
+  it("payments, bridged from money in to what was invoiced", () => {
     const t = table("Payments");
     expect(t.rows.map((r) => [r.label, ...r.cells])).toEqual([
       ["Cash", "1", "Rs 1,980.00"],
       ["Bank card", "1", "Rs 5,195.70"],
       ["Juice", "1", "Rs 1,100.00"],
     ]);
-    expect(t.note!.cells).toEqual([null, "Rs 8,275.70"]);
+    // Everything was settled on the day, so there is nothing to bridge.
+    expect(t.notes!.map((n) => [n.label, ...n.cells])).toEqual([
+      ["Money in (received this period)", null, "Rs 8,275.70"],
+    ]);
     expect(t.total.cells).toEqual([null, "Rs 8,275.70"]);
   });
 
