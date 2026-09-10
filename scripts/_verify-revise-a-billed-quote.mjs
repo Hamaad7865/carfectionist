@@ -82,7 +82,7 @@ try {
   const q1 = await quote(600);
   await c.query("select accept_quote($1, null)", [q1]);
   const { rows: [inv1] } = await c.query("select (convert_quote_to_invoice($1)).id as id", [q1]);
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv1.id, `v:${inv1.id}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [inv1.id, `v:${inv1.id}`]);
 
   const { rows: [bill1] } = await c.query(
     "select number, status, job_id, amount_paid from documents where id = $1", [inv1.id],
@@ -123,7 +123,7 @@ try {
   const q3 = await quote(600);
   const { rows: [rev3] } = await c.query("select (revise_quote($1)).id as id", [q3]);
   const { rows: [inv3] } = await c.query("select (convert_quote_to_invoice($1)).id as id", [q3]);
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv3.id, `v:${inv3.id}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [inv3.id, `v:${inv3.id}`]);
   const { rows: [bill3] } = await c.query("select number from documents where id = $1", [inv3.id]);
 
   const rebilled = await refusal("select convert_quote_to_invoice($1)", [rev3.id]);
@@ -153,11 +153,11 @@ try {
     `insert into document_lines (tenant_id, document_id, product_id, title, qty, unit_price, discount_pct, vat_rate, sort_order, line_kind, price_includes_vat)
      select tenant_id, $2, product_id, title, qty, unit_price, discount_pct, vat_rate, sort_order, line_kind, price_includes_vat
        from document_lines where document_id = $1`, [q4, inv4a.id]);
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv4a.id, `v:${inv4a.id}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [inv4a.id, `v:${inv4a.id}`]);
   const { rows: [bill4a] } = await c.query("select number from documents where id = $1", [inv4a.id]);
 
   const issued = await refusal(
-    "select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv4b.id, `v:${inv4b.id}`],
+    "select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [inv4b.id, `v:${inv4b.id}`],
   );
   ok(issued !== null, "the draft bill issued over a bill still standing — the same goods leave the shelf twice");
   ok(
@@ -182,7 +182,7 @@ try {
   // ── 6. and all of it clears the moment the bill is retired ────────────────
   await c.query("select void_document($1, $2)", [inv4a.id, "verify: re-priced"]);
   const cleared = await refusal(
-    "select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv4b.id, `v2:${inv4b.id}`],
+    "select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [inv4b.id, `v2:${inv4b.id}`],
   );
   ok(cleared === null, `voiding the old bill did not free the replacement: ${cleared}`);
 

@@ -989,6 +989,17 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     .clickable(enabled = !s.busy) { vm.convertToInvoice() }.padding(horizontal = 13.dp),
                 contentAlignment = Alignment.Center,
             ) { Text(if (s.busy) "…" else "+ Add to bill", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
+            // …and if they never come back. Lives up here with the other header
+            // actions instead of buried at the bottom of the card, where it sat
+            // below the fold and read as an afterthought. Same condition as the
+            // Create-job card it belongs to: signed, no job yet, nothing billed.
+            // Voided, not erased: the quote has a number and a signature, so what
+            // was agreed stays on the record (the confirm dialog says so).
+            if (s.status == "accepted" && s.jobId == null && !s.billed) Box(
+                Modifier.height(34.dp).border(1.dp, Color(0x33D63B50), RoundedCornerShape(10.dp))
+                    .clickable(enabled = !s.busy) { vm.askDelete() }.padding(horizontal = 13.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(if (s.busy) "…" else "No-show", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Danger) }
         }
         Spacer(Modifier.weight(1f))
         Text(s.who, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
@@ -1305,6 +1316,84 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         // put them, so this is where the promise made on the accept panel comes
                         // due. Same chips, so picking a crew works the same wherever you are.
                         CrewChips(s, vm)
+                        // The date and deposit agreed at signing, back from the quote itself —
+                        // accepting "for later" stores them there, so they survive closing the
+                        // quote, the other tablet, and tomorrow. Editable here: what leaves on
+                        // this tap is what is shown. Untouched, the job is unscheduled and no
+                        // bill is raised — exactly as before.
+                        MiniLabel("BOOKED IN FOR")
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                            val scheduled = s.startAt != null
+                            PickerChip("📅  " + vm.startDateLabel(s), scheduled, Modifier.weight(1f)) { vm.openDatePicker() }
+                            PickerChip("🕐  " + vm.startTimeLabel(s), scheduled, Modifier.weight(1f)) { vm.openTimePicker() }
+                            Box(
+                                Modifier.height(38.dp)
+                                    .background(if (scheduled) InsetAlt else AccentSoft, RoundedCornerShape(19.dp))
+                                    .border(if (scheduled) 1.dp else 1.5.dp, if (scheduled) Hairline else AccentLine, RoundedCornerShape(19.dp))
+                                    .clickable { vm.startNow() }.padding(horizontal = 14.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Text("Now", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (scheduled) TextSecondary else Accent)
+                            }
+                        }
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MiniLabel("DEPOSIT ON COLLECTION")
+                            Spacer(Modifier.weight(1f))
+                            listOf(DiscountMode.PCT to "%", DiscountMode.AMT to "Rs").forEach { (m, lb) ->
+                                val on = s.depositMode == m
+                                Box(
+                                    Modifier.height(28.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(8.dp))
+                                        .border(1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(8.dp))
+                                        .clickable { vm.setDepositMode(m) }.padding(horizontal = 11.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) { Text(lb, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = if (on) Accent else TextSecondary) }
+                            }
+                        }
+                        if (s.depositMode == DiscountMode.PCT) {
+                            Row(Modifier.fillMaxWidth().horizontalScrollRow(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                val chosen = vm.depositPct(s)
+                                Box(
+                                    Modifier.height(38.dp)
+                                        .background(if (s.depositCents <= 0L) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
+                                        .border(if (s.depositCents <= 0L) 1.5.dp else 1.dp, if (s.depositCents <= 0L) AccentLine else Hairline, RoundedCornerShape(19.dp))
+                                        .clickable { vm.pickDepositPct(null) }.padding(horizontal = 14.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("None", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.depositCents <= 0L) Accent else TextSecondary)
+                                }
+                                QuoteViewModel.DEPOSIT_CHOICES.forEach { pct ->
+                                    val on = chosen == pct
+                                    Box(
+                                        Modifier.height(38.dp)
+                                            .background(if (on) AccentSoft else Color(0xFFF6F8FA), RoundedCornerShape(19.dp))
+                                            .border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(19.dp))
+                                            .clickable { vm.pickDepositPct(if (on) null else pct) }.padding(horizontal = 14.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text("$pct%", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextSecondary)
+                                    }
+                                }
+                                if (s.depositCents > 0) {
+                                    Spacer(Modifier.weight(1f))
+                                    Text(formatMUR(s.depositCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
+                                }
+                            }
+                        } else {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                FilledInput(
+                                    value = s.depositAmtText, onValueChange = vm::setDepositAmtText,
+                                    placeholder = "Deposit amount (Rs)", modifier = Modifier.weight(1f), height = 40.dp,
+                                    radius = 12.dp, bg = InsetAlt, fontFamily = Mono, fontSize = 14.sp,
+                                )
+                                if (s.depositCents > 0) Text(formatMUR(s.depositCents), fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Accent)
+                            }
+                        }
+                        if (s.depositCents > 0) {
+                            Text(
+                                "The bill is raised now so the deposit has something to pay into — collect it at the till, the balance stays on the invoice.",
+                                fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
+                            )
+                        }
                         Box(
                             Modifier.fillMaxWidth().height(52.dp)
                                 .background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
@@ -1321,15 +1410,6 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                             "Signed and agreed. Put the car on the board whenever they bring it in.",
                             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
                         )
-                        // …and if they never do. Voided, not erased: the quote has a number and
-                        // a signature, so what was agreed stays on the record.
-                        Box(
-                            Modifier.fillMaxWidth().height(44.dp).border(1.dp, Hairline, RoundedCornerShape(12.dp))
-                                .clickable(enabled = !s.busy) { vm.askDelete() },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text("Customer never came back", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = Danger)
-                        }
                     }
                     s.billed -> {
                         // There IS somewhere to go from here — the money. This was a grey box
@@ -1675,10 +1755,16 @@ private fun SignStep(
         // A quotation sent by WhatsApp is answered by WhatsApp. Demanding a signature from a
         // customer who is not in the room meant a quote could be sent and then never accepted
         // at all — so the pad is one way to evidence agreement, not the only one.
+        // padOpen lives here (not next to the button below) so the small "Sign again"
+        // link beside Clear opens the same pad — whichever tab journey got here.
+        var padOpen by remember { mutableStateOf(false) }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             MiniLabel(if (s.agreedVia == null) "CLIENT SIGNATURE" else "HOW THEY AGREED")
             Spacer(Modifier.weight(1f))
-            if (signed && s.agreedVia == null) Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { strokes.clear() }.padding(horizontal = 4.dp))
+            if (signed && s.agreedVia == null) {
+                Text("Sign again", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { padOpen = true }.padding(horizontal = 4.dp))
+                Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent, modifier = Modifier.clickable { strokes.clear() }.padding(horizontal = 4.dp))
+            }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             listOf(null to "Signing here", "whatsapp" to "WhatsApp", "phone" to "Phone", "email" to "Email").forEach { (via, label) ->
@@ -1730,7 +1816,11 @@ private fun SignStep(
             // preview of what they drew is nice to have, so IT takes the squeeze now
             // instead: it sits above the button and may shrink to nothing without ever
             // costing anyone the ability to sign.
-            var padOpen by remember { mutableStateOf(false) }
+            //
+            // Once signed, the big button goes away entirely: the preview above stays
+            // tappable and a small "Sign again" sits beside Clear in the header. The
+            // old full-width button could not shrink, so in a crushed column it
+            // overflowed and drew OVER the signature it was meant to redo.
             if (signed) {
                 Box(
                     Modifier.fillMaxWidth().heightIn(min = 0.dp, max = 84.dp)
@@ -1768,19 +1858,20 @@ private fun SignStep(
 
             // requiredHeight, not height: a parent short of room can shrink the latter.
             // This is the control that lets a customer accept the quotation at all, so it
-            // does not shrink, and it does not scroll away.
-            Box(
+            // does not shrink, and it does not scroll away. Only needed until signed —
+            // after that the preview and the header link are the way back in.
+            if (!signed) Box(
                 Modifier.fillMaxWidth().requiredHeight(52.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(if (signed) Inset else AccentSoft)
-                    .border(1.5.dp, if (signed) Hairline else AccentLine, RoundedCornerShape(12.dp))
+                    .background(AccentSoft)
+                    .border(1.5.dp, AccentLine, RoundedCornerShape(12.dp))
                     .clickable { padOpen = true },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (signed) "Sign again" else "Sign here",
+                    "Sign here",
                     fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
-                    color = if (signed) TextSecondary else Accent,
+                    color = Accent,
                 )
             }
             if (!signed) {

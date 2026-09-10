@@ -31,26 +31,12 @@
 -- separately.)
 -- ═══════════════════════════════════════════════════════════════════════════
 
-create or replace function public.record_owner_override(
-  p_app_user_id uuid,
-  p_pin         text,
-  p_kind        text,
-  p_ref_type    text,
-  p_ref_id      uuid,
-  p_reason      text,
-  p_scope       jsonb default '{}'::jsonb
-) returns public.owner_overrides
-language sql security definer set search_path = public, pg_temp as $$
-  select * from app.record_owner_override(p_app_user_id, p_pin, p_kind, p_ref_type, p_ref_id, p_reason, p_scope);
-$$;
-
-comment on function public.record_owner_override(uuid, text, text, text, uuid, text, jsonb) is
-  'PostgREST-reachable door onto app.record_owner_override (app is not an exposed schema on this project). Pure pass-through — the PIN/role/reason logic lives only in the app-schema function.';
-
-revoke execute on function public.record_owner_override(uuid, text, text, text, uuid, text, jsonb) from public;
-revoke execute on function public.record_owner_override(uuid, text, text, text, uuid, text, jsonb) from authenticated;
-revoke execute on function public.record_owner_override(uuid, text, text, text, uuid, text, jsonb) from anon;
-grant  execute on function public.record_owner_override(uuid, text, text, text, uuid, text, jsonb) to service_role;
+-- NOTE (history repair 2026-09-10): the pass-through body that stood here moved
+-- to 20260810000080, which changed its return type (owner_overrides → jsonb).
+-- Restating the old body would regress the live version mid-push, so the body
+-- lives only there now. Fresh setups get it from ...080; the lock-proof below
+-- still validates the live door on every run.
+-- ─────────────────────────────────────────────────────────────────────────────
 
 -- ── prove the door is actually locked, not just labelled so ────────────────
 -- A grant/revoke typo here is invisible in the SQL text — it only shows up as

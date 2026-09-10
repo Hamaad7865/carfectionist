@@ -5,6 +5,7 @@ import kotlinx.serialization.json.JsonElement
 import mu.carfection.pos.core.hardware.ReceiptBiz
 import mu.carfection.pos.core.network.ChecklistItemDto
 import mu.carfection.pos.core.network.FlowInvoiceRefDto
+import mu.carfection.pos.core.network.FlowQuoteRefDto
 import mu.carfection.pos.core.network.JobBoardDto
 import mu.carfection.pos.core.network.JobCommentDto
 import mu.carfection.pos.core.network.JobCustomerDto
@@ -248,14 +249,54 @@ class JobCardHtmlTest {
     }
 
     @Test
-    fun `comments carry who said them and when`() {
-        val html = render(
+    fun `comments carry who said them and when`() {        val html = render(
             comments = listOf(JobCommentDto(id = "c1", body = "Customer called — wants it by 4", createdAt = "2026-08-22T09:30:00Z", creator = JobTechDto("Sam Ong"))),
         )
         assertTrue(html.contains("Customer called — wants it by 4"))
         assertTrue(html.contains("Sam"))
         // Fixed Mauritius offset (+04), so the stamp is deterministic: 09:30Z is 13:30 local.
         assertTrue(html.contains("22 Aug 13:30"))
+    }
+
+    /**
+     * The paper travels with the car: a tech or cashier reading it must see the
+     * deposit without opening anything — agreed, paid, and still owed.
+     */
+    @Test
+    fun `an agreed deposit prints with what is paid and owed`() {
+        val html = render(
+            j = job().copy(
+                sourceQuote = FlowQuoteRefDto(depositDue = 412.0),
+                invoices = listOf(
+                    FlowInvoiceRefDto(id = "1", number = "INV-0100", docType = "invoice", status = "partly_paid", totalIncl = 1650.0, amountPaid = 412.0),
+                ),
+            ),
+        )
+        assertTrue(html.contains("Deposit agreed"))
+        assertTrue(html.contains(mu.carfection.pos.core.money.formatMUR(41200)))
+        assertTrue(html.contains("Balance due"))
+        assertTrue(html.contains(mu.carfection.pos.core.money.formatMUR(123800)))
+    }
+
+    @Test
+    fun `a job with no deposit and nothing paid carries no money block`() {
+        val html = render()
+        assertFalse(html.contains("Deposit agreed"))
+        assertFalse(html.contains("Balance due"))
+    }
+
+    @Test
+    fun `a settled bill reads paid in full, not owed`() {
+        val html = render(
+            j = job().copy(
+                sourceQuote = FlowQuoteRefDto(depositDue = 412.0),
+                invoices = listOf(
+                    FlowInvoiceRefDto(id = "1", number = "INV-0101", docType = "invoice", status = "paid", totalIncl = 1650.0, amountPaid = 1650.0),
+                ),
+            ),
+        )
+        assertTrue(html.contains("Paid in full"))
+        assertFalse(html.contains("rowline warn"))
     }
 }
 

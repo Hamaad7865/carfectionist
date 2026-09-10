@@ -163,6 +163,10 @@ data class QuoteRowDto(
      * Distinct from source_document_id, which a plain copy carries too.
      */
     @SerialName("revision_of") val revisionOf: String? = null,
+    // Booking intent, picked at accept-for-later and honoured by "Create job":
+    // when the car comes in, and what deposit was agreed (Rs). Null/0 = nothing agreed.
+    @SerialName("book_for_at") val bookForAt: String? = null,
+    @SerialName("deposit_due") val depositDue: FlexDouble = 0.0,
     // live invoices derived from this quote ("Bill now"/auto-billing) - the billed marker
     val invoices: List<FlowInvoiceRefDto> = emptyList(),
     // the job this quote produced — its status retires the quote from the list once delivered
@@ -195,6 +199,10 @@ data class FlowQuoteRefDto(
     val number: String? = null,
     val status: String = "",
     @SerialName("accepted_signature") val acceptedSignature: kotlinx.serialization.json.JsonElement? = null,
+    // Deposit agreed at signing (Rs). Asked for by the jobs board (the job card's
+    // deposit button) and the till list (the "deposit agreed" hint); omitted
+    // embeds decode 0 and behave as "none agreed".
+    @SerialName("deposit_due") val depositDue: FlexDouble = 0.0,
 )
 
 @Serializable
@@ -204,6 +212,9 @@ data class FlowInvoiceRefDto(
     @SerialName("doc_type") val docType: String = "",
     val status: String = "",
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    // What the customer has left on this bill — the ticket's Paid/Balance lines.
+    // Omitted embeds decode 0 and read as unpaid.
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
     // Set when this child is a REVISION of the quote it hangs off, rather than a bill
     // raised from it or a plain copy of it. Only the quotes list asks for it; every
     // other embed omits it and decodes null.
@@ -306,7 +317,10 @@ data class DocNumberDto(val number: String? = null)
 
 /** id + number, for naming in one round trip the quotes a list of open bills came from. */
 @Serializable
-data class DocIdNumberDto(val id: String, val number: String? = null)
+data class DocIdNumberDto(val id: String, val number: String? = null,
+    // Deposit agreed on that quote (Rs) — the till list's "deposit agreed" hint.
+    @SerialName("deposit_due") val depositDue: FlexDouble = 0.0,
+)
 
 @Serializable
 data class OutstandingInvoiceDto(

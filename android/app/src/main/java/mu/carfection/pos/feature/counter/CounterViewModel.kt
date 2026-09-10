@@ -122,6 +122,9 @@ data class CounterUiState(
     /** Source-quote number per open bill (keyed by source_document_id) — a draft has no
      *  number of its own, so the list badges it "OPEN BILL · from quote A00156" instead. */
     val quoteNumbers: Map<String, String?> = emptyMap(),
+    /** Deposit agreed on the source quote per open bill (keyed by source_document_id),
+     *  in till cents — the row's "Rs X deposit agreed" hint. Read-only; the pad takes it. */
+    val quoteDeposits: Map<String, Long> = emptyMap(),
     val paidToday: List<TodayPaymentDto> = emptyList(),
     val listBusy: Boolean = false,
     val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
@@ -757,7 +760,8 @@ class CounterViewModel @Inject constructor(
             // carry their source quote too ("INV-0119 · from quote A00101"), not just drafts.
             val quoteIds = bills.mapNotNull { it.sourceDocumentId }.distinct()
             val quoteNumbers = api.fetchDocNumbers(quoteIds)
-            local.value = local.value.copy(bills = bills, paidToday = paid, listBusy = false, quoteNumbers = quoteNumbers)
+            val quoteDeposits = api.fetchQuoteDeposits(quoteIds)
+            local.value = local.value.copy(bills = bills, paidToday = paid, listBusy = false, quoteNumbers = quoteNumbers, quoteDeposits = quoteDeposits)
         }
     }
 
@@ -1279,7 +1283,10 @@ class CounterViewModel @Inject constructor(
                     }
                     val creditSlip = runCatching {
                         api.fetchInvoice(bill.id)?.let {
-                            saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt())
+                            saleReceiptDoc(
+                                it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                                depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
+                            )
                                 // A deposit on the bill makes the builder read it as a payment
                                 // slip — this slip records credit, whatever came before.
                                 .copy(isPayment = true, onAccount = true)
@@ -1321,6 +1328,7 @@ class CounterViewModel @Inject constructor(
                         saleReceiptDoc(
                             it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
                             pointsEarned = pointsEarned, pointsBalanceAfter = it.customers?.pointsBalance,
+                            depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
                         ).copy(isPayment = true)
                     }
                 }.getOrNull() ?: ReceiptDoc(
@@ -1337,6 +1345,7 @@ class CounterViewModel @Inject constructor(
                     changeCents = s.changeCents,
                     onAccount = false, isPayment = true,
                     balanceDueCents = s.balanceAfterCents,
+                    depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
                 )
                 launch {
                     val printed = runCatching {

@@ -75,6 +75,10 @@ fun saleReceiptDoc(
     // nulled below unless the bill actually names someone — see [namesCustomer].
     pointsEarned: Int? = null,
     pointsBalanceAfter: Int? = null,
+    // Deposit agreed at signing, in till cents — passed by callers that know the bill's
+    // source quote (the pad, the job card). History rebuilds without it print exactly
+    // as before: dated payment rows plus the balance still tell the money story.
+    depositAgreedCents: Long = 0,
 ): ReceiptDoc {
     // Points print only for a REACHABLE customer — one with a phone or an email. That
     // rules out the generic WALK_IN_CUSTOMER bucket every anonymous counter sale is billed
@@ -150,6 +154,7 @@ fun saleReceiptDoc(
         // A deposit or a part payment leaves the bill open; the server's amount_paid is the
         // only honest source for what is still owed, so the slip quotes it rather than guessing.
         balanceDueCents = (rupeesToCents(h.totalIncl) - rupeesToCents(h.amountPaid)).coerceAtLeast(0),
+        depositAgreedCents = depositAgreedCents,
         payments = paymentRows,
         voided = h.status == "void",
         ticketNo = ticketNo,

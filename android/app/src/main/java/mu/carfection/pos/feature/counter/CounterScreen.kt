@@ -847,6 +847,16 @@ private fun CollectList(s: CounterUiState, vm: CounterViewModel, onGoQuotes: () 
                                     }
                                 }
                             }
+                            // The deposit agreed at signing, when there is one and money is still
+                            // owed — the cashier taps the row and the pad opens dialled in. Read
+                            // from the source quote in the same batched lookup as its number.
+                            val agreedDeposit = b.sourceDocumentId?.let { s.quoteDeposits[it] } ?: 0L
+                            if (agreedDeposit > 0 && remaining > 0) {
+                                Text(
+                                    "${formatMUR(agreedDeposit)} deposit agreed",
+                                    color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                                )
+                            }
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text(formatMUR(remaining), color = TextPrimary, fontFamily = Mono, fontSize = 14.sp, fontWeight = FontWeight.Bold)
@@ -1041,6 +1051,16 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                             color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                         )
                         if (showItemCount) Text("$itemCount item${if (itemCount == 1) "" else "s"}", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                        // The deposit agreed at signing, when the bill carries one — the
+                        // cashier sees what was promised before typing what is handed over.
+                        // Reads the same batched lookup as the TO COLLECT hint: one source.
+                        val agreedDeposit = s.collect?.sourceDocumentId?.let { s.quoteDeposits[it] } ?: 0L
+                        if (s.collect != null && agreedDeposit > 0) {
+                            Text(
+                                "${formatMUR(agreedDeposit)} deposit agreed",
+                                color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp,
+                            )
+                        }
                         // Vehicle — for a job/service invoice, WHICH car we worked on.
                         //
                         // Only when the bill IS about one car. On a bill covering three, this
@@ -1555,6 +1575,14 @@ private fun PaymentEntryFields(s: CounterUiState, vm: CounterViewModel) {
     if (amountEditable) {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             QuickChip("Full") { vm.setPayCents(null) }
+            // The client changed their mind at the till — one tap back to what was
+            // agreed at signing, instead of retyping it (or misremembering it).
+            // Shown only when the deposit is a genuine part of what is still owed:
+            // nothing agreed, or less left than the deposit, and Full covers it.
+            val agreed = s.collect?.sourceDocumentId?.let { s.quoteDeposits[it] } ?: 0L
+            if (s.collect != null && agreed > 0 && agreed < s.dueCents) {
+                QuickChip("Deposit ${formatMUR(agreed).removePrefix("Rs ").substringBefore(".")}", accent = true) { vm.setPayCents(agreed) }
+            }
             s.depositChips.forEach { cents -> QuickChip(formatMUR(cents).removePrefix("Rs ").substringBefore(".")) { vm.setPayCents(cents) } }
         }
     }
@@ -1798,16 +1826,16 @@ private fun DisplayCard(label: String, value: String, highlight: Boolean = false
 }
 
 @Composable
-private fun QuickChip(label: String, onClick: () -> Unit) {
+private fun QuickChip(label: String, accent: Boolean = false, onClick: () -> Unit) {
     Box(
         Modifier
             .height(36.dp)
-            .background(InsetAlt, RoundedCornerShape(10.dp))
-            .border(1.dp, Hairline, RoundedCornerShape(10.dp))
+            .background(if (accent) AccentSoft else InsetAlt, RoundedCornerShape(10.dp))
+            .border(1.dp, if (accent) AccentLine else Hairline, RoundedCornerShape(10.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp),
         contentAlignment = Alignment.Center,
-    ) { Text(label, color = TextSecondary, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
+    ) { Text(label, color = if (accent) Accent else TextSecondary, fontFamily = Mono, fontSize = 13.sp, fontWeight = FontWeight.Bold) }
 }
 
 // ─── Sales held on this tablet (rung offline) ────────────────────────────────
@@ -2330,15 +2358,16 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         // ── tenders ─────────────────────────────────────────────────────────────
         if (d.onAccount) Text("1   ON ACCOUNT : ${plainSlip(d.totalCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
         else if (d.payments.size > 1) {
-            // Grouped by method, not listed per dated row — mirrors ReceiptText.render exactly,
-            // so the screen states the same "how much cash did the customer hand over" total
-            // the printed slip does, instead of leaving it split across per-invoice rows the
-            // reader has to add up themselves.
-            d.payments.filterNot { it.isReversal }.groupBy { it.method.uppercase() }.forEach { (method, ps) ->
-                Text("${ps.size}   $method : ${plainSlip(ps.sumOf { it.amountCents })}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
-            }
-            d.payments.filter { it.isReversal }.forEach { p ->
-                Text("1   ${p.method.uppercase()} REVERSED : ${plainSlip(p.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+            // Grouped by method within a day, dated across days — mirrors ReceiptText.render
+            // exactly (same helper), so the screen states the same tender story as paper.
+            mu.carfection.pos.core.hardware.tenderRows(d.payments, d.depositAgreedCents > 0).forEach { r ->
+                if (r.isReversal) {
+                    Text("1   ${r.method} REVERSED : ${plainSlip(r.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+                } else if (r.stamp != null) {
+                    Text("${r.count}   ${r.method} ${r.stamp} : ${plainSlip(r.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+                } else {
+                    Text("${r.count}   ${r.method} : ${plainSlip(r.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
+                }
             }
         } else {
             Text("1   ${(d.payLabel ?: "PAID").uppercase()} : ${plainSlip(d.paidCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
@@ -2346,6 +2375,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         // Change applies to the payment as a whole, regardless of how many tender rows made
         // it up — mirrors ReceiptText.render, so the screen and the printed slip agree.
         if (!d.onAccount && d.changeCents > 0) SlipRow("    Change :", plainSlip(d.changeCents))
+        if (d.depositAgreedCents > 0) SlipRow("    DEPOSIT AGREED :", plainSlip(d.depositAgreedCents), strong = true)
         // A deposit is only half a story without the half still to pay.
         if (d.balanceDueCents > 0) SlipRow("    BALANCE DUE :", plainSlip(d.balanceDueCents), strong = true)
         // Points earned by this sale, and the running balance after it — only when the bill

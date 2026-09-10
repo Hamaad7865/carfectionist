@@ -192,7 +192,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, revision_of, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, revision_of, book_for_at, deposit_due, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(120) // deep enough that the search bar reaches past the last few days
@@ -595,7 +595,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // PostgREST refuses with "more than one relationship was found".
     suspend fun fetchJobs(): List<JobBoardDto> =
         client.postgrest.from("jobs")
-            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, cancelled_at, cancel_reason, board_dismissed_at, paused_at, paused_ms, estimated_minutes, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature), invoices:documents!documents_job_id_fkey(id, number, doc_type, status), certificates(number, expires_at)")) {
+            .select(Columns.raw("id, status, customer_id, vehicle_id, scheduled_at, started_at, ready_at, delivered_at, cancelled_at, cancel_reason, board_dismissed_at, paused_at, paused_ms, estimated_minutes, technician_id, notes, checklist, damage_markers, source_quote_id, customers(name, phone), vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name),              source_quote:documents!jobs_source_quote_id_fkey(number, status, accepted_signature, deposit_due), invoices:documents!documents_job_id_fkey(id, number, doc_type, status, total_incl, amount_paid), certificates(number,  expires_at)")) {
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
             }
             .decodeList()
@@ -607,7 +607,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      */
     suspend fun fetchCustomerJobs(customerId: String): List<JobBoardDto> =
         client.postgrest.from("jobs")
-            .select(Columns.raw("id, status, created_at, scheduled_at, started_at, ready_at, delivered_at, cancelled_at, cancel_reason, notes, checklist, damage_markers, vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name), source_quote:documents!jobs_source_quote_id_fkey(id, number, status), invoices:documents!documents_job_id_fkey(id, number, doc_type, status, total_incl), certificates(number, expires_at)")) {
+            .select(Columns.raw("id, status, created_at, scheduled_at, started_at, ready_at, delivered_at, cancelled_at, cancel_reason, notes, checklist, damage_markers, vehicles(plate, make, model, color), technician:app_users!jobs_technician_id_fkey(display_name),              source_quote:documents!jobs_source_quote_id_fkey(id, number, status, deposit_due), invoices:documents!documents_job_id_fkey(id, number, doc_type, status, total_incl, amount_paid), certificates(number,  expires_at)")) {
                 filter { eq("customer_id", customerId) }
                 order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
             }
@@ -617,8 +617,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * When the car is booked in for, and how long it should take. Written when a quote
      * is accepted; drives the scheduled card, the estimated finish and the tablet's alarms.
      */
-    suspend fun setJobSchedule(jobId: String, scheduledAtIso: String, estimatedMinutes: Int? = null) {
-        client.postgrest.from("jobs").update({
+    suspend fun setJobSchedule(jobId: String, scheduledAtIso: String, estimatedMinutes: Int? = null) {        client.postgrest.from("jobs").update({
             set("scheduled_at", scheduledAtIso)
             if (estimatedMinutes != null) set("estimated_minutes", estimatedMinutes)
         }) { filter { eq("id", jobId) } }
@@ -628,6 +627,20 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         client.postgrest.from("jobs").update({
             set("estimated_minutes", estimatedMinutes)
         }) { filter { eq("id", jobId) } }
+    }
+
+    /**
+     * What the customer agreed at accept-for-later: when the car comes in and what
+     * deposit they will leave. Intent only — no numbers, no money — honoured by
+     * "Create job". Best-effort like the schedule write: a lost response must not
+     * un-accept a signed quote, so callers swallow failures after retrying never.
+     */
+    suspend fun setQuoteBooking(quoteId: String, bookForAtIso: String?, depositRupees: Double?) {
+        client.postgrest.rpc("set_quote_booking", buildJsonObject {
+            put("p_quote_id", quoteId)
+            if (bookForAtIso != null) put("p_book_for_at", bookForAtIso) else put("p_book_for_at", JsonNull)
+            if (depositRupees != null) put("p_deposit_rupees", depositRupees) else put("p_deposit_rupees", JsonNull)
+        })
     }
 
     /** The columns the alerts reason about — no embeds, so this stays cheap enough to run from a receiver. */
@@ -1128,6 +1141,21 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                 }
                 .decodeList<DocIdNumberDto>()
                 .associate { it.id to it.number }
+        }.getOrDefault(emptyMap())
+
+    /**
+     * The deposit agreed on each quote (Rs → till cents), batched with the same
+     * ids the till list already resolves. The row hint — never a charge.
+     */
+    suspend fun fetchQuoteDeposits(ids: List<String>): Map<String, Long> =
+        if (ids.isEmpty()) emptyMap()
+        else runCatching {
+            client.postgrest.from("documents")
+                .select(Columns.raw("id, number, deposit_due")) {
+                    filter { isIn("id", ids) }
+                }
+                .decodeList<DocIdNumberDto>()
+                .associate { it.id to mu.carfection.pos.core.money.rupeesToCents(it.depositDue) }
         }.getOrDefault(emptyMap())
 
     /**

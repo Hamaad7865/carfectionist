@@ -23,6 +23,7 @@ import mu.carfection.pos.core.network.DocumentSendApi
 import mu.carfection.pos.core.database.ProductEntity
 import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.money.centsToRupees
+import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.network.ChecklistItemDto
 import mu.carfection.pos.core.network.JobBoardDto
@@ -55,6 +56,17 @@ const val DELIVERED_WINDOW_MS = 48L * 60 * 60 * 1000
 private fun epochOrNull(iso: String): Long? =
     runCatching { Instant.parse(iso).toEpochMilli() }.getOrNull()
         ?: runCatching { java.time.OffsetDateTime.parse(iso).toInstant().toEpochMilli() }.getOrNull()
+
+/**
+ * Whether the job card offers the deposit button. Two conditions, both load-bearing:
+ * a deposit was agreed on the job's quote, and no live bill exists yet — once a bill
+ * is issued the cashier collects on it in Checkout, and a second raise would either
+ * hand that bill back or mint a rival. Drafts do not hide the button: raising over
+ * one issues it (convert_quote_to_invoice is idempotent). Pulled out so the rule
+ * can be tested without a ViewModel.
+ */
+fun showDepositButton(depositCents: Long, hasLiveBill: Boolean): Boolean =
+    depositCents > 0 && !hasLiveBill
 
 data class JobsState(
     val loading: Boolean = true,
@@ -90,6 +102,8 @@ data class JobsState(
     val invoiceService: String = "",
     val invoiceAmountText: String = "",
     val invoiceBusy: Boolean = false,
+    // raising the agreed-deposit bill from the job card
+    val depositBusy: Boolean = false,
     // checklist add
     val addChecklistOpen: Boolean = false,
     // before/after photos for the open job (id → signed thumbnail URL)
@@ -126,6 +140,7 @@ class JobsViewModel @Inject constructor(
     private val session: SessionRepository,
     private val openJobBus: OpenJobBus,
     private val billQuoteBus: mu.carfection.pos.core.data.BillQuoteBus,
+    private val collectBus: mu.carfection.pos.core.data.CollectBus,
     private val printer: ReceiptPrinter,
     private val sendApi: DocumentSendApi,
     private val deviceRole: mu.carfection.pos.core.data.DeviceRoleRepository,
@@ -307,6 +322,46 @@ class JobsViewModel @Inject constructor(
     }
 
     /**
+     * Raise the agreed-deposit bill straight from the job card. The customer goes
+     * to the cashier, who taps the new bill in TO COLLECT: the pad opens with the
+     * deposit dialled in (latched — the cashier may open Checkout whenever, even
+     * on this tablet later), and they can still change the figure.
+     *
+     * The bill is the FULL invoice, not a deposit-only slip — the deposit lands
+     * as a part-payment and the balance stays for collection day. convert is
+     * idempotent: a draft bill already standing is issued, never duplicated.
+     * Double-bill refusals (a superseded quote's bill) surface in the toast.
+     */
+    fun raiseDepositBill() {
+        val s0 = _s.value
+        val job = active(s0) ?: return
+        val quoteId = job.sourceQuoteId ?: run { note("This job has no quote"); return }
+        val deposit = job.sourceQuote?.depositDue
+            ?.let { runCatching { rupeesToCents(it) }.getOrDefault(0) }
+            .takeIf { (it ?: 0) > 0 }
+            ?: run { note("No deposit was agreed on this job's quote"); return }
+        if (s0.depositBusy) return
+        _s.update { it.copy(depositBusy = true) }
+        viewModelScope.launch {
+            runCatching {
+                val inv = api.convertQuoteToInvoice(quoteId)
+                if (inv.status == null || inv.status == "draft")
+                    api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                inv.id
+            }.onSuccess { invoiceId ->
+                // On a till this walks straight to Checkout with the pad dialled in; on a
+                // quotation tablet there is nowhere to walk to (same rule as the quote
+                // flow) — the bill waits in TO COLLECT and the toast says so.
+                if (s0.takesPayments) collectBus.request(invoiceId, deposit)
+                _s.update { it.copy(depositBusy = false, toast = "Deposit bill raised — waiting in TO COLLECT") }
+                load()
+            }.onFailure { e ->
+                _s.update { it.copy(depositBusy = false, toast = e.uiMessage("Couldn't raise the deposit bill")) }
+            }
+        }
+    }
+
+    /**
      * The assignable roster. Re-read on every board load, not once at construction: this
      * ViewModel outlives tab switches, so a technician added in Settings never appeared on a
      * job until the whole app was restarted.
@@ -364,7 +419,11 @@ class JobsViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { api.fetchInvoice(inv.id) ?: error("not found") }
                 .onSuccess { h ->
-                    val doc = saleReceiptDoc(h, catalog.receiptBiz(), catalog.vatDefault().toInt())
+                    val doc = saleReceiptDoc(
+                        h, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                        depositAgreedCents = job.sourceQuote?.depositDue
+                            ?.let { runCatching { rupeesToCents(it) }.getOrDefault(0) } ?: 0,
+                    )
                     _s.update {
                         it.copy(
                             viewInvoiceBusy = false, viewInvoice = doc,

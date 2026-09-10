@@ -36,3 +36,18 @@ end $$;
 drop trigger if exists trg_stamp_completed_by on jobs;
 create trigger trg_stamp_completed_by before update on jobs
   for each row execute function app.stamp_completed_by();
+
+
+-- Folded in from 202607100000015_job_pause.sql (history repair 2026-09-10): that version stamp collided and the Supabase CLI cannot match 15-digit versions, so the two files ship as one. Applied out-of-band before this repair; already live. Do not split apart.
+
+-- Pause/resume for the job timer (Android POS work order).
+--   paused_at  — set while the timer is paused (when the pause started); null = running.
+--   paused_ms  — accumulated paused time, folded in on each resume.
+-- Elapsed = (now | ready_at) - started_at - paused_ms - (now - paused_at when paused).
+-- Nullable + defaulted, so existing rows and the web app are unaffected.
+alter table public.jobs
+  add column if not exists paused_at timestamptz,
+  add column if not exists paused_ms bigint not null default 0;
+
+comment on column public.jobs.paused_at is 'Job timer: paused since (null = running)';
+comment on column public.jobs.paused_ms is 'Job timer: accumulated paused milliseconds';

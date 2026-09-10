@@ -133,6 +133,11 @@ data class ReceiptDoc(
     // What is still owed after this payment. A deposit or a part payment leaves a balance,
     // and the customer must walk away holding paper that says so.
     val balanceDueCents: Long = 0,
+    // Deposit AGREED at signing (Rs → cents), whether or not any of it has been paid.
+    // Without it a part-payment slip never says what the customer originally promised —
+    // the first thing a dispute asks. Zero when none was agreed: the slip prints
+    // exactly as before.
+    val depositAgreedCents: Long = 0,
     // Every payment taken against this bill, dated. When there are two or more — a deposit
     // then the balance — the slip lists each with its date/time instead of one "Paid" line.
     val payments: List<ReceiptPayment> = emptyList(),
@@ -191,6 +196,53 @@ data class ReceiptDoc(
 
 /** One dated payment row on the slip (a deposit, the balance, a reversal). */
 data class ReceiptPayment(val dateTime: String, val method: String, val amountCents: Long, val isReversal: Boolean = false)
+
+/** One tender line as it prints on paper and preview. */
+data class TenderPrintRow(
+    val count: Int,
+    val method: String, // upper-cased, as printed
+    val amountCents: Long,
+    /** When the legs were taken — dd/MM for day groups, dd/MM HH:mm for itemised legs, null when collapsed. */
+    val stamp: String?,
+    val isReversal: Boolean = false,
+)
+
+/**
+ * How tender legs print. Without an agreed deposit, legs settled on the SAME day
+ * collapse by method with a count ("2   CASH") — a split is one visit's money,
+ * and the count is pinned by test. But the moment a deposit was agreed, every
+ * leg stands dated with its time ("1   CASH 10/09 22:41"), even two legs on the
+ * same day: the slip is the calculation — what was left the first time, what
+ * came in the second — and grouping would hide exactly that. Reversals always
+ * stand alone: netting them would hide money that came back.
+ *
+ * Stamps come from [ReceiptPayment.dateTime] ("dd/MM HH:mm"); legs with an
+ * unreadable stamp share one group rather than inventing dates.
+ */
+internal fun tenderRows(payments: List<ReceiptPayment>, itemize: Boolean = false): List<TenderPrintRow> {
+    val out = mutableListOf<TenderPrintRow>()
+    val legs = payments.filterNot { it.isReversal }
+    val byDay = legs.groupBy { it.dateTime.take(5) }
+    if (!itemize && byDay.size <= 1) {
+        legs.groupBy { it.method.uppercase() }.forEach { (method, ps) ->
+            out += TenderPrintRow(ps.size, method, ps.sumOf { it.amountCents }, null)
+        }
+    } else if (!itemize) {
+        byDay.toSortedMap().forEach { (day, ds) ->
+            ds.groupBy { it.method.uppercase() }.forEach { (method, ps) ->
+                out += TenderPrintRow(ps.size, method, ps.sumOf { it.amountCents }, day)
+            }
+        }
+    } else {
+        legs.sortedBy { it.dateTime }.forEach { p ->
+            out += TenderPrintRow(1, p.method.uppercase(), p.amountCents, p.dateTime)
+        }
+    }
+    payments.filter { it.isReversal }.forEach { p ->
+        out += TenderPrintRow(1, p.method.uppercase(), p.amountCents, null, true)
+    }
+    return out
+}
 
 /** One settled invoice's own breakdown inside a consolidated (account-settlement) receipt —
  *  see [ReceiptDoc.consolidatedSections]. Everything here is that ONE invoice's own figures;
@@ -381,13 +433,15 @@ object ReceiptText {
             if (d.onAccount) {
                 appendLine(bold("1   ON ACCOUNT : " + rs(d.totalCents)))
             } else if (d.payments.size > 1) {
-                d.payments
-                    .filterNot { it.isReversal }
-                    .groupBy { it.method.uppercase() }
-                    .forEach { (method, ps) -> appendLine(bold("${ps.size}   $method : " + rs(ps.sumOf { it.amountCents }))) }
-                // A reversed leg is money that came back — state it rather than quietly netting it.
-                d.payments.filter { it.isReversal }.forEach { p ->
-                    appendLine(bold("1   ${p.method.uppercase()} REVERSED : " + rs(p.amountCents)))
+                tenderRows(d.payments, d.depositAgreedCents > 0).forEach { r ->
+                    if (r.isReversal) {
+                        // A reversed leg is money that came back — state it rather than quietly netting it.
+                        appendLine(bold("1   ${r.method} REVERSED : " + rs(r.amountCents)))
+                    } else if (r.stamp != null) {
+                        appendLine(bold("${r.count}   ${r.method} ${r.stamp} : " + rs(r.amountCents)))
+                    } else {
+                        appendLine(bold("${r.count}   ${r.method} : " + rs(r.amountCents)))
+                    }
                 }
             } else {
                 appendLine(bold("1   ${(d.payLabel ?: "PAID").uppercase()} : " + rs(d.paidCents)))
@@ -397,6 +451,9 @@ object ReceiptText {
             // owes the customer one clear "here's what you get back" line, not silence just
             // because it took more than one row to reach it.
             if (!d.onAccount && d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
+            // What was promised, before what has been paid — the deposit is the
+            // agreement, the tender rows above are the money.
+            if (d.depositAgreedCents > 0) appendLine(kv("    DEPOSIT AGREED :", plain(d.depositAgreedCents), w))
             // The one number a customer leaving a deposit needs to see on the paper.
             if (d.balanceDueCents > 0) appendLine(kv("    BALANCE DUE :", plain(d.balanceDueCents), w))
             // Points earned by this sale, and the running balance after it — only when the

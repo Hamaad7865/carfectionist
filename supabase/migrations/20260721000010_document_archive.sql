@@ -104,3 +104,16 @@ end $function$;
 
 revoke all on function public.set_document_archived(uuid, boolean) from public;
 grant execute on function public.set_document_archived(uuid, boolean) to authenticated;
+
+
+-- Folded in from 202607210000105_vehicle_category.sql (history repair 2026-09-10): that version stamp collided and the Supabase CLI cannot match 15-digit versions, so the two files ship as one. Applied out-of-band before this repair; already live. Do not split apart.
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Carfectionist — vehicle body type / category
+--
+-- A detailing shop prices and plans by the car's shape (an SUV/4x4 takes more
+-- product and time than a sedan), and the owner asked to record it. Kept as free
+-- text so nothing is ever rejected, but both apps offer a preset list (SUV,
+-- Sedan, Hatchback, Pickup, Van, …) so the wording stays consistent.
+-- ═══════════════════════════════════════════════════════════════════════════
+ALTER TABLE public.vehicles ADD COLUMN IF NOT EXISTS category text;

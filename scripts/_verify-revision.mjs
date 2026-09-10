@@ -42,7 +42,7 @@ try {
 
   // ── 1. original quote at Rs 1000, accepted → a job ────────────────────────
   const q1 = await quote(1000);
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [q1, `v:${q1}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [q1, `v:${q1}`]);
   const { rows: [j1] } = await c.query("select (convert_quote_to_job($1, null, null)).id as id", [q1]);
 
   const { rows: [jobsAfterAccept] } = await c.query(
@@ -101,7 +101,7 @@ try {
   );
 
   // ── 4. an invoiced job refuses to be re-priced behind the customer's back ──
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv.id, `v:${inv.id}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [inv.id, `v:${inv.id}`]);
   const rev2 = (await c.query("select (revise_quote($1)).id as id", [rev.id])).rows[0].id;
   // A raised exception aborts the whole transaction unless it is fenced off.
   let refused = false;
@@ -127,7 +127,7 @@ try {
 
   // ── 6. a cancelled job must not swallow a freshly signed revision ──────────
   const qc = await quote(1000);
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [qc, `v:${qc}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [qc, `v:${qc}`]);
   const { rows: [jc] } = await c.query("select (convert_quote_to_job($1, null, null)).id as id", [qc]);
   await c.query("update jobs set status = 'cancelled' where id = $1", [jc.id]);
   const revC = (await c.query("select (revise_quote($1)).id as id", [qc])).rows[0].id;

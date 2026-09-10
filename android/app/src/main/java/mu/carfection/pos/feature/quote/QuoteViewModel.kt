@@ -304,6 +304,19 @@ data class BillRef(
 fun canReviseQuote(billed: Boolean, supersededCount: Int): Boolean =
     !billed && supersededCount == 0
 
+/**
+ * The stored booking intent, parsed for state. Null in, null out: a quote with
+ * nothing agreed keeps empty pickers, and a garbled timestamp degrades to the
+ * same rather than a crash (JOB-a73c showed the cost of a dropped booking).
+ * Pulled out of openQuote so the rule can be tested without a ViewModel.
+ */
+fun parseBookForAt(iso: String?): Long? =
+    iso?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+
+/** Stored deposit wish (Rs) in till cents. Zero or less reads as none. */
+fun parseDepositDueCents(rupees: Double): Long =
+    if (rupees <= 0) 0 else runCatching { rupeesToCents(rupees) }.getOrDefault(0)
+
 fun billLineEditable(index: Int, quotedCount: Int, lineCount: Int) =
     index >= quotedCount && index >= 0 && index < lineCount
 
@@ -438,6 +451,14 @@ data class QuoteState(
     val depositMode: DiscountMode = DiscountMode.PCT, // % chips, or a typed Rs amount
     val depositAmtText: String = "",                  // the typed Rs deposit (AMT mode)
     val depositPending: Boolean = false, // accepted with a deposit → the pad is waiting in Checkout
+    /**
+     * The booking intent as STORED on the quote (set_quote_booking): when the car
+     * comes in and what deposit was agreed. Read back on open so a returning
+     * customer finds their date and deposit waiting — the working pickers above
+     * start from these and stay editable.
+     */
+    val bookedForAt: Long? = null, // epoch millis, null = no date agreed
+    val bookedDepositCents: Long = 0, // 0 = no deposit agreed
     /** False on reception's tablet — the deposit is collected at a paying terminal. */
     val takesPayments: Boolean = true,
     val datePickerOpen: Boolean = false,
@@ -961,9 +982,16 @@ class QuoteViewModel @Inject constructor(
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
-                lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null, savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, jobs = emptyList(), query = "",
-                // Don't inherit the last quote's deposit/estimate into this one (audit #7).
-                estimateMinutes = null, depositCents = 0, depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
+                lines = emptyList(), acceptOpen = false, crew = emptyList(), savedRef = null, createdJobId = null, error = null, intake = null, jobId = q.jobId, jobs = emptyList(), query = "",
+                // Don't inherit the last quote's deposit/estimate into this one (audit #7) —
+                // but THIS quote's own stored booking comes back in and seeds the working
+                // pickers, so the return visit starts where signing left off.
+                startAt = parseBookForAt(q.bookForAt),
+                estimateMinutes = null,
+                depositCents = parseDepositDueCents(q.depositDue),
+                depositMode = DiscountMode.PCT, depositAmtText = "", depositPending = false,
+                bookedForAt = parseBookForAt(q.bookForAt),
+                bookedDepositCents = parseDepositDueCents(q.depositDue),
                 sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
                 linesLoaded = false, // becomes true only when the lines actually load
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
@@ -1484,27 +1512,64 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
+    /**
+     * The customer signed earlier and has now come back: raise the job from the
+     * quote they actually signed. Carries everything the accept panel agreed —
+     * the crew, the booked date/time, and the deposit — so nothing picked then
+     * is silently dropped now (JOB-a73c: scheduled, no time, no deposit bill).
+     * The original signature stands; none is taken here.
+     */
     fun createJobFromQuote() {
-        val id = _s.value.quoteId ?: return
-        if (_s.value.busy) return
-        val crew = _s.value.crew
+        val s0 = _s.value
+        val id = s0.quoteId ?: return
+        if (s0.busy) return
+        val crew = s0.crew
+        // The picked moment, or nothing — unlike the accept panel, a returning
+        // customer with no date stays unscheduled rather than defaulting to now.
+        val scheduled = s0.startAt?.let { Instant.ofEpochMilli(it).toString() }
+        val deposit = s0.depositCents.takeIf { it > 0 }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.convertQuoteToJob(id, crew.firstOrNull()) }
-                .onSuccess { jobId ->
-                    // convertQuoteToJob only sets the LEAD; the rest of the crew rides in
-                    // job_technicians the same way the accept-and-start-now path attaches them —
-                    // otherwise picking a crew here silently drops everyone but the first.
-                    catalog.tenantId()?.let { tenant ->
-                        crew.drop(1).forEach { uid -> runCatching { api.addJobTechnician(tenant, jobId, uid) } }
-                    }
-                    _s.update { st ->
-                        st.copy(busy = false, jobId = jobId, createdJobId = jobId,
-                            jobs = listOf(QuoteJobRef(jobId, st.vehPlate, st.veh.ifBlank { "Vehicle" })))
-                    }
-                    loadQuotes()
+            runCatching {
+                val jobId = api.convertQuoteToJob(id, crew.firstOrNull(), scheduledAt = scheduled)
+                // convertQuoteToJob only sets the LEAD; the rest of the crew rides in
+                // job_technicians the same way the accept-and-start-now path attaches them —
+                // otherwise picking a crew here silently drops everyone but the first.
+                catalog.tenantId()?.let { tenant ->
+                    crew.drop(1).forEach { uid -> runCatching { api.addJobTechnician(tenant, jobId, uid) } }
                 }
-                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
+                // Record what the return visit confirmed, so the quote keeps the
+                // story even after the job owns the schedule. Best-effort.
+                runCatching { api.setQuoteBooking(id, scheduled, deposit?.let { it / 100.0 }) }
+                // A deposit is money against a bill, and the bill is this quote —
+                // raised now so the deposit has something to pay into, exactly as
+                // accept-and-start-now does. The money itself is NOT taken here.
+                val depositInvoice = if (deposit != null) {
+                    runCatching {
+                        val inv = api.convertQuoteToInvoice(id)
+                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                        inv.id
+                    }.getOrNull()
+                } else null
+                if (s0.takesPayments) depositInvoice?.let { collectBus.request(it, deposit) }
+                Triple(jobId, depositInvoice, deposit)
+            }.onSuccess { (jobId, _, deposit) ->
+                _s.update { st ->
+                    st.copy(
+                        busy = false, jobId = jobId, createdJobId = jobId,
+                        jobs = listOf(QuoteJobRef(jobId, st.vehPlate, st.veh.ifBlank { "Vehicle" })),
+                        bookedForAt = s0.startAt, bookedDepositCents = deposit ?: 0,
+                        // Deliberately NOT depositPending: that flag walks straight to
+                        // Checkout, which is only right when the customer is standing
+                        // here paying now. A returning customer's bill waits in
+                        // TO COLLECT (the toast says so); the latched CollectBus
+                        // request still dials the pad in whenever Checkout opens it.
+                        depositPending = false,
+                    )
+                }
+                loadQuotes()
+                loadSupersededBills(id)
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
 
@@ -1918,6 +1983,20 @@ class QuoteViewModel @Inject constructor(
                             sendBusy = false, sendDone = null, sendError = null,
                         )
                     }
+                    // What was agreed for the return visit lives on the quote now, so
+                    // "Create job" honours the date and the deposit whenever the
+                    // customer comes back — even on the other tablet. Best-effort:
+                    // the quote is accepted regardless.
+                    if (s.startAt != null || s.depositCents > 0) {
+                        runCatching {
+                            api.setQuoteBooking(
+                                quoteId,
+                                s.startAt?.let { Instant.ofEpochMilli(it).toString() },
+                                s.depositCents.takeIf { it > 0 }?.let { it / 100.0 },
+                            )
+                        }
+                        _s.update { it.copy(bookedForAt = s.startAt, bookedDepositCents = s.depositCents) }
+                    }
                     loadQuotes()
                     // The bill above is best-effort by design — a hiccup must not un-accept a
                     // signed quote — and one of the things it now fails on is a bill left
@@ -2272,7 +2351,10 @@ class QuoteViewModel @Inject constructor(
         s.billLines.forEachIndexed { i, l -> add(quoteLineJson(l, i)) }
     }
 
-    fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null, createdInvoiceRef = null, sendDone = null, sendError = null, sendBusy = false) }
+    // Also consumes depositPending: the auto-walk to Checkout reads it, and a flag
+    // left true re-fires the walk on every return to the quotes tab — QUOTES became
+    // unvisitable after any accept-with-deposit, bouncing straight back to Checkout.
+    fun clearToast() = _s.update { it.copy(savedRef = null, createdJobId = null, createdInvoiceRef = null, sendDone = null, sendError = null, sendBusy = false, depositPending = false) }
 
     /** "Send to customer": the Worker renders the quotation PDF and delivers it by
      *  [channel] ("email" | "whatsapp").

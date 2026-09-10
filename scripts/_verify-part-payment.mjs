@@ -37,11 +37,11 @@ try {
          'discount_pct',0,'vat_rate',15,'sort_order',0)))).id::text as id`,
     [ref.customer_id, ref.vehicle_id, ref.p],
   );
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [q.id, `v:${q.id}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [q.id, `v:${q.id}`]);
   const { rows: [job] } = await c.query("select (convert_quote_to_job($1, null, null)).id::text as id", [q.id]);
   await c.query("update jobs set status = 'ready', started_at = now() where id = $1", [job.id]);
   const { rows: [inv] } = await c.query("select (create_document_from_job($1,'invoice')).id::text as id", [job.id]);
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [inv.id, `inv:${inv.id}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [inv.id, `inv:${inv.id}`]);
   const total = rupees((await c.query("select total_incl from documents where id=$1", [inv.id])).rows[0].total_incl);
   ok(total === 1150, `invoice total is Rs ${total}, expected 1150`);
 

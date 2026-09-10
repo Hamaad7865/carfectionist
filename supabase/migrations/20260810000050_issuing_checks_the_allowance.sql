@@ -26,8 +26,9 @@ declare v_def text;
 begin
   select pg_get_functiondef(p.oid) into v_def
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'issue_document';
-  if v_def is null then raise exception 'public.issue_document not found'; end if;
+   where n.nspname = 'public' and p.proname = 'issue_document'
+     and p.oid::regprocedure::text = 'issue_document(uuid,uuid,text,uuid)';
+  if v_def is null then raise exception 'public.issue_document(uuid,uuid,text,uuid) not found'; end if;
   if position('assert_discount_allowed' in v_def) > 0 then return; end if;
 
   -- Refuse to splice a function that has lost earlier work; blessing a reverted
@@ -59,7 +60,8 @@ declare v_def text;
 begin
   select pg_get_functiondef(p.oid) into v_def
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'issue_document';
+   where n.nspname = 'public' and p.proname = 'issue_document'
+     and p.oid::regprocedure::text = 'issue_document(uuid,uuid,text,uuid)';
 
   if position('assert_discount_allowed' in v_def) = 0 then
     raise exception 'issue_document never learned the discount guard';

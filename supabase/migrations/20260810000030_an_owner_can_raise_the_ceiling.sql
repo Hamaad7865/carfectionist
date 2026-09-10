@@ -47,49 +47,9 @@ create policy owner_overrides_read on public.owner_overrides
   for select using (tenant_id = (select app.current_tenant_id()));
 
 -- ─── the only writer ────────────────────────────────────────────────────────
-create or replace function app.record_owner_override(
-  p_app_user_id uuid,
-  p_pin         text,
-  p_kind        text,
-  p_ref_type    text,
-  p_ref_id      uuid,
-  p_reason      text,
-  p_scope       jsonb default '{}'::jsonb
-) returns public.owner_overrides
-language plpgsql security definer set search_path = public, pg_temp as $$
-declare
-  v_check jsonb;
-  v_user  public.app_users;
-  v_row   public.owner_overrides;
-begin
-  if coalesce(trim(p_reason),'') = '' then
-    raise exception 'an override requires a reason';
-  end if;
-
-  select * into v_user from public.app_users where id = p_app_user_id;
-  if not found or not v_user.is_active then raise exception 'unknown approver'; end if;
-  if v_user.role <> 'owner' then raise exception 'only the owner can approve an override'; end if;
-
-  -- The PIN is checked HERE. verify_staff_pin carries the per-user lockout that
-  -- makes a 4-digit secret survivable.
-  v_check := public.verify_staff_pin(p_app_user_id, p_pin);
-  if not coalesce((v_check->>'ok')::boolean, false) then
-    raise exception 'owner PIN rejected (%)', coalesce(v_check->>'reason','invalid');
-  end if;
-
-  insert into public.owner_overrides (tenant_id, kind, ref_type, ref_id, scope, reason, approved_by)
-  values (v_user.tenant_id, p_kind, p_ref_type, p_ref_id, coalesce(p_scope,'{}'::jsonb), trim(p_reason), p_app_user_id)
-  returning * into v_row;
-
-  insert into public.audit_events (tenant_id, actor_id, event_type, ref_type, ref_id, payload)
-  values (v_user.tenant_id, p_app_user_id, 'owner_override', p_ref_type, p_ref_id,
-          jsonb_build_object('kind', p_kind, 'reason', trim(p_reason), 'scope', p_scope));
-
-  return v_row;
-end $$;
-
--- Service role only: this function decides who the owner is, so it must not be
--- reachable from a browser or a tablet session.
-revoke execute on function app.record_owner_override(uuid, text, text, text, uuid, text, jsonb) from public;
-revoke execute on function app.record_owner_override(uuid, text, text, text, uuid, text, jsonb) from authenticated;
-grant  execute on function app.record_owner_override(uuid, text, text, text, uuid, text, jsonb) to service_role;
+-- NOTE (history repair 2026-09-10): the function body that stood here moved
+-- to 20260810000080, which changed its return type (owner_overrides → jsonb).
+-- CREATE OR REPLACE cannot cross that gap, and restating the old body would
+-- regress the live version mid-push — so the body lives only there now. Fresh
+-- setups get it from ...080; this file keeps the table, policy and comment.
+-- ─────────────────────────────────────────────────────────────────────────────

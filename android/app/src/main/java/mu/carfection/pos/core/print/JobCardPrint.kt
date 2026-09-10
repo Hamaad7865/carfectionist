@@ -206,6 +206,31 @@ fun jobCardHtml(
         sb.append("</table>")
     }
 
+    // ── money: what was agreed as a deposit, what has been paid, what is owed ─
+    // The paper travels with the car while the tablet may be across the shop: a
+    // tech or cashier reading it must see the deposit without opening anything.
+    val depositCents = runCatching { rupeesToCents(j.sourceQuote?.depositDue ?: 0.0) }.getOrDefault(0)
+    val paidCents = inv?.let { runCatching { rupeesToCents(it.amountPaid) }.getOrDefault(0) } ?: 0
+    val billCents = inv?.let { runCatching { rupeesToCents(it.totalIncl) }.getOrDefault(0) } ?: 0
+    if (depositCents > 0 || paidCents > 0) {
+        sb.append("<div class='sec'>DEPOSIT & PAYMENT</div>")
+        if (depositCents > 0) {
+            sb.append("<div class='rowline'><span class='muted'>Deposit agreed</span><span><b>")
+                .append(esc(formatMUR(depositCents))).append("</b></span></div>")
+        }
+        if (inv != null) {
+            sb.append("<div class='rowline'><span class='muted'>Paid on invoice ${esc(inv.number ?: "—")}</span><span>")
+                .append(esc(formatMUR(paidCents))).append("</span></div>")
+            val owed = (billCents - paidCents).coerceAtLeast(0)
+            if (owed > 0) {
+                sb.append("<div class='rowline warn'><span>Balance due</span><span>")
+                    .append(esc(formatMUR(owed))).append("</span></div>")
+            } else {
+                sb.append("<div class='rowline'><span class='muted'>Balance due</span><span>Paid in full</span></div>")
+            }
+        }
+    }
+
     // ── who is on the car ─────────────────────────────────────────────────────
     if (crewNames.isNotEmpty()) {
         sb.append("<div class='sec'>").append(if (crewNames.size > 1) "CREW" else "TECHNICIANS").append("</div>")

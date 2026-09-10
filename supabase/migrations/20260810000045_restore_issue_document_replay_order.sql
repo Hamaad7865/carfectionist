@@ -1,35 +1,17 @@
--- ═══════════════════════════════════════════════════════════════════════════
--- A sale comes off the SHOP FLOOR, never the bulk store.
+-- Restore issue_document's replay-first shape (plus the discount guard).
 --
--- issue_document, when the caller named no location, fell back to the DEFAULT
--- location — which is the bulk store (the Warehouse), where received stock lands.
--- Only the counter sale passed a location explicitly (the sales floor), so:
---   • counter sales      → Shop        ✓
---   • quote → invoice    → Warehouse   ✗   (billed with no location)
---   • job  → invoice     → Warehouse   ✗
---   • accept-without-job → Warehouse   ✗
--- That is the "WIPER … Sale … Warehouse -1" the owner saw, and the same thing on
--- an intake billed for Yan Toinette: the wipers were rung on a quote/job invoice,
--- which named no location, so the deduction hit the Warehouse the till is supposed
--- never to touch.
+-- What happened: 20260730000060's folded-in twin restated issue_document from
+-- 20260715000010's text, which predates 20260802000010 — so the moment the
+-- history-repair push applied it, the live function lost its replay branch
+-- ordering (and the ORDER IS LOAD-BEARING warning with it). That is the exact
+-- revert 20260802000010 was written to prevent, and 20260810000050's splice
+-- rightly refuses to build on the reverted body.
 --
--- The fix is here rather than in the four client call sites, because "make every
--- caller pass the shop location" is exactly the fragile arrangement that let this
--- through — one missed call and the stock walks off the wrong shelf again. A sale
--- has one correct answer for where the goods leave from, so the shared RPC owns it.
---
--- The fallback now mirrors the clients' own sales-floor resolver
--- (apps/web/src/lib/supabase/locations.ts pickSalesFloor, PosApi.fetchShopLocationId):
--- is_sales_floor first because it is the only answer that is a FACT about the
--- business, then the literal name 'Shop', then any non-default location, and only
--- as a true last resort — a single-location shop, where the one location is both
--- store and floor — the default itself. Received stock and transfers are untouched:
--- they still land in / move to the location they name.
---
--- Body is the live issue_document (20260715000010_audit_fixes) verbatim, with only
--- the location fallback changed and its now-misleading error message reworded.
--- ═══════════════════════════════════════════════════════════════════════════
-
+-- This file reinstalls 20260802000010's reviewed body verbatim, with one
+-- addition: the discount guard 20260810000050 splices in after the no-lines
+-- check (same placement, same text), so the train no longer depends on splice
+-- order. 20260810000050 then finds its guard already present and no-ops.
+-- The 3-arg overload (no till session) is left exactly as it stands.
 CREATE OR REPLACE FUNCTION public.issue_document(p_document_id uuid, p_stock_location_id uuid DEFAULT NULL::uuid, p_idempotency_key text DEFAULT NULL::text, p_session_id uuid DEFAULT NULL::uuid)
  RETURNS documents
  LANGUAGE plpgsql
@@ -50,9 +32,12 @@ begin
   if v_tenant is null then raise exception 'no tenant context'; end if;
   perform app.require_role('owner','manager','cashier');
 
-  -- A closed day takes no more money — and ringing a new ticket is taking money.
-  perform app.assert_day_open(v_tenant, p_session_id);
-
+  -- ORDER IS LOAD-BEARING: the replay branch below runs BEFORE
+  -- app.assert_day_open. A retry of an already-issued sale must return its
+  -- invoice even if the till has since gone stale or the day has closed —
+  -- nothing new is written, so there is nothing for the guard to protect, and
+  -- a refusal there tells the client to re-ring a sale that already exists.
+  -- Do not "restore" the guard to the top. See 20260802000010.
   if p_idempotency_key is not null then
     perform pg_advisory_xact_lock(hashtext(v_tenant::text || ':' || p_idempotency_key)::bigint);
     select (result->>'document_id')::uuid into v_existing
@@ -68,6 +53,9 @@ begin
     end if;
   end if;
 
+  -- A closed day takes no more money — and ringing a NEW ticket is taking money.
+  perform app.assert_day_open(v_tenant, p_session_id);
+
   select * into v_doc from public.documents
    where id = p_document_id and tenant_id = v_tenant for update;
   if not found then raise exception 'document not found'; end if;
@@ -75,6 +63,10 @@ begin
 
   select count(*) into v_lines from public.document_lines where document_id = v_doc.id;
   if v_lines = 0 then raise exception 'cannot issue a document with no lines'; end if;
+
+  -- No discount on a service; a carwash to 5% with a reason; anything beyond
+  -- needs an owner override naming this document. See 20260810000040.
+  perform app.assert_discount_allowed(v_doc.id);
   if v_doc.doc_type = 'invoice' and v_doc.customer_id is null then
     raise exception 'an invoice requires a customer';
   end if;
@@ -167,5 +159,38 @@ begin
   end if;
 
   return v_doc;
-end $function$
-;
+end $function$;
+
+-- ── prove it, against what is actually installed ────────────────────────────
+do $$
+declare
+  v_def text;
+  v_guard int;
+  v_replay int;
+begin
+  select pg_get_functiondef(p.oid) into v_def
+    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+   where n.nspname = 'public' and p.proname = 'issue_document'
+     and p.oid::regprocedure::text = 'issue_document(uuid,uuid,text,uuid)';
+  if v_def is null then raise exception 'public.issue_document(uuid,uuid,text,uuid) not found'; end if;
+
+  -- the CALL, not the warning comment that names the same function above it
+  v_guard  := position('perform app.assert_day_open' in v_def);
+  v_replay := position('from public.idempotency_keys' in v_def);
+  if v_guard = 0 then raise exception 'issue_document lost its assert_day_open call'; end if;
+  if v_replay = 0 then raise exception 'issue_document lost its idempotency replay branch'; end if;
+  if v_guard < v_replay then
+    raise exception 'issue_document still guards before it replays (guard @ %, replay @ %)', v_guard, v_replay;
+  end if;
+  if position('ORDER IS LOAD-BEARING' in v_def) = 0 then
+    raise exception 'issue_document lost its replay-ordering warning';
+  end if;
+  if position('assert_discount_allowed' in v_def) = 0 then
+    raise exception 'issue_document never learned the discount guard';
+  end if;
+  -- The discount guard must sit AFTER the replay branch, not before it.
+  if position('assert_discount_allowed' in v_def) < position('idempotency_keys' in v_def) then
+    raise exception 'the discount guard was spliced ahead of the replay branch';
+  end if;
+  raise notice 'issue_document replays before it guards, discount checked after the lines (replay @ %, guard @ %)', v_replay, v_guard;
+end $$;

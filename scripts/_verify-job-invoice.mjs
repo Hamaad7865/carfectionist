@@ -34,7 +34,7 @@ try {
        ))).id as id`,
     [ref.customer_id, ref.vehicle_id, ref.p1, ref.p2],
   );
-  await c.query("select issue_document(p_document_id => $1, p_idempotency_key => $2)", [q.id, `verify:${q.id}`]);
+  await c.query("select public.issue_document(p_document_id => $1, p_stock_location_id => null, p_idempotency_key => $2, p_session_id => null)", [q.id, `verify:${q.id}`]);
 
   const { rows: [job] } = await c.query("select (convert_quote_to_job($1, null, null)).id as id", [q.id]);
 

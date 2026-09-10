@@ -87,6 +87,7 @@ import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.LocalPhotoCapture
 import androidx.hilt.navigation.compose.hiltViewModel
 import mu.carfection.pos.core.money.formatMUR
+import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.theme.Inset
@@ -571,6 +572,31 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
             // footer action
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                // A deposit was agreed on this job's quote and no live bill exists yet:
+                // one tap raises the bill and parks it in TO COLLECT with the deposit
+                // dialled in, so the customer can walk to the cashier. Once a bill is
+                // issued the cashier collects on it there instead — a second raise
+                // would only hand that bill back.
+                val depositCents = runCatching { rupeesToCents(j.sourceQuote?.depositDue ?: 0.0) }.getOrDefault(0)
+                val hasLiveBill = j.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
+                if (mu.carfection.pos.feature.jobs.showDepositButton(depositCents, hasLiveBill)) {
+                    Box(
+                        Modifier.fillMaxWidth().height(52.dp)
+                            .background(if (s.depositBusy) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                            .clickable(enabled = !s.depositBusy) { vm.raiseDepositBill() },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            if (s.depositBusy) "Raising…" else "●  Collect ${formatMUR(depositCents)} deposit  →",
+                            color = if (s.depositBusy) TextMuted else AccentInk,
+                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                        )
+                    }
+                    Text(
+                        "Raises the bill now — the cashier taps it in TO COLLECT with ${formatMUR(depositCents)} dialled in. The balance stays for collection day.",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+                    )
+                }
                 // The car is still in the bay and the customer is wandering the shop — which is
                 // when they find the thing they want. Their bill can be opened and added to now
                 // rather than only once the work is finished; it stays a draft either way, and

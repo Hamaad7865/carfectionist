@@ -87,9 +87,20 @@ end $$;
 -- is — found by actually running a payment through, not by reading either
 -- function body. Widening an existing CHECK can never invalidate a row that
 -- already satisfied it, so this is safe to run against the live table as-is.
-alter table public.payments drop constraint if exists payments_check3;
-alter table public.payments add constraint payments_check3
-  check (method = 'cash' or reverses_payment_id is not null or external_ref is not null or method = 'points');
+-- Later rewrites widened it further (cheque needs no reference); only install
+-- this text when points are not covered yet, so a re-run never narrows it.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint
+     where conrelid = 'public.payments'::regclass and conname = 'payments_check3'
+       and position('points' in pg_get_constraintdef(oid)) > 0
+  ) then
+    alter table public.payments drop constraint if exists payments_check3;
+    alter table public.payments add constraint payments_check3
+      check (method = 'cash' or reverses_payment_id is not null or external_ref is not null or method = 'points');
+  end if;
+end $$;
 
 -- ── splice the spend call into record_payment, ahead of the external-ref branch ──
 do $$

@@ -228,6 +228,54 @@ class ReceiptTextTest {
         assertEquals(d.totalCents, 50000L + 30000L + 75045L)
     }
 
+    /**
+     * A deposit left one day and the balance taken another must NOT collapse: the
+     * slip is the calculation — what was paid the first time and what the second.
+     * (Same-day splits without a deposit still collapse; that shape is pinned above.)
+     */
+    @Test
+    fun `a deposit and its balance print as dated rows, not one grouped row`() {
+        val d = referenceDoc().copy(
+            payLabel = "Split",
+            totalCents = 165000,
+            paidCents = 165000,
+            balanceDueCents = 0,
+            depositAgreedCents = 41200,
+            payments = listOf(
+                ReceiptPayment("09/09 17:02", "Cash", 41200),
+                ReceiptPayment("10/09 21:15", "Cash", 123800),
+            ),
+        )
+        val out = ReceiptText.render(d, 48)
+        assertTrue("the agreed deposit still prints", out.contains("DEPOSIT AGREED"))
+        assertTrue("deposit leg dated", out.contains("1   CASH 09/09 17:02 : 412.00Rs"))
+        assertTrue("balance leg dated", out.contains("1   CASH 10/09 21:15 : 1238.00Rs"))
+        assertFalse("no collapsed row", out.contains("2   CASH"))
+    }
+
+    /**
+     * The shop's own shape: deposit and balance taken the SAME day. Without an
+     * agreed deposit that would collapse — with one, every leg still stands with
+     * its time, so the slip shows first payment, second payment, then the total.
+     */
+    @Test
+    fun `a deposit itemises every leg with date and time, even on one day`() {
+        val d = referenceDoc().copy(
+            totalCents = 165000,
+            paidCents = 165000,
+            balanceDueCents = 0,
+            depositAgreedCents = 41200,
+            payments = listOf(
+                ReceiptPayment("10/09 22:41", "Cash", 41200),
+                ReceiptPayment("10/09 22:43", "Cash", 123800),
+            ),
+        )
+        val out = ReceiptText.render(d, 48)
+        assertTrue("deposit leg with time", out.contains("1   CASH 10/09 22:41 : 412.00Rs"))
+        assertTrue("balance leg with time", out.contains("1   CASH 10/09 22:43 : 1238.00Rs"))
+        assertFalse("no collapsed row", out.contains("2   CASH"))
+    }
+
     @Test
     fun `tax breakdown states the rate, the tax, and both bases`() {
         val out = render()
