@@ -208,35 +208,19 @@ data class TenderPrintRow(
 )
 
 /**
- * How tender legs print. Without an agreed deposit, legs settled on the SAME day
- * collapse by method with a count ("2   CASH") — a split is one visit's money,
- * and the count is pinned by test. But the moment a deposit was agreed, every
- * leg stands dated with its time ("1   CASH 10/09 22:41"), even two legs on the
- * same day: the slip is the calculation — what was left the first time, what
- * came in the second — and grouping would hide exactly that. Reversals always
- * stand alone: netting them would hide money that came back.
+ * How tender legs print: EVERY leg stands as its own dated row with its time
+ * ("1   CASH 10/09 22:41 : 412.00Rs"), oldest first. A deposit left at 10:00 and
+ * the balance taken at 11:00 read as the calculation they are — collapsing legs
+ * by method hid exactly that, and no time threshold can tell a split from two
+ * visits without guessing wrong at the boundary. Reversals stand last and alone:
+ * netting them would hide money that came back.
  *
- * Stamps come from [ReceiptPayment.dateTime] ("dd/MM HH:mm"); legs with an
- * unreadable stamp share one group rather than inventing dates.
+ * Stamps come from [ReceiptPayment.dateTime] ("dd/MM HH:mm").
  */
-internal fun tenderRows(payments: List<ReceiptPayment>, itemize: Boolean = false): List<TenderPrintRow> {
+internal fun tenderRows(payments: List<ReceiptPayment>): List<TenderPrintRow> {
     val out = mutableListOf<TenderPrintRow>()
-    val legs = payments.filterNot { it.isReversal }
-    val byDay = legs.groupBy { it.dateTime.take(5) }
-    if (!itemize && byDay.size <= 1) {
-        legs.groupBy { it.method.uppercase() }.forEach { (method, ps) ->
-            out += TenderPrintRow(ps.size, method, ps.sumOf { it.amountCents }, null)
-        }
-    } else if (!itemize) {
-        byDay.toSortedMap().forEach { (day, ds) ->
-            ds.groupBy { it.method.uppercase() }.forEach { (method, ps) ->
-                out += TenderPrintRow(ps.size, method, ps.sumOf { it.amountCents }, day)
-            }
-        }
-    } else {
-        legs.sortedBy { it.dateTime }.forEach { p ->
-            out += TenderPrintRow(1, p.method.uppercase(), p.amountCents, p.dateTime)
-        }
+    payments.filterNot { it.isReversal }.sortedBy { it.dateTime }.forEach { p ->
+        out += TenderPrintRow(1, p.method.uppercase(), p.amountCents, p.dateTime.ifBlank { null })
     }
     payments.filter { it.isReversal }.forEach { p ->
         out += TenderPrintRow(1, p.method.uppercase(), p.amountCents, null, true)
@@ -433,7 +417,7 @@ object ReceiptText {
             if (d.onAccount) {
                 appendLine(bold("1   ON ACCOUNT : " + rs(d.totalCents)))
             } else if (d.payments.size > 1) {
-                tenderRows(d.payments, d.depositAgreedCents > 0).forEach { r ->
+                tenderRows(d.payments).forEach { r ->
                     if (r.isReversal) {
                         // A reversed leg is money that came back — state it rather than quietly netting it.
                         appendLine(bold("1   ${r.method} REVERSED : " + rs(r.amountCents)))

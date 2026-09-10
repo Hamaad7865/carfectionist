@@ -2360,7 +2360,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         else if (d.payments.size > 1) {
             // Grouped by method within a day, dated across days — mirrors ReceiptText.render
             // exactly (same helper), so the screen states the same tender story as paper.
-            mu.carfection.pos.core.hardware.tenderRows(d.payments, d.depositAgreedCents > 0).forEach { r ->
+            mu.carfection.pos.core.hardware.tenderRows(d.payments).forEach { r ->
                 if (r.isReversal) {
                     Text("1   ${r.method} REVERSED : ${plainSlip(r.amountCents)}Rs", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, modifier = Modifier.fillMaxWidth())
                 } else if (r.stamp != null) {

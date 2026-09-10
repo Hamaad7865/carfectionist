@@ -210,9 +210,9 @@ class ReceiptTextTest {
         assertTrue(render().contains("1   BANK CARD : 1550.45Rs"))
     }
 
-    /** The leading digit counts tenders of that kind — a split used to print "1" on every row. */
+    /** Every leg stands dated — a split reads as the legs it was taken in, not a collapse. */
     @Test
-    fun `a split bill counts each method rather than printing 1 three times`() {
+    fun `a split bill lists each leg dated rather than collapsing by method`() {
         val d = referenceDoc().copy(
             payLabel = "Split",
             payments = listOf(
@@ -222,8 +222,10 @@ class ReceiptTextTest {
             ),
         )
         val out = ReceiptText.render(d, 48)
-        assertTrue("two cash legs collapse into one counted row", out.contains("2   CASH : 800.00Rs"))
-        assertTrue("the card leg stands alone", out.contains("1   CARD : 750.45Rs"))
+        assertTrue("first cash leg dated", out.contains("1   CASH 25/07 12:08 : 500.00Rs"))
+        assertTrue("second cash leg dated", out.contains("1   CASH 25/07 12:09 : 300.00Rs"))
+        assertTrue("the card leg dated", out.contains("1   CARD 25/07 12:10 : 750.45Rs"))
+        assertFalse("no collapsed row", out.contains("2   CASH"))
         // And the tenders still add up to the bill.
         assertEquals(d.totalCents, 50000L + 30000L + 75045L)
     }
@@ -478,7 +480,8 @@ class ReceiptTextTest {
     @Test
     fun `every tender across every invoice is itemised by method`() {
         val out = render(consolidatedDoc())
-        assertTrue(out.contains("2   CASH : 12650.00Rs"))
+        assertTrue(out.contains("1   CASH 23/08 08:30 : 7700.00Rs"))
+        assertTrue(out.contains("1   CASH 23/08 08:30 : 4950.00Rs"))
     }
 
     @Test
@@ -498,7 +501,7 @@ class ReceiptTextTest {
     fun `change shows even though the payment took more than one tender row`() {
         val withChange = consolidatedDoc().copy(changeCents = 84001) // Rs 840.01, as in the reported case
         val out = render(withChange)
-        assertTrue("multi-tender branch still reached", out.contains("2   CASH : 12650.00Rs"))
+        assertTrue("multi-tender branch still reached", out.contains("1   CASH 23/08 08:30 : 7700.00Rs"))
         assertTrue("change prints anyway", out.contains("Change :"))
         assertTrue(out.contains("840.01"))
     }
