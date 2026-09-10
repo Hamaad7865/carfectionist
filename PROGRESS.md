@@ -127,7 +127,7 @@ _(one line per completed item)_
 
 ---
 
-# Fix train 2026-09-10 — JOB-9F23 blocked bill + JOB-a73c lost booking (built, verified, NOT committed)
+# Fix train 2026-09-10 — JOB-9F23 blocked bill + JOB-a73c lost booking (built, verified, COMMITTED 2ea4c63, pushed to main, release APK 0.1.674)
 
 **JOB-9F23 — "+ Invoice" refused although the old bill was already refunded.** Chain TESTQ-00048 → 49 → 50: the original Rs 18,150.01 was billed (TESTINV-0119) and paid, the quote revised twice, work done under 9F23 — then the double-bill guard refused the new invoice. A full credit note (TESTCN-0002) had already been raised, but `app.superseded_bills` only knew draft/void, so the message's own remedy ("raise a credit note first") never opened the door.
 - `supabase/migrations/20260910000020_a_credited_bill_is_retired.sql`: a fully-credited invoice counts as retired (like a void); partial/voided credits still block. Verified live: `superseded_bills` for the 9F23 quote now returns 0 rows.
