@@ -36,12 +36,6 @@ export function toJournalTables(j: SalesJournal): JournalTable[] {
       title: "Payments",
       head: ["Payment method", "Quantity", "Amount"],
       rows: j.payments.map((p) => ({ label: p.label, cells: [String(p.n), money(p.cents)] })),
-      // Laid out exactly as the screen: the total is the MONEY, and money still owed
-      // is ruled off below it rather than folded into it. A printed journal whose
-      // bottom line disagreed with the page it came from would be worse than either.
-      notes: j.settlingEarlierCents !== 0
-        ? [{ label: "…of which settled earlier bills", cells: [null, money(j.settlingEarlierCents)] }]
-        : [],
       total: { label: "Total", cells: [null, money(j.paymentsSubtotalCents)] },
       afterTotal: j.onAccountCents !== 0
         ? [{
@@ -50,6 +44,21 @@ export function toJournalTables(j: SalesJournal): JournalTable[] {
           }]
         : [],
     },
+    // Its own table, like the screen: money received this period that settled a
+    // bill raised earlier. Already inside the Payments total above — this is the
+    // memo that reconciles the takings with the day's sales. Omitted when zero,
+    // exactly as the screen hides its card.
+    ...(j.settlingEarlierCents !== 0
+      ? [{
+          title: "Settled earlier bills",
+          head: ["Bill", "Customer", "Amount"],
+          rows: j.settlingEarlier.map((r) => ({
+            label: `${r.number ?? "—"}${r.earlier && r.businessDay ? ` (billed ${r.businessDay})` : ""}`,
+            cells: [r.customer ?? "Walk-in customer", money(r.cents)],
+          })),
+          total: { label: "Total", cells: [null, money(j.settlingEarlierCents)] },
+        }]
+      : []),
     {
       title: "Categories",
       head: ["Label", "Quantity", "%", "Excluding tax", "With tax"],

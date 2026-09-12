@@ -81,8 +81,7 @@ describe("sales journal PDF — the figures match the screen", () => {
     expect(t.total.cells).toEqual([null, "Rs 8,275.70"]);
   });
 
-  it("rules money still owed off BELOW the total, never into it", () => {
-    // d3 goes home unpaid. The card must still foot to the Rs 6,295.70 that
+  it("rules money still owed off BELOW the total, never into it", () => {    // d3 goes home unpaid. The card must still foot to the Rs 6,295.70 that
     // actually came in — an unpaid bill is not takings.
     const owed = buildSalesJournal(FROM, TO, {
       ...input,
@@ -93,6 +92,35 @@ describe("sales journal PDF — the figures match the screen", () => {
     expect(t.afterTotal!.map((n) => [n.label, ...n.cells])).toEqual([
       ["On account (not yet paid) — of Rs 8,275.70 invoiced", null, "Rs 1,980.00"],
     ]);
+  });
+
+  it("breaks money that settled earlier bills into its own table, out of Payments", () => {
+    // A customer walks in and clears d0, billed last week. The screen shows it
+    // in its own card below Payments — the PDF must print the same component,
+    // not a note inside Payments, and the Payments total must not move.
+    const earlier = buildSalesJournal(FROM, TO, {
+      ...input,
+      payments: [...input.payments, { document_id: "d0", method: "cash", amount: 1200.00 }],
+      lines: [
+        ...input.lines,
+        { document_id: "d0", qty: 1, unit_price: 1043.48, vat_rate: 15, line_total_excl: 1043.48, line_vat: 156.52, products: { name: "Exterior wash", category: "CAR WASH EXPERTS" } },
+      ],
+      paymentDocs: [{
+        id: "d0", number: "INV-0165", business_day: "2026-07-20", customer_id: "c9",
+        doc_type: "invoice", cash_session_id: "s1", issued_by: "u1", issued_at: "2026-07-20T09:00:00Z",
+        total_incl: 1200.00, subtotal_excl: 1043.48, vat_total: 156.52,
+      }],
+      customerName: new Map([["c9", "KHADAFEE JAWAHEERKHAN"]]),
+    });
+    const tables = toJournalTables(earlier);
+    const payments = tables.find((x) => x.title === "Payments")!;
+    expect(payments.notes ?? []).toEqual([]);
+    const memo = tables.find((x) => x.title === "Settled earlier bills")!;
+    expect(tables.indexOf(memo)).toBe(tables.indexOf(payments) + 1);
+    expect(memo.rows.map((r) => [r.label, ...r.cells])).toEqual([
+      ["INV-0165 (billed 2026-07-20)", "KHADAFEE JAWAHEERKHAN", "Rs 1,200.00"],
+    ]);
+    expect(memo.total.cells).toEqual([null, "Rs 1,200.00"]);
   });
 
   it("categories, with each share of ex-VAT", () => {

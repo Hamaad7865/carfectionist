@@ -6,8 +6,11 @@ import type { SalesJournal, JournalInvoiceRef } from "@/lib/supabase/queries/sal
 import { rangeLabel, shortRangeLabel, type Range } from "./periods";
 
 // The Cashmag "Journal de ventes": one period, aggregated once, broken down five
-// ways down the page. Every section foots to the same pair of totals — the MONEY
-// RECEIVED in the period — so the totals rows are deliberately loud.
+// ways down the page — plus a memo for money that settled earlier bills, kept
+// out of Payments so the takings and the day's sales reconcile by eye. Every
+// footing section answers the same pair of totals — the MONEY RECEIVED in the
+// period — so the totals rows are deliberately loud. The memo never foots to
+// the headline: it is already inside the Payments total.
 //
 // Server component: the whole screen is URL state, so there is nothing to hydrate.
 
@@ -239,20 +242,6 @@ export function SalesJournalView({
               />
             ))
           )}
-          {/* Money that arrived this period but settled a bill raised earlier. It IS
-              part of the total below — the drawer took it — but it explains why the
-              takings and the day's sales differ, so it is called out before the line. */}
-          {j.settlingEarlierCents !== 0 && (
-            <Drawer
-              cols={grid("1fr 150px 180px")}
-              label="…of which settled earlier bills"
-              cents={j.settlingEarlierCents}
-              invoices={j.settlingEarlier}
-              query={query}
-              muted
-              prior={cmp ? <PriorCell now={j.settlingEarlierCents} prev={prior!.settlingEarlierCents} /> : null}
-            />
-          )}
           {/* THE TOTAL OF THIS CARD IS THE MONEY, and since the whole report went
               cash-basis (the owner's call, 9 Sep 2026) that figure is also the
               report's headline: sale methods, taxes, categories and user logs all
@@ -281,6 +270,39 @@ export function SalesJournalView({
           )}
         </div>
       </Card>
+
+      {/* ── 3b. Settled earlier bills ── */}
+      {/* Money that arrived this period but settled a bill raised earlier. It IS
+          part of the Payments total above — the drawer took it — but it lives in
+          its own component so the takings and the day's sales reconcile by eye:
+          this is why the two can differ. */}
+      {j.settlingEarlierCents !== 0 && (
+        <Card title="Settled earlier bills">
+          <div className="min-w-[560px]">
+            <div className={HEAD} style={grid("1fr 150px 180px")}>
+              <span>Bill</span>
+              <span />
+              <span className="text-right">Amount</span>
+              {cmp && <span className="text-right">Prior</span>}
+            </div>
+            <Drawer
+              cols={grid("1fr 150px 180px")}
+              label="Settled earlier bills"
+              cents={j.settlingEarlierCents}
+              invoices={j.settlingEarlier}
+              query={query}
+              muted
+              prior={cmp ? <PriorCell now={j.settlingEarlierCents} prev={prior!.settlingEarlierCents} /> : null}
+            />
+            <div className={TOTAL} style={grid("1fr 150px 180px")}>
+              <span>Total</span>
+              <span />
+              <span className="num text-right text-brand">{money(j.settlingEarlierCents)}</span>
+              {cmp && <PriorCell now={j.settlingEarlierCents} prev={prior!.settlingEarlierCents} />}
+            </div>
+          </div>
+        </Card>
+      )}
 
       {/* ── 4. Categories ── */}
       <Card title="Categories">
