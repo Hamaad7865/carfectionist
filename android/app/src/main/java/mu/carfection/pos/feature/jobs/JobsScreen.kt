@@ -206,9 +206,12 @@ private fun InvoiceDialog(s: JobsState, vm: JobsViewModel) {
             )
             SectionLabel("SERVICE")
             FilledInput(value = s.invoiceService, onValueChange = vm::setInvoiceService, placeholder = "What was done", modifier = Modifier.fillMaxWidth(), bg = Inset)
-            SectionLabel("AMOUNT (Rs, excl. VAT)")
+            // The typed figure is stored ex-VAT on a net shop and as-typed on a gross one
+            // (issueInvoice sets price_includes_vat from the same flag) — the label must
+            // say which, or the operator types the wrong figure.
+            SectionLabel(mu.carfection.pos.feature.jobs.invoiceAmountSectionLabel(s.pricesInclVat))
             FilledInput(value = s.invoiceAmountText, onValueChange = vm::setInvoiceAmount, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), bg = Inset)
-            Text("VAT 15% is added automatically when the invoice is issued.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
+            Text(mu.carfection.pos.feature.jobs.invoiceAmountHint(s.pricesInclVat), fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted)
             Row(Modifier.padding(top = 3.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 Box(Modifier.weight(1f).height(52.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(13.dp)).clickable { vm.closeInvoice() }, contentAlignment = Alignment.Center) {
                     Text("Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
@@ -642,6 +645,29 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 }
                 val doneN = j.checklist.count { it.done }
                 val liveInv = j.invoices.firstOrNull { it.docType == "invoice" && it.status != "void" }
+                // A car can leave OWING (on account): its bill stays open until it is paid.
+                // Reading it was possible ("view invoice") but collecting it was not — there
+                // was no pay path from the board. The second button latches the outstanding
+                // balance for the pad and walks there; on a quotation-only tablet there is
+                // nowhere to walk to, so it names TO COLLECT instead (same split as
+                // goToCheckout's ready-job path).
+                val deliveredOwing = j.status == "delivered" && liveInv != null && liveInv.status != "paid"
+                if (deliveredOwing) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                        Box(Modifier.weight(1f).height(56.dp).border(1.dp, AccentLine, RoundedCornerShape(14.dp)).clickable(enabled = !s.busy) { vm.openInvoiceView() }, contentAlignment = Alignment.Center) {
+                            Text("Balance owed — view invoice", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Accent)
+                        }
+                        Box(Modifier.weight(1f).height(56.dp).background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(14.dp)).clickable(enabled = !s.busy) { vm.collectDeliveredBalance(onGoCheckout) }, contentAlignment = Alignment.Center) {
+                            Text(if (s.busy) "Working…" else "Collect balance →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.busy) TextSecondary else AccentInk)
+                        }
+                    }
+                    if (!s.takesPayments) {
+                        Text(
+                            "Collect it in TO COLLECT on the paying till.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+                        )
+                    }
+                }
                 val (label, action) = when {
                     j.status == "scheduled" -> "▶  Start job" to { vm.startJob() }
                     j.status == "in_progress" -> (if (j.checklist.isNotEmpty() && doneN == j.checklist.size) "Mark ready for collection" else "Mark ready" + if (j.checklist.isNotEmpty()) " ($doneN/${j.checklist.size} checklist)" else "") to { vm.markReady() }
@@ -652,11 +678,13 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                     j.status == "ready" -> (if (s.takesPayments) "Go to checkout →" else "Raise the invoice →") to { vm.goToCheckout(onGoCheckout) }
                     // A car can leave OWING (on account): its bill stays in TO COLLECT until it
                     // is paid — say so, instead of pretending delivered means settled.
+                    // (Delivered-owing renders its own two-button row above; this is every
+                    // other status with an open bill.)
                     liveInv != null && liveInv.status != "paid" -> "Balance owed — view invoice" to { vm.openInvoiceView() }
                     else -> "View invoice" to { vm.openInvoiceView() }
                 }
                 val muted = j.status == "delivered"
-                Box(Modifier.fillMaxWidth().height(56.dp).background(if (muted || s.busy) InsetAlt else Accent, RoundedCornerShape(14.dp)).clickable(enabled = !s.busy) { action() }, contentAlignment = Alignment.Center) {
+                if (!deliveredOwing) Box(Modifier.fillMaxWidth().height(56.dp).background(if (muted || s.busy) InsetAlt else Accent, RoundedCornerShape(14.dp)).clickable(enabled = !s.busy) { action() }, contentAlignment = Alignment.Center) {
                     Text(if (s.busy) "Working…" else label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (muted || s.busy) TextSecondary else AccentInk)
                 }
                 // A booking that won't happen can be cancelled (owner/manager) — the server

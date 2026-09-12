@@ -212,10 +212,16 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
     s.createdInvoiceRef?.let {
         // Dismiss = leave the builder (parity with the accept dialog) - staying on a
         // just-billed quote left Accept/Bill both tappable again.
+        // A draft bill has no number and nothing owed: the dialog names the wait
+        // ("Billed on collection") rather than claiming an invoice was issued.
         Dialog(onDismissRequest = { viewModel.clearToast(); viewModel.back() }) {
             Column(Modifier.width(380.dp).card().padding(28.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("Invoice issued", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
-                Text("$it — collect it in Checkout.", fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary)
+                Text(if (s.billed) "Invoice issued" else "Billed on collection", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+                Text(
+                    if (s.billed) "$it — collect it in Checkout."
+                    else "The bill stays a draft until they pay — it waits in TO COLLECT for pickup.",
+                    fontFamily = Barlow, fontSize = 13.sp, color = TextSecondary,
+                )
                 FillBtn("Done", Modifier.fillMaxWidth()) { viewModel.clearToast(); viewModel.back() }
             }
         }
@@ -982,8 +988,11 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             //
             // It stays here after the bill is issued, to say so. Not on a quote the customer
             // turned down or one that ran out, though: convert_quote_to_invoice refuses those
-            // outright, so the button could only ever hand back an error.
-            if (s.status != "declined" && s.status != "expired") Box(
+            // outright, so the button could only ever hand back an error. And not while a
+            // bill from a quotation this one replaced is still standing, either — the same
+            // condition that hides Revise (canReviseQuote): the RPC refuses the double-bill,
+            // so the button could only error. The warning card below is the explanation.
+            if (s.status != "declined" && s.status != "expired" && s.supersededBills.isEmpty()) Box(
                 Modifier.height(34.dp).background(AccentSoft, RoundedCornerShape(10.dp))
                     .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
                     .clickable(enabled = !s.busy) { vm.convertToInvoice() }.padding(horizontal = 13.dp),
@@ -1311,6 +1320,27 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     // sale lands here with no job — and "Create job →" / "Customer never came
                     // back" are both finished business for money already taken. Let it fall to
                     // the billed branch below, which says so.
+                    // Goods waiting for pickup are not jobs either: the bill is a draft in TO
+                    // COLLECT, and there is no car to put on the board. (Phone orders bill on
+                    // collection; see shouldDeferGoodsBill.) The money is taken at the till,
+                    // where the draft is issued as it lands.
+                    s.status == "accepted" && s.jobId == null && !s.billed && !vm.hasService(s) && s.bills.any { it.isDraft } -> {
+                        if (s.takesPayments) {
+                            Box(
+                                Modifier.fillMaxWidth().height(52.dp).background(Accent, RoundedCornerShape(13.dp))
+                                    .clickable { onGoCheckout() },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("Collect it in Checkout →", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = AccentInk) }
+                        } else {
+                            Box(Modifier.fillMaxWidth().height(52.dp).background(InsetAlt, RoundedCornerShape(13.dp)), contentAlignment = Alignment.Center) {
+                                Text("Billed on collection — at the paying till", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = TextSecondary)
+                            }
+                        }
+                        Text(
+                            "The bill stays a draft until they pay — nothing is owed yet. It waits in TO COLLECT for pickup.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 16.sp, color = TextMuted,
+                        )
+                    }
                     s.status == "accepted" && s.jobId == null && !s.billed -> {
                         // The moment the crew CAN be kept — accepting for later had nowhere to
                         // put them, so this is where the promise made on the accept panel comes
@@ -1394,7 +1424,11 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, lineHeight = 15.sp, color = TextMuted,
                             )
                         }
-                        Box(
+                        // Raising the job is minting too: convert_quote_to_job re-bills, and the
+                        // RPC refuses over a standing superseded bill — so this button hides
+                        // under the same condition as Revise, with the warning card above as
+                        // the explanation.
+                        if (s.supersededBills.isEmpty()) Box(
                             Modifier.fillMaxWidth().height(52.dp)
                                 .background(if (s.busy) InsetAlt else Accent, RoundedCornerShape(13.dp))
                                 .clickable(enabled = !s.busy) { vm.createJobFromQuote() },
@@ -1474,7 +1508,9 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                 Text(if (!work) "Accept — goods only" else if (s.jobId != null) "Accept → update job" else "Accept → create job", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (s.lines.isNotEmpty()) AccentInk else TextMuted)
                             }
                         }
-                        Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
+                        // Minting, like "+ Add to bill" above: hidden while a superseded bill
+                        // stands, for the same reason — the RPC would only refuse it.
+                        if (s.supersededBills.isEmpty()) Box(Modifier.fillMaxWidth().height(38.dp).clickable(enabled = s.lines.isNotEmpty() && !s.busy) { vm.convertToInvoice() }, contentAlignment = Alignment.Center) {
                             Text(if (s.busy) "Working…" else "Bill now — create invoice", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (s.lines.isNotEmpty()) Accent else TextMuted)
                         }
                     }

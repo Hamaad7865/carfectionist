@@ -2,10 +2,10 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Car } from "lucide-react";
+import { Car, Undo2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { FormError } from "@/components/ui/form";
-import { deliverOnAccountAction } from "./actions";
+import { deliverOnAccountAction, undoOnAccountAction } from "./actions";
 import { btn, btnBase } from "@/components/ui/button";
 
 /** Open bill + READY job: hand the car over ON ACCOUNT — the job delivers, the
@@ -61,5 +61,56 @@ export function HandOverButton({ invoiceId, number, customerName, outstanding }:
         </div>
       </Modal>
     </>
+  );
+}
+
+/** Walk back a mistaken on-account handover: the job returns to READY, the bill
+ *  stays open (same RPC the tablet uses; owner/manager/cashier via
+ *  undoOnAccountAction). Rendered only for delivered jobs still showing a
+ *  balance — a paid delivery has nothing to undo. */
+export function UndoHandoverButton({ invoiceId, number }: {
+  invoiceId: string;
+  number: string | null;
+}) {
+  const router = useRouter();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function confirm() {
+    setError(null);
+    setBusy(true);
+    const res = await undoOnAccountAction(invoiceId);
+    setBusy(false);
+    if (res.ok) {
+      setConfirming(false);
+      router.refresh();
+    } else setError(res.error);
+  }
+
+  if (!confirming) {
+    return (
+      <div className="flex flex-col items-start gap-1">
+        <button onClick={() => { setError(null); setConfirming(true); }} className={btn("quiet", "sm", "gap-2")}>
+          <Undo2 size={14} /> Undo handover
+        </button>
+        {error && <p className="text-[12px] text-rose">{error}</p>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-2 rounded-[12px] border border-line bg-sub p-3">
+      <p className="text-[12.5px] text-muted">
+        Put {number ?? "this bill"}&rsquo;s job back to Ready? The balance stays owed on the bill — only the handover is undone.
+      </p>
+      <div className="flex gap-2">
+        <button onClick={() => setConfirming(false)} className={btn("quiet", "md")}>Keep delivered</button>
+        <button onClick={confirm} disabled={busy} className={btn("danger", "md", "gap-2")}>
+          <Undo2 size={14} /> {busy ? "Undoing…" : "Undo handover"}
+        </button>
+      </div>
+      {error && <p className="text-[12px] text-rose">{error}</p>}
+    </div>
   );
 }

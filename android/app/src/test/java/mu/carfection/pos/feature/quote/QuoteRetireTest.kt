@@ -146,6 +146,24 @@ class QuoteRetireTest {
         assertFalse(retired(quote(children = listOf(copy("A00181", "accepted")))))
     }
 
+    /**
+     * Why the check reads revision_of and nothing else: duplicate_document (migration 0006)
+     * inserts its copy with source_document_id set and NO revision_of — the column is
+     * absent from its insert, so it stays null — while ONLY revise_quote writes
+     * revision_of (20260909000020). A copy therefore never retires its original, whatever
+     * status the copy reaches; only a true revision does. There is no other marker that
+     * distinguishes the two, and none is needed.
+     */
+    @Test
+    fun `a plain copy never retires the original whatever its status`() {
+        listOf("draft", "issued", "accepted").forEach { status ->
+            assertFalse(
+                "a $status copy replaces nothing",
+                retired(quote(children = listOf(copy("A00181", status)))),
+            )
+        }
+    }
+
     @Test
     fun `work in progress is live`() {
         assertFalse(retired(quote(job = "in_progress")))

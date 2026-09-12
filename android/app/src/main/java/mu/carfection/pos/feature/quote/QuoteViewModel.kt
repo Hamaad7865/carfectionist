@@ -286,6 +286,33 @@ data class BillRef(
  * Everything after them was added at the counter and is a line like any other.
  */
 /**
+ * May a latched bill-on-open fire for the quote on screen?
+ *
+ * The latch is armed by the jobs board for ONE quote, but its lines arrive later — and a
+ * failed load used to leave the flag set, so the NEXT quote opened inherited somebody
+ * else's billing. The armed quote id travels with the flag, and the fire needs all three:
+ * the flag still armed, the lines actually loaded, and the open quote still the one that
+ * armed it. Pulled out so the rule can be tested without a ViewModel.
+ */
+fun shouldFirePendingBill(pendingArmed: Boolean, armedQuoteId: String?, openQuoteId: String?, linesLoaded: Boolean): Boolean =
+    pendingArmed && linesLoaded && armedQuoteId != null && armedQuoteId == openQuoteId
+
+/**
+ * When a goods-only quote may wait to be billed.
+ *
+ * Work starts a job, and the job carries the billing — but goods over the counter have
+ * no job, so accepting them always raised AND issued the bill on the spot. A phone
+ * order for pickup later has nobody at the till: issuing it books a fiscal number and a
+ * stock movement for money nobody has paid, days before the customer arrives. When the
+ * quote holds no service and no job is starting, the bill is raised as a DRAFT and waits
+ * in TO COLLECT until collection — Checkout issues it as the money is taken, exactly as
+ * it already does for a job's own draft bill. Pulled out so the rule can be tested
+ * without a ViewModel.
+ */
+fun shouldDeferGoodsBill(hasService: Boolean, startJobNow: Boolean): Boolean =
+    !hasService && !startJobNow
+
+/**
  * May this quotation still be revised?
  *
  * Revising is negotiation, and a quote with a live bill against it is past negotiating —
@@ -427,6 +454,14 @@ data class QuoteState(
     /** The board asked for this quote's bill. Held until its lines arrive — billing before
      *  they do would raise an invoice for a quote this screen has not finished reading. */
     val pendingBillOnOpen: Boolean = false,
+    /**
+     * WHICH quote armed [pendingBillOnOpen]. The flag on its own survives a lines-load
+     * failure and would then fire on whatever quote is opened next — billing a customer
+     * for somebody else's price. The latch fires only while the open quote is still the
+     * one that armed it (see [shouldFirePendingBill]); opening any other quote, or
+     * leaving the builder, clears both together.
+     */
+    val pendingBillQuoteId: String? = null,
     /** How the customer agreed when they are NOT at the pad: "whatsapp" | "phone" | "email".
      *  Null means they are here and signing. A quote sent by WhatsApp is answered by
      *  WhatsApp — insisting on a signature would mean it could never be accepted at all. */
@@ -597,8 +632,16 @@ private fun QuoteRowDto.isRetired(): Boolean {
     // A quote that has been REVISED is last week's price — the revision carries the work
     // now, so the original drops off the list the moment that revision stops being a
     // draft. (etienne gerare's A00179 and A00180, Rs 1,320 then Rs 1,650, both sat here.)
-    // revisionOf, not source: duplicate_document hangs a plain COPY off the same column
-    // and a copy replaces nothing. Mirrors the web working list.
+    // revisionOf, never source_document_id — and the distinction is real, not assumed:
+    // duplicate_document (migration 0006) inserts its copy with source_document_id set and
+    // NO revision_of (the column is absent from its insert, so it stays null), while ONLY
+    // revise_quote writes revision_of (20260909000020, with a migration-time assertion
+    // proving the guard survived). A plain copy therefore arrives here with revisionOf ==
+    // null and retires nothing; a true revision carries revisionOf == id. The quotes list
+    // asks PostgREST for revision_of on the child embed, so the marker is always present
+    // to read. No narrowing is possible or needed beyond this check: there is no other
+    // column that distinguishes the two, and this one already does. Mirrors the web
+    // working list.
     if (invoices.any { it.docType == "quote" && it.revisionOf == id && it.status != "draft" && it.status != "void" }) return true
     // Retired once the money question is closed, which happens two ways:
     //  • every bill it ever had was voided — nothing owed, nothing booked (A00023);
@@ -730,6 +773,9 @@ class QuoteViewModel @Inject constructor(
             // instead of making staff retype a number off the customer's card.
             customerEmail = h.customerEmail, customerPhone = h.customerPhone,
             sendBusy = false, sendDone = null, sendError = null,
+            // A fresh handoff starts its own builder — never inherit a bill latch armed
+            // for whatever quote was open before.
+            pendingBillOnOpen = false, pendingBillQuoteId = null,
         )
     }
 
@@ -752,7 +798,10 @@ class QuoteViewModel @Inject constructor(
                 }.onSuccess { row ->
                     if (row == null) { _s.update { it.copy(error = "That quote could not be opened to bill it.") }; return@onSuccess }
                     openQuote(row)
-                    _s.update { it.copy(pendingBillOnOpen = true) }
+                    // Armed FOR this quote: the id travels with the flag so a lines-load
+                    // failure cannot fire it on whatever quote is opened next (see
+                    // [shouldFirePendingBill]). openQuote above cleared any stale latch first.
+                    _s.update { it.copy(pendingBillOnOpen = true, pendingBillQuoteId = quoteId) }
                 }.onFailure { e -> _s.update { it.copy(error = e.uiMessage()) } }
             }
         }
@@ -861,6 +910,9 @@ class QuoteViewModel @Inject constructor(
             // A fresh quote is a different document — an approval taken out for whatever was
             // open before must not silently cover this one's discount too.
             overrideTarget = null, approvedMaxCents = null, askOwnerBusy = false,
+            // Same for a latched bill-on-open: it named a specific quote, never "whatever
+            // is built next".
+            pendingBillOnOpen = false, pendingBillQuoteId = null,
         )
     }
 
@@ -994,6 +1046,10 @@ class QuoteViewModel @Inject constructor(
                 bookedDepositCents = parseDepositDueCents(q.depositDue),
                 sendBusy = false, sendDone = null, sendError = null, // clear a prior quote's send state
                 linesLoaded = false, // becomes true only when the lines actually load
+                // A different quote is being opened: any bill-on-open latch belonged to
+                // whatever was open before and must not follow across (see
+                // [shouldFirePendingBill]). The board re-arms it for THIS quote after.
+                pendingBillOnOpen = false, pendingBillQuoteId = null,
                 hasIntake = q.intake != null && q.intake !is kotlinx.serialization.json.JsonNull,
                 signed = q.acceptedSignature != null && q.acceptedSignature !is kotlinx.serialization.json.JsonNull,
                 billed = q.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" },
@@ -1010,7 +1066,11 @@ class QuoteViewModel @Inject constructor(
             runCatching { api.fetchQuoteLines(q.id) }
                 .onSuccess { ls ->
                     _s.update { st ->
-                        st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat, st.products, st.carwashPct, st.policyDefaults) })
+                        // A late reply must never stamp a DIFFERENT quote's builder (the
+                        // operator may have opened another quote meanwhile) — same rule
+                        // the send path already follows. The rightful launch still applies.
+                        if (st.quoteId != q.id) st
+                        else st.copy(linesLoaded = true, lines = ls.map { storedLine(it, st.pricesInclVat, st.products, st.carwashPct, st.policyDefaults) })
                     }
                     // Which cars this quotation covers is READ BACK from the lines, never
                     // stored twice: the lines are the record, so a quote reopened on the
@@ -1019,7 +1079,10 @@ class QuoteViewModel @Inject constructor(
                     if (carIds.size > 1) {
                         val known = q.customerId?.let { cid -> runCatching { api.fetchVehicles(cid) }.getOrNull() }.orEmpty()
                         _s.update { st ->
-                            st.copy(
+                            // Same late-reply rule as the lines above: another quote's cars
+                            // must never head this one's charges.
+                            if (st.quoteId != q.id) st
+                            else st.copy(
                                 cars = carIds.map { id ->
                                     val v = known.firstOrNull { it.id == id }
                                     QuoteCar(id, v?.plate, listOfNotNull(v?.make, v?.model).joinToString(" ").ifBlank { "Vehicle" })
@@ -1029,14 +1092,32 @@ class QuoteViewModel @Inject constructor(
                         }
                     }
                 }
-                .onFailure { e -> _s.update { it.copy(error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})") } }
+                .onFailure { e ->
+                    _s.update {
+                        // Consume the latch with the failure: leaving it armed would fire
+                        // the bill on whatever quote is opened next. Only this quote's own
+                        // failure clears — a newer quote's fresh latch must survive an older
+                        // launch's late error.
+                        val clearLatch = it.quoteId == q.id || it.pendingBillQuoteId == q.id
+                        it.copy(
+                            error = "Couldn't load the quote's items — reopen it before saving. (${e.uiMessage()})",
+                            pendingBillOnOpen = if (clearLatch) false else it.pendingBillOnOpen,
+                            pendingBillQuoteId = if (clearLatch) null else it.pendingBillQuoteId,
+                        )
+                    }
+                }
             // What they picked up at the counter lives on the BILL, not here — so it has to be
             // read from there to be shown at all. Everything past the quote's own lines was
             // added later; those first lines are the copy convert_quote_to_invoice made.
             loadBillExtras()
-            // Asked for by the board: now the lines are in, build its bill.
-            if (_s.value.pendingBillOnOpen && _s.value.linesLoaded) {
-                _s.update { it.copy(pendingBillOnOpen = false) }
+            // Asked for by the board: now the lines are in, build its bill — but only when
+            // this launch's quote is still the open one AND the one that armed the latch.
+            // Firing on linesLoaded alone billed the NEXT opened quote after a load failure.
+            val st = _s.value
+            if (shouldFirePendingBill(st.pendingBillOnOpen, st.pendingBillQuoteId, st.quoteId, st.linesLoaded) &&
+                st.quoteId == q.id && st.pendingBillQuoteId == q.id
+            ) {
+                _s.update { it.copy(pendingBillOnOpen = false, pendingBillQuoteId = null) }
                 convertToInvoice()
             }
         }
@@ -1057,6 +1138,9 @@ class QuoteViewModel @Inject constructor(
                 pickerOpen = false, confirmDelete = false, sendOpen = false,
                 adhocOpen = false, acceptOpen = false, linesOpen = false,
                 datePickerOpen = false, timePickerOpen = false,
+                // Leaving the builder drops the bill latch with it: it named the quote
+                // just left, and must not fire on the next one opened.
+                pendingBillOnOpen = false, pendingBillQuoteId = null,
                 // busy belongs to work that was happening IN the builder. Carrying it out left
                 // every control gated on !busy dead for the life of the screen — Back, Continue
                 // to signature, Save draft, all of it — with nothing on screen explaining why.
@@ -1950,20 +2034,30 @@ class QuoteViewModel @Inject constructor(
                 // "Create job" on this quote raises it whenever the customer comes back.
                 if (!s.startJobNow) {
                     api.acceptQuoteOnly(quoteId, sigPath, s.who.takeUnless { it.isBlank() || it == "—" }, s.agreedVia)
-                    // GOODS ONLY: the signature is not a promise of future work, it is a purchase
-                    // happening right now — so the bill follows the signature immediately. On a
-                    // paying till the pad opens on it (a deposit pre-fills the figure; otherwise
-                    // it opens on the balance); reception's tablet raises it to wait in TO
-                    // COLLECT. Best-effort: a billing hiccup must not un-accept a signed quote —
-                    // "Bill now" on this quote picks it up, idempotently, under the same key.
-                    val goodsInvoice = if (!hasService(s)) {
-                        runCatching {
-                            val inv = api.convertQuoteToInvoice(quoteId)
-                            if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
-                            inv
-                        }.getOrNull()
+                    // GOODS ONLY: the signature is not a promise of future work, it is a purchase.
+                    // When the customer is here paying now (signed at the pad on a paying
+                    // till) the pad still opens on it — but the bill is raised as a DRAFT
+                    // and waits: Checkout issues it as the money is taken, exactly as it
+                    // already does for a job's own draft bill. A phone order for pickup
+                    // later (agreed by WhatsApp/phone/email, or any accept on a tablet
+                    // that takes no money) has nobody at the till, so issuing it on the
+                    // spot would book a fiscal number and a stock movement for money nobody
+                    // has paid — it stays a draft in TO COLLECT until collection instead
+                    // (see [shouldDeferGoodsBill]). Best-effort: a billing hiccup must not
+                    // un-accept a signed quote — "Bill now" on this quote picks it up,
+                    // idempotently, under the same key.
+                    val goodsBill = if (shouldDeferGoodsBill(hasService(s), s.startJobNow)) {
+                        runCatching { api.convertQuoteToInvoice(quoteId) }.getOrNull()
                     } else null
-                    if (_s.value.takesPayments) goodsInvoice?.let {
+                    // convert hands back the line's STANDING bill when there already is one:
+                    // an already-issued bill is yesterday's done deal, not a draft to wait on.
+                    val goodsIssued = goodsBill != null && goodsBill.status != null && goodsBill.status != "draft"
+                    // The walk to the pad is for money changing hands NOW: the customer in
+                    // front of the operator, on a till that takes it. A phone agreement has
+                    // nobody here to pay — walking there would bounce the operator to a pad
+                    // with no customer behind it, so those orders wait in TO COLLECT instead.
+                    val walkToPad = goodsBill != null && _s.value.takesPayments && s.agreedVia == null
+                    if (walkToPad) goodsBill?.let {
                         collectBus.request(it.id, s.depositCents.takeIf { d -> d > 0 })
                     }
                     // Finish the job the success path below would have done. Returning early
@@ -1975,18 +2069,31 @@ class QuoteViewModel @Inject constructor(
                             busy = false, quoteId = quoteId, status = "accepted",
                             acceptOpen = false, intake = null, signed = sigPath != null || it.agreedVia != null,
                             jobId = null, jobs = emptyList(), createdJobId = null,
-                            billed = it.billed || goodsInvoice != null,
-                            // Reuses the deposit hand-off: on a paying till this walks the
-                            // operator straight to Checkout with the pad already waiting.
-                            depositPending = goodsInvoice != null && it.takesPayments,
-                            createdInvoiceRef = if (goodsInvoice != null && !it.takesPayments) goodsInvoice.number ?: "Invoice raised" else null,
+                            // A draft is not a bill yet — only an already-issued bill flips
+                            // this. The draft shows in the bills card below as open, and the
+                            // footer names it as waiting for collection.
+                            billed = it.billed || goodsIssued,
+                            bills = goodsBill?.let { d ->
+                                it.bills.filterNot { b -> b.id == d.id } +
+                                    BillRef(d.id, d.number, d.status ?: "draft", rupeesToCents(d.totalIncl))
+                            } ?: it.bills,
+                            // Reuses the deposit hand-off: on a paying till with the customer
+                            // here, this walks the operator straight to Checkout with the pad
+                            // already waiting (it issues the draft as the money lands).
+                            depositPending = walkToPad,
+                            // No walk means nobody is standing at a pad: say where the bill
+                            // waits. A draft has no number yet, so it names the wait rather
+                            // than a document — the dialog reads it as "Billed on collection".
+                            createdInvoiceRef = if (goodsBill != null && !walkToPad) goodsBill.number ?: "Draft raised" else null,
                             sendBusy = false, sendDone = null, sendError = null,
                         )
                     }
                     // What was agreed for the return visit lives on the quote now, so
                     // "Create job" honours the date and the deposit whenever the
                     // customer comes back — even on the other tablet. Best-effort:
-                    // the quote is accepted regardless.
+                    // the quote is accepted regardless — but the local mirror only
+                    // follows a CONFIRMED write, never a failed one, or this tablet
+                    // would show a booking the server (and the other tablet) lack.
                     if (s.startAt != null || s.depositCents > 0) {
                         runCatching {
                             api.setQuoteBooking(
@@ -1994,8 +2101,9 @@ class QuoteViewModel @Inject constructor(
                                 s.startAt?.let { Instant.ofEpochMilli(it).toString() },
                                 s.depositCents.takeIf { it > 0 }?.let { it / 100.0 },
                             )
+                        }.onSuccess {
+                            _s.update { it.copy(bookedForAt = s.startAt, bookedDepositCents = s.depositCents) }
                         }
-                        _s.update { it.copy(bookedForAt = s.startAt, bookedDepositCents = s.depositCents) }
                     }
                     loadQuotes()
                     // The bill above is best-effort by design — a hiccup must not un-accept a

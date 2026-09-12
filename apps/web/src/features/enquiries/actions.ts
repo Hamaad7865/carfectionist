@@ -59,9 +59,16 @@ export async function convertEnquiryAction(enquiryId: string): Promise<ConvertRe
   const enq: any = e;
   if (enq.converted_customer_id) return { ok: true, customerId: enq.converted_customer_id };
 
+  // The enquiry's own words must survive the conversion — vehicle_info and the
+  // message have nowhere else to go, so they ride along on the customer notes
+  // (customers.notes exists for exactly this context), never silently dropped.
+  const noteParts: string[] = [];
+  if (enq.vehicle_info) noteParts.push(`Vehicle: ${enq.vehicle_info}`);
+  if (enq.message) noteParts.push(`Enquiry: ${enq.message}`);
+
   const { data: cust, error } = await sb
     .from("customers")
-    .insert({ tenant_id: ctx.tenantId, name: enq.name, phone: enq.phone, email: enq.email })
+    .insert({ tenant_id: ctx.tenantId, name: enq.name, phone: enq.phone, email: enq.email, notes: noteParts.length > 0 ? noteParts.join("\n") : null })
     .select("id")
     .single();
   if (error) return { ok: false, error: error.message };

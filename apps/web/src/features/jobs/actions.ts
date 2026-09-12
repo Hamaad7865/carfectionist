@@ -41,12 +41,25 @@ const createSchema = z.object({
   service: z.string().optional(),
   technicianId: z.string().nullable().optional(),
   department: z.string().nullable().optional(),
+}).superRefine((d, ctx) => {
+  // An empty job (no customer, no car) is unbillable and unfindable — refuse it
+  // here with a sentence, not a Postgres error (same rule as createIntakeQuoteAction).
+  const hasCustomer =
+    (d.customerId ?? "").trim() !== "" ||
+    ((d.newCustomerName ?? "").trim() !== "" && (d.newCustomerPhone ?? "").trim() !== "");
+  if (!hasCustomer) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["customerId"], message: "Pick a customer or add a new one (name + phone)." });
+  }
+  const hasVehicle = (d.vehicleId ?? "").trim() !== "" || (d.newVehiclePlate ?? "").trim() !== "";
+  if (!hasVehicle) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["vehicleId"], message: "Pick a vehicle or add one (plate)." });
+  }
 });
 
 export async function createJobAction(input: z.input<typeof createSchema>): Promise<Result<{ id: string }>> {
   await requireRole(...ROLES);
   const p = createSchema.safeParse(input);
-  if (!p.success) return { ok: false, error: "Invalid job details." };
+  if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid job details." };
   const sb = await createClient();
 
   // One atomic RPC resolves-or-creates the customer + vehicle and inserts the job
@@ -371,6 +384,33 @@ const completeSchema = z.object({
   jobId: z.string(),
   consumptions: z.array(z.object({ productId: z.string(), qty: z.number().positive() })),
 });
+
+/**
+ * Lines already billed on invoices, for the Complete panel's double-move
+ * guard. Issuing relieves stock per line; completing consumes per product —
+ * the same stocked product on both paths walks off the shelf twice. The caller
+ * passes the invoice ids it displays (warning-only: worst case the warning is
+ * missing, never a block), the server reads their lines.
+ */
+export async function getJobBilledLinesAction(
+  jobId: string,
+  invoiceIds: string[],
+): Promise<{ ok: boolean; lines?: { productId: string; qty: number; number: string | null }[]; error?: string }> {
+  await requireRole(...ROLES);
+  if (!jobId) return { ok: false, error: "Unknown job." };
+  if (invoiceIds.length === 0) return { ok: true, lines: [] };
+  const sb = await createClient();
+  const { data, error } = await sb
+    .from("document_lines")
+    .select("product_id, qty, documents!inner(number, status, doc_type)")
+    .in("document_id", invoiceIds);
+  if (error) return { ok: false, error: error.message };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const lines = ((data ?? []) as any[])
+    .filter((l) => l.product_id != null && l.documents?.doc_type === "invoice" && l.documents?.status !== "void")
+    .map((l) => ({ productId: l.product_id as string, qty: Number(l.qty) || 0, number: (l.documents?.number as string | null) ?? null }));
+  return { ok: true, lines };
+}
 
 export async function completeJobAction(input: z.infer<typeof completeSchema>): Promise<Result> {
   await requireRole(...ROLES);

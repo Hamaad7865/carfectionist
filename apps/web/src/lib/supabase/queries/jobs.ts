@@ -380,9 +380,72 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
     sb.from("job_timers").select("started_at, stopped_at").eq("job_id", id),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
     sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name"),
-    sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid").eq("job_id", id).order("created_at"),
+    sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid, created_at").eq("job_id", id).order("created_at"),
     sb.from("job_photos").select("storage_path, phase, caption").eq("job_id", id).order("created_at"),
   ]);
+
+  // Bills that belong to this job but do not carry its job_id. The claim in
+  // convert_quote_to_job only stamps invoices that exist AT conversion: a bill
+  // raised from the quote afterwards (counter "Add to bill" on the quote
+  // screen) stays job-less, and so does anything the document_jobs junction
+  // carries for multi-car work. Without these the job page shows no invoice
+  // and offers +Invoice again — a second number and a second stock relief for
+  // the same work. Bills off SUPERSEDED quotes stay out on purpose: they have
+  // their own banner (supersededBills below), and listing them here would make
+  // the ready gate count a rejected price.
+  interface JobDocRow {
+    id: string;
+    doc_type: string;
+    status: string;
+    number: string | null;
+    total_incl: number | string | null;
+    amount_paid: number | string | null;
+    created_at: string | null;
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const seenIds = new Set(((docRes.data ?? []) as any[]).map((d) => d.id as string));
+  let extraDocs: JobDocRow[] = [];
+  {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const jr0: any = job;
+    const quoteIds: string[] = [];
+    if (jr0.source_quote_id) {
+      quoteIds.push(jr0.source_quote_id as string);
+      const { data: children } = await sb
+        .from("documents")
+        .select("id")
+        .eq("doc_type", "quote")
+        .eq("revision_of", jr0.source_quote_id);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const c of (children ?? []) as any[]) quoteIds.push(c.id as string);
+    }
+    const [junctionRes, lineBillRes] = await Promise.all([
+      sb.from("document_jobs").select("document_id").eq("job_id", id),
+      quoteIds.length > 0
+        ? sb
+            .from("documents")
+            .select("id, doc_type, status, number, total_incl, amount_paid, created_at")
+            .eq("doc_type", "invoice")
+            .in("source_document_id", quoteIds)
+        : Promise.resolve({ data: [] as JobDocRow[] }),
+    ]);
+    const linkedIds = [
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...((junctionRes.data ?? []) as any[]).map((r) => r.document_id as string),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ...((lineBillRes as any).data ?? []).map((d: any) => d.id as string),
+    ].filter((did) => !seenIds.has(did));
+    if (linkedIds.length > 0) {
+      const { data: linked } = await sb
+        .from("documents")
+        .select("id, doc_type, status, number, total_incl, amount_paid, created_at")
+        .in("id", linkedIds);
+      extraDocs = ((linked ?? []) as JobDocRow[]);
+      // Junction rows can point at quotes too (multi-car); the line bills are
+      // invoices by query. Either way they belong on this card.
+      for (const d of extraDocs) seenIds.add(d.id);
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawPhotos = (photoRes.data ?? []) as any[];
@@ -411,7 +474,11 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
   );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const documents: JobDocument[] = ((docRes.data ?? []) as any[]).map((d) => {
+  const allDocs = [...((docRes.data ?? []) as any[]), ...extraDocs].sort((a, b) =>
+    String(a.created_at ?? "").localeCompare(String(b.created_at ?? "")),
+  );
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const documents: JobDocument[] = (allDocs as any[]).map((d) => {
     const totalCents = rupeesToCents(Number(d.total_incl));
     const paidCents = rupeesToCents(Number(d.amount_paid));
     return {

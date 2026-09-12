@@ -29,6 +29,13 @@ export function NewJobForm({ intake }: { intake: IntakeRef }) {
 
   const vehicles = intake.vehicles.filter((v) => v.customerId === customerId);
 
+  // Mirrors createSchema's refine: a job with no customer or no car is
+  // unbillable and unfindable — the button stays off until both are present.
+  const valid =
+    mode === "existing"
+      ? customerId.trim() !== "" && vehicleId.trim() !== ""
+      : newName.trim() !== "" && newPhone.trim() !== "" && newPlate.trim() !== "";
+
   function reset() {
     setService(""); setVehicleId(""); setNewName(""); setNewPhone(""); setNewPlate(""); setNewMake(""); setDepartment("");
   }
@@ -67,14 +74,14 @@ export function NewJobForm({ intake }: { intake: IntakeRef }) {
         {mode === "existing" ? (
           <>
             <label className="block">
-              <span className={lbl}>Customer</span>
+              <span className={lbl}>Customer *</span>
               <select className={field} value={customerId} onChange={(e) => { setCustomerId(e.target.value); setVehicleId(""); }}>
                 <option value="">— select —</option>
                 {intake.customers.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
             <label className="block">
-              <span className={lbl}>Vehicle</span>
+              <span className={lbl}>Vehicle *</span>
               <select className={field} value={vehicleId} onChange={(e) => setVehicleId(e.target.value)} disabled={!customerId}>
                 <option value="">— select —</option>
                 {vehicles.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
@@ -84,15 +91,15 @@ export function NewJobForm({ intake }: { intake: IntakeRef }) {
         ) : (
           <>
             <label className="block">
-              <span className={lbl}>Customer name</span>
+              <span className={lbl}>Customer name *</span>
               <input className={field} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Full name" />
             </label>
             <label className="block">
-              <span className={lbl}>Phone</span>
+              <span className={lbl}>Phone *</span>
               <input className={field} value={newPhone} onChange={(e) => setNewPhone(e.target.value)} placeholder="+230 …" />
             </label>
             <label className="block">
-              <span className={lbl}>Plate</span>
+              <span className={lbl}>Plate *</span>
               <input className={field} value={newPlate} onChange={(e) => setNewPlate(e.target.value)} placeholder="1234 AB 26" />
             </label>
             <label className="block">
@@ -121,8 +128,15 @@ export function NewJobForm({ intake }: { intake: IntakeRef }) {
         </label>
       </div>
       {error && <p className="mt-2 text-[12px] text-rose">{error}</p>}
+      {!valid && !error && (
+        <p className="mt-2 text-[12px] text-muted">
+          {mode === "existing"
+            ? "Pick a customer and their vehicle to create the job."
+            : "Add the customer (name + phone) and the plate to create the job."}
+        </p>
+      )}
       <div className="mt-3 flex gap-2">
-        <button onClick={submit} disabled={busy} className={btn("primary")}>
+        <button onClick={submit} disabled={busy || !valid} className={btn("primary")}>
           {busy ? "Creating…" : "Create job"}
         </button>
         <button onClick={() => setOpen(false)} className={btn("quiet")}>Cancel</button>

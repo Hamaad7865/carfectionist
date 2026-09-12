@@ -79,6 +79,10 @@ export function RecordPaymentForm({
   const tenderedCents = parseMoneyInput(tendered);
   const changeCents = method === "cash" && tenderedCents != null ? tenderedCents - amountCents : null;
   const isCash = method === "cash";
+  // Same ceiling as the job page's PartPayment: nobody should discover the limit
+  // by having the payment thrown back at them with the customer waiting. Points
+  // already taken count towards it — the method only covers what's left.
+  const over = amountCents + pointsAppliedCents > outstandingCents;
 
   // Applying or removing points changes what this method has to cover, so the typed
   // figure is reset rather than left showing the old one while the button takes a
@@ -105,6 +109,7 @@ export function RecordPaymentForm({
   async function submit() {
     setError(null);
     if (amountCents <= 0 && pointsAppliedCents <= 0) return setError("Enter an amount greater than zero.");
+    if (over) return setError(`That is more than the ${formatMUR(outstandingCents)} still owed.`);
     if (isCash && tenderedCents != null && tenderedCents < amountCents) return setError("Tendered is less than the amount.");
     if (amountCents > 0 && !isCash && method !== "cheque" && !ref.trim()) return setError("A card / Juice / bank payment needs a reference.");
     setBusy(true);
@@ -263,11 +268,12 @@ export function RecordPaymentForm({
         )}
       </div>
 
+      {over && <p className="mt-3 text-[12px] text-rose">That is more than the {formatMUR(outstandingCents)} still owed.</p>}
       {error && <p className="mt-3 text-[12px] text-rose">{error}</p>}
 
       <button
         onClick={submit}
-        disabled={busy}
+        disabled={busy || over}
         className={btn("primary", "md", "mt-4 w-full")}
       >
         {busy

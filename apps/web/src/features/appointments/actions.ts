@@ -5,10 +5,13 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
-import { createJobAction } from "@/features/jobs/actions";
+import { createJobAction, setJobScheduleAction } from "@/features/jobs/actions";
 
 const ROLES = ["owner", "manager", "cashier"] as const;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
+// A conversion that kept the job but lost its booking time: the job stands,
+// the missed schedule rides along as a warning instead of failing it.
+type ConvertResult = { ok: true; data: { jobId: string }; warning?: string } | { ok: false; error: string };
 
 const STATUSES = ["scheduled", "confirmed", "arrived", "done", "cancelled", "no_show"] as const;
 
@@ -63,18 +66,23 @@ export async function setAppointmentStatusAction(id: string, status: (typeof STA
   return { ok: true };
 }
 
-export async function convertAppointmentToJobAction(id: string): Promise<Result<{ jobId: string }>> {
+export async function convertAppointmentToJobAction(id: string): Promise<ConvertResult> {
   await requireRole(...ROLES);
   const sb = await createClient();
   const { data: apt } = await sb
     .from("appointments")
-    .select("customer_id, vehicle_id, service, department, technician_id, job_id")
+    .select("customer_id, vehicle_id, service, department, technician_id, job_id, status, scheduled_at")
     .eq("id", id)
     .maybeSingle();
   if (!apt) return { ok: false, error: "Appointment not found." };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const a = apt as any;
   if (a.job_id) return { ok: false, error: "This appointment is already a job." };
+  // Done / cancelled / no-show bookings are history, not work arriving — only a
+  // live booking (scheduled, confirmed, arrived) can become a job on the board.
+  if (!["scheduled", "confirmed", "arrived"].includes(a.status)) {
+    return { ok: false, error: "Only a scheduled, confirmed or arrived appointment can become a job." };
+  }
 
   const job = await createJobAction({
     customerId: a.customer_id,
@@ -100,5 +108,15 @@ export async function convertAppointmentToJobAction(id: string): Promise<Result<
   }
   revalidatePath("/appointments");
   revalidatePath("/jobs");
+  // The booking time carries onto the job — rpc.createJob takes no schedule
+  // param, so the existing setJobScheduleAction writes it after the claim.
+  // Best-effort: the job already exists and the appointment is claimed, so a
+  // schedule failure warns instead of failing the conversion.
+  if (a.scheduled_at) {
+    const s = await setJobScheduleAction(job.data.id, a.scheduled_at, null);
+    if (!s.ok) {
+      return { ok: true, data: { jobId: job.data.id }, warning: `Job created, but its schedule could not be carried over: ${s.error}` };
+    }
+  }
   return { ok: true, data: { jobId: job.data.id } };
 }

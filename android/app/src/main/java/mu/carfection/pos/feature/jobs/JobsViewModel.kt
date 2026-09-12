@@ -68,6 +68,31 @@ private fun epochOrNull(iso: String): Long? =
 fun showDepositButton(depositCents: Long, hasLiveBill: Boolean): Boolean =
     depositCents > 0 && !hasLiveBill
 
+/**
+ * What is still owed on a delivered job's bill, in till cents.
+ *
+ * The board's invoice embed carries both figures in rupees; the collect latch wants the
+ * difference in cents, floored at zero so a rounding-dust overpayment never latches a
+ * negative figure onto the pad. Pulled out so the rule can be tested without a ViewModel.
+ */
+fun deliveredOutstandingCents(totalIncl: Double, amountPaid: Double): Long =
+    (rupeesToCents(totalIncl) - rupeesToCents(amountPaid)).coerceAtLeast(0)
+
+/**
+ * Which words the invoice-amount dialog uses, because the same typed figure is stored
+ * two different ways: on a net-quoting shop the amount is ex-VAT and the ledger adds
+ * 15% on issue, while on a gross-quoting shop the typed figure IS the price and the
+ * ledger extracts the VAT (price_includes_vat — see [JobsViewModel.issueInvoice]).
+ * The old label always said "excl. VAT / added automatically", which lied on a gross
+ * shop. Pulled out so the wording can be tested without a ViewModel.
+ */
+fun invoiceAmountSectionLabel(pricesInclVat: Boolean): String =
+    if (pricesInclVat) "AMOUNT (Rs, incl. VAT)" else "AMOUNT (Rs, excl. VAT)"
+
+fun invoiceAmountHint(pricesInclVat: Boolean): String =
+    if (pricesInclVat) "VAT is already in this figure — it is stored as typed, not added."
+    else "VAT 15% is added automatically when the invoice is issued."
+
 data class JobsState(
     val loading: Boolean = true,
     val jobs: List<JobBoardDto> = emptyList(),
@@ -884,6 +909,36 @@ class JobsViewModel @Inject constructor(
      */
     private suspend fun ensureQuoteDraftBill(quoteId: String) {
         api.convertQuoteToInvoice(quoteId)
+    }
+
+    /**
+     * A delivered car that left OWING: latch its outstanding balance for the pad and walk
+     * there. A delivered job's paid invoice is not in Checkout's TO COLLECT, so "view
+     * invoice" was the only door and it opened no pay path — the balance sat readable but
+     * uncollectable from the board.
+     *
+     * The latch carries the live outstanding figure ([deliveredOutstandingCents]), which
+     * the cashier can still change at the pad; the counter's own visibility rules still
+     * apply when it opens. On a quotation tablet there is no Checkout to walk to — same
+     * rule as [goToCheckout] — so the latch waits in TO COLLECT and the toast says so.
+     */
+    fun collectDeliveredBalance(onGo: () -> Unit) {
+        val s0 = _s.value
+        val job = active(s0) ?: return
+        // Any open bill: issued, partly paid, or the draft a ready job's bill still is.
+        // Paid and voided are settled history, not something to collect.
+        val inv = job.invoices.firstOrNull { it.docType == "invoice" && it.status != "void" && it.status != "paid" }
+            ?: run { note("This job has no open bill"); return }
+        val outstanding = deliveredOutstandingCents(inv.totalIncl, inv.amountPaid)
+            .takeIf { it > 0 }
+            ?: run { note("Nothing left to collect on this bill"); return }
+        collectBus.request(inv.id, outstanding)
+        if (!s0.takesPayments) {
+            _s.update { it.copy(toast = "The bill is at the till — collect it there.") }
+        } else {
+            close()
+            onGo()
+        }
     }
 
     /**

@@ -129,7 +129,13 @@ export default async function DocumentDetailPage({
   const canVoid =
     (isInvoice && doc.status === "issued" && doc.paidCents === 0) ||
     (doc.docType === "quote" && ["issued", "accepted"].includes(doc.status));
-  const canCredit = isInvoice && doc.paidCents > 0 && doc.status !== "void" && !doc.creditedByNumber;
+  // Credit notes are full-invoice, one-shot corrections: they refund the whole
+  // bill, so they only make sense on a FULLY paid invoice. Offering one on a
+  // partly-paid bill — next to a live RecordPaymentForm — lets an operator
+  // collect the remainder and refund the whole thing interleaved (money moves
+  // twice). Partly-paid corrections go through per-payment reversal instead;
+  // unpaid bills void.
+  const canCredit = isInvoice && doc.status === "paid" && doc.paidCents > 0 && !doc.creditedByNumber;
   // Already archived by what it IS (void / credited / dead quote)? Then a manual
   // toggle is meaningless. Otherwise owner/manager may file it away by hand.
   const autoArchived =

@@ -47,9 +47,21 @@ export function QuoteAnswerButtons({
       return setError(r.error);
     }
     // Goods agreed remotely still needs billing — same rule as signing in person.
+    // Billing is best-effort: the accept above already landed, so a convert
+    // failure stays on this page with the error shown — the quote is accepted
+    // but NOT billed, and "Convert to invoice" retries idempotently.
     if (!hasService) {
       const inv = await convertQuoteToInvoiceAction(documentId);
-      if (inv.ok) return router.push(`/sales/${inv.data.id}/edit`);
+      if (inv.ok && inv.data) return router.push(`/sales/${inv.data.id}/edit`);
+      setBusy(false);
+      setError(
+        inv.ok
+          ? "Quote accepted, but the new invoice could not be opened — find it under Sales."
+          : `Quote accepted, but the invoice could not be created: ${inv.error} — retry with “Convert to invoice”.`,
+      );
+      setOpen(null);
+      router.refresh();
+      return;
     }
     setBusy(false);
     setOpen(null);

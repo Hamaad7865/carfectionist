@@ -467,6 +467,33 @@ fun docKindLabel(docType: String): String = when (docType) {
     else -> docType.replace('_', ' ')
 }
 
+/**
+ * Why a latched collect request must NOT open the pad, or null when it may.
+ *
+ * A collect latch used to open ANY bill raw — including the two kinds the TO COLLECT
+ * list itself refuses to show. The pad then offered to take money on a bill the list
+ * says is not collectable: a draft raised mid-service (or abandoned in the back
+ * office), or a bill with nothing left owing. Both are refused at the money RPCs, so
+ * the pad could only ever end in an error — or, worse, in confusion about which bill
+ * the figure on screen belongs to.
+ *
+ * The rule below is the list's rule ([CounterViewModel.loadLists]), kept in step with
+ * it by these cases: hide drafts unless the job is ready/delivered or the bill is a
+ * jobless quote raising, and hide anything with a zero balance. Pulled out so the rule
+ * can be tested without a ViewModel; the watcher shows the returned text in the
+ * existing error channel instead of opening the pad, and still consumes the latch.
+ */
+fun collectPadBlockReason(bill: OutstandingInvoiceDto): String? {
+    if (rupeesToCents(bill.totalIncl) - rupeesToCents(bill.amountPaid) <= 0)
+        return "That bill has nothing left to collect — it may already be settled. Pick it again from TO COLLECT if it is still owed."
+    val ready = bill.status != "draft" ||
+        bill.jobs?.status == "ready" || bill.jobs?.status == "delivered" ||
+        (bill.jobId == null && bill.sourceDocumentId != null)
+    if (!ready)
+        return "That bill isn't ready to collect yet — it is still a draft. Find it again in TO COLLECT once it is."
+    return null
+}
+
 enum class CheckoutMode { LIST, WALKIN }
 
 /** The methods a split bill can be allocated across — Credit is a receivable, not a tender. */
@@ -1081,6 +1108,13 @@ class CounterViewModel @Inject constructor(
             payText = amountCents?.let { centsToText(it) } ?: "",
             padField = PadField.TENDER,
             refText = "", error = null, splitMode = false, splitText = emptyMap(),
+            // Points are tendered on the pad, not in the till — but they were armed on the
+            // LAST bill, for the last customer, against the last balance. Leaving them set
+            // spent the previous customer's points choice on this bill the moment Take was
+            // pressed. The picker goes with them: it is the other half of the same choice.
+            // Cart and customer are deliberately untouched — a walk-in built and abandoned
+            // for a TO COLLECT bill stays in memory behind the pad.
+            pointsAppliedCents = 0L, pointsPickerOpen = false, pointsPickerText = "",
         )
         loadCollectDetail(bill)
     }
@@ -1119,16 +1153,33 @@ class CounterViewModel @Inject constructor(
      * A customer just signed a quote and left a deposit: the bill is waiting, the figure is
      * agreed. Land on it with the pad already open. Latched, so it survives the navigation
      * that creates this ViewModel in the first place.
+     *
+     * Two refusals live here, and both still consume the latch — a request that is not
+     * consumed fires again on the next unrelated visit to Checkout:
+     *  • older than a shift ([isCollectRequestExpired]) — re-selected manually from TO
+     *    COLLECT, never sprung open stale;
+     *  • for a bill the TO COLLECT list itself would not show ([collectPadBlockReason]) —
+     *    a mid-service draft or a settled bill opens no pad, and the error channel says
+     *    why instead.
      */
     private fun watchCollectRequests() {
         viewModelScope.launch {
             collectBus.pending.collect { req ->
                 if (req == null) return@collect
+                if (mu.carfection.pos.core.data.isCollectRequestExpired(req.requestedAtMs, System.currentTimeMillis())) {
+                    collectBus.consume()
+                    return@collect
+                }
                 val bills = runCatching { api.fetchOutstandingInvoices() }.getOrDefault(emptyList())
                 val bill = bills.firstOrNull { it.id == req.invoiceId }
                 if (bill != null) {
-                    local.value = local.value.copy(mode = CheckoutMode.LIST, bills = bills)
-                    collectOn(bill, req.amountCents)
+                    val blocked = collectPadBlockReason(bill)
+                    if (blocked != null) {
+                        local.value = local.value.copy(mode = CheckoutMode.LIST, bills = bills, error = blocked)
+                    } else {
+                        local.value = local.value.copy(mode = CheckoutMode.LIST, bills = bills)
+                        collectOn(bill, req.amountCents)
+                    }
                 }
                 // Consume either way: a bill already settled (or a failed fetch) must not leave
                 // the pad springing open on the next unrelated visit to Checkout.

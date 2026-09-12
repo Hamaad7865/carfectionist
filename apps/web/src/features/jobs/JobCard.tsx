@@ -23,6 +23,7 @@ import {
   cancelJobAction,
   completeJobAction,
   createDocumentFromJobAction,
+  getJobBilledLinesAction,
   recordPaymentAction,
   setJobScheduleAction,
 } from "./actions";
@@ -218,6 +219,50 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const [consume, setConsume] = useState<{ productId: string; qty: number }[]>([]);
   const [cProd, setCProd] = useState("");
   const [cQty, setCQty] = useState("1");
+  // Lines already billed on this job's live invoices — completing with the same
+  // stocked product moves it off the shelf a second time (issuing relieved it
+  // once already). Loaded lazily when there is something to compare; a failed
+  // load fails open to today's behavior rather than blocking the bay.
+  const [billedLines, setBilledLines] = useState<{ productId: string; qty: number; number: string | null }[] | null>(null);
+  const [billedKey, setBilledKey] = useState<string | null>(null);
+  const [confirmDouble, setConfirmDouble] = useState(false);
+  const invoiceKey = job.documents
+    .filter((d) => d.docType === "invoice" && d.status !== "void")
+    .map((d) => d.id)
+    .sort()
+    .join(",");
+  // Lines already billed, for the double-move guard below. Refreshed whenever
+  // the basket or the bill set changes (event-driven, never in an effect); a
+  // failed load fails open to today's behavior rather than blocking the bay.
+  function refreshBilledLines(next: { productId: string; qty: number }[], key: string) {
+    if (next.length === 0) {
+      setBilledLines(null);
+      setBilledKey(null);
+      setConfirmDouble(false);
+      return;
+    }
+    if (billedLines !== null && billedKey === key) return;
+    const ids = key === "" ? [] : key.split(",");
+    void getJobBilledLinesAction(job.id, ids).then((r) => {
+      if (r.ok && r.lines) {
+        setBilledLines(r.lines);
+        setBilledKey(key);
+      }
+    });
+  }
+  function addConsumption() {
+    if (!cProd || !(Number(cQty) > 0)) return;
+    const next = [...consume, { productId: cProd, qty: Number(cQty) }];
+    setConsume(next);
+    setCProd("");
+    setCQty("1");
+    refreshBilledLines(next, invoiceKey);
+  }
+  function removeConsumption(i: number) {
+    const next = consume.filter((_, j) => j !== i);
+    setConsume(next);
+    refreshBilledLines(next, invoiceKey);
+  }
   const [busy, setBusy] = useState(false);
   // Errors render next to the control that caused them — a banner pinned at the
   // top is invisible when the Billing/Complete buttons are below the fold.
@@ -629,14 +674,29 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
       </div>
 
       {/* consumption + complete */}
-      {!readOnly && (
+      {!readOnly && (() => {
+        // Anything in the basket that a live invoice already billed walks off the
+        // shelf twice if completed — once at issue, once here. computed every
+        // render so adding or removing lines re-arms the confirm below.
+        const billedQty = new Map<string, { qty: number; number: string | null }>();
+        for (const l of billedLines ?? []) {
+          const prev = billedQty.get(l.productId);
+          billedQty.set(l.productId, {
+            qty: (prev?.qty ?? 0) + l.qty,
+            number: prev?.number ?? l.number,
+          });
+        }
+        const overlap = consume
+          .filter((c) => (billedQty.get(c.productId)?.qty ?? 0) > 0)
+          .map((c) => ({ ...c, number: billedQty.get(c.productId)?.number ?? null }));
+        return (
         <div className="mt-6 rounded-[15px] border border-line bg-card p-4">
           <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.14em] text-faint">Stock consumed</div>
           {consume.map((c, i) => (
             <div key={i} className="mb-2 flex items-center gap-2 text-[13px]">
               <span className="flex-1 text-body">{consumeName(c.productId)}</span>
               <span className="num text-muted">× {c.qty}</span>
-              <button onClick={() => setConsume(consume.filter((_, j) => j !== i))} className="grid size-7 place-items-center rounded text-faint hover:text-rose"><Trash2 size={13} /></button>
+              <button onClick={() => removeConsumption(i)} className="grid size-7 place-items-center rounded text-faint hover:text-rose"><Trash2 size={13} /></button>
             </div>
           ))}
           <div className="flex gap-2">
@@ -646,33 +706,54 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
             </select>
             <input className={`${field} num w-20 text-right`} value={cQty} onChange={(e) => setCQty(e.target.value)} inputMode="decimal" />
             <button
-              onClick={() => { if (cProd && Number(cQty) > 0) { setConsume([...consume, { productId: cProd, qty: Number(cQty) }]); setCProd(""); setCQty("1"); } }}
+              onClick={() => addConsumption()}
               className="grid size-9 place-items-center rounded-[10px] bg-[rgba(43,140,255,0.14)] text-link"
             >
               <Plus size={16} strokeWidth={2.6} />
             </button>
           </div>
           <button
-            onClick={() => run(() => completeJobAction({ jobId: job.id, consumptions: consume }), "bottom")}
+            onClick={() => {
+              if (overlap.length > 0 && !confirmDouble) {
+                setConfirmDouble(true);
+                return;
+              }
+              setConfirmDouble(false);
+              void run(() => completeJobAction({ jobId: job.id, consumptions: consume }), "bottom");
+            }}
             disabled={busy}
             className="grad-brand shadow-brand mt-4 flex h-12 w-full items-center justify-center rounded-[13px] font-display text-[15px] font-extrabold text-white disabled:opacity-60"
           >
-            Complete job &amp; consume stock →
+            {overlap.length > 0 && !confirmDouble ? "Already billed — tap again to move it twice" : "Complete job & consume stock →"}
           </button>
+          {overlap.length > 0 && !confirmDouble && (
+            <p className="mt-2 rounded-[10px] border border-[rgba(255,176,32,0.4)] bg-[rgba(255,176,32,0.07)] px-3 py-2 text-[12.5px] font-medium text-amber-ink">
+              {overlap.map((o) => `${o.qty}× ${consumeName(o.productId)}`).join(", ")} already billed
+              {overlap.map((o) => o.number).filter(Boolean).length > 0 &&
+                ` on ${[...new Set(overlap.map((o) => o.number).filter(Boolean))].join(", ")}`} — completing moves it off the shelf a second time.
+            </p>
+          )}
           {errNote("bottom")}
         </div>
-      )}
+        );
+      })()}
 
       {/* Handing the car over is gated on the bill, not just a role check: a paid
           invoice delivers straight through deliver_paid_job; a balance still owed
           only delivers through the same deliberate on-account handover the counter
           and the tablet use (HandOverButton) — never a silent status flip. */}
       {job.status === "ready" && (() => {
-        const liveInvoice = job.documents.find((d) => d.docType === "invoice" && d.status !== "void");
-        if (!liveInvoice || liveInvoice.status === "draft") {
+        // A job can carry several live bills (re-priced revisions, counter adds):
+        // the handover decision reads ALL of them, never the first row that
+        // happens to come back. Drafts are not bills yet — only issued (or
+        // further paid) invoices gate the car.
+        const billed = job.documents.filter((d) => d.docType === "invoice" && d.status !== "void" && d.status !== "draft");
+        if (billed.length === 0) {
           return <p className="mt-5 text-center text-[13px] text-faint">Issue an invoice before this job can be delivered.</p>;
         }
-        if (liveInvoice.status === "paid") {
+        const owedTotalCents = billed.reduce((s, d) => s + Math.max(d.outstandingCents, 0), 0);
+        const unpaid = billed.filter((d) => d.outstandingCents > 0);
+        if (owedTotalCents === 0) {
           return (
             <>
               <button onClick={() => run(() => deliverPaidJobAction(job.id), "bottom")} disabled={busy} className={btn("ghost", "lg", "mt-5 w-full text-[14px]")}>
@@ -685,18 +766,29 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
         if (!job.customer) {
           return (
             <p className="mt-5 text-center text-[13px] text-faint">
-              {formatMUR(liveInvoice.outstandingCents)} is still owed and this job has no customer on file — an on-account handover needs one.
+              {formatMUR(owedTotalCents)} is still owed and this job has no customer on file — an on-account handover needs one.
             </p>
           );
         }
+        // One handover per open bill: each delivers its own jobs and leaves its
+        // own balance on the statement. Handing over "the job" once would retire
+        // only the first bill it looked at.
         return (
-          <div className="mt-5">
-            <HandOverButton
-              invoiceId={liveInvoice.id}
-              number={liveInvoice.number}
-              customerName={job.customer}
-              outstanding={formatMUR(liveInvoice.outstandingCents)}
-            />
+          <div className="mt-5 flex flex-col gap-2">
+            {unpaid.length > 1 && (
+              <p className="text-center text-[13px] font-semibold text-body">
+                {formatMUR(owedTotalCents)} still owed across {unpaid.length} bills
+              </p>
+            )}
+            {unpaid.map((d) => (
+              <HandOverButton
+                key={d.id}
+                invoiceId={d.id}
+                number={d.number}
+                customerName={job.customer}
+                outstanding={formatMUR(d.outstandingCents)}
+              />
+            ))}
             {errNote("bottom")}
           </div>
         );

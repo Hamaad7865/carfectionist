@@ -58,8 +58,20 @@ export function StartJobButton({
     }
     if (!hasService) {
       const inv = await convertQuoteToInvoiceAction(documentId);
-      if (inv.ok) return router.push(`/sales/${inv.data.id}/edit`);
+      if (inv.ok && inv.data) return router.push(`/sales/${inv.data.id}/edit`);
+      // The accept above already landed (issued + numbered) — billing is
+      // best-effort, so stay on this page and say so: the quote is accepted
+      // but NOT billed, and "Convert to invoice" retries idempotently.
+      setBusy(null);
+      setError(
+        inv.ok
+          ? "Quote accepted, but the new invoice could not be opened — find it under Sales."
+          : `Quote accepted, but the invoice could not be created: ${inv.error} — retry with “Convert to invoice”.`,
+      );
+      router.refresh();
+      return;
     }
+    setBusy(null);
     router.refresh();
   }
 
