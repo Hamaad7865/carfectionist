@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
 import dynamic from "next/dynamic";
-import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink, ChevronUp, ChevronDown, Copy, AlignLeft, KeyRound } from "lucide-react";
+import { ChevronLeft, ArrowRight, Search, Plus, X, FileDown, PanelRightClose, PanelRightOpen, ZoomIn, ZoomOut, Maximize2, ExternalLink, ChevronUp, ChevronDown, Copy, AlignLeft, KeyRound, Check, Car } from "lucide-react";
 import { richToPlainText } from "@/lib/rich/plain";
 
 /**
@@ -27,16 +27,45 @@ import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } fro
 import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import type { SaveDraftInput } from "@/features/documents/payload";
-import type { BuilderContext, BuilderCustomer } from "@/lib/supabase/queries/builder";
-import { reducer, toSaveDraftLines, type BuilderState } from "./state";
+import type { BuilderContext, BuilderCustomer, BuilderVehicle } from "@/lib/supabase/queries/builder";
+import { reducer, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
 import { NewCustomerButton } from "./NewCustomerButton";
 import { OwnerOverrideDialog } from "@/features/documents/OwnerOverrideDialog";
+import { saveVehicleAction } from "@/features/contacts/actions";
 import { btn } from "@/components/ui/button";
 
 // UUID keys so the builder's line keys can never collide with those minted
 // server-side in state.ts (both previously used an l<N> counter from 0).
 const newKey = () => crypto.randomUUID();
+
+const toBuilderCar = (v: BuilderVehicle): BuilderCar => ({
+  id: v.id,
+  plate: v.plate,
+  label: [v.make, v.model].filter(Boolean).join(" ") || "Vehicle",
+});
+
+/**
+ * The plate band that heads a car's charges in the editor, with that car's
+ * ex-VAT subtotal — the same grouping (and the same basis) the printed A4
+ * draws. Presentation only: the money lives on the lines.
+ */
+function CarSectionHead({ plate, label, subtotal, hint }: { plate: string | null; label: string; subtotal: string | null; hint?: string }) {
+  return (
+    <div className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2">
+      {plate ? (
+        <span className="num rounded-[6px] border border-line-2 bg-card px-2 py-0.5 text-[12px] font-bold text-ink">{plate}</span>
+      ) : (
+        <Car size={15} className="shrink-0 text-faint" />
+      )}
+      <span className="min-w-0 flex-1 truncate text-[12.5px] font-bold text-body">
+        {label}
+        {hint && <span className="ml-2 font-medium text-faint">{hint}</span>}
+      </span>
+      {subtotal && <span className="num text-[12.5px] font-bold text-ink">{subtotal}</span>}
+    </div>
+  );
+}
 
 // Signature of the editable content — used to detect edits made WHILE a save is
 // in flight, so saveOk doesn't clear dirty and silently drop them.
@@ -94,6 +123,13 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   // Customers created from the "New" button live here until a reload folds them
   // into ctx.customers — so the one just made is selectable and shows in the preview.
   const [createdCustomers, setCreatedCustomers] = useState<BuilderCustomer[]>([]);
+  // Cars registered from the builder's own "+ New car" row live here until a
+  // reload folds them into ctx.vehicles — same pattern as createdCustomers.
+  const [createdVehicles, setCreatedVehicles] = useState<BuilderVehicle[]>([]);
+  const [newPlate, setNewPlate] = useState("");
+  const [newMake, setNewMake] = useState("");
+  const [vehError, setVehError] = useState<string | null>(null);
+  const [vehBusy, setVehBusy] = useState(false);
   const [adName, setAdName] = useState("");
   const [adPrice, setAdPrice] = useState("");
   // Work or goods — asked every time a line is typed by hand, because nothing else can
@@ -128,6 +164,55 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     return [...createdCustomers.filter((c) => !known.has(c.id)), ...ctx.customers];
   }, [ctx.customers, createdCustomers]);
   const customer = allCustomers.find((c) => c.id === state.customerId);
+  const allVehicles = useMemo(() => {
+    const known = new Set(ctx.vehicles.map((v) => v.id));
+    return [...createdVehicles.filter((v) => !known.has(v.id)), ...ctx.vehicles];
+  }, [ctx.vehicles, createdVehicles]);
+  const customerVehicles = useMemo(
+    () => (state.customerId ? allVehicles.filter((v) => v.customerId === state.customerId) : []),
+    [allVehicles, state.customerId],
+  );
+  // The editor lists charges under the same car sections the printout draws:
+  // ticked order, no-car bucket last. With no cars picked this is one flat list.
+  const grouped = state.cars.length > 0;
+  const sections = useMemo(() => groupBuilderLines(state.lines, state.cars), [state.lines, state.cars]);
+  const ordered = useMemo(() => sections.flatMap((s) => s.lines), [sections]);
+  const groupKeyOf = useCallback(
+    (l: BuilderLine) => (l.vehicleId && state.cars.some((c) => c.id === l.vehicleId) ? l.vehicleId : ""),
+    [state.cars],
+  );
+  // Per-car ex-VAT subtotal for the section headings — the A4's basis, so the
+  // editor and the preview can never disagree about a car's figure.
+  const subtotalByCar = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const l of state.lines) {
+      const lt = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct, priceInclusive: l.priceInclusive });
+      const k = groupKeyOf(l);
+      m.set(k, (m.get(k) ?? 0) + lt.exclCents);
+    }
+    return m;
+  }, [state.lines, groupKeyOf]);
+  const emptyCars = useMemo(
+    () => (grouped ? state.cars.filter((c) => !state.lines.some((l) => l.vehicleId === c.id)) : []),
+    [grouped, state.cars, state.lines],
+  );
+
+  async function addNewCar() {
+    if (readOnly || !state.customerId || !newPlate.trim() || vehBusy) return;
+    setVehBusy(true);
+    setVehError(null);
+    const res = await saveVehicleAction({ customerId: state.customerId, plate: newPlate.trim(), make: newMake.trim() || undefined });
+    setVehBusy(false);
+    if (!res.ok || !res.data) {
+      setVehError(!res.ok ? res.error : "Couldn't add that car.");
+      return;
+    }
+    const v: BuilderVehicle = { id: res.data.id, customerId: state.customerId, plate: newPlate.trim(), make: newMake.trim() || null, model: null };
+    setCreatedVehicles((cs) => [v, ...cs]);
+    dispatch({ type: "addCar", car: toBuilderCar(v) });
+    setNewPlate("");
+    setNewMake("");
+  }
 
   const doSave = useCallback((): Promise<string | null> => {
     const run = async (): Promise<string | null> => {
@@ -242,6 +327,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       assets: ctx.assets,
       number: state.number,
       issueDate: readOnly ? state.issueDate ?? new Date().toISOString().slice(0, 10) : null,
+      cars: state.cars,
     });
     return renderToStaticMarkup(<DocumentA4 {...props} />);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -291,7 +377,10 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     // 1000.00. Squashing it to a 2dp net (869.57) re-grossed a cent off — the
     // 1000.01 the owner reported (20260812000020).
     // No product to ask, so the row's own Service/Product control decides the allowance too.
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, vehicleId: null, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: typed, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
+    // A new line lands in the open car section (products included — each stays its
+    // own line, attributed to the car it was added for; the "No car" tab is the
+    // counter-goods bucket that prints unheaded at the end).
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, vehicleId: state.activeCarId, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: typed, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -486,6 +575,59 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             </div>
           </div>
 
+          {/* cars — one quotation can cover several of the customer's cars */}
+          <div>
+            <div className={`${label} mb-2.5`}>Cars{state.cars.length > 0 ? ` · ${state.cars.length}` : ""}</div>
+            {!customer ? (
+              <p className="text-[12.5px] text-faint">Pick a customer first — their cars list here to tick onto this {state.docType}.</p>
+            ) : readOnly ? (
+              state.cars.length === 0 ? (
+                <p className="text-[12.5px] text-faint">No car recorded on this {state.docType}.</p>
+              ) : (
+                <div className="flex flex-wrap gap-1.5">
+                  {state.cars.map((c) => (
+                    <span key={c.id} className="num inline-flex items-center gap-1.5 rounded-[8px] border border-line-2 bg-sub px-2.5 py-1 text-[12px] font-bold text-body">
+                      {c.plate || c.label}
+                    </span>
+                  ))}
+                </div>
+              )
+            ) : (
+              <>
+                {customerVehicles.length === 0 ? (
+                  <p className="mb-2 text-[12.5px] text-faint">No cars on file for {customer.name} yet — add the first below.</p>
+                ) : (
+                  <div className="mb-2 flex flex-col gap-1.5">
+                    {customerVehicles.map((v) => {
+                      const ticked = state.cars.some((c) => c.id === v.id);
+                      return (
+                        <button
+                          key={v.id}
+                          onClick={() => (ticked ? dispatch({ type: "removeCar", id: v.id }) : dispatch({ type: "addCar", car: toBuilderCar(v) }))}
+                          aria-pressed={ticked}
+                          title={ticked ? "Untick — its charges move to No car" : "Tick onto this document"}
+                          className={`flex items-center gap-2.5 rounded-[10px] border px-3 py-2 text-left ${ticked ? "border-link bg-[rgba(43,140,255,0.08)]" : "border-line bg-sub hover:border-brand"}`}
+                        >
+                          <span className="num rounded-[6px] border border-line-2 bg-card px-2 py-0.5 text-[12px] font-bold text-ink">{v.plate}</span>
+                          <span className="flex-1 truncate text-[13px] font-medium text-body">{[v.make, v.model].filter(Boolean).join(" ") || "Vehicle"}</span>
+                          {ticked && <Check size={15} className="ml-auto shrink-0 text-link" strokeWidth={2.8} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-2">
+                  <input value={newPlate} onChange={(e) => setNewPlate(e.target.value)} placeholder="Plate — e.g. 2211 MR 23" className="h-9 min-w-[150px] flex-1 rounded-[9px] border border-line-2 bg-sub px-2.5 text-[13px] font-semibold text-ink outline-none placeholder:font-medium placeholder:text-faint focus:border-brand" />
+                  <input value={newMake} onChange={(e) => setNewMake(e.target.value)} placeholder="Make (optional)" className="h-9 w-[130px] rounded-[9px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none placeholder:text-faint focus:border-brand" />
+                  <button onClick={addNewCar} disabled={!newPlate.trim() || vehBusy} className="inline-flex h-9 items-center gap-1.5 rounded-[9px] border border-line-2 bg-card px-3 text-[13px] font-bold text-body hover:border-brand disabled:opacity-50">
+                    <Plus size={14} strokeWidth={2.6} /> {vehBusy ? "Adding…" : "New car"}
+                  </button>
+                </div>
+                {vehError && <p className="mt-1.5 text-[12px] font-semibold text-rose">{vehError}</p>}
+              </>
+            )}
+          </div>
+
           {/* line items */}
           <div className="border-t border-line pt-4">
             <div className={`${label} mb-2.5`}>Line items</div>
@@ -524,7 +666,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                           // A price_includes_vat product carries the EXACT gross the owner typed
                           // (20260812000030); shelfCents shows it verbatim instead of re-grossing a
                           // net, so its 9,900 dash cam lands on 9,900.00, not 9,900.01.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, vehicleId: null, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat), priceInclusive: p.priceIncludesVat || ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
+                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, vehicleId: state.activeCarId, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat), priceInclusive: p.priceIncludesVat || ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
                         }}
                         className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
@@ -576,8 +718,37 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             {state.lines.length === 0 ? (
               <div className="rounded-[11px] border border-dashed border-line-2 p-6 text-center text-[12.5px] font-semibold text-faint">No lines yet — add from the catalogue or type an ad-hoc line</div>
             ) : (
+              <>
+                {grouped && !readOnly && (
+                  <div className="mb-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Which car new lines belong to">
+                    {state.cars.map((c) => {
+                      const on = state.activeCarId === c.id;
+                      return (
+                        <button
+                          key={c.id}
+                          role="tab"
+                          aria-selected={on}
+                          title="New lines land here"
+                          onClick={() => dispatch({ type: "setActiveCar", id: c.id })}
+                          className={`num h-8 rounded-[9px] border px-3 text-[12.5px] font-bold ${on ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted hover:text-body"}`}
+                        >
+                          {c.plate || c.label}
+                        </button>
+                      );
+                    })}
+                    <button
+                      role="tab"
+                      aria-selected={state.activeCarId === null}
+                      title="Counter goods and fees — printed unheaded at the end"
+                      onClick={() => dispatch({ type: "setActiveCar", id: null })}
+                      className={`h-8 rounded-[9px] border px-3 text-[12.5px] font-bold ${state.activeCarId === null ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted hover:text-body"}`}
+                    >
+                      No car
+                    </button>
+                  </div>
+                )}
               <div className="flex flex-col gap-2">
-                {state.lines.map((l, li) => {
+                {ordered.map((l, li) => {
                   const lt = computeLineTotals({ qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind, discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct, priceInclusive: l.priceInclusive });
                   const net = lt.exclCents;
                   const descOpen = openDesc === l.key;
@@ -589,8 +760,21 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                   const lineAmtMax = l.discountPolicy === "carwash"
                     ? lineAllowanceCents({ qty: l.qty, unitCents: l.unitCents, vatRatePct: l.vatRatePct, policy: l.discountPolicy, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents, priceInclusive: l.priceInclusive }, ctx.posRules.carwashPct)
                     : Infinity;
+                  // A plate band before the first charge of each car — the same
+                  // transitions the printed A4 draws its headings on.
+                  const gk = groupKeyOf(l);
+                  const showHead = grouped && (li === 0 || groupKeyOf(ordered[li - 1]) !== gk);
+                  const headCar = gk ? state.cars.find((c) => c.id === gk) : undefined;
                   return (
-                    <div key={l.key} className="rounded-[11px] border border-line bg-card">
+                    <Fragment key={l.key}>
+                    {showHead && (
+                      <CarSectionHead
+                        plate={headCar?.plate ?? null}
+                        label={headCar ? `${headCar.label}` : "No car — counter items"}
+                        subtotal={formatMUR(subtotalByCar.get(gk) ?? 0)}
+                      />
+                    )}
+                    <div className="rounded-[11px] border border-line bg-card">
                     <div className="flex flex-wrap items-center gap-2.5 px-3 py-2.5">
                       {!readOnly && (
                         /* The rail sits BESIDE the row, not as icons on top of the
@@ -622,6 +806,20 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                           <div className="truncate text-[11px] text-faint" title={summary}>{summary.replace(/\n/g, " · ")}</div>
                         )}
                       </div>
+                      {grouped && !readOnly && (
+                        <select
+                          value={groupKeyOf(l)}
+                          onChange={(e) => dispatch({ type: "patchLine", key: l.key, patch: { vehicleId: e.target.value || null } })}
+                          title="Which car this charge is for"
+                          aria-label={`Car for ${l.title || "line"}`}
+                          className="h-7 max-w-[122px] truncate rounded-[7px] border border-line-2 bg-sub px-1.5 text-[11px] font-semibold text-body outline-none focus:border-brand"
+                        >
+                          <option value="">No car</option>
+                          {state.cars.map((c) => (
+                            <option key={c.id} value={c.id}>{c.plate || c.label}</option>
+                          ))}
+                        </select>
+                      )}
                       <button
                         onClick={() => !readOnly && dispatch({ type: "patchLine", key: l.key, patch: { vatRatePct: l.vatRatePct > 0 ? 0 : 15 } })}
                         className={`h-7 rounded-[7px] px-2.5 text-[10.5px] font-bold ${l.vatRatePct > 0 ? "bg-[rgba(43,140,255,0.14)] text-link" : "bg-[rgba(15,23,32,0.06)] text-faint"}`}
@@ -738,9 +936,18 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                       </div>
                     )}
                     </div>
+                    </Fragment>
                   );
                 })}
+                {/* Picked cars with no charges yet keep their section, so a car on
+                    the quote reads as on the quote before anything is typed. */}
+                {emptyCars.map((c) => (
+                  <div key={`empty-${c.id}`} className="flex flex-col gap-2">
+                    <CarSectionHead plate={c.plate || null} label={c.label} subtotal={null} hint="No charges yet" />
+                  </div>
+                ))}
               </div>
+              </>
             )}
           </div>
 

@@ -2653,10 +2653,14 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(s.pickVehicles, key = { it.id }) { v ->
+                        val alreadyOn = s.cars.any { it.id == v.id }
                         Row(
                             Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(11.dp))
                                 .border(1.dp, Hairline, RoundedCornerShape(11.dp))
-                                .clickable { vm.pickQuoteVehicle(v) }.padding(horizontal = 13.dp, vertical = 11.dp),
+                                // The first car starts the quotation; every further car JOINS it —
+                                // replacing here is how a second car used to wipe the first off
+                                // the quote. (addQuoteCar ignores a car that is already on.)
+                                .clickable { if (s.cars.isEmpty()) vm.pickQuoteVehicle(v) else vm.addQuoteCar(v) }.padding(horizontal = 13.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
@@ -2666,15 +2670,27 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                             Text(
                                 listOfNotNull(v.make, v.model, v.colour).joinToString(" "),
                                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, color = TextSecondary,
+                                modifier = Modifier.weight(1f),
                             )
+                            if (alreadyOn) {
+                                Text(
+                                    "· on quote",
+                                    fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent,
+                                )
+                            }
                         }
                     }
-                    item {
-                        Box(
-                            Modifier.fillMaxWidth().height(46.dp).dashedBorder(Color(0x40101A24), 11.dp)
-                                .clickable { vm.pickQuoteVehicle(null) },
-                            contentAlignment = Alignment.Center,
-                        ) { Text("No car yet — quote anyway", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary) }
+                    // Clearing the car off a quotation that covers several would strand their
+                    // charges under plates with no section — "no car" is only offered while
+                    // there is at most one to clear.
+                    if (s.cars.size <= 1) {
+                        item {
+                            Box(
+                                Modifier.fillMaxWidth().height(46.dp).dashedBorder(Color(0x40101A24), 11.dp)
+                                    .clickable { vm.pickQuoteVehicle(null) },
+                                contentAlignment = Alignment.Center,
+                            ) { Text("No car yet — quote anyway", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = TextSecondary) }
+                        }
                     }
                 }
             }

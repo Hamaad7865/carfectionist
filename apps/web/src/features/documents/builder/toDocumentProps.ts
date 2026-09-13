@@ -1,7 +1,7 @@
 import { computeTotals, formatMUR, netFromGrossCents } from "@/lib/money";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 import type { DocAssets } from "@/lib/pdf/assets";
-import type { BuilderState } from "./state";
+import type { BuilderCar, BuilderState } from "./state";
 
 export interface BuilderBusiness {
   tradingName: string;
@@ -27,6 +27,9 @@ export interface PreviewOpts {
   issueDate?: string | null;
   number?: string | null;
   assets?: DocAssets;
+  /** The cars ticked onto the document — resolves each line's vehicleId to the
+   *  plate heading DocumentA4 groups under. */
+  cars?: BuilderCar[];
 }
 
 /** Pure map from builder state → DocumentA4 props (drives the live preview and,
@@ -59,6 +62,12 @@ export function toDocumentProps(
       l.discountKind === "amount" && l.discountAmountCents > 0 ? `less ${formatMUR(l.discountAmountCents)}`
       : (l.discountPct ?? 0) > 0 ? `less ${l.discountPct}%`
       : null,
+    // Which car this charge is for — DocumentA4 heads each car's charges with
+    // its plate (and a per-car subtotal) when the document covers several.
+    vehicle: (() => {
+      const car = l.vehicleId ? opts.cars?.find((c) => c.id === l.vehicleId) : undefined;
+      return car ? { id: car.id, plate: car.plate || null, label: car.label } : null;
+    })(),
   }));
   const orderDiscountExclCents = totals.grossSubtotalCents - totals.subtotalCents;
   const orderDiscountLabel =

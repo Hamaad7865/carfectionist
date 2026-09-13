@@ -23,8 +23,9 @@ const state: BuilderState = {
   issueDate: null,
   customerId: "c1",
   revision: 0,
-  lines: [
-    { key: "a", productId: "p1", vehicleId: null, title: "Full Decontamination & Body Polish", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 3200000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false },
+  cars: [],
+  activeCarId: null,
+  lines: [    { key: "a", productId: "p1", vehicleId: null, title: "Full Decontamination & Body Polish", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 3200000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false },
     { key: "b", productId: "p2", vehicleId: null, title: "Remove Wheel, Decontamination & Polish", description: "", rich: null, unitLabel: "", qty: 4, unitCents: 380000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false },
     { key: "c", productId: "p3", vehicleId: null, title: "Diamondbrite 3-Year Protection (Exterior Only)", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 3000000, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: "free", vatRatePct: 15, lineKind: null, priceInclusive: false },
   ],
@@ -127,5 +128,48 @@ describe("toDocumentProps — rich content reaches the preview", () => {
     const props = toDocumentProps(s, business, PREVIEW);
     expect(props.lines[0].unit).toBeNull();
     expect(props.lines[0].rich).toBeNull();
+  });
+});
+
+describe("toDocumentProps — each line carries its car to the grouped print", () => {
+  const hilux = { id: "v1", plate: "2087 JL 25", label: "Toyota Hilux" };
+  const swift = { id: "v2", plate: "9876 ZZ 19", label: "Suzuki Swift" };
+  const mk = (key: string, title: string, vehicleId: string | null, productId: string | null = null) => ({
+    key, productId, vehicleId, title, description: "", rich: null, unitLabel: "", qty: 1,
+    unitCents: 100000, discountPct: 0, discountKind: "percent" as const, discountAmountCents: 0,
+    discountPolicy: "free" as const, vatRatePct: 15, lineKind: null, priceInclusive: false,
+  });
+  const s: BuilderState = {
+    ...state,
+    cars: [hilux, swift],
+    activeCarId: "v1",
+    // Two services on two cars plus a product on the first car plus a counter
+    // item on no car — every one its own line, each attributed.
+    lines: [
+      mk("a", "Full detail", "v1"),
+      mk("b", "Wax", "v1", "p9"),
+      mk("c", "Interior clean", "v2"),
+      mk("d", "Call-out fee", null),
+    ],
+  };
+  const props = toDocumentProps(s, business, { ...PREVIEW, cars: [hilux, swift] });
+
+  it("resolves each line's car to its plate heading", () => {
+    expect(props.lines[0].vehicle).toEqual({ id: "v1", plate: "2087 JL 25", label: "Toyota Hilux" });
+    expect(props.lines[2].vehicle).toEqual({ id: "v2", plate: "9876 ZZ 19", label: "Suzuki Swift" });
+  });
+
+  it("keeps a product its own attributed line — never folded into a service", () => {
+    expect(props.lines[1].title).toBe("Wax");
+    expect(props.lines[1].vehicle).toEqual({ id: "v1", plate: "2087 JL 25", label: "Toyota Hilux" });
+  });
+
+  it("leaves the no-car charge unattributed for the unheaded block", () => {
+    expect(props.lines[3].vehicle).toBeNull();
+  });
+
+  it("leaves lines ungrouped when no cars ride the preview opts", () => {
+    const plain = toDocumentProps(s, business, PREVIEW);
+    expect(plain.lines.every((l) => l.vehicle == null)).toBe(true);
   });
 });

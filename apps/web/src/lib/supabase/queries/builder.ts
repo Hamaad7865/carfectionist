@@ -53,6 +53,14 @@ export interface BuilderCustomer {
   brn: string | null;
   vatNo: string | null;
 }
+/** One of the customer's cars, as the quote builder's car picker shows it. */
+export interface BuilderVehicle {
+  id: string;
+  customerId: string;
+  plate: string;
+  make: string | null;
+  model: string | null;
+}
 export interface BuilderContext {
   createdBy: string;
   /** The shop quotes VAT-INCLUSIVE shelf prices — show/accept gross. Lines still save net. */
@@ -64,6 +72,10 @@ export interface BuilderContext {
   assets: DocAssets;
   products: CatalogueProduct[];
   customers: BuilderCustomer[];
+  /** Every active vehicle, so the builder can tick the customer's cars onto a
+   *  multi-car quote. Filtered client-side per customer (one read, no per-pick
+   *  round-trip). */
+  vehicles: BuilderVehicle[];
   posRules: PosRules;
 }
 
@@ -79,11 +91,12 @@ function toSectionConfig(config: any): Partial<SectionFlags> {
 export async function getBuilderContext(): Promise<BuilderContext> {
   const sb = await createClient();
   const session = await getSessionContext();
-  const [bsRes, tmplRes, prodRes, custRes] = await Promise.all([
+  const [bsRes, tmplRes, prodRes, custRes, vehRes] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
     sb.from("products").select("id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy").eq("is_active", true).order("kind").order("name"),
     sb.from("customers").select("id, name, country, email, phone, brn, vat_number").order("name"),
+    sb.from("vehicles").select("id, customer_id, plate, make, model").eq("is_active", true).order("plate"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -136,6 +149,14 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       phone: c.phone ?? null,
       brn: c.brn ?? null,
       vatNo: c.vat_number ?? null,
+    })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    vehicles: (vehRes.data ?? []).map((v: any) => ({
+      id: v.id,
+      customerId: v.customer_id,
+      plate: v.plate,
+      make: v.make ?? null,
+      model: v.model ?? null,
     })),
   };
 }

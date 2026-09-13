@@ -3,8 +3,14 @@ import type { DiscountKind } from "@/lib/money/totals";
 import { policyOf, type DiscountPolicy } from "@/lib/money/allowance";
 import type { RichDoc } from "@/lib/rich/types";
 
-export interface BuilderLine {
-  key: string;
+/** One of the customer's cars ticked onto this document, in the order picked. */
+export interface BuilderCar {
+  id: string;
+  plate: string;
+  label: string;
+}
+
+export interface BuilderLine {  key: string;
   productId: string | null; // null = ad-hoc typed line
   /**
    * Which car this charge is for, on a document covering more than one. Null on the
@@ -48,6 +54,19 @@ export interface BuilderState {
   customerId: string | null;
   revision: number;
   lines: BuilderLine[];
+  /**
+   * The cars this document covers, in the order they were ticked. Empty = the
+   * ordinary document: lines carry no car and everything prints ungrouped.
+   * The header's vehicle is derived server-side (save_draft names the first
+   * car), so this list is never persisted itself — only the per-line vehicleId.
+   */
+  cars: BuilderCar[];
+  /**
+   * Where a newly added line lands: a car id, or null for the "No car" section
+   * (counter goods, call-out fees — printed unheaded at the end). Null with no
+   * cars picked is the ordinary single-car document.
+   */
+  activeCarId: string | null;
   docDiscountKind: DiscountKind | null;  // null = no order discount
   docDiscountValue: number;              // percent: % ; amount: Cents (VAT-inclusive)
   /** Why a discount reaching into a service/carwash allowance was given — one box per
@@ -63,6 +82,29 @@ export interface BuilderState {
 
 export function newKey(): string {
   return crypto.randomUUID();
+}
+
+export interface BuilderSection {
+  car: BuilderCar | null; // null = the "No car" bucket (counter goods, fees)
+  lines: BuilderLine[];
+}
+
+/**
+ * The editor's car sections, in the order the cars were ticked, with the
+ * no-car bucket last. Mirrors the print grouping (DocumentA4/ReceiptCard gather
+ * the same way), except picked cars keep an empty section so a car with no
+ * charges yet still reads as on the quote. With no cars picked there is a
+ * single unheaded section — the ordinary document.
+ */
+export function groupBuilderLines(lines: BuilderLine[], cars: BuilderCar[]): BuilderSection[] {
+  if (cars.length === 0) return [{ car: null, lines }];
+  const sections: BuilderSection[] = cars.map((car) => ({
+    car,
+    lines: lines.filter((l) => l.vehicleId === car.id),
+  }));
+  const loose = lines.filter((l) => !l.vehicleId || !cars.some((c) => c.id === l.vehicleId));
+  if (loose.length > 0) sections.push({ car: null, lines: loose });
+  return sections;
 }
 
 /**
@@ -105,6 +147,10 @@ export function blankLine(): BuilderLine {
 export type BuilderAction =
   | { type: "setDocType"; docType: "quote" | "invoice" }
   | { type: "setCustomer"; customerId: string | null }
+  | { type: "setCars"; cars: BuilderCar[] }
+  | { type: "addCar"; car: BuilderCar }
+  | { type: "removeCar"; id: string }
+  | { type: "setActiveCar"; id: string | null }
   | { type: "addLine"; line: BuilderLine }
   | { type: "patchLine"; key: string; patch: Partial<BuilderLine> }
   | { type: "removeLine"; key: string }
@@ -129,7 +175,42 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
     case "setDocType":
       return touched({ ...state, docType: action.docType });
     case "setCustomer":
-      return touched({ ...state, customerId: action.customerId });
+      // The car goes with the customer: keeping the previous customer's cars
+      // ticked would save one person's quote against another person's car.
+      return touched({ ...state, customerId: action.customerId, cars: [], activeCarId: null });
+    case "setCars": {
+      const ids = new Set(action.cars.map((c) => c.id));
+      return touched({
+        ...state,
+        cars: action.cars,
+        lines: state.lines.map((l) => (l.vehicleId && !ids.has(l.vehicleId) ? { ...l, vehicleId: null } : l)),
+        activeCarId: action.cars.some((c) => c.id === state.activeCarId) ? state.activeCarId : (action.cars[0]?.id ?? null),
+      });
+    }
+    case "addCar": {
+      if (state.cars.some((c) => c.id === action.car.id)) return { ...state, activeCarId: action.car.id };
+      const cars = [...state.cars, action.car];
+      // The first car has to be stamped onto the lines already typed, or they
+      // would read as charges belonging to nobody the moment a second car
+      // appears (same rule as the tablet's addQuoteCar).
+      const first = state.cars[0]?.id ?? null;
+      const lines =
+        state.cars.length <= 1 && first
+          ? state.lines.map((l) => (l.vehicleId ? l : { ...l, vehicleId: first }))
+          : state.lines;
+      return touched({ ...state, cars, lines, activeCarId: action.car.id });
+    }
+    case "removeCar": {
+      const cars = state.cars.filter((c) => c.id !== action.id);
+      return touched({
+        ...state,
+        cars,
+        lines: state.lines.map((l) => (l.vehicleId === action.id ? { ...l, vehicleId: null } : l)),
+        activeCarId: state.activeCarId === action.id ? (cars[0]?.id ?? null) : state.activeCarId,
+      });
+    }
+    case "setActiveCar":
+      return { ...state, activeCarId: action.id };
     case "addLine":
       return touched({ ...state, lines: [...state.lines, action.line] });
     case "patchLine":
