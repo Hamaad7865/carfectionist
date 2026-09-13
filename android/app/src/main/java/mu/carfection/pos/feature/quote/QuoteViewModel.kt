@@ -988,6 +988,43 @@ class QuoteViewModel @Inject constructor(
         if (id == NO_CAR || it.cars.any { c -> c.id == id }) it.copy(activeCarId = id) else it
     }
 
+    /**
+     * Tick/untick a car in the quote picker — the intake equivalent for quotes.
+     * The dialog stays open so several cars can be ticked in one pass. The first
+     * tick behaves exactly like picking the car; every further tick joins it
+     * (same backfill rule as [addQuoteCar]); unticking drops the car and its
+     * charges fall back to no car.
+     */
+    fun toggleQuoteCar(v: mu.carfection.pos.core.network.VehicleDto) = _s.update { st ->
+        if (!editable(st)) st
+        else if (st.cars.any { it.id == v.id }) {
+            val cars = st.cars.filterNot { it.id == v.id }
+            st.copy(
+                cars = cars,
+                lines = st.lines.map { l -> if (l.vehicleId == v.id) l.copy(vehicleId = null) else l },
+                activeCarId = if (st.activeCarId == v.id) cars.firstOrNull()?.id else st.activeCarId,
+                vehicleId = if (cars.isEmpty()) null else st.vehicleId,
+                vehPlate = if (cars.isEmpty()) null else st.vehPlate,
+                veh = if (cars.isEmpty()) "" else st.veh,
+            )
+        } else if (st.cars.isEmpty()) {
+            st.copy(
+                vehicleId = v.id, vehPlate = v.plate,
+                veh = listOfNotNull(v.make, v.model).joinToString(" "),
+                cars = listOf(QuoteCar(v.id, v.plate, listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" })),
+                activeCarId = v.id,
+            )
+        } else {
+            val car = QuoteCar(v.id, v.plate, listOfNotNull(v.make, v.model).joinToString(" ").ifBlank { "Vehicle" })
+            val first = st.cars.firstOrNull()?.id ?: st.vehicleId
+            st.copy(
+                cars = st.cars.ifEmpty { listOfNotNull(first?.let { QuoteCar(it, st.vehPlate, st.veh) }) } + car,
+                lines = if (st.cars.size <= 1 && first != null) st.lines.map { l -> if (l.vehicleId == null) l.copy(vehicleId = first) else l } else st.lines,
+                activeCarId = v.id,
+            )
+        }
+    }
+
     /** Move one charge to another car (or to none). */
     fun setLineCar(i: Int, vehicleId: String?) = _s.update { st ->
         if (!editable(st)) st else st.copy(lines = st.lines.mapIndexed { j, l -> if (j == i) l.copy(vehicleId = vehicleId) else l })

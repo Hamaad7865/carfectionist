@@ -54,3 +54,8 @@ backups/
 android/keystore/
 android/keystore.properties
 scripts/.merge-lucas-snapshot.json
+
+# Local AI-tool scratch state, not project source
+.opencode/
+.zcode/
+scripts/_tmp-*.mjs

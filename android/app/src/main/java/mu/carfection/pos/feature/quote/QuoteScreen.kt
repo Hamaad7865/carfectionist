@@ -2653,16 +2653,21 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     items(s.pickVehicles, key = { it.id }) { v ->
-                        val alreadyOn = s.cars.any { it.id == v.id }
+                        // TICK the cars, like reception does — one customer, as many cars as the
+                        // quote covers. The dialog stays open so several can be ticked in one
+                        // pass; unticking drops the car and its charges fall back to no car.
+                        val ticked = s.cars.any { it.id == v.id }
                         Row(
-                            Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(11.dp))
-                                .border(1.dp, Hairline, RoundedCornerShape(11.dp))
-                                // The first car starts the quotation; every further car JOINS it —
-                                // replacing here is how a second car used to wipe the first off
-                                // the quote. (addQuoteCar ignores a car that is already on.)
-                                .clickable { if (s.cars.isEmpty()) vm.pickQuoteVehicle(v) else vm.addQuoteCar(v) }.padding(horizontal = 13.dp, vertical = 11.dp),
+                            Modifier.fillMaxWidth().background(if (ticked) AccentSoft else Inset, RoundedCornerShape(11.dp))
+                                .border(if (ticked) 1.5.dp else 1.dp, if (ticked) AccentLine else Hairline, RoundedCornerShape(11.dp))
+                                .clickable { vm.toggleQuoteCar(v) }.padding(horizontal = 13.dp, vertical = 11.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            Box(
+                                Modifier.size(22.dp).background(if (ticked) Accent else Color.Transparent, RoundedCornerShape(6.dp))
+                                    .border(if (ticked) 0.dp else 1.5.dp, if (ticked) Color.Transparent else Color(0x35101A24), RoundedCornerShape(6.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) { if (ticked) Text("✓", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = AccentInk) }
                             Box(Modifier.background(Plate, RoundedCornerShape(5.dp)).padding(horizontal = 8.dp, vertical = 3.dp)) {
                                 Text(v.plate, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp, color = Color(0xFF151208))
                             }
@@ -2672,12 +2677,6 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.5.sp, color = TextSecondary,
                                 modifier = Modifier.weight(1f),
                             )
-                            if (alreadyOn) {
-                                Text(
-                                    "· on quote",
-                                    fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = Accent,
-                                )
-                            }
                         }
                     }
                     // Clearing the car off a quotation that covers several would strand their
