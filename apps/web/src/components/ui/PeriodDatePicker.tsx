@@ -14,13 +14,13 @@ import { muToday } from "@/lib/mu-date";
  *
  * Open, it is a two-level popup:
  *   • month level — a year label with < > steppers; the twelve months in a
- *     4-column JAN..DEC grid (the pending from/to months ride green pills);
- *     picking a month stages that whole month and drills into its days;
+ *     4-column JAN..DEC grid (the pending from/to months ride brand-blue
+ *     pills); picking a month stages that whole month and drills into its days;
  *   • day level — a "MON YYYY" label (< > step months, click it to go back to
  *     the months), an S M T W T F S header and the day grid. First click sets
  *     the start day, second click the end day (an earlier second click swaps),
- *     a third click starts a new range. Endpoints print solid green, the days
- *     between on a green wash.
+ *     a third click starts a new range. Endpoints print solid brand blue, the
+ *     days between on a blue wash.
  *
  * Nothing is committed while picking: the range only reaches the caller when
  * the Validate button is pressed (one navigation for the whole gesture, not
@@ -226,7 +226,7 @@ export function PeriodDatePicker({
         aria-expanded={open}
         aria-label={`${caption}${label ? `: ${label}` : ""}`}
         className={`flex min-w-[218px] items-center gap-3 rounded-[10px] border bg-card px-3.5 py-1.5 text-left outline-none transition-colors ${
-          open ? "border-mint" : "border-line-2 hover:border-faint"
+          open ? "border-brand" : "border-line-2 hover:border-faint"
         }`}
       >
         <span className="min-w-0 flex-1">
@@ -235,7 +235,7 @@ export function PeriodDatePicker({
             {label ?? "Select period…"}
           </span>
         </span>
-        <CalendarDays size={22} className="shrink-0 text-mint" strokeWidth={2.2} />
+        <CalendarDays size={22} className="shrink-0 text-brand" strokeWidth={2.2} />
       </button>
 
       {open && (
@@ -253,7 +253,7 @@ export function PeriodDatePicker({
                   type="button"
                   onClick={() => setMode("months")}
                   aria-label="Choose month"
-                  className="flex items-center gap-1 text-[14px] font-bold uppercase tracking-wide text-ink hover:text-mint"
+                  className="flex items-center gap-1 text-[14px] font-bold uppercase tracking-wide text-ink hover:text-link"
                 >
                   {MONTHS_SHORT[view.m - 1]} {view.y}
                   <ChevronDown size={15} className="text-faint" />
@@ -263,7 +263,7 @@ export function PeriodDatePicker({
                   type="button"
                   onClick={() => setMode("days")}
                   aria-label="Back to days"
-                  className="flex items-center gap-1 text-[14px] font-bold text-ink hover:text-mint"
+                  className="flex items-center gap-1 text-[14px] font-bold text-ink hover:text-link"
                 >
                   {view.y}
                   <ChevronDown size={15} className="rotate-180 text-faint" />
@@ -322,7 +322,7 @@ export function PeriodDatePicker({
                         aria-pressed={selected}
                         aria-label={`${MONTHS_LONG[i]} ${view.y}`}
                         className={`h-9 rounded-full text-[13px] font-semibold tracking-wide transition-colors ${
-                          selected ? "bg-mint text-white" : "text-body hover:bg-sub"
+                          selected ? "bg-brand text-white" : "text-body hover:bg-sub"
                         }`}
                       >
                         {name}
@@ -365,9 +365,9 @@ export function PeriodDatePicker({
                         aria-label={day}
                         className={`grid h-9 place-items-center text-[13px] transition-colors ${
                           isEndpoint
-                            ? "rounded-full bg-mint font-bold text-white"
+                            ? "rounded-full bg-brand font-bold text-white"
                             : inRange
-                              ? "bg-[rgba(13,167,124,0.16)] font-semibold text-ink"
+                              ? "bg-[rgba(43,140,255,0.14)] font-semibold text-ink"
                               : "rounded-full font-medium text-body hover:bg-sub"
                         }`}
                       >
@@ -410,7 +410,7 @@ export function PeriodDatePicker({
               <button
                 type="button"
                 onClick={commit}
-                className="h-9 rounded-[10px] bg-mint px-6 text-[13.5px] font-bold text-white transition-opacity hover:opacity-90"
+                className="h-9 rounded-[10px] bg-brand px-6 text-[13.5px] font-bold text-white transition-opacity hover:opacity-90"
               >
                 Validate
               </button>
