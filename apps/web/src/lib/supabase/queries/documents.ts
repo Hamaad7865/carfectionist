@@ -47,24 +47,42 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
   const rel = hasCustomer ? "customers!inner(name)" : "customers(name)";
   const archivedView = f.view === "archived";
 
-  // An invoice reversed by a LIVE credit note is finished business. Resolved
-  // here because PostgREST can't express "id in (subquery)"; it's one small
-  // column and credit notes are rare.
-  const { data: cnRows } = await sb
-    .from("documents")
-    .select("source_document_id")
-    .eq("doc_type", "credit_note")
-    .neq("status", "void")
-    .not("source_document_id", "is", null);
+  // The three archive sets are independent reads, so they go out together —
+  // sequential awaits here cost three network round-trips on every list view
+  // for no reason (each hop is ~100ms+ to the hosted DB).
+  const [{ data: cnRows }, { data: jobRows }, { data: revRows }] = await Promise.all([
+    // An invoice reversed by a LIVE credit note is finished business. Resolved
+    // here because PostgREST can't express "id in (subquery)"; it's one small
+    // column and credit notes are rare.
+    sb
+      .from("documents")
+      .select("source_document_id")
+      .eq("doc_type", "credit_note")
+      .neq("status", "void")
+      .not("source_document_id", "is", null),
+    // A quote whose car never got worked on is dead too. cancel_job resolves the
+    // BILL (void / credit note) but leaves the quote sitting there "Accepted",
+    // which is how a cancelled job kept a live-looking row in the working list.
+    // A quote counts as dead only when every job it produced was cancelled — one
+    // re-booked after a cancellation is live business again.
+    sb.from("jobs").select("id, status, source_quote_id, cancel_reason"),
+    // A quote that has been REVISED is last week's price. The revision carries the
+    // work now, so the original drops out of the working list the moment that
+    // revision stops being a draft — and comes back on its own if the revision is
+    // voided, because this is derived, not stamped.
+    //
+    // revision_of, never source_document_id: duplicate_document writes that column
+    // for a plain copy, and a copy retires nothing.
+    sb
+      .from("documents")
+      .select("number, revision_of")
+      .eq("doc_type", "quote")
+      .not("revision_of", "is", null)
+      .not("status", "in", "(draft,void)"),
+  ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const creditedSet = new Set(((cnRows ?? []) as any[]).map((r) => r.source_document_id as string));
 
-  // A quote whose car never got worked on is dead too. cancel_job resolves the
-  // BILL (void / credit note) but leaves the quote sitting there "Accepted",
-  // which is how a cancelled job kept a live-looking row in the working list.
-  // A quote counts as dead only when every job it produced was cancelled — one
-  // re-booked after a cancellation is live business again.
-  const { data: jobRows } = await sb.from("jobs").select("id, status, source_quote_id, cancel_reason");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const jobs = (jobRows ?? []) as any[];
   const cancelledJobIds = jobs.filter((j) => j.status === "cancelled").map((j) => j.id as string);
@@ -84,19 +102,6 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
     ].filter((id) => !liveQuoteIds.has(id)),
   );
 
-  // A quote that has been REVISED is last week's price. The revision carries the
-  // work now, so the original drops out of the working list the moment that
-  // revision stops being a draft — and comes back on its own if the revision is
-  // voided, because this is derived, not stamped.
-  //
-  // revision_of, never source_document_id: duplicate_document writes that column
-  // for a plain copy, and a copy retires nothing.
-  const { data: revRows } = await sb
-    .from("documents")
-    .select("number, revision_of")
-    .eq("doc_type", "quote")
-    .not("revision_of", "is", null)
-    .not("status", "in", "(draft,void)");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const supersededBy = new Map<string, string | null>(((revRows ?? []) as any[]).map((r) => [r.revision_of as string, (r.number as string) ?? null]));
 

@@ -1,21 +1,22 @@
 "use client";
 
 import { useRouter, usePathname, useSearchParams } from "next/navigation";
+import { PeriodDatePicker, type DateRangeValue } from "@/components/ui/PeriodDatePicker";
 import {
   PRESETS, COMPARISONS, rangeForPreset, presetForRange, comparisonRange, shortRangeLabel,
   type PresetKey, type CompareKey, type Range,
 } from "./periods";
 
 /**
- * Cashmag's two dropdowns — "Period" and "In comparison to" — plus the from/to
- * inputs, all writing straight to the URL. Native selects on purpose: they are
- * keyboard- and screen-reader-correct for free, and the comparison options need
- * to carry their resolved dates as text ("Previous period — 26 Jul – 27 Jul 2026"),
- * which a native option renders fine.
+ * Cashmag's two dropdowns — "Period" and "In comparison to" — plus the
+ * Cashmag-style "Period date" field, all writing straight to the URL. Native
+ * selects on purpose: they are keyboard- and screen-reader-correct for free,
+ * and the comparison options need to carry their resolved dates as text
+ * ("Previous period — 26 Jul – 27 Jul 2026"), which a native option renders
+ * fine.
  *
- * There is no Validate button: changing a control navigates. Cashmag needs one
- * because its filters post a form; ours are URL state, so a round-trip through
- * "now press Validate" would be friction with nothing behind it.
+ * The date field stages locally and only its Validate button navigates, so a
+ * from+to gesture costs one server round-trip instead of two.
  */
 export function PeriodPicker({ range, today, compare }: { range: Range; today: string; compare: CompareKey }) {
   const router = useRouter();
@@ -42,8 +43,18 @@ export function PeriodPicker({ range, today, compare }: { range: Range; today: s
 
   const select =
     "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[13.5px] font-semibold text-ink outline-none focus:border-brand";
-  const date =
-    "h-9 rounded-[10px] border border-line-2 bg-card px-2.5 text-[13.5px] font-medium text-ink outline-none focus:border-brand [color-scheme:light]";
+
+  function onValidateRange(next: DateRangeValue) {
+    // Validate only ever hands back complete ranges; an emptied one means the
+    // user cleared the period, which falls back to today.
+    if (!next.from || !next.to) {
+      const r = rangeForPreset("today", today);
+      push({ from: r.from, to: r.to });
+      return;
+    }
+    const [from, to] = next.from <= next.to ? [next.from, next.to] : [next.to, next.from];
+    push({ from, to });
+  }
 
   return (
     <>
@@ -58,31 +69,7 @@ export function PeriodPicker({ range, today, compare }: { range: Range; today: s
         </select>
       </label>
 
-      <div className="flex items-center gap-1.5">
-        <input
-          type="date"
-          aria-label="From date"
-          value={range.from}
-          onChange={(e) => {
-            const from = e.target.value;
-            if (!from) return;
-            push(from > range.to ? { from, to: from } : { from });
-          }}
-          className={date}
-        />
-        <span className="text-[13px] font-medium text-faint">→</span>
-        <input
-          type="date"
-          aria-label="To date"
-          value={range.to}
-          onChange={(e) => {
-            const to = e.target.value;
-            if (!to) return;
-            push(to < range.from ? { from: to, to } : { to });
-          }}
-          className={date}
-        />
-      </div>
+      <PeriodDatePicker from={range.from} to={range.to} onValidate={onValidateRange} />
 
       <label className="flex items-center gap-1.5">
         <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Compare</span>

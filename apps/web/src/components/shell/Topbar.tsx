@@ -168,6 +168,10 @@ function useLiveNotifications(pathname: string) {
   const [items, setItems] = useState<NotifItem[]>([]);
 
   const reload = useCallback(async (signal?: AbortSignal) => {
+    // A hidden tab has nobody reading the badge — skip the work. The endpoint
+    // pages whole tables (invoices, products, stock), so every avoided call is
+    // several heavy reads the DB never runs.
+    if (typeof document !== "undefined" && document.hidden) return;
     try {
       const res = await fetch("/api/notifications", { signal, cache: "no-store" });
       if (!res.ok) return;
@@ -182,10 +186,19 @@ function useLiveNotifications(pathname: string) {
     const controller = new AbortController();
     const load = () => void reload(controller.signal);
     load();
-    const timer = setInterval(load, 90_000);
+    // Slow timer for the screen left open at the desk all day. This used to be
+    // 90s — each tick re-runs the endpoint's full-table scans, which is also
+    // what made navigation feel heavy right after every route change.
+    const timer = setInterval(load, 300_000);
+    // A tab coming back into view may have missed alerts while hidden.
+    const onVisible = () => {
+      if (!document.hidden) load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
     return () => {
       controller.abort();
       clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisible);
     };
   }, [pathname, reload]); // re-ask whenever the route changes
 

@@ -1,12 +1,9 @@
 import { FileText } from "lucide-react";
-import { Suspense } from "react";
 import { getSalesJournalPage, getSalesJournal, getTradingName } from "@/lib/supabase/queries/sales-journal";
-import { getReceipt } from "@/lib/supabase/queries/receipt";
 import { muToday } from "@/lib/mu-date";
 import { btn } from "@/components/ui/button";
 import { SalesJournalView } from "@/features/sales-journal/SalesJournalView";
-import { TicketPopup } from "@/features/tickets/TicketPopup";
-import { EmailReceiptButton } from "@/features/tickets/EmailReceiptButton";
+import { TicketPopupBoundary } from "@/features/tickets/TicketPopupLoader";
 import { PeriodPicker } from "@/features/sales-journal/PeriodPicker";
 import { MoreFiltersDialog } from "@/features/sales-journal/MoreFiltersDialog";
 import { parseParams, toFilterState, toQuery, type RawParams } from "@/features/sales-journal/params";
@@ -25,14 +22,16 @@ export default async function SalesJournalPage({ searchParams }: { searchParams:
   // beside the filters (like the sales page's ?t=) and never reaches the PDF.
   const receiptId = typeof raw.receipt === "string" && raw.receipt ? raw.receipt : undefined;
 
-  const [{ journal, facets }, priorJournal, businessName, popup] = await Promise.all([
+  const [{ journal, facets }, priorJournal, businessName] = await Promise.all([
     getSalesJournalPage(range.from, range.to, filters),
     // The comparison runs the same query over the earlier window, with the same
     // filters — comparing a filtered period against an unfiltered one would be
     // meaningless.
     prior ? getSalesJournal(prior.from, prior.to, filters) : Promise.resolve(null),
     getTradingName(),
-    receiptId ? getReceipt(receiptId) : Promise.resolve(null),
+    // The receipt modal fetches itself behind a Suspense boundary (see
+    // TicketPopupLoader): awaiting it here would hold the whole journal behind
+    // the receipt's queries every time a receipt is opened.
   ]);
 
   const baseQuery = toQuery({ range, compare, filters });
@@ -54,11 +53,7 @@ export default async function SalesJournalPage({ searchParams }: { searchParams:
         <SalesJournalView journal={journal} prior={priorJournal} priorRange={prior} businessName={businessName} query={baseQuery} />
       </div>
 
-      {popup && receiptId && (
-        <Suspense fallback={null}>
-          <TicketPopup r={popup} docId={receiptId} param="receipt" emailSlot={<EmailReceiptButton docId={receiptId} defaultEmail={popup.customerEmail} />} />
-        </Suspense>
-      )}
+      {receiptId && <TicketPopupBoundary docId={receiptId} param="receipt" />}
     </div>
   );
 }

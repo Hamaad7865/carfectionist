@@ -1,7 +1,6 @@
 import {
   Children,
   isValidElement,
-  type FormEvent,
   type ReactElement,
   type ReactNode,
 } from 'react';
@@ -155,19 +154,21 @@ describe('SalesPeriodControls', () => {
     navigation.replace.mockReset();
   });
 
-  it('exposes pressed presets and labelled custom date inputs', () => {
+  it('exposes pressed presets and the Cashmag period field', () => {
     const html = renderToStaticMarkup(
       <SalesPeriodControls period={period} />,
     );
 
     expect(html).toContain('aria-label="Sales chart period"');
     expect(html).toMatch(
-      /<form[^>]*role="group"[^>]*aria-label="Sales chart period"/,
+      /<div[^>]*role="group"[^>]*aria-label="Sales chart period"/,
     );
     expect(html).toContain('aria-pressed="true"');
-    expect(html).toContain('aria-label="Sales chart from date"');
-    expect(html).toContain('aria-label="Sales chart to date"');
-    expect(html).toContain('>Apply</button>');
+    expect(html).toContain('Period date');
+    // The closed field shows the staged range Cashmag-style…
+    expect(html).toContain('13/7/2026 - 13/7/2026');
+    // …while the popup (and its Validate button) only exists once opened.
+    expect(html).not.toContain('>Validate</button>');
   });
 
   it('preserves unrelated parameters and clears custom dates for a preset', () => {
@@ -243,88 +244,42 @@ describe('SalesPeriodControls', () => {
     },
   );
 
-  it('drafts remote endpoints and applies them together', () => {
+  it('validates the staged range and applies it as one URL update', () => {
     navigation.query = 'customer=vip&salesRange=month';
     const month = resolveSalesPeriod({}, NOW);
     const elements = flattenElements(SalesPeriodControls({ period: month }));
-    const form = elements.find((element) => element.type === 'form');
-    const fromInput = elements.find(
+    const picker = elements.find(
       (element) =>
-        element.type === 'input' &&
-        (element.props as { 'aria-label'?: string })['aria-label'] ===
-          'Sales chart from date',
-    );
-    const toInput = elements.find(
-      (element) =>
-        element.type === 'input' &&
-        (element.props as { 'aria-label'?: string })['aria-label'] ===
-          'Sales chart to date',
-    );
-    const apply = elements.find(
-      (element) =>
-        element.type === 'button' &&
-        (element.props as { children?: ReactNode }).children === 'Apply',
+        typeof element.type === 'function' &&
+        (element.type as { name?: string }).name === 'PeriodDatePicker',
     );
 
-    expect(form).toBeDefined();
-    expect(fromInput).toBeDefined();
-    expect(toInput).toBeDefined();
-    expect(apply).toBeDefined();
-    if (!form || !fromInput || !toInput || !apply) return;
-
-    const fromProps = fromInput.props as {
-      defaultValue?: string;
-      value?: string;
-      min?: string;
-      max?: string;
-      required?: boolean;
-      onChange?: unknown;
+    expect(picker).toBeDefined();
+    if (!picker) return;
+    const pickerProps = picker.props as {
+      from: string;
+      to: string;
+      onValidate: (range: { from: string; to: string }) => void;
+      validateRange: (range: { from: string; to: string }) => string | null;
     };
-    const toProps = toInput.props as typeof fromProps;
-    expect(fromProps).toMatchObject({
-      defaultValue: month.from,
-      required: true,
-    });
-    expect(toProps).toMatchObject({ defaultValue: month.to, required: true });
-    expect(fromProps.value).toBeUndefined();
-    expect(toProps.value).toBeUndefined();
-    expect(fromProps.min).toBeUndefined();
-    expect(fromProps.max).toBeUndefined();
-    expect(toProps.min).toBeUndefined();
-    expect(toProps.max).toBeUndefined();
-    expect(fromProps.onChange).toBeUndefined();
-    expect(toProps.onChange).toBeUndefined();
-    expect((apply.props as { type?: string }).type).toBe('submit');
+    // The picker stages the chart's current period…
+    expect(pickerProps.from).toBe(month.from);
+    expect(pickerProps.to).toBe(month.to);
+    // …refuses a bad range with the same message the builder reports…
+    expect(
+      pickerProps.validateRange({ from: '2026-02-30', to: '2026-03-01' }),
+    ).toBe('Choose a valid start date.');
+    expect(
+      pickerProps.validateRange({ from: '2026-01-01', to: '2026-04-04' }),
+    ).toBe('Choose a range of 93 days or less.');
+    expect(
+      pickerProps.validateRange({ from: '2026-01-01', to: '2026-01-31' }),
+    ).toBeNull();
     expect(navigation.replace).not.toHaveBeenCalled();
 
-    const controls = {
-      salesFrom: {
-        value: '2026-01-01',
-        setCustomValidity: vi.fn(),
-        reportValidity: vi.fn(),
-      },
-      salesTo: {
-        value: '2026-01-31',
-        setCustomValidity: vi.fn(),
-        reportValidity: vi.fn(),
-      },
-    };
-    const preventDefault = vi.fn();
-    (
-      form.props as {
-        onSubmit: (event: FormEvent<HTMLFormElement>) => void;
-      }
-    ).onSubmit({
-      preventDefault,
-      currentTarget: {
-        elements: {
-          namedItem: (name: string) =>
-            controls[name as keyof typeof controls] ?? null,
-        },
-      },
-    } as unknown as FormEvent<HTMLFormElement>);
-
-    expect(preventDefault).toHaveBeenCalledOnce();
+    // …and Validate navigates exactly once for the whole gesture.
+    pickerProps.onValidate({ from: '2026-01-01', to: '2026-01-31' });
+    expect(navigation.replace).toHaveBeenCalledTimes(1);
     expect(navigation.replace).toHaveBeenCalledWith(
       '/dashboard?customer=vip&salesRange=custom&salesFrom=2026-01-01&salesTo=2026-01-31',
       { scroll: false },

@@ -3,11 +3,9 @@ import Link from "next/link";
 import { Plus, ChevronRight, Store, MessageSquareText } from "lucide-react";
 import { listDocuments } from "@/lib/supabase/queries/documents";
 import { getTickets } from "@/lib/supabase/queries/tickets";
-import { getReceipt } from "@/lib/supabase/queries/receipt";
 import { DocumentsFilterBar } from "@/features/documents/DocumentsFilterBar";
 import { RowSendButton } from "@/features/documents/RowSendButton";
-import { TicketPopup } from "@/features/tickets/TicketPopup";
-import { EmailReceiptButton } from "@/features/tickets/EmailReceiptButton";
+import { TicketPopupBoundary } from "@/features/tickets/TicketPopupLoader";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
@@ -49,8 +47,10 @@ export default async function SalesPage({
       })
     : null;
   const ticketsData = view === "tickets" ? await getTickets(pick("from"), pick("to")) : null;
+  // The receipt popup fetches itself behind a Suspense boundary (see
+  // TicketPopupLoader): awaiting it here would hold the whole list hostage
+  // behind 8+ receipt queries every time a ticket is opened.
   const ticketId = view === "tickets" ? pick("t") : undefined;
-  const popup = ticketId ? await getReceipt(ticketId) : null;
   const rows = docsData?.rows ?? [];
   const count = docsData?.count ?? 0;
   const totalCents = docsData?.totalCents ?? 0;
@@ -178,11 +178,7 @@ export default async function SalesPage({
             </div>
           </div>
 
-          {popup && ticketId && (
-            <Suspense fallback={null}>
-              <TicketPopup r={popup} docId={ticketId} emailSlot={<EmailReceiptButton docId={ticketId} defaultEmail={popup.customerEmail} />} />
-            </Suspense>
-          )}
+          {ticketId && <TicketPopupBoundary docId={ticketId} />}
         </>
       )}
 

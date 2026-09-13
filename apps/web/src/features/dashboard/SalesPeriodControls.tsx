@@ -1,8 +1,8 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import type { FormEvent } from 'react';
 
+import { PeriodDatePicker, type DateRangeValue } from '@/components/ui/PeriodDatePicker';
 import type { SalesPeriod, SalesRangeKey } from './sales-performance';
 
 const DAY_MS = 86_400_000;
@@ -105,45 +105,39 @@ export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
     replace({ salesRange: key, salesFrom: null, salesTo: null });
   }
 
-  function applyCustomRange(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const fromInput = event.currentTarget.elements.namedItem(
-      'salesFrom',
-    ) as HTMLInputElement | null;
-    const toInput = event.currentTarget.elements.namedItem(
-      'salesTo',
-    ) as HTMLInputElement | null;
-    if (!fromInput || !toInput) return;
-
-    fromInput.setCustomValidity('');
-    toInput.setCustomValidity('');
+  // The picker's Validate button is this form's Apply: one navigation for the
+  // whole from+to gesture. Invalid ranges never leave the popup — the message
+  // reads under the staged dates instead.
+  function validateCustomRange(range: DateRangeValue): string | null {
+    if (!range.from || !range.to) return 'Choose a start and an end date.';
     const update = buildCustomSalesRangeUpdate(
       pathname,
       searchParams.toString(),
-      fromInput.value,
-      toInput.value,
+      range.from,
+      range.to,
     );
-    if (!update.ok) {
-      const invalidInput =
-        update.field === 'salesFrom' ? fromInput : toInput;
-      invalidInput.setCustomValidity(update.message);
-      invalidInput.reportValidity();
-      return;
-    }
-
-    router.replace(update.href, { scroll: false });
+    return update.ok ? null : update.message;
   }
 
-  const inputClass =
-    'h-8 rounded-[9px] border border-line-2 bg-card px-2 text-[12.5px] font-semibold text-body outline-none [color-scheme:light] hover:border-faint focus:border-brand';
+  function applyCustomRange(range: DateRangeValue) {
+    if (!range.from || !range.to) {
+      replace({ salesRange: 'month', salesFrom: null, salesTo: null });
+      return;
+    }
+    const update = buildCustomSalesRangeUpdate(
+      pathname,
+      searchParams.toString(),
+      range.from,
+      range.to,
+    );
+    if (update.ok) router.replace(update.href, { scroll: false });
+  }
 
   return (
-    <form
-      key={`${period.range}:${period.from}:${period.to}`}
+    <div
       className="flex flex-wrap items-center gap-1.5"
       role="group"
       aria-label="Sales chart period"
-      onSubmit={applyCustomRange}
     >
       {PRESETS.map((preset) => {
         const selected = period.range === preset.key;
@@ -163,33 +157,13 @@ export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
           </button>
         );
       })}
-      <input
-        type="date"
-        name="salesFrom"
-        aria-label="Sales chart from date"
-        defaultValue={period.from}
-        required
-        onInput={(event) => event.currentTarget.setCustomValidity('')}
-        className={inputClass}
+      <PeriodDatePicker
+        key={`${period.range}:${period.from}:${period.to}`}
+        from={period.from}
+        to={period.to}
+        onValidate={applyCustomRange}
+        validateRange={validateCustomRange}
       />
-      <span aria-hidden="true" className="text-[12px] font-medium text-faint">
-        to
-      </span>
-      <input
-        type="date"
-        name="salesTo"
-        aria-label="Sales chart to date"
-        defaultValue={period.to}
-        required
-        onInput={(event) => event.currentTarget.setCustomValidity('')}
-        className={inputClass}
-      />
-      <button
-        type="submit"
-        className="h-8 rounded-[9px] border border-brand bg-brand px-2.5 text-[12.5px] font-bold text-white transition-opacity hover:opacity-90"
-      >
-        Apply
-      </button>
-    </form>
+    </div>
   );
 }

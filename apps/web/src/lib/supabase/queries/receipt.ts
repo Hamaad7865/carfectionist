@@ -326,7 +326,10 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     d.cash_session_id
       ? sb.from("cash_sessions").select("device_id").eq("id", d.cash_session_id).maybeSingle()
       : Promise.resolve({ data: null }),
-    activeDeviceCodes(d.tenant_id),
+    // No till session, no terminal: back-office documents skip the device
+    // registry read entirely (it used to cost a service-role round-trip on
+    // every receipt view, then resolve to null anyway).
+    d.cash_session_id ? activeDeviceCodes(d.tenant_id) : Promise.resolve([] as string[]),
   ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cashier = (((u as any)?.display_name ?? "") as string).replace(/\s*\(.*\)\s*$/, "").trim();
