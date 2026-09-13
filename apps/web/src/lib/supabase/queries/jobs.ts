@@ -156,8 +156,11 @@ export async function listJobs(opts?: { onlyCancelled?: boolean }): Promise<JobL
     // One document can cover SEVERAL jobs — a bill for the three cars Yogen brought in.
     // documents.job_id names only the first of them, so without this the other two cars
     // read as never invoiced on the board while their money is sitting on one bill.
-    fetchAllRows<{ document_id: string; job_id: string }>(() =>
-      sb.from("document_jobs").select("document_id, job_id"),
+    // Ordered by the (document_id, job_id) primary key: this table has no `id`
+    // column, and fetchAllRows' default `id` ordering 400s the whole list into a 500.
+    fetchAllRows<{ document_id: string; job_id: string }>(
+      () => sb.from("document_jobs").select("document_id, job_id"),
+      ["document_id", "job_id"],
     ),
   ]);
 
