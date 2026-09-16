@@ -202,7 +202,7 @@ data class TenderPrintRow(
     val count: Int,
     val method: String, // upper-cased, as printed
     val amountCents: Long,
-    /** When the legs were taken — dd/MM for day groups, dd/MM HH:mm for itemised legs, null when collapsed. */
+    /** "dd/MM HH:mm" the leg was taken, or null when its timestamp was blank/unknown. */
     val stamp: String?,
     val isReversal: Boolean = false,
 )
@@ -409,10 +409,10 @@ object ReceiptText {
         appendLine(rule(w))
 
         // ── tenders ───────────────────────────────────────────────────────────────
-        // The leading digit is the COUNT of tenders of that kind, as on the reference slip —
-        // two cash legs of a split read "2   CASH", not "1" twice. A voided invoice never
-        // shows money as owed or collected — same rule as the web card's showTenders
-        // (ReceiptCard.tsx: !r.voided && r.isInvoice), since every doc built here is an invoice.
+        // Every leg stands as its own dated row (tenderRows) — the leading digit is always 1,
+        // never a "2   CASH" collapse. A voided invoice never shows money as owed or collected —
+        // same rule as the web card's showTenders (ReceiptCard.tsx: !r.voided && r.isInvoice),
+        // since every doc built here is an invoice.
         if (!d.voided) {
             if (d.onAccount) {
                 appendLine(bold("1   ON ACCOUNT : " + rs(d.totalCents)))

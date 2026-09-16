@@ -100,14 +100,15 @@ export interface ReceiptVatGroup { rate: number; baseCents: number; vatCents: nu
 export interface ReceiptPaymentDetail { at: string; method: string; amountCents: number; isReversal: boolean; }
 
 /**
- * One tender row on the slip: "2   CASH : 800.00Rs".
+ * One tender leg on the slip: "1   JUICE 11/09 14:51 : 2000.00Rs".
  *
- * [count] is how many legs of that method were taken — the leading digit on the reference
- * receipt. A reversal is never netted into the row it undoes: it gets its own
- * "1   CASH REVERSED : -800.00Rs" line, so the paper shows the money going back out instead
- * of a tender that quietly shrank.
+ * [count] is always 1 — every leg stands as its own row (see receiptTenders). [stamp] is the
+ * "dd/MM HH:mm" the leg was taken, shown only when the bill has more than one payment row; a
+ * lone payment carries null and prints no time. A reversal is never netted into the row it
+ * undoes: it gets its own undated "1   CASH REVERSED : -800.00Rs" line so the paper shows the
+ * money going back out.
  */
-export interface ReceiptTender { method: string; count: number; amountCents: number; isReversal: boolean; }
+export interface ReceiptTender { method: string; count: number; amountCents: number; isReversal: boolean; stamp: string | null; }
 
 export interface ReceiptData {
   studioName: string;
@@ -199,41 +200,67 @@ export function billReference(billNo: number | string | null | undefined, termin
 }
 
 /** A stored payments row, as much of it as the tender rows read. */
-export interface ReceiptPaymentRow { id?: string; method: string; amount: number | string; change_given?: number | string | null; reverses_payment_id?: string | null }
+export interface ReceiptPaymentRow { id?: string; method: string; amount: number | string; change_given?: number | string | null; reverses_payment_id?: string | null; received_at?: string | null }
 
 /**
- * The slip's tender rows: one per METHOD, prefixed with how many legs of that kind were taken —
- * two cash legs plus a card read "2   CASH : 800.00Rs" then "1   CARD : 750.45Rs".
+ * The slip's tender rows — ONE PER LEG, oldest first, each stamped with the time it was taken:
+ * "1   JUICE 11/09 14:51 : 2000.00Rs" then "1   CARD 11/09 14:51 : 2400.00Rs". A deposit left in
+ * the morning and the balance taken that afternoon then read as the two moments they are;
+ * collapsing legs by method (the "2   CASH" row this once printed) hid exactly that, and no time
+ * threshold tells a split from two visits without guessing wrong at the boundary. Byte-for-byte
+ * the tablet's own slip — ReceiptText.render and the ReceiptPaper composable, both via
+ * core/hardware/Hardware.kt `tenderRows`.
  *
- * A reversal is never netted into the row it undoes. Netting made a refunded tender look like a
- * smaller one that was never questioned; each reversal now gets its own row so the paper shows
- * the money going back out.
+ * The stamp shows only when the bill has MORE THAN ONE payment row (a split, or a leg and its
+ * reversal): a lone payment is taken at the sale time already printed up top, so the tablet
+ * omits its time and this must too. Same gate as Hardware.kt's `d.payments.size > 1`, whose
+ * count includes the reversal rows — so this counts `rows.length`.
+ *
+ * A reversal is never netted into the row it undoes: it gets its own undated
+ * "1   CASH REVERSED : -800.00Rs" line so the paper shows the money going back out.
  *
  * The amount is what CROSSED THE COUNTER — money kept plus any change handed back — so an Rs 825
- * bill paid with a Rs 1000 note reads "1   CASH : 1000.00Rs" with "Change : 175.00" underneath,
+ * bill paid with a Rs 1000 note reads "1   CASH ... : 1000.00Rs" with "Change : 175.00" beneath,
  * word for word the tablet slip (core/data/SaleReceipt.kt). A leg that has been reversed folds
  * no change in: the caller suppresses its "Change :" line too, and a row stating 1000 out with
  * nothing to explain the 175 would be the defect this avoids.
  */
 export function receiptTenders(rows: ReceiptPaymentRow[]): ReceiptTender[] {
-  const byMethod = new Map<string, { count: number; amountCents: number }>();
   const upper = (m: string) => METHOD_UPPER[m] ?? String(m).toUpperCase();
   const reversedIds = new Set(rows.filter((p) => p.reverses_payment_id).map((p) => p.reverses_payment_id));
-  for (const p of rows) {
-    if (p.reverses_payment_id) continue;
-    const m = upper(p.method);
-    const g = byMethod.get(m) ?? { count: 0, amountCents: 0 };
-    g.count += 1;
-    const changeCents =
-      !reversedIds.has(p.id) && p.change_given != null ? Math.max(0, rupeesToCents(Number(p.change_given))) : 0;
-    g.amountCents += rupeesToCents(Number(p.amount)) + changeCents;
-    byMethod.set(m, g);
-  }
+  // The time shows only once there is more than one leg to place against the clock — the same
+  // gate the tablet renders on, whose count includes reversal rows, so this counts them too.
+  const showStamps = rows.length > 1;
+  const stampOf = (iso: string | null | undefined): string | null => {
+    if (!showStamps) return null;
+    const at = muDate(iso ?? null);
+    // A row with no readable timestamp prints without one, exactly as the tablet's
+    // `p.dateTime.ifBlank { null }` drops a blank stamp.
+    return at ? `${p2(at.getUTCDate())}/${p2(at.getUTCMonth() + 1)} ${p2(at.getUTCHours())}:${p2(at.getUTCMinutes())}` : null;
+  };
+  // Oldest first, by the RAW timestamp — never the "dd/MM HH:mm" label, which would sort a
+  // December leg ahead of a January one. A row with no timestamp keeps its position.
+  const legs = rows
+    .filter((p) => !p.reverses_payment_id)
+    .sort((a, b) => {
+      const x = String(a.received_at ?? ""), y = String(b.received_at ?? "");
+      return x < y ? -1 : x > y ? 1 : 0;
+    });
   return [
-    ...[...byMethod.entries()].map(([method, g]) => ({ method, count: g.count, amountCents: g.amountCents, isReversal: false })),
+    ...legs.map((p) => {
+      const changeCents =
+        !reversedIds.has(p.id) && p.change_given != null ? Math.max(0, rupeesToCents(Number(p.change_given))) : 0;
+      return {
+        method: upper(p.method),
+        count: 1,
+        amountCents: rupeesToCents(Number(p.amount)) + changeCents,
+        isReversal: false,
+        stamp: stampOf(p.received_at),
+      };
+    }),
     ...rows
       .filter((p) => p.reverses_payment_id)
-      .map((p) => ({ method: upper(p.method), count: 1, amountCents: rupeesToCents(Number(p.amount)), isReversal: true })),
+      .map((p) => ({ method: upper(p.method), count: 1, amountCents: rupeesToCents(Number(p.amount)), isReversal: true, stamp: null })),
   ];
 }
 

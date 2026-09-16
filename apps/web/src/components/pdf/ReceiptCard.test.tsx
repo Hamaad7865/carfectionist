@@ -18,7 +18,7 @@ const line = (over: Partial<ReceiptLine>): ReceiptLine => ({
 });
 
 const tender = (over: Partial<ReceiptTender>): ReceiptTender =>
-  ({ method: "CARD", count: 1, amountCents: 155045, isReversal: false, ...over });
+  ({ method: "CARD", count: 1, amountCents: 155045, isReversal: false, stamp: null, ...over });
 
 /** The owner's reference receipt: 25-07-2026, ticket No. 11, INV-0031, paid by card. */
 const reference = (over: Partial<ReceiptData> = {}): ReceiptData => ({
@@ -170,23 +170,39 @@ describe("emphasis matches the reference", () => {
 });
 
 describe("tender rows", () => {
-  it("leads with how many legs of that method were taken", () => {
+  it("prints each leg on its own row with the time it was taken", () => {
+    // A split: the INV-0255 case — Juice then Card, each stamped when it was taken.
     const html = render({
-      payments: [tender({ method: "CASH", count: 2, amountCents: 80000 }), tender({ method: "CARD", count: 1, amountCents: 75045 })],
+      payments: [
+        tender({ method: "JUICE", amountCents: 200000, stamp: "11/09 14:51" }),
+        tender({ method: "CARD", amountCents: 240000, stamp: "11/09 14:51" }),
+      ],
     });
-    // The gap is a non-breaking space in the markup — match any run of whitespace.
-    expect(html).toMatch(/2\s+CASH : /);
-    expect(html).toContain("800.00Rs");
-    expect(html).toMatch(/1\s+CARD : /);
-    expect(html).toContain("750.45Rs");
+    // The gaps are non-breaking spaces in the markup — match any run of whitespace.
+    expect(html).toMatch(/1\s+JUICE 11\/09 14:51 : /);
+    expect(html).toContain("2000.00Rs");
+    expect(html).toMatch(/1\s+CARD 11\/09 14:51 : /);
+    expect(html).toContain("2400.00Rs");
   });
 
-  it("gives a reversal its own row instead of netting it away", () => {
+  it("prints a lone payment with no time — it was taken at the sale time up top", () => {
+    const html = render({ payments: [tender({ method: "CARD", amountCents: 155045, stamp: null })] });
+    expect(html).toMatch(/1\s+CARD : /);
+    // No stray time crept onto the single tender row.
+    expect(html).not.toMatch(/CARD \d\d\/\d\d \d\d:\d\d/);
+  });
+
+  it("gives a reversal its own undated row while the live leg keeps its time", () => {
     const html = render({
-      payments: [tender({ method: "CASH", count: 1, amountCents: 80000 }), tender({ method: "CASH", amountCents: -80000, isReversal: true })],
+      payments: [
+        tender({ method: "CASH", amountCents: 80000, stamp: "10/09 22:41" }),
+        tender({ method: "CASH", amountCents: -80000, isReversal: true, stamp: null }),
+      ],
     });
     expect(html).toContain("CASH REVERSED : ");
     expect(html).toContain("-800.00Rs");
+    // The live leg still shows its time; the reversal shows none.
+    expect(html).toMatch(/1\s+CASH 10\/09 22:41 : /);
   });
 
   it("says ON ACCOUNT when nothing was tendered", () => {

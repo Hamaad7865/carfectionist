@@ -237,40 +237,65 @@ describe("Bill — the internal order reference", () => {
   });
 });
 
-describe("tender rows count the legs and never net a reversal away", () => {
-  it("groups by method and leads with how many legs of that kind were taken", () => {
+describe("tender rows: one dated leg each, never a reversal netted away", () => {
+  // The tablet's own fixture (core/hardware ReceiptTextTest): a deposit taken at 22:41 and the
+  // balance at 22:43 print as two dated CASH rows, never a collapsed "2   CASH".
+  it("itemises every leg with its time, oldest first, on a split", () => {
     const t = receiptTenders([
-      { method: "cash", amount: 500.00 },
-      { method: "cash", amount: 300.00 },
-      { method: "card", amount: 750.45 },
+      { id: "dep", method: "cash", amount: 412.00, received_at: "2026-09-10T18:41:00Z" },
+      { id: "bal", method: "cash", amount: 1238.00, received_at: "2026-09-10T18:43:00Z" },
     ]);
     expect(t).toEqual([
-      { method: "CASH", count: 2, amountCents: 80000, isReversal: false },
-      { method: "CARD", count: 1, amountCents: 75045, isReversal: false },
+      { method: "CASH", count: 1, amountCents: 41200, isReversal: false, stamp: "10/09 22:41" },
+      { method: "CASH", count: 1, amountCents: 123800, isReversal: false, stamp: "10/09 22:43" },
+    ]);
+    // Never the old method-collapsed row.
+    expect(t.some((x) => x.count > 1)).toBe(false);
+  });
+
+  it("stamps each method of a mixed split — the real INV-0255 (Juice now, Card next day)", () => {
+    // The document that prompted this: 2000 paid by Juice at the counter, then the 2400 balance
+    // settled by card the NEXT DAY. The stamp is what tells the two apart — the header time up
+    // top is the sale's, not the balance leg's.
+    const t = receiptTenders([
+      { id: "j", method: "juice", amount: 2000.00, received_at: "2026-09-11T10:51:21.447831+00:00" },
+      { id: "c", method: "card", amount: 2400.00, received_at: "2026-09-12T06:56:14.001938+00:00" },
+    ]);
+    expect(t).toEqual([
+      { method: "JUICE", count: 1, amountCents: 200000, isReversal: false, stamp: "11/09 14:51" },
+      { method: "CARD", count: 1, amountCents: 240000, isReversal: false, stamp: "12/09 10:56" },
     ]);
   });
 
-  it("gives a reversal its own row instead of shrinking the tender it undoes", () => {
+  it("orders legs by the raw timestamp, not the dd/MM label", () => {
+    // A December leg belongs before a January one; the "dd/MM" text alone would sort 03/01
+    // ahead of 05/12. Passed newest-first to prove the sort, not the input order.
+    const t = receiptTenders([
+      { id: "jan", method: "cash", amount: 100.00, received_at: "2027-01-03T06:00:00Z" },
+      { id: "dec", method: "cash", amount: 200.00, received_at: "2026-12-05T06:00:00Z" },
+    ]);
+    expect(t.map((x) => x.stamp)).toEqual(["05/12 10:00", "03/01 10:00"]);
+    expect(t.map((x) => x.amountCents)).toEqual([20000, 10000]);
+  });
+
+  it("shows no time on a lone payment — it was taken at the sale time up top", () => {
+    // Set-level gate: a single payment row carries a null stamp even with a timestamp of its
+    // own, matching the tablet's `d.payments.size > 1` render gate.
+    const t = receiptTenders([{ id: "p1", method: "card", amount: 1550.45, received_at: "2026-07-25T08:08:44Z" }]);
+    expect(t).toEqual([{ method: "CARD", count: 1, amountCents: 155045, isReversal: false, stamp: null }]);
+  });
+
+  it("gives a reversal its own undated row while the live leg keeps its time", () => {
     // Netting made a refunded Rs 800 cash tender print as "1 CASH : 0.00Rs" — a row nobody
     // could question, because the refund had vanished into it.
     const t = receiptTenders([
-      { method: "cash", amount: 800.00, reverses_payment_id: null },
-      { method: "cash", amount: -800.00, reverses_payment_id: "p1" },
+      { id: "p1", method: "cash", amount: 800.00, received_at: "2026-09-10T18:41:00Z", reverses_payment_id: null },
+      { id: "r1", method: "cash", amount: -800.00, reverses_payment_id: "p1" },
     ]);
     expect(t).toHaveLength(2);
-    expect(t[0]).toEqual({ method: "CASH", count: 1, amountCents: 80000, isReversal: false });
-    expect(t[1]).toEqual({ method: "CASH", count: 1, amountCents: -80000, isReversal: true });
-    // The original leg keeps its full value — the reversal is stated, not subtracted.
-    expect(t[0].amountCents).toBe(80000);
-  });
-
-  it("counts only real legs, so a reversal never inflates a group's count", () => {
-    const t = receiptTenders([
-      { method: "cash", amount: 500.00 },
-      { method: "cash", amount: 300.00 },
-      { method: "cash", amount: -300.00, reverses_payment_id: "p2" },
-    ]);
-    expect(t[0]).toEqual({ method: "CASH", count: 2, amountCents: 80000, isReversal: false });
+    expect(t[0]).toEqual({ method: "CASH", count: 1, amountCents: 80000, isReversal: false, stamp: "10/09 22:41" });
+    // The reversal keeps its full value, stated not subtracted, and carries no time of its own.
+    expect(t[1]).toEqual({ method: "CASH", count: 1, amountCents: -80000, isReversal: true, stamp: null });
   });
 
   it("names methods the way the slip prints them", () => {
@@ -285,19 +310,20 @@ describe("tender rows count the legs and never net a reversal away", () => {
   // The row must state what the customer HANDED OVER, not what stayed in the till — an
   // Rs 825 bill paid with a Rs 1000 note reads "1  CASH : 1000.00Rs" with "Change : 175.00"
   // underneath, matching the tablet slip (core/data/SaleReceipt.kt). Web used to print 825.
-  it("folds change back into the cash row so it states what was handed over", () => {
+  it("folds change back into the leg so it states what was handed over", () => {
     const t = receiptTenders([{ id: "p1", method: "cash", amount: 825.0, change_given: 175.0 }]);
-    expect(t).toEqual([{ method: "CASH", count: 1, amountCents: 100000, isReversal: false }]);
+    expect(t).toEqual([{ method: "CASH", count: 1, amountCents: 100000, isReversal: false, stamp: null }]);
   });
 
-  it("sums applied + change across split cash legs to the true amount tendered", () => {
-    // Two cash legs, all the change handed back on the second — the single CASH row still
-    // totals the real Rs 7000 that crossed the counter.
+  it("folds each leg's own change in across a split, to the true amount tendered", () => {
+    // Two cash legs, all the change handed back on the second — the two rows still total the
+    // real Rs 7000 that crossed the counter.
     const t = receiptTenders([
-      { id: "a", method: "cash", amount: 4000.01, change_given: 0 },
-      { id: "b", method: "cash", amount: 2159.98, change_given: 840.01 },
+      { id: "a", method: "cash", amount: 4000.01, change_given: 0, received_at: "2026-09-10T18:41:00Z" },
+      { id: "b", method: "cash", amount: 2159.98, change_given: 840.01, received_at: "2026-09-10T18:43:00Z" },
     ]);
-    expect(t[0]).toEqual({ method: "CASH", count: 2, amountCents: 700000, isReversal: false });
+    expect(t.map((x) => x.amountCents)).toEqual([400001, 299999]);
+    expect(t.reduce((s, x) => s + x.amountCents, 0)).toBe(700000);
   });
 
   it("does not fold change into a reversed cash leg", () => {
@@ -307,8 +333,8 @@ describe("tender rows count the legs and never net a reversal away", () => {
       { id: "p1", method: "cash", amount: 825.0, change_given: 175.0, reverses_payment_id: null },
       { id: "r1", method: "cash", amount: -825.0, change_given: null, reverses_payment_id: "p1" },
     ]);
-    expect(t[0]).toEqual({ method: "CASH", count: 1, amountCents: 82500, isReversal: false });
-    expect(t[1]).toEqual({ method: "CASH", count: 1, amountCents: -82500, isReversal: true });
+    expect(t[0]).toEqual({ method: "CASH", count: 1, amountCents: 82500, isReversal: false, stamp: null });
+    expect(t[1]).toEqual({ method: "CASH", count: 1, amountCents: -82500, isReversal: true, stamp: null });
   });
 });
 

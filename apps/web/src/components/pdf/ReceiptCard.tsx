@@ -212,11 +212,13 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
           {r.payments.length === 0 ? (
             <div style={{ fontWeight: 700 }}>1&nbsp;&nbsp;&nbsp;ON ACCOUNT : <span className="num">{rs(r.totalCents)}</span></div>
           ) : (
-            // The leading digit counts the legs of that method: "2   CASH : 800.00Rs". A reversal
-            // is its own row — the dated per-payment breakdown lives on the A4 ticket.
+            // One row per leg, oldest first, each stamped with the time it was taken on a split
+            // ("1   JUICE 11/09 14:51 : 2000.00Rs") — a lone payment carries no time, as it was
+            // taken at the sale time printed up top. A reversal keeps its own undated row. Byte
+            // for byte the tablet slip (Hardware.kt tenderRows / ReceiptText.render / ReceiptPaper).
             r.payments.map((p, i) => (
               <div key={i} style={{ fontWeight: 700, color: p.isReversal ? RED : undefined }}>
-                {p.count}&nbsp;&nbsp;&nbsp;{p.method}{p.isReversal ? " REVERSED" : ""} : <span className="num">{rs(p.amountCents)}</span>
+                {p.count}&nbsp;&nbsp;&nbsp;{p.method}{p.isReversal ? " REVERSED" : p.stamp ? ` ${p.stamp}` : ""} : <span className="num">{rs(p.amountCents)}</span>
               </div>
             ))
           )}
