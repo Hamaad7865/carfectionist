@@ -276,17 +276,19 @@ class TillViewModel @Inject constructor(
             // A sale rung offline is filed against THIS service. Close it first and that
             // sale can never be filed where it belongs — its till is gone, and the Z it
             // was part of is already frozen without it. So the close waits.
-            val held = offlineSales.unsynced.first()
+            // Scoped to THIS service: another till's held sales have their own Z (or none)
+            // and must not hold this close up.
+            val held = offlineSales.unsyncedForSession(sess.id).first()
             if (held > 0) {
                 offlineSales.drain() // it may only need the network back
-                val still = offlineSales.unsynced.first()
+                val still = offlineSales.unsyncedForSession(sess.id).first()
                 if (still > 0) {
                     // A set-aside sale never drains on its own: its till or its day closed
                     // under it, or this build can no longer read it, and no amount of network
                     // changes that answer. Sending the owner off to "get back online" would be
                     // a dead end — it has to be re-filed from the Counter's held sales. Say
                     // which of the two is actually holding the close up.
-                    val stuck = offlineSales.blocked.first()
+                    val stuck = offlineSales.blockedForSession(sess.id).first()
                     _s.value = _s.value.copy(
                         busy = false,
                         error = if (stuck > 0) {

@@ -1,5 +1,6 @@
 package mu.carfection.pos.core.network
 
+import java.io.IOException
 import java.net.ConnectException
 import java.net.NoRouteToHostException
 import java.net.SocketTimeoutException
@@ -61,7 +62,7 @@ fun Throwable.isSessionRefusal(): Boolean {
  * chain. Only the transport exceptions count — a refusal the server actually SENT is a real
  * answer and must reach the operator in the server's own words.
  */
-private fun Throwable.isConnectionFailure(): Boolean {
+fun Throwable.isConnectionFailure(): Boolean {
     var e: Throwable? = this
     var hops = 0
     while (e != null && hops++ < 8) { // a cause chain is never long, and must never loop
@@ -73,4 +74,38 @@ private fun Throwable.isConnectionFailure(): Boolean {
         e = e.cause
     }
     return false
+}
+
+/**
+ * Is this a TRANSPORT failure (retry later) rather than a server answer (act on it now)?
+ *
+ * The offline queues depend on this split: a dropped socket leaves the sale PENDING and
+ * stops the pass to preserve order; a refusal the server actually sent is either
+ * deterministic (BLOCKED for a person) or — after this fix — dead-lettered, but must
+ * never be retried blindly every 15s. A generic [IOException] counts: test fakes and
+ * some Ktor paths surface "Unable to resolve host" without the specific subtype.
+ */
+fun Throwable.isTransientNetwork(): Boolean {
+    var e: Throwable? = this
+    var hops = 0
+    while (e != null && hops++ < 8) {
+        if (e is UnknownHostException ||
+            e is ConnectException ||
+            e is SocketTimeoutException ||
+            e is NoRouteToHostException ||
+            // Generic IOException (timeout, reset, DNS) — but NOT a wrapped server
+            // refusal: those surface as PostgREST/RPC exceptions, never IOExceptions.
+            (e is IOException && e !is java.io.FileNotFoundException)
+        ) return true
+        e = e.cause
+    }
+    // Last resort for transport text without a typed cause (fake replayers, wrapped Ktor
+    // messages). Kept narrow: server refusals never use this wording.
+    val m = message?.lowercase() ?: return false
+    return m.contains("unable to resolve host") ||
+        m.contains("failed to connect") ||
+        m.contains("connection reset") ||
+        m.contains("connection refused") ||
+        m.contains("timed out") ||
+        m.contains("socket closed")
 }

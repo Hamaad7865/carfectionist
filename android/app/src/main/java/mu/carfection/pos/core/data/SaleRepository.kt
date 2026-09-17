@@ -320,6 +320,24 @@ private val DETERMINISTIC_ISSUE_REJECTIONS = listOf(
     // it must NOT be dressed up as "the invoice was issued but the payment didn't
     // confirm", which froze the basket around a request the server refuses forever.
     "not open for payment",
+    // Catalogue / till references baked into an offline capture that the server no
+    // longer recognises. Retrying identically can never succeed — the sale needs a
+    // person (re-ring on live data), and must NOT wedge the queue behind it.
+    "unknown product on a line",
+    "unknown stock location",
+    "no stock location",
+    // Tender arithmetic the server refused before committing anything.
+    "payment amount must be positive",
+    "amount must be positive",
+    "tendered is less than amount",
+    // Points are online-only; a replay carrying them (or a programme switched off /
+    // emptied since capture) is refused before anything is taken.
+    "a points payment needs a customer",
+    "points have no value",
+    "not enough points",
+    "points are switched off",
+    "spend_points still spends for an unreachable customer",
+    "an on-account collect needs a customer",
 )
 
 internal fun isDeterministicRejection(e: Throwable): Boolean {

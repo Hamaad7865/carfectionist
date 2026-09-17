@@ -45,4 +45,27 @@ class DeterministicRejectionTest {
     fun `a lost network response is not definitive`() {
         assertFalse(isDeterministicRejection(refusal("failed to connect to /10.0.2.2 (port 443)")))
     }
+
+    /** Catalogue references baked into an offline capture that the server no longer knows. */
+    @Test
+    fun `an unknown product or location is definitive`() {
+        assertTrue(isDeterministicRejection(refusal("unknown product on a line")))
+        assertTrue(isDeterministicRejection(refusal("unknown stock location")))
+        assertTrue(isDeterministicRejection(refusal("no stock location — set a default location or pass one")))
+    }
+
+    /** Tender arithmetic refused before anything committed — retrying changes nothing. */
+    @Test
+    fun `a refused tender amount is definitive`() {
+        assertTrue(isDeterministicRejection(refusal("payment amount must be positive")))
+        assertTrue(isDeterministicRejection(refusal("tendered is less than amount")))
+    }
+
+    /** Points programme refusals: the balance/switch answer only a person can resolve. */
+    @Test
+    fun `a points refusal is definitive`() {
+        assertTrue(isDeterministicRejection(refusal("a points payment needs a customer on the bill")))
+        assertTrue(isDeterministicRejection(refusal("not enough points: 500 needed, 120 available")))
+        assertTrue(isDeterministicRejection(refusal("points are switched off")))
+    }
 }

@@ -96,4 +96,14 @@ class PinSecurityTest {
     fun `the lock expires once its time has passed`() {
         assertEquals(0, PinThrottle.lockRemainingMs(5, lastFailAtMs = 0, nowMs = 60_001))
     }
+
+    /**
+     * The lockout used to be dated on the wall clock: winding the date back cleared it,
+     * and the migration to the monotonic clock leaves wall-dated fails far in the future.
+     * A future stamp must expire, never lock forever.
+     */
+    @Test
+    fun `a future stamp never locks forever`() {
+        assertEquals(0, PinThrottle.lockRemainingMs(8, lastFailAtMs = 1_757_000_000_000, nowMs = 5_000_000))
+    }
 }

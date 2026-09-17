@@ -1,5 +1,6 @@
 package mu.carfection.pos.core.data
 
+import android.os.SystemClock
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
@@ -98,8 +99,15 @@ class OfflinePinStore @Inject constructor(
         }
     }
 
-    /** Check a PIN with no server in reach. Throttled — this replaces the server's lockout. */
-    suspend fun verifyOffline(appUserId: String, pin: String, nowMs: Long = System.currentTimeMillis()): Result {
+    /**
+     * Check a PIN with no server in reach. Throttled — this replaces the server's lockout.
+     *
+     * Timed on the monotonic clock ([SystemClock.elapsedRealtime]), never the wall clock:
+     * dating the lockout in `currentTimeMillis` let anyone clear it by winding the tablet's
+     * date back. Stored fails predating this fix are wall-clock values far in the future
+     * on this base — [PinThrottle.lockRemainingMs] treats those as expired (see it).
+     */
+    suspend fun verifyOffline(appUserId: String, pin: String, nowMs: Long = SystemClock.elapsedRealtime()): Result {
         val p = prefs.data.first()
         val v = loadVerifiers(p).firstOrNull { it.appUserId == appUserId } ?: return Result.Unknown
         val fail = loadFails(p)[appUserId] ?: FailState()

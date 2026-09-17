@@ -73,6 +73,12 @@ data class OfflineSaleRow(
     val invoiceId: String? = null,
     val invoiceNumber: String? = null,
     val syncedAt: Long? = null,
+    /**
+     * The offline print's audit event has been backfilled against the real invoice.
+     * The capture-time print is logged with no document to point at; once this lands,
+     * the watcher logs a second event under [invoiceId] so "Duplicata N" keeps counting.
+     */
+    val auditBackfilled: Boolean = false,
 ) {
     companion object {
         /** Waiting for the network. The normal state of a sale rung during an outage. */
@@ -137,6 +143,24 @@ interface OfflineSaleDao {
 
     @Query("SELECT COUNT(*) FROM offline_sales WHERE status = 'blocked'")
     fun blockedCount(): Flow<Int>
+
+    /** Retry driver: sales still waiting on the NETWORK. Blocked rows wait on a person,
+     *  not on a timer — watching [unsyncedCount] here woke the drain every 15s forever
+     *  once only set-aside sales remained. */
+    @Query("SELECT COUNT(*) FROM offline_sales WHERE status = 'pending'")
+    fun pendingCount(): Flow<Int>
+
+    /** Till-close gate, scoped to the service being closed: another till's held sales
+     *  must not hold this close up (their Z is already cut or never existed here).
+     *  NULL-session rows are included — a sale with nowhere to file blocks anywhere. */
+    @Query("SELECT COUNT(*) FROM offline_sales WHERE status != 'synced' AND (cashSessionId = :sessionId OR cashSessionId IS NULL)")
+    fun unsyncedCountForSession(sessionId: String): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM offline_sales WHERE status = 'blocked' AND (cashSessionId = :sessionId OR cashSessionId IS NULL)")
+    fun blockedCountForSession(sessionId: String): Flow<Int>
+
+    @Query("UPDATE offline_sales SET auditBackfilled = 1 WHERE saleKey = :saleKey")
+    suspend fun markAuditBackfilled(saleKey: String)
 
     @Query("SELECT * FROM offline_sales WHERE saleKey = :saleKey")
     suspend fun find(saleKey: String): OfflineSaleRow?

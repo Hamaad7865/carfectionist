@@ -67,6 +67,11 @@ object PinThrottle {
     /** How much longer the keypad stays locked, or 0 when a try is allowed. */
     fun lockRemainingMs(fails: Int, lastFailAtMs: Long, nowMs: Long): Long {
         if (fails < FREE_ATTEMPTS) return 0
+        // Migration + tamper guard: fails dated on the old wall-clock base (or any future
+        // stamp from a wound-forward clock) read as far-future here. A lockout that can
+        // never expire bricks the till; expire it instead — the count still stands and
+        // the next wrong PIN re-locks immediately.
+        if (lastFailAtMs > nowMs) return 0
         val exponent = (fails - FREE_ATTEMPTS).coerceAtMost(20) // 2^20 already far past the cap
         val lock = (BASE_LOCK_MS shl exponent).coerceAtMost(MAX_LOCK_MS)
         return (lastFailAtMs + lock - nowMs).coerceAtLeast(0)

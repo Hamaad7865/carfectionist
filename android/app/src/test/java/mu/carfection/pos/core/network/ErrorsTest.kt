@@ -109,4 +109,18 @@ class ErrorsTest {
         val e = RuntimeException("the day is closed — reopen it before taking more money")
         assertEquals("the day is closed — reopen it before taking more money", e.uiMessage())
     }
+
+    /**
+     * The queue split: transport drops retry as PENDING without spending any budget;
+     * server answers never count as transient, however outage-flavoured their wording.
+     */
+    @Test
+    fun `transient means transport, never a server answer`() {
+        assertTrue(java.net.UnknownHostException("Unable to resolve host").isTransientNetwork())
+        assertTrue(java.io.IOException("Unable to resolve host").isTransientNetwork())
+        assertTrue(RuntimeException("request failed", java.net.SocketTimeoutException("timeout")).isTransientNetwork())
+        assertTrue(!RuntimeException("the day is closed").isTransientNetwork())
+        assertTrue(!RuntimeException("unknown product on a line").isTransientNetwork())
+        assertTrue(!RuntimeException("JWT expired").isTransientNetwork())
+    }
 }

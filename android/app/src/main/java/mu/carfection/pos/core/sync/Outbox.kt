@@ -58,8 +58,10 @@ interface OutboxDao {
  * v4 adds the discount reason: a carwash discount given offline must replay with the same
  * reason app.assert_discount_allowed saw when the cashier typed it, or the replay is refused
  * for a reason that was never missing in the first place.
+ * v5 adds the receipt-audit backfill flag: the capture-time print is logged with no
+ * document to point at, and the synced watcher logs it again under the real invoice.
  */
-@Database(entities = [OutboxOp::class, OfflineSaleRow::class], version = 4, exportSchema = false)
+@Database(entities = [OutboxOp::class, OfflineSaleRow::class], version = 5, exportSchema = false)
 abstract class OutboxDatabase : RoomDatabase() {
     abstract fun outboxDao(): OutboxDao
     abstract fun offlineSaleDao(): OfflineSaleDao
@@ -114,5 +116,12 @@ val OUTBOX_MIGRATION_2_3 = object : Migration(2, 3) {
 val OUTBOX_MIGRATION_3_4 = object : Migration(3, 4) {
     override fun migrate(db: SupportSQLiteDatabase) {
         db.execSQL("ALTER TABLE `offline_sales` ADD COLUMN `discountReason` TEXT")
+    }
+}
+
+/** v4 → v5: the receipt-audit backfill flag. Additive — defaults false, nothing rewritten. */
+val OUTBOX_MIGRATION_4_5 = object : Migration(4, 5) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `offline_sales` ADD COLUMN `auditBackfilled` INTEGER NOT NULL DEFAULT 0")
     }
 }

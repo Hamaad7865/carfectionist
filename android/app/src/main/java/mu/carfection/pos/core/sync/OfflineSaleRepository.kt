@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -20,6 +22,8 @@ import mu.carfection.pos.core.data.SaleResult
 import mu.carfection.pos.core.data.Tender
 import mu.carfection.pos.core.data.WALK_IN_CUSTOMER
 import mu.carfection.pos.core.data.isDeterministicRejection
+import mu.carfection.pos.core.network.isSessionRefusal
+import mu.carfection.pos.core.network.isTransientNetwork
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -79,6 +83,7 @@ class OfflineSaleRepository(
     ) : this(dao, replayer, connectivity, CoroutineScope(SupervisorJob() + Dispatchers.IO))
 
     private val draining = AtomicBoolean(false)
+    private val captureMutex = Mutex()
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /** Sales that have not reached the server. Drives the pill and blocks a till close. */
@@ -86,6 +91,15 @@ class OfflineSaleRepository(
 
     /** Sales that need a human decision — their till or day closed under them. */
     val blocked: Flow<Int> = dao.blockedCount()
+
+    /** Sales still waiting on the NETWORK — the retry timer's driver (see [start]). */
+    private val pending: Flow<Int> = dao.pendingCount()
+
+    /** Till-close gate scoped to one service — another till's held sales don't block this close. */
+    fun unsyncedForSession(sessionId: String): Flow<Int> = dao.unsyncedCountForSession(sessionId)
+
+    /** Blocked sales filed against one service — which "re-file" message the close shows. */
+    fun blockedForSession(sessionId: String): Flow<Int> = dao.blockedCountForSession(sessionId)
 
     /** Everything captured on this device, newest first — the offline sales panel. */
     val all: Flow<List<OfflineSaleRow>> = dao.observeAll()
@@ -105,8 +119,10 @@ class OfflineSaleRepository(
         // A socket that dies without the connectivity flag flipping leaves a sale stranded
         // with no reconnect edge to retrigger it. While money is still owed to the ledger,
         // keep trying — clearing the queue emits 0, which cancels this via collectLatest.
+        // Driven by PENDING, not unsynced: blocked rows wait on a person and must not
+        // keep the radio warm every 15s forever.
         scope.launch {
-            unsynced.collectLatest { count ->
+            pending.collectLatest { count ->
                 while (count > 0) {
                     delay(RETRY_INTERVAL_MS)
                     drain()
@@ -142,11 +158,14 @@ class OfflineSaleRepository(
         operatorId: String? = null,
         operatorName: String? = null,
         capturedAt: Long = System.currentTimeMillis(),
-    ): OfflineSaleRow {
+    ): OfflineSaleRow = captureMutex.withLock {
         // A re-tap of Record payment on a sale already captured must not create a second
         // one: the sale key is the identity here exactly as it is on the server.
-        dao.find(saleKey)?.let { return it }
+        dao.find(saleKey)?.let { return@withLock it }
 
+        // Guarded by [captureMutex]: maxSeq()+1 then insert is otherwise a classic
+        // read-modify-write race — two in-flight captures (Record, quick next-sale,
+        // Record) read the same MAX and print the same OFF-… reference twice.
         val seq = dao.maxSeq() + 1
         val row = OfflineSaleRow(
             saleKey = saleKey,
@@ -173,7 +192,7 @@ class OfflineSaleRepository(
         )
         dao.insert(row)
         drainAsync() // best-effort: the network may have returned between the tap and now
-        return row
+        return@withLock row
     }
 
     fun drainAsync() { scope.launch { drain() } }
@@ -182,11 +201,12 @@ class OfflineSaleRepository(
      * Push everything captured at the server, oldest first so invoice numbers follow the
      * order the sales actually happened.
      *
-     * A transient failure (the network is still down, a socket died) leaves the sale
-     * PENDING and stops the pass — order is worth preserving and the next tick will
-     * retry. A DETERMINISTIC refusal is different: no amount of retrying will change the
-     * server's mind, so that sale is marked BLOCKED for a human and the pass CONTINUES,
-     * because one unanswerable sale must never hold up the ones behind it.
+     * Only a TRANSPORT failure leaves the sale PENDING and stops the pass — order is
+     * worth preserving and the next tick will retry. ANY refusal the server actually
+     * sent (deterministic, unreplayable, or otherwise unrecognised) is BLOCKED for a
+     * human and the pass CONTINUES: no amount of retrying changes the server's mind,
+     * and one unanswerable sale must never hold up the ones behind it. Defaulting
+     * unknown errors to PENDING is how one stale product wedged the whole queue.
      */
     suspend fun drain() {
         if (!connectivity.online.value) return
@@ -208,12 +228,12 @@ class OfflineSaleRepository(
                         dao.markAttempt(row.saleKey, OfflineSaleRow.STATUS_PENDING, attempts, e.message)
                         return
                     }
-                    if (isDeterministicRejection(e) || isUnreplayable(e)) {
+                    if (isUnreplayable(e) || isDeterministicRejection(e) || !e.isTransientNetwork()) {
                         Log.w(TAG, "offline sale ${row.localRef} blocked: ${e.message}")
                         dao.markAttempt(row.saleKey, OfflineSaleRow.STATUS_BLOCKED, attempts, e.message)
                     } else {
                         dao.markAttempt(row.saleKey, OfflineSaleRow.STATUS_PENDING, attempts, e.message)
-                        return // likely still offline; keep the order and try again shortly
+                        return // transport drop; keep the order and try again shortly
                     }
                 }
             }
@@ -245,9 +265,15 @@ class OfflineSaleRepository(
 
     suspend fun find(saleKey: String): OfflineSaleRow? = dao.find(saleKey)
 
-    /** A role refusal — the session lacks the right, not the sale. Changes with the next login. */
-    private fun isPrivilegeRefusal(e: Throwable): Boolean =
-        e.message?.contains("insufficient privileges", ignoreCase = true) == true
+    /**
+     * A refusal about WHO is signed in, not about the sale: a technician's session where
+     * a manager's is needed, or tokens that can no longer write (RLS/JWT). The answer
+     * changes at the next sign-in and at no other moment — stay PENDING, never BLOCKED.
+     */
+    private fun isPrivilegeRefusal(e: Throwable): Boolean = e.isSessionRefusal()
+
+    /** Mark the synced row's receipt audit as backfilled (see CounterViewModel's watcher). */
+    suspend fun markAuditBackfilled(saleKey: String) = dao.markAuditBackfilled(saleKey)
 
     /**
      * The sale cannot be rebuilt from what this device stored, so the request never reaches

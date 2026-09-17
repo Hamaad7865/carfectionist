@@ -16,6 +16,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.isSessionRefusal
+import mu.carfection.pos.core.network.isTransientNetwork
 import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -181,7 +182,9 @@ class OutboxRepository @Inject constructor(
 
     private suspend fun enqueue(opType: String, payload: String, idempotencyKey: String, label: String) {
         dao.insert(OutboxOp(opType = opType, payload = payload, idempotencyKey = idempotencyKey, label = label, createdAt = System.currentTimeMillis()))
-        drain() // best-effort immediate send; a no-op while offline
+        // Fire-and-forget: drain() does network I/O and must never block the caller's
+        // coroutine (often Main). A no-op while offline; the reconnect watcher retries.
+        drainAsync()
     }
 
     /** Fire-and-forget flush for callers that shouldn't block on the network. */
@@ -208,13 +211,21 @@ class OutboxRepository @Inject constructor(
                         dao.markFailure(op.id, op.attempts, err) // attempts deliberately unchanged
                         return
                     }
+                    if (cause?.isTransientNetwork() == true) {
+                        // A dropped socket, not a server answer: spending the retry budget
+                        // on it DELETES good writes five passes later (audit events
+                        // included). attempts deliberately unchanged; the retry watcher
+                        // tries again shortly.
+                        dao.markFailure(op.id, op.attempts, err)
+                        return
+                    }
                     val attempts = op.attempts + 1
                     if (attempts >= MAX_ATTEMPTS) {
                         Log.w(TAG, "dropping poisoned op ${op.opType} after $attempts attempts: $err — ${op.label}")
                         dao.delete(op.id) // a bad op shouldn't block the rest of the queue
                     } else {
                         dao.markFailure(op.id, attempts, err)
-                        return // likely a transient drop; retry the whole queue on next reconnect
+                        return // a server refusal; retry the whole queue on next reconnect
                     }
                 }
             }

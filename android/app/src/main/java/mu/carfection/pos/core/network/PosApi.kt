@@ -142,10 +142,17 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
     }.getOrNull()
 
+    /**
+     * The customer already on file under this name, if there is one — case-insensitive,
+     * to match the offline capture's cache lookup (`equals(ignoreCase = true)`). An
+     * exact `eq` here minted a duplicate "walk-in customer" every time the casing
+     * drifted; `ilike` without wildcards is an exact match that ignores case.
+     */
     suspend fun findCustomerByName(name: String): CustomerDto? =
         client.postgrest.from("customers")
             .select(Columns.raw("id, name, phone")) {
-                filter { eq("name", name) }
+                // ilike treats %/_ as wildcards — strip them so a name can never match broadly.
+                filter { ilike("name", name.replace("%", "").replace("_", "")) }
                 limit(1)
             }
             .decodeList<CustomerDto>()

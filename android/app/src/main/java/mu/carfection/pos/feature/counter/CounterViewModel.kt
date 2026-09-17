@@ -592,6 +592,10 @@ internal fun CounterUiState.withSettleFailure(e: Throwable): CounterUiState = wh
  *    after the fact is not a check. Queuing a points payment offline could promise a
  *    customer a redemption their balance can no longer cover by the time it replays, so
  *    this is refused outright rather than captured (see CounterViewModel.confirm()).
+ *  - CARD / JUICE / BANK are authorisations, not cash in the drawer. A card tap with no
+ *    network has not taken any money — capturing it hands the customer goods against a
+ *    payment that may never have happened. Only CASH (money counted at the till) and
+ *    CHEQUE (paper in hand) are captured; the rest wait for the line to come back.
  *  - with no TILL there is no service to file the money against, and `record_payment`
  *    requires one for every method — a captured sale would only block later.
  */
@@ -599,12 +603,16 @@ internal fun canCaptureOffline(s: CounterUiState, online: Boolean): Boolean =
     !online &&
         s.collect == null &&
         s.pendingSettle == null &&
-        s.method != PayMethod.CREDIT &&
+        (s.method == PayMethod.CASH || s.method == PayMethod.CHEQUE) &&
         // Points are applied above the grid now, not chosen as a method — so the test is
         // whether any are ON this bill, not which tile is lit.
         s.pointsAppliedCents == 0L &&
         s.till != null &&
         s.cart.isNotEmpty()
+
+/** Split counterpart: every tender in the allocation must be money actually taken. */
+internal fun tendersCapturableOffline(tenders: List<mu.carfection.pos.core.data.Tender>): Boolean =
+    tenders.isNotEmpty() && tenders.all { it.method == PayMethod.CASH || it.method == PayMethod.CHEQUE }
 
 @HiltViewModel
 class CounterViewModel @Inject constructor(
@@ -673,6 +681,7 @@ class CounterViewModel @Inject constructor(
         // Sales held on this tablet — the cashier has to be able to see them, and see the
         // invoice number each one is finally given.
         viewModelScope.launch { offlineSales.all.collect { local.value = local.value.copy(offlineSales = it) } }
+        watchOfflineSyncBackfill() // synced sales get their print audit filed under the real invoice
         // Studio identity for the payment screen's bill panel (Cashmag-style header).
         viewModelScope.launch {
             runCatching { catalog.receiptBiz() }.getOrNull()?.let { biz ->
@@ -1190,6 +1199,10 @@ class CounterViewModel @Inject constructor(
 
     /** The pad's confirm button: split allocation, collect on an invoice, or settle the cart. */
     fun confirm() {
+        // A completed sale stays on screen behind its done panel until "Start next sale".
+        // Recording again would replay the old invoice under the same saleKey (the server
+        // ignores the new basket) — the new money would have no record. Force next-sale.
+        if (local.value.done != null) return
         val s = local.value
         // The server has to check and debit the balance NOW — points queued for later replay
         // would be trusting a number that may no longer be true. Say so plainly and stop,
@@ -1198,6 +1211,28 @@ class CounterViewModel @Inject constructor(
         if (s.pointsAppliedCents > 0 && !connectivity.online.value) {
             local.value = s.copy(error = "Points need a connection to check the balance — take them off to pay offline.")
             return
+        }
+        if (!connectivity.online.value && s.collect != null) {
+            local.value = s.copy(error = "Collects need a connection — the bill's balance lives on the server.")
+            return
+        }
+        if (!connectivity.online.value && s.collect == null && s.pendingSettle == null) {
+            // Cash/cheque capture offline; everything else must wait with a plain reason
+            // rather than failing on a generic network error after the drawer was counted.
+            if (s.method == PayMethod.CREDIT) {
+                local.value = s.copy(error = "On-account needs a connection — the receivable is recorded on the server.")
+                return
+            }
+            if (s.splitMode) {
+                val bad = SPLIT_METHODS.filter { s.splitCents(it) > 0 && it != PayMethod.CASH && it != PayMethod.CHEQUE }
+                if (bad.isNotEmpty()) {
+                    local.value = s.copy(error = "Card, Juice and Bank need a connection to authorise — keep cash or cheque to sell offline.")
+                    return
+                }
+            } else if (s.pointsAppliedCents == 0L && s.method != PayMethod.CASH && s.method != PayMethod.CHEQUE) {
+                local.value = s.copy(error = "${s.method.label} needs a connection to authorise — take cash or cheque to sell offline.")
+                return
+            }
         }
         when {
             // Points applied means TWO tenders — the points and whatever covers the rest —
@@ -1215,6 +1250,7 @@ class CounterViewModel @Inject constructor(
      */
     private fun recordSplit() {
         val s = state.value
+        if (s.done != null) return // finished — start the next sale, never re-record this one
         // Points-with-a-single-method comes through here too, and satisfies canRecord
         // rather than splitCanRecord — the split grid is not open in that case.
         if (s.busy) return
@@ -1256,7 +1292,7 @@ class CounterViewModel @Inject constructor(
         }
         val allTenders = listOfNotNull(pointsTender) + rest
         if (allTenders.isEmpty()) return
-        if (canCaptureOffline(s)) { captureOffline(s, allTenders); return }
+        if (canCaptureOffline(s) && tendersCapturableOffline(allTenders)) { captureOffline(s, allTenders); return }
         val anyCash = allTenders.any { it.method == PayMethod.CASH }
         local.value = local.value.copy(busy = true, error = null)
         viewModelScope.launch {
@@ -1306,6 +1342,7 @@ class CounterViewModel @Inject constructor(
 
     private fun recordCollect() {
         val s = state.value
+        if (s.done != null) return // finished — start the next sale, never re-record this one
         val bill = s.collect ?: return
         if (!s.canRecord || s.busy) return
         local.value = local.value.copy(busy = true, error = null)
@@ -1918,6 +1955,7 @@ class CounterViewModel @Inject constructor(
 
     fun record() {
         val s = state.value
+        if (s.done != null) return // finished — start the next sale, never re-record this one
         if (!s.canRecord || s.busy) return
         if (canCaptureOffline(s)) {
             captureOffline(
@@ -2097,7 +2135,7 @@ class CounterViewModel @Inject constructor(
                 launch {
                     val printed = runCatching { printer.printDoc(receipt) }.isSuccess
                     if (tenders.any { it.method == PayMethod.CASH }) runCatching { drawer.kick() }
-                    logReceiptOutcome(row.localRef, printed, null)
+                    logReceiptOutcome(row.localRef, printed, null, saleKey = row.saleKey)
                 }
                 local.value = local.value.copy(
                     busy = false, padOpen = false, splitMode = false, splitText = emptyMap(),
@@ -2184,7 +2222,7 @@ class CounterViewModel @Inject constructor(
      */
     // [documentId] is what receiptPrintCount later counts BY (ref_id) to print "Duplicata N" —
     // without it every reprint of this sale looks like the original.
-    private fun logReceiptOutcome(number: String?, printed: Boolean, documentId: String?) {
+    private fun logReceiptOutcome(number: String?, printed: Boolean, documentId: String?, saleKey: String? = null) {
         viewModelScope.launch {
             runCatching {
                 val tenant = catalog.tenantId() ?: return@launch
@@ -2192,11 +2230,47 @@ class CounterViewModel @Inject constructor(
                     tenantId = tenant,
                     eventType = if (printed) "receipt_printed" else "receipt_skipped",
                     deviceId = session.deviceId(),
-                    payload = buildJsonObject { if (number != null) put("number", number) },
+                    payload = buildJsonObject {
+                        if (number != null) put("number", number)
+                        if (saleKey != null) put("sale_key", saleKey)
+                    },
                     label = "Receipt trace · ${number ?: "sale"}",
                     refType = if (documentId != null) "invoice" else null,
                     refId = documentId,
                 )
+            }
+        }
+    }
+
+    /**
+     * An offline print is logged with no document to point at (there is no invoice yet),
+     * so receiptPrintCount — which counts BY ref_id — never sees it, and the first
+     * reprint of the synced invoice looks like the original. Once a held sale lands,
+     * file its print again under the real invoice id. Guarded by the persisted
+     * [auditBackfilled] flag so a restart can't double-file it.
+     */
+    private fun watchOfflineSyncBackfill() = viewModelScope.launch {
+        offlineSales.all.collect { rows ->
+            for (row in rows) {
+                if (row.status != mu.carfection.pos.core.sync.OfflineSaleRow.STATUS_SYNCED) continue
+                if (row.auditBackfilled || row.invoiceId == null) continue
+                runCatching {
+                    val tenant = catalog.tenantId() ?: return@runCatching
+                    outbox.enqueueAuditEvent(
+                        tenantId = tenant,
+                        eventType = "receipt_printed",
+                        deviceId = session.deviceId(),
+                        payload = buildJsonObject {
+                            row.invoiceNumber?.let { put("number", it) }
+                            put("sale_key", row.saleKey)
+                            put("offline_ref", row.localRef)
+                        },
+                        label = "Receipt trace · ${row.invoiceNumber ?: row.localRef} (offline print)",
+                        refType = "invoice",
+                        refId = row.invoiceId,
+                    )
+                    offlineSales.markAuditBackfilled(row.saleKey)
+                }
             }
         }
     }

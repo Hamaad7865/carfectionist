@@ -38,10 +38,18 @@ class OfflineCaptureDecisionTest {
         assertFalse(canCaptureOffline(walkIn(), online = true))
     }
 
+    /**
+     * Only money actually taken is capturable: cash counted at the till and a cheque in
+     * hand. A card/Juice/bank tap with no network is an authorisation that never happened —
+     * capturing it hands over goods against a payment that may not exist.
+     */
     @Test
-    fun `every tender the drawer can take is capturable`() {
-        listOf(PayMethod.CASH, PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK, PayMethod.CHEQUE).forEach { m ->
+    fun `only cash and cheque are capturable`() {
+        listOf(PayMethod.CASH, PayMethod.CHEQUE).forEach { m ->
             assertTrue("$m should be capturable", canCaptureOffline(walkIn().copy(method = m), online = false))
+        }
+        listOf(PayMethod.CARD, PayMethod.JUICE, PayMethod.BANK).forEach { m ->
+            assertFalse("$m must wait for the network", canCaptureOffline(walkIn().copy(method = m), online = false))
         }
     }
 

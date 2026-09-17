@@ -40,6 +40,16 @@ class OfflineSaleQueueTest {
         override fun unsyncedCount(): Flow<Int> = changes.map { unsynced().size }
         override fun blockedCount(): Flow<Int> =
             changes.map { rows.values.count { r -> r.status == OfflineSaleRow.STATUS_BLOCKED } }
+        override fun pendingCount(): Flow<Int> =
+            changes.map { rows.values.count { r -> r.status == OfflineSaleRow.STATUS_PENDING } }
+        override fun unsyncedCountForSession(sessionId: String): Flow<Int> =
+            changes.map { rows.values.count { r -> r.status != OfflineSaleRow.STATUS_SYNCED && (r.cashSessionId == sessionId || r.cashSessionId == null) } }
+        override fun blockedCountForSession(sessionId: String): Flow<Int> =
+            changes.map { rows.values.count { r -> r.status == OfflineSaleRow.STATUS_BLOCKED && (r.cashSessionId == sessionId || r.cashSessionId == null) } }
+        override suspend fun markAuditBackfilled(saleKey: String) {
+            rows[saleKey] = rows.getValue(saleKey).copy(auditBackfilled = true)
+            touch()
+        }
         override suspend fun find(saleKey: String) = rows[saleKey]
         override suspend fun maxSeq() = rows.values.maxOfOrNull { it.seq } ?: 0
         override suspend fun markSynced(saleKey: String, invoiceId: String, number: String?, at: Long) {
@@ -267,6 +277,50 @@ class OfflineSaleQueueTest {
         replayer.answer = { issued("inv-9", "INV-0069") }
         r.drain()
         assertEquals(OfflineSaleRow.STATUS_SYNCED, dao.rows.getValue("sale-a").status)
+    }
+
+    /**
+     * An EXPIRED session (RLS/JWT) is about who is signed in, not about the sale — same
+     * as a privilege refusal. It stays PENDING for the next sign-in, never BLOCKED.
+     */
+    @Test
+    fun `a session refusal keeps the sale pending for the next sign-in`() = runTest {
+        online.set(false)
+        val r = repo()
+        r.captureOne("sale-a")
+        replayer.answer = { throw IllegalStateException("new row violates row-level security policy") }
+        online.set(true)
+        r.drain()
+
+        assertEquals(OfflineSaleRow.STATUS_PENDING, dao.rows.getValue("sale-a").status)
+
+        replayer.answer = { issued("inv-9", "INV-0069") }
+        r.drain()
+        assertEquals(OfflineSaleRow.STATUS_SYNCED, dao.rows.getValue("sale-a").status)
+    }
+
+    /**
+     * An UNRECOGNISED server refusal (stale product, dead tender config, anything the
+     * known lists don't name) is still a server ANSWER — retrying identically can never
+     * succeed. It is set aside for a person without holding up the sales behind it.
+     * Defaulting these to PENDING is what wedged the whole queue behind one bad sale.
+     */
+    @Test
+    fun `an unknown server refusal is set aside without blocking the rest`() = runTest {
+        online.set(false)
+        val r = repo()
+        r.captureOne("sale-a", at = 1)
+        r.captureOne("sale-b", at = 2)
+        replayer.answer = { row ->
+            if (row.saleKey == "sale-a") throw IllegalStateException("unknown product on a line")
+            issued("inv-2", "INV-0062")
+        }
+
+        online.set(true)
+        r.drain()
+
+        assertEquals(OfflineSaleRow.STATUS_BLOCKED, dao.rows.getValue("sale-a").status)
+        assertEquals("the sale behind it still lands", OfflineSaleRow.STATUS_SYNCED, dao.rows.getValue("sale-b").status)
     }
 
     /** A set-aside sale must not be retried forever in the background — it waits for a decision. */
