@@ -654,6 +654,19 @@ data class StockAdjustmentDto(
     @SerialName("is_active") val isActive: Boolean = true,
 )
 @Serializable data class PlateCustomerDto(val plate: String? = null, val customers: CustomerDto? = null)
+
+/**
+ * One vehicle row with its owning customer embedded — the Contacts car/plate search.
+ * The customer carries its own full vehicle list, so the row folds back into the same
+ * [ContactDto] card the customer search shows (deduped client-side, one card per owner).
+ */
+@Serializable data class VehicleOwnerRowDto(
+    val id: String,
+    val plate: String? = null,
+    val make: String? = null,
+    val model: String? = null,
+    val customers: ContactDto? = null,
+)
 @Serializable data class PlateOwnerDto(val plate: String? = null, val customers: CustomerNameDto? = null)
 
 /** A taken plate with everything needed to jump straight to it — see PosApi.plateHolder. */

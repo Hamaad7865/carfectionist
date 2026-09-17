@@ -111,9 +111,31 @@ fun ContactsScreen(onJobStarted: () -> Unit = {}, viewModel: ContactsViewModel =
         }
         FilledInput(
             value = s.query, onValueChange = viewModel::setQuery,
-            placeholder = "Search a customer by name or phone…",
+            placeholder = when (s.mode) {
+                ContactSearchMode.CUSTOMER -> "Search a customer by name or phone…"
+                ContactSearchMode.CAR -> "Search by make or model — Toyota, Aqua…"
+                ContactSearchMode.PLATE -> "Search by plate number…"
+            },
             modifier = Modifier.fillMaxWidth(), height = 46.dp, bg = CardBg, leadingSearch = true,
         )
+        // What the box searches against — the owner picks. Switching re-runs the term at once.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ContactSearchMode.entries.forEach { m ->
+                val selected = s.mode == m
+                Box(
+                    Modifier.height(36.dp).background(if (selected) AccentSoft else CardBg, RoundedCornerShape(11.dp))
+                        .border(if (selected) 1.5.dp else 1.dp, if (selected) AccentLine else Hairline, RoundedCornerShape(11.dp))
+                        .clickable { viewModel.setMode(m) }.padding(horizontal = 18.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        m.label, fontFamily = Barlow,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold,
+                        fontSize = 13.sp, color = if (selected) Accent else TextMuted,
+                    )
+                }
+            }
+        }
 
         when {
             s.loading -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
@@ -132,12 +154,16 @@ fun ContactsScreen(onJobStarted: () -> Unit = {}, viewModel: ContactsViewModel =
             }
             s.contacts.isEmpty() -> Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(
-                    if (s.query.isBlank()) "No customers yet." else "Nobody matches “${s.query}”.",
+                    if (s.query.isBlank()) "No customers yet." else when (s.mode) {
+                        ContactSearchMode.CAR -> "No car matches “${s.query}”."
+                        ContactSearchMode.PLATE -> "No plate matches “${s.query}”."
+                        ContactSearchMode.CUSTOMER -> "Nobody matches “${s.query}”."
+                    },
                     fontFamily = Barlow, fontSize = 14.sp, color = TextMuted,
                 )
             }
             else -> LazyColumn(Modifier.weight(1f).fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-                items(s.contacts, key = { it.id }) { c -> ContactRow(c) { viewModel.openContact(c) } }
+                items(s.contacts, key = { it.id }) { c -> ContactRow(c, hint = s.matchHint[c.id]) { viewModel.openContact(c) } }
             }
         }
     }
@@ -150,7 +176,7 @@ fun ContactsScreen(onJobStarted: () -> Unit = {}, viewModel: ContactsViewModel =
 }
 
 @Composable
-private fun ContactRow(c: ContactDto, onClick: () -> Unit) {
+private fun ContactRow(c: ContactDto, hint: String? = null, onClick: () -> Unit) {
     val coated = c.vehicles.count { it.isCoated }
     Row(
         Modifier.fillMaxWidth().background(CardBg, RoundedCornerShape(13.dp))
@@ -167,9 +193,10 @@ private fun ContactRow(c: ContactDto, onClick: () -> Unit) {
                 if (c.isCompany) Text("COMPANY", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 8.5.sp, letterSpacing = 0.8.sp, color = TextMuted)
             }
             Text(
-                listOfNotNull(c.phone, c.vehicles.takeIf { it.isNotEmpty() }?.let { "${it.size} car${if (it.size == 1) "" else "s"}" })
+                listOfNotNull(hint, c.phone, c.vehicles.takeIf { it.isNotEmpty() }?.let { "${it.size} car${if (it.size == 1) "" else "s"}" })
                     .joinToString(" · ").ifBlank { "—" },
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
         }
         // The one fact the shop floor asks about a returning car.

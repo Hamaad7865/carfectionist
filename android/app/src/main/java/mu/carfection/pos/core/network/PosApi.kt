@@ -1316,6 +1316,41 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         return all
     }
 
+    /**
+     * Contacts search by registration: vehicles whose plate contains the term, folded back
+     * to one card per owning customer. A vehicle-driven query, not a customer filter —
+     * the customer table knows nothing about plates, so filtering customers could never
+     * find "whose car is 1234 RS 56".
+     */
+    suspend fun searchContactsByPlate(term: String): List<ContactDto> =
+        fetchContactsByVehicle(term, byCar = false)
+
+    /** Contacts search by car: vehicles whose make or model contains the term, same fold. */
+    suspend fun searchContactsByCar(term: String): List<ContactDto> =
+        fetchContactsByVehicle(term, byCar = true)
+
+    private suspend fun fetchContactsByVehicle(term: String, byCar: Boolean): List<ContactDto> {
+        val safe = term.trim().replace("%", "").replace(",", " ")
+        if (safe.isEmpty()) return emptyList()
+        val rows = client.postgrest.from("vehicles")
+            .select(Columns.raw("id, plate, make, model, customers(id, name, phone, email, address, brn, vat_number, notes, is_company, vehicles(id, plate, make, model, color, category, is_coated, notes, is_active))")) {
+                filter {
+                    if (byCar) or { ilike("make", "%$safe%"); ilike("model", "%$safe%") }
+                    else ilike("plate", "%$safe%")
+                }
+                order("plate", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                limit(60)
+            }
+            .decodeList<VehicleOwnerRowDto>()
+        // One row per matching vehicle; the book shows one card per customer.
+        val seen = LinkedHashMap<String, ContactDto>()
+        for (r in rows) {
+            val c = r.customers ?: continue
+            if (!seen.containsKey(c.id)) seen[c.id] = c
+        }
+        return seen.values.toList()
+    }
+
     /** Edit a car's identity from Contacts. Plate included — typos get corrected. */
     suspend fun updateVehicle(id: String, plate: String, make: String?, model: String?, colour: String?, category: String?) {
         client.postgrest.from("vehicles").update({

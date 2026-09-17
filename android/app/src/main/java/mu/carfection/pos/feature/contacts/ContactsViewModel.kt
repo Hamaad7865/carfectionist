@@ -39,10 +39,23 @@ data class CustomerHistoryState(
     val error: String? = null,
 )
 
+/** What the Contacts search box is matched against — the owner picks with three buttons. */
+enum class ContactSearchMode(val label: String) {
+    CUSTOMER("Customer"),
+    CAR("Car"),
+    PLATE("Plate"),
+}
+
 data class ContactsState(
     val loading: Boolean = true,
     val query: String = "",
+    val mode: ContactSearchMode = ContactSearchMode.CUSTOMER,
     val contacts: List<ContactDto> = emptyList(),
+    /**
+     * Why each card matched, keyed by customer id — the plate in PLATE mode, "Make Model"
+     * in CAR mode. Shown under the name so the match reads as a match, not a coincidence.
+     */
+    val matchHint: Map<String, String> = emptyMap(),
     /** The card that is open. Null = the list. */
     val open: ContactDto? = null,
     /** The vehicle being edited. A NEW car is `editing = null` with `adding = true`. */
@@ -116,30 +129,34 @@ class ContactsViewModel @Inject constructor(
         }
     }
 
+    /** Switch what the box searches against and re-run the current term at once. */
+    fun setMode(m: ContactSearchMode) {
+        if (_s.value.mode == m) return
+        _s.update { it.copy(mode = m, matchHint = emptyMap()) }
+        searchJob?.cancel()
+        load(_s.value.query)
+    }
+
     fun load(term: String) {
+        val mode = _s.value.mode
         _s.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
-            runCatching { api.fetchContacts(term) }
-                .onSuccess { rows -> _s.update { it.copy(loading = false, contacts = displayOrder(rows, term)) } }
+            runCatching { fetchFor(mode, term) }
+                .onSuccess { rows ->
+                    _s.update { it.copy(loading = false, contacts = displayOrder(rows, term, mode), matchHint = matchHints(rows, term, mode)) }
+                }
                 .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 
-    /**
-     * What you typed should lead the list: "z" opens on Zaheer, not on "abdul azize". The
-     * server returns matches alphabetically (its pagination needs that order stable), so the
-     * page is re-ranked for display — names starting with the term first, then the rest A→Z.
-     */
-    private fun displayOrder(rows: List<ContactDto>, term: String): List<ContactDto> {
-        val q = term.trim().lowercase()
-        if (q.isEmpty()) return rows
-        return rows.sortedWith(
-            compareBy(
-                { if (it.name.lowercase().startsWith(q)) 0 else 1 },
-                { it.name.lowercase() },
-            ),
-        )
-    }
+    /** Blank means the whole book, whatever the mode — consistent with the customer list. */
+    private suspend fun fetchFor(mode: ContactSearchMode, term: String): List<ContactDto> =
+        when {
+            term.isBlank() -> api.fetchContacts("")
+            mode == ContactSearchMode.PLATE -> api.searchContactsByPlate(term)
+            mode == ContactSearchMode.CAR -> api.searchContactsByCar(term)
+            else -> api.fetchContacts(term)
+        }
 
     fun openContact(c: ContactDto) = _s.update { it.copy(open = c) }
     fun closeContact() = _s.update { it.copy(open = null, editing = null) }
@@ -417,9 +434,17 @@ class ContactsViewModel @Inject constructor(
     /** Re-fetch and keep the open card pointed at the same customer. */
     private fun reload() {
         val openId = _s.value.open?.id
+        val mode = _s.value.mode
+        val term = _s.value.query
         viewModelScope.launch {
-            runCatching { api.fetchContacts(_s.value.query) }.onSuccess { rows ->
-                _s.update { st -> st.copy(contacts = displayOrder(rows, st.query), open = rows.firstOrNull { it.id == openId } ?: st.open) }
+            runCatching { fetchFor(mode, term) }.onSuccess { rows ->
+                _s.update { st ->
+                    st.copy(
+                        contacts = displayOrder(rows, st.query, st.mode),
+                        matchHint = matchHints(rows, st.query, st.mode),
+                        open = rows.firstOrNull { it.id == openId } ?: st.open,
+                    )
+                }
             }
         }
     }
@@ -450,4 +475,107 @@ class ContactsViewModel @Inject constructor(
     fun consumeStartedJob() = _s.update { it.copy(startedJobId = null) }
 
     fun clearToast() = _s.update { it.copy(toast = null) }
+}
+
+/**
+ * What you typed should lead the list: "z" opens on Zaheer, not on "abdul azize". The
+ * server returns matches alphabetically (its pagination needs that order stable), so the
+ * page is re-ranked for display — names starting with the term first, then the rest A→Z.
+ *
+ * Car and plate modes rank on the VEHICLE instead: an exact plate beats a prefix, a
+ * prefix beats a mid-string hit, and a make that starts with the term beats one that
+ * merely contains it.
+ */
+internal fun displayOrder(rows: List<ContactDto>, term: String, mode: ContactSearchMode): List<ContactDto> {
+    val q = term.trim().lowercase()
+    if (q.isEmpty()) return rows
+    return when (mode) {
+        ContactSearchMode.PLATE -> rows.sortedWith(
+            compareBy({ plateRank(it, q) }, { it.name.lowercase() }),
+        )
+        ContactSearchMode.CAR -> rows.sortedWith(
+            compareBy({ carRank(it, q) }, { it.name.lowercase() }),
+        )
+        ContactSearchMode.CUSTOMER -> rows.sortedWith(
+            compareBy(
+                { if (it.name.lowercase().startsWith(q)) 0 else 1 },
+                { it.name.lowercase() },
+            ),
+        )
+    }
+}
+
+/** 0 exact plate, 1 prefix, 2 contains, 3 no vehicle hit (shouldn't happen — server filtered). */
+internal fun plateRank(c: ContactDto, q: String): Int {
+    var best = 3
+    for (v in c.vehicles) {
+        val p = v.plate.lowercase()
+        best = minOf(best, when {
+            p == q -> 0
+            p.startsWith(q) -> 1
+            p.contains(q) -> 2
+            else -> 3
+        })
+        if (best == 0) break
+    }
+    return best
+}
+
+/** 0 make/model starts with the term, 1 merely contains it, 2 no hit. */
+internal fun carRank(c: ContactDto, q: String): Int {
+    var best = 2
+    for (v in c.vehicles) {
+        val mm = listOfNotNull(v.make, v.model).joinToString(" ").lowercase()
+        best = minOf(best, when {
+            v.make?.lowercase()?.startsWith(q) == true || v.model?.lowercase()?.startsWith(q) == true -> 0
+            mm.contains(q) -> 1
+            else -> 2
+        })
+        if (best == 0) break
+    }
+    return best
+}
+
+/**
+ * The subtitle each card earns in car/plate mode: the plate that matched, or the car
+ * that matched ("Toyota Aqua"). Keyed by customer id; empty in customer mode.
+ */
+internal fun matchHints(rows: List<ContactDto>, term: String, mode: ContactSearchMode): Map<String, String> {
+    val q = term.trim().lowercase()
+    if (q.isEmpty() || mode == ContactSearchMode.CUSTOMER) return emptyMap()
+    val out = LinkedHashMap<String, String>()
+    for (c in rows) {
+        val hit = c.vehicles.minWithOrNull(
+            compareBy(
+                {
+                    when (mode) {
+                        ContactSearchMode.PLATE -> when {
+                            it.plate.lowercase() == q -> 0
+                            it.plate.lowercase().startsWith(q) -> 1
+                            else -> 2
+                        }
+                        else -> when {
+                            it.make?.lowercase()?.startsWith(q) == true || it.model?.lowercase()?.startsWith(q) == true -> 0
+                            else -> 1
+                        }
+                    }
+                },
+                { it.plate.lowercase() },
+            ),
+        ) ?: continue
+        val matches = when (mode) {
+            ContactSearchMode.PLATE -> hit.plate.lowercase().contains(q)
+            else -> listOfNotNull(hit.make, hit.model).joinToString(" ").lowercase().contains(q) ||
+                hit.plate.lowercase().contains(q)
+        }
+        if (!matches) continue
+        out[c.id] = when (mode) {
+            ContactSearchMode.PLATE -> hit.plate
+            else -> {
+                val mm = listOfNotNull(hit.make, hit.model).joinToString(" ").trim()
+                if (mm.isNotEmpty()) "$mm · ${hit.plate}" else hit.plate
+            }
+        }
+    }
+    return out
 }
