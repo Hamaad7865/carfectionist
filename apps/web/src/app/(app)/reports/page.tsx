@@ -686,29 +686,33 @@ export default async function ReportsPage({
               </div>
 
               <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-                <div className="grid grid-cols-[90px_150px_110px_1fr_130px_110px_150px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
-                  <span>Number</span><span>Closed</span><span>Device</span><span>Closed by</span><span className="text-right">Total</span><span className="text-right">Variance</span><span className="text-right">Reprint</span>
+                <div className="overflow-x-auto">
+                  <div className="min-w-[920px]">
+                  <div className="grid grid-cols-[90px_150px_110px_minmax(120px,1fr)_130px_90px_210px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                    <span>Number</span><span>Closed</span><span>Device</span><span>Closed by</span><span className="text-right">Total</span><span className="text-right">Variance</span><span className="text-right">Reprint</span>
+                  </div>
+                  {zReports.length === 0 ? (
+                    <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No till closures in this range.</div>
+                  ) : (
+                    zReports.map((z) => (
+                      <div key={z.id} className="grid grid-cols-[90px_150px_110px_minmax(120px,1fr)_130px_90px_210px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
+                        <span className="num font-bold text-body">{z.number}</span>
+                        <span className="num whitespace-nowrap text-muted">{z.closedAt.slice(0, 16).replace("T", " ")}</span>
+                        <span className="num text-muted">{z.device ?? "—"}</span>
+                        <span className="truncate text-body">{z.closedBy ?? "—"}</span>
+                        <span className="num text-right font-bold text-ink">{formatMUR(z.totalCents)}</span>
+                        <span className={`num text-right font-bold ${z.varianceCents === 0 ? "text-mint" : z.varianceCents < 0 ? "text-rose" : "text-amber-ink"}`}>{z.varianceCents === 0 ? "—" : formatMUR(z.varianceCents)}</span>
+                        <span className="flex flex-wrap items-center justify-end gap-3">
+                          <a href={`/api/z-reports/${z.id}/pdf`} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-link hover:underline">PDF</a>
+                          <ZReportSendButton zId={z.id} number={z.number} />
+                        </span>
+                      </div>
+                    ))
+                  )}
                 </div>
-                {zReports.length === 0 ? (
-                  <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No till closures in this range.</div>
-                ) : (
-                  zReports.map((z) => (
-                    <div key={z.id} className="grid grid-cols-[90px_150px_110px_1fr_130px_110px_150px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
-                      <span className="num font-bold text-body">{z.number}</span>
-                      <span className="num text-muted">{z.closedAt.slice(0, 16).replace("T", " ")}</span>
-                      <span className="num text-muted">{z.device ?? "—"}</span>
-                      <span className="truncate text-body">{z.closedBy ?? "—"}</span>
-                      <span className="num text-right font-bold text-ink">{formatMUR(z.totalCents)}</span>
-                      <span className={`num text-right font-bold ${z.varianceCents === 0 ? "text-mint" : z.varianceCents < 0 ? "text-rose" : "text-amber-ink"}`}>{z.varianceCents === 0 ? "—" : formatMUR(z.varianceCents)}</span>
-                      <span className="flex items-center justify-end gap-3">
-                        <a href={`/api/z-reports/${z.id}/pdf`} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-link hover:underline">PDF</a>
-                        <ZReportSendButton zId={z.id} number={z.number} />
-                      </span>
-                    </div>
-                  ))
-                )}
               </div>
             </div>
+          </div>
           )}
         </div>
       </div>
