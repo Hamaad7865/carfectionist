@@ -741,3 +741,55 @@ export async function getCustomerStatement(customerId: string, from?: string, to
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return { customerId, customerName: (cust as any).name, openingCents: opening, lines, invoicedCents: invoiced, settledCents: settled, closingCents: bal };
 }
+
+/** One row of the all-Z list — everything comes from the frozen totals blob. */
+export interface ZReportListRow {
+  id: string;
+  number: string;
+  scope: string;
+  closedAt: string;
+  device: string | null;
+  closedBy: string | null;
+  totalCents: number;
+  varianceCents: number;
+}
+
+/**
+ * Every Z-report in the range, newest first. Reads the frozen totals only —
+ * a reprint months later is the slip that came out of the printer that day.
+ */
+export async function listZReports(from?: string, to?: string): Promise<ZReportListRow[]> {
+  const sb = await createClient();
+  let q = sb
+    .from("z_reports")
+    .select("id, number, scope, closed_at, totals, closed_by, app_users!z_reports_closed_by_fkey(display_name)")
+    .order("closed_at", { ascending: false })
+    .limit(200);
+  if (from) q = q.gte("closed_at", dayStart(from));
+  if (to) q = q.lte("closed_at", dayEnd(to));
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  type ZRow = {
+    id: string;
+    number: string;
+    scope: string;
+    closed_at: string;
+    totals: unknown;
+    app_users: { display_name?: string } | null;
+  };
+  return ((data ?? []) as ZRow[]).map((z) => {
+    const t: Record<string, unknown> = (z.totals ?? {}) as Record<string, unknown>;
+    const pRaw: unknown = t.period && typeof t.period === "object" ? t.period : t;
+    const p: Record<string, unknown> = (pRaw ?? {}) as Record<string, unknown>;
+    return {
+      id: z.id,
+      number: z.number,
+      scope: z.scope,
+      closedAt: z.closed_at,
+      device: typeof t.device === "string" ? t.device : null,
+      closedBy: z.app_users?.display_name?.replace(/\s*\(.*\)\s*$/, "").trim() ?? null,
+      totalCents: rupeesToCents(Number(p.total_incl ?? 0)),
+      varianceCents: rupeesToCents(Number(t.variance ?? 0)),
+    };
+  });
+}

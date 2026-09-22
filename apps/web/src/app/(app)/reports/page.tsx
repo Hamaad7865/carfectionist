@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { Download } from "lucide-react";
-import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement, getSettleableInvoices, getCustomerPointsContext } from "@/lib/supabase/queries/reports";
+import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement, getSettleableInvoices, getCustomerPointsContext, listZReports } from "@/lib/supabase/queries/reports";
 import { getDailySummary } from "@/lib/supabase/queries/daily-summary";
 import { DailySummaryTable, parseSections, ALL_SECTIONS, type SectionKey } from "@/features/reports/DailySummaryTable";
 import { muToday } from "@/lib/mu-date";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { StatementPicker } from "@/features/reports/StatementPicker";
 import { StatementSendButton } from "@/features/reports/StatementSendButton";
+import { ZReportSendButton } from "@/features/reports/ZReportSendButton";
 import { SettleAccountPanel } from "@/features/documents/SettleAccountPanel";
 import { getSessionContext } from "@/lib/auth/session";
 import { formatMUR } from "@/lib/money";
@@ -42,6 +43,7 @@ const REPORTS = [
   { key: "receivables", label: "Aged receivables" },
   { key: "statement-list", label: "Statement of accounts" },
   { key: "statement", label: "Customer statement" },
+  { key: "z-reports", label: "Z reports" },
   // End-of-day cash-up moved to the Point of Sale module (tills live with
   // their devices now); the /api/reports/cash/csv export remains.
 ];
@@ -81,6 +83,7 @@ export default async function ReportsPage({
         }
       : null;
   const statementList = report === "statement-list" ? await getStatementOfAccounts() : null;
+  const zReports = report === "z-reports" ? await listZReports(sp.from, sp.to) : null;
 
   // Daily summary is a PERIOD report — "all time" is meaningless (and would build
   // a row per day since the studio opened), so it falls back to the current month.
@@ -137,7 +140,7 @@ export default async function ReportsPage({
           <div className="mx-1 h-6 w-px bg-line-2" />
           <DateRangeFilter label={false} />
           <div className="flex-1" />
-          {report !== "statement" && report !== "statement-list" && (
+          {report !== "statement" && report !== "statement-list" && report !== "z-reports" && (
             <a href={`/api/reports/${report}/csv${qs({ from: sp.from, to: sp.to, m: report === "collected" ? method : undefined })}`} className={btn("ghost", "sm")}>
               <Download size={14} /> CSV
             </a>
@@ -672,6 +675,39 @@ export default async function ReportsPage({
                   </div>
                 </>
               ) : null}
+            </div>
+          )}
+
+          {report === "z-reports" && zReports && (
+            <div className="flex flex-col gap-4">
+              <div className="rounded-[15px] border border-line bg-card p-5">
+                <div className="font-display text-[16px] font-bold text-ink-strong">Z reports</div>
+                <div className="mt-1 text-[13.5px] font-medium text-muted">Every till close in the range, newest first — frozen figures, so a reprint matches the paper slip.</div>
+              </div>
+
+              <div className="overflow-hidden rounded-[15px] border border-line bg-card">
+                <div className="grid grid-cols-[90px_150px_110px_1fr_130px_110px_150px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                  <span>Number</span><span>Closed</span><span>Device</span><span>Closed by</span><span className="text-right">Total</span><span className="text-right">Variance</span><span className="text-right">Reprint</span>
+                </div>
+                {zReports.length === 0 ? (
+                  <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No till closures in this range.</div>
+                ) : (
+                  zReports.map((z) => (
+                    <div key={z.id} className="grid grid-cols-[90px_150px_110px_1fr_130px_110px_150px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
+                      <span className="num font-bold text-body">{z.number}</span>
+                      <span className="num text-muted">{z.closedAt.slice(0, 16).replace("T", " ")}</span>
+                      <span className="num text-muted">{z.device ?? "—"}</span>
+                      <span className="truncate text-body">{z.closedBy ?? "—"}</span>
+                      <span className="num text-right font-bold text-ink">{formatMUR(z.totalCents)}</span>
+                      <span className={`num text-right font-bold ${z.varianceCents === 0 ? "text-mint" : z.varianceCents < 0 ? "text-rose" : "text-amber-ink"}`}>{z.varianceCents === 0 ? "—" : formatMUR(z.varianceCents)}</span>
+                      <span className="flex items-center justify-end gap-3">
+                        <a href={`/api/z-reports/${z.id}/pdf`} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-link hover:underline">PDF</a>
+                        <ZReportSendButton zId={z.id} number={z.number} />
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
           )}
         </div>
