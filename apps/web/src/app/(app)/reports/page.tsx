@@ -5,6 +5,7 @@ import { getDailySummary } from "@/lib/supabase/queries/daily-summary";
 import { DailySummaryTable, parseSections, ALL_SECTIONS, type SectionKey } from "@/features/reports/DailySummaryTable";
 import { muToday } from "@/lib/mu-date";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
+import { ReportsShell } from "@/features/reports/ReportsShell";
 import { StatementPicker } from "@/features/reports/StatementPicker";
 import { StatementSendButton } from "@/features/reports/StatementSendButton";
 import { ZReportSendButton } from "@/features/reports/ZReportSendButton";
@@ -100,35 +101,34 @@ export default async function ReportsPage({
   const methodMax = data.byMethod[0]?.cents ?? 1;
 
   return (
-    <div className="flex h-full">
-      {/* rail */}
-      <div className="w-[236px] shrink-0 overflow-y-auto border-r border-line bg-sub p-3">
-        <div className="px-2.5 pb-2.5 pt-1 text-[12px] font-bold uppercase tracking-[0.12em] text-faint">Reports</div>
-        <div className="flex flex-col gap-[3px]">
-          {REPORTS.map((x) => {
-            const on = report === x.key;
-            return (
-              <Link
-                key={x.key}
-                href={`/reports${qs({ r: x.key, from: sp.from, to: sp.to })}`}
-                className={`relative flex h-10 items-center rounded-[9px] px-3.5 text-[14px] font-semibold ${on ? "bg-[rgba(43,140,255,0.10)] text-link" : "text-[#3d4a59] hover:bg-[rgba(15,23,32,0.04)]"}`}
-              >
-                {on && <span className="grad-rail absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-[3px]" />}
-                {x.label}
-              </Link>
-            );
-          })}
-        </div>
-        <div className="mt-4 rounded-[12px] border border-[rgba(43,140,255,0.14)] bg-[rgba(43,140,255,0.06)] p-3">
-          <div className="mb-1 text-[12px] font-bold text-[#2f78de]">Cash vs revenue</div>
-          <div className="text-[12px] font-medium leading-relaxed text-muted">
-            Reports separate <b className="text-body">cash received</b> (the till) from <b className="text-body">revenue invoiced</b> (VAT &amp; P&amp;L).
+    <ReportsShell
+      rail={
+        <>
+          <div className="flex flex-col gap-[3px]">
+            {REPORTS.map((x, i) => {
+              const on = report === x.key;
+              return (
+                <Link
+                  key={x.key}
+                  href={`/reports${qs({ r: x.key, from: sp.from, to: sp.to })}`}
+                  style={{ animationDelay: `${Math.min(i, 10) * 28}ms` }}
+                  className={`rail-item relative flex h-10 items-center rounded-[9px] px-3.5 text-[14px] font-semibold ${on ? "bg-[rgba(43,140,255,0.10)] text-link" : "text-[#3d4a59] hover:bg-[rgba(15,23,32,0.04)]"}`}
+                >
+                  {on && <span className="grad-rail absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-[3px]" />}
+                  {x.label}
+                </Link>
+              );
+            })}
           </div>
-        </div>
-      </div>
-
-      {/* main */}
-      <div className="flex min-w-0 flex-1 flex-col">
+          <div className="rail-item mt-4 rounded-[12px] border border-[rgba(43,140,255,0.14)] bg-[rgba(43,140,255,0.06)] p-3" style={{ animationDelay: "320ms" }}>
+            <div className="mb-1 text-[12px] font-bold text-[#2f78de]">Cash vs revenue</div>
+            <div className="text-[12px] font-medium leading-relaxed text-muted">
+              Reports separate <b className="text-body">cash received</b> (the till) from <b className="text-body">revenue invoiced</b> (VAT &amp; P&amp;L).
+            </div>
+          </div>
+        </>
+      }
+    >
         <div className="flex flex-none flex-wrap items-center gap-2.5 border-b border-line bg-sub px-5 py-3">
           <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Date</span>
           <Link href={`/reports${qs({ r: report, m: method })}`} className={`h-[30px] rounded-lg border px-3 text-[13px] font-semibold leading-[30px] ${!sp.from && !sp.to ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
@@ -715,7 +715,6 @@ export default async function ReportsPage({
           </div>
           )}
         </div>
-      </div>
-    </div>
+    </ReportsShell>
   );
 }
