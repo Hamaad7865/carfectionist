@@ -687,15 +687,15 @@ export default async function ReportsPage({
 
               <div className="overflow-hidden rounded-[15px] border border-line bg-card">
                 <div className="overflow-x-auto">
-                  <div className="min-w-[920px]">
-                  <div className="grid grid-cols-[90px_150px_110px_minmax(120px,1fr)_130px_90px_210px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                  <div className="min-w-[800px]">
+                  <div className="grid grid-cols-[76px_132px_84px_minmax(90px,1fr)_124px_70px_110px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                     <span>Number</span><span>Closed</span><span>Device</span><span>Closed by</span><span className="text-right">Total</span><span className="text-right">Variance</span><span className="text-right">Reprint</span>
                   </div>
                   {zReports.length === 0 ? (
                     <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No till closures in this range.</div>
                   ) : (
                     zReports.map((z) => (
-                      <div key={z.id} className="grid grid-cols-[90px_150px_110px_minmax(120px,1fr)_130px_90px_210px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
+                      <div key={z.id} className="grid grid-cols-[76px_132px_84px_minmax(90px,1fr)_124px_70px_110px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
                         <span className="num font-bold text-body">{z.number}</span>
                         <span className="num whitespace-nowrap text-muted">{z.closedAt.slice(0, 16).replace("T", " ")}</span>
                         <span className="num text-muted">{z.device ?? "—"}</span>
