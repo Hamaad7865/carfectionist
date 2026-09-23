@@ -19,6 +19,7 @@ const state: BuilderState = {
   docId: null,
   docType: "quote",
   status: "draft",
+  amending: false,
   number: null,
   issueDate: null,
   customerId: "c1",

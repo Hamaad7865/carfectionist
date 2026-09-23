@@ -8,6 +8,7 @@ const base: BuilderState = {
   docId: "d1",
   docType: "quote",
   status: "draft",
+  amending: false,
   number: null,
   issueDate: null,
   customerId: null,

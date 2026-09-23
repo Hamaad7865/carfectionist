@@ -156,7 +156,15 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const saveChain = useRef<Promise<string | null>>(Promise.resolve(null));
   const serverRef = useRef<{ docId: string | null; revision: number }>({ docId: initial.docId, revision: initial.revision });
 
-  const readOnly = state.status !== "draft";
+  // Amend mode (20260910000110): an issued/accepted quote reopened by Revise is
+  // editable in place on its own row and number — readOnly here means "not a
+  // draft and not amending". Structural moves stay draft-only at each control
+  // below (and the server freezes them too); content edits unlock.
+  const readOnly = state.status !== "draft" && !state.amending;
+  // Structural identity — frozen once issued (the server refuses these on a
+  // non-draft quote, so the controls must not offer them): customer, document
+  // type, delete. Cars may still gain lines for the same customer.
+  const structLocked = state.status !== "draft";
   // Merge in customers created this session, newest first, without duplicating any
   // that a later reload has already pulled into ctx.customers.
   const allCustomers = useMemo(() => {
@@ -217,7 +225,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   const doSave = useCallback((): Promise<string | null> => {
     const run = async (): Promise<string | null> => {
       const s = stateRef.current;
-      if (s.status !== "draft") return serverRef.current.docId; // never save an issued document
+      // Drafts and amends persist through save_draft; anything else (an issued
+      // invoice opened here, a void) is display-only — the server would refuse.
+      if (s.status !== "draft" && !s.amending) return serverRef.current.docId;
       const startSig = editSig(s);
       dispatch({ type: "saveStart" });
       const payload: SaveDraftInput = {
@@ -241,10 +251,10 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   }, []);
 
   useEffect(() => {
-    if (state.status !== "draft" || !state.dirty) return;
+    if ((state.status !== "draft" && !state.amending) || !state.dirty) return;
     const t = setTimeout(() => void doSave(), 1200);
     return () => clearTimeout(t);
-  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.comment, state.status, state.docDiscountKind, state.docDiscountValue, state.docDiscountReason, doSave]);
+  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.comment, state.status, state.amending, state.docDiscountKind, state.docDiscountValue, state.docDiscountReason, doSave]);
 
   async function onIssue() {
     const s = stateRef.current;
@@ -276,10 +286,12 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
   // the RPC records is pinned to a document id (app.assert_discount_allowed
   // re-reads it by ref_id), so a never-yet-saved draft needs a real one before
   // the dialog can open — flush the same doSave() chain Issue itself uses, so
-  // this can't race an in-flight autosave or hand the dialog a stale id.
+  // this can't race an in-flight autosave or hand the dialog a stale id. An
+  // amend already has its id, and its save may be exactly what the allowance
+  // refuses — so it opens straight on the id instead of saving first.
   async function askOwner() {
     setAskOwnerBusy(true);
-    const id = await doSave();
+    const id = stateRef.current.docId ?? await doSave();
     setAskOwnerBusy(false);
     if (id) setOverrideDialogDocId(id);
   }
@@ -399,11 +411,13 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
         <span className="font-display text-[15px] font-extrabold text-ink-strong">Document builder</span>
         <span className="hidden text-[12px] text-faint lg:inline">· live preview updates as you build</span>
         <span className="num text-[12px] text-muted">{state.number ?? ""}</span>
-        {readOnly && <StatusPill status={state.status} />}
+        {(readOnly || state.amending) && <StatusPill status={state.status} />}
         <span className="text-[11px] text-faint">
-          {state.save === "saving" ? "Saving…" : state.save === "saved" ? "Saved" : ""}
+          {state.save === "saving" ? "Saving…" : state.save === "saved" ? (state.amending ? "Saved — same quote, same number" : "Saved") : ""}
         </span>
-        {!readOnly && state.docId && <DeleteDraftButton documentId={state.docId} docType={state.docType} />}
+        {/* Delete stays draft-only: discarding an issued quote is refused
+            server-side, so amending must not offer it. */}
+        {state.status === "draft" && state.docId && <DeleteDraftButton documentId={state.docId} docType={state.docType} />}
         <div className="flex-1" />
         <button
           onClick={() => setShowPreview((v) => !v)}
@@ -457,7 +471,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <KeyRound size={15} /> {askOwnerBusy ? "Saving…" : "Ask the owner"}
           </button>
         )}
-        {!readOnly && (
+        {!readOnly && state.status === "draft" && (
           <button
             onClick={onIssue}
             disabled={busy || !!discountBlockReason}
@@ -483,7 +497,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <FileDown size={15} /> Print / PDF
           </a>
         )}
-        {readOnly && state.docType === "quote" && (
+        {(readOnly || state.amending) && state.docType === "quote" && (
           <button onClick={onConvert} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center justify-center rounded-[10px] px-4 font-display text-[13px] font-extrabold text-white disabled:opacity-60">
             Convert to invoice
           </button>
@@ -508,7 +522,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                 {(["invoice", "quote"] as const).map((t) => (
                   <button
                     key={t}
-                    onClick={() => !readOnly && dispatch({ type: "setDocType", docType: t })}
+                    // Type is frozen once issued (the server refuses the flip) —
+                    // amending edits the lines, never what the document is.
+                    onClick={() => !readOnly && !state.amending && dispatch({ type: "setDocType", docType: t })}
                     className={`inline-flex h-[38px] flex-1 items-center justify-center rounded-lg text-[13px] font-bold capitalize ${state.docType === t ? "bg-card text-ink shadow-sm" : "text-muted"}`}
                   >
                     {t}
@@ -521,7 +537,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
               {customer ? (
                 <div className="flex h-11 items-center gap-2 rounded-[11px] border border-link bg-[rgba(43,140,255,0.08)] px-3.5">
                   <span className="flex-1 truncate text-[13.5px] font-semibold text-link">{customer.name}</span>
-                  {!readOnly && (
+                  {/* The customer is frozen once issued (the server refuses the
+                      re-point) — amending edits what they were quoted, not who. */}
+                  {!structLocked && (
                     <button
                       onClick={() => { dispatch({ type: "setCustomer", customerId: null }); setCustQuery(""); }}
                       title="Change customer"
@@ -539,12 +557,12 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
                       <input
                         value={custQuery}
                         onChange={(e) => setCustQuery(e.target.value)}
-                        disabled={readOnly}
+                        disabled={structLocked}
                         placeholder="Search customer by name…"
                         className={`${inputCls} pl-[38px]`}
                       />
                     </div>
-                    {!readOnly && (
+                    {!structLocked && (
                       <NewCustomerButton
                         defaultName={custQuery}
                         onCreated={(c) => {

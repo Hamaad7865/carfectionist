@@ -332,6 +332,35 @@ fun canReviseQuote(billed: Boolean, supersededCount: Int): Boolean =
     !billed && supersededCount == 0
 
 /**
+ * May the builder change this quote's lines?
+ *
+ * A draft is working paper. Anything else unlocks only once Revise has reopened
+ * it in place ([amending]) — and the save keeps the agreement (signature,
+ * status, booking all carry; only the figures move), so nobody is walked back
+ * through a signature they already gave.
+ * Pulled out so the rule can be tested without a ViewModel.
+ */
+fun quoteEditable(status: String, amending: Boolean): Boolean =
+    status == "draft" || amending
+
+/** What the footer confirms with after [confirmUpdate] lands. */
+const val QUOTE_UPDATED_MSG = "Quote updated ✓"
+
+/**
+ * Does the footer offer Update (quiet correction) rather than the accept ceremony?
+ *
+ * An agreement that already exists is never re-signed: old forks carry it in
+ * [QuoteState.revisionOf], and an in-place amend carries it in a kept signature
+ * ([QuoteState.signed] with [QuoteState.amending]). A never-agreed quote still
+ * goes through the ceremony for its first signature. An amend standing under a
+ * live bill is excluded — the server refuses the save (edit the bill, not the
+ * quote) — while a fork keeps its re-bill path, so its bills don't gate it.
+ * Pulled out so the rule can be tested without a ViewModel.
+ */
+fun showQuoteUpdate(revisionOf: String?, amending: Boolean, signed: Boolean, hasLiveBill: Boolean): Boolean =
+    revisionOf != null || (amending && signed && !hasLiveBill)
+
+/**
  * The stored booking intent, parsed for state. Null in, null out: a quote with
  * nothing agreed keeps empty pickers, and a garbled timestamp degrades to the
  * same rather than a crash (JOB-a73c showed the cost of a dropped booking).
@@ -382,6 +411,10 @@ data class QuoteState(
     val quoteId: String? = null,
     val ref: String = "New quote",
     val status: String = "draft",
+    /** Set by Revise: this issued/accepted quote is being amended in place, on its
+     *  own row and number (20260910000110) — the builder unlocks for it the way a
+     *  draft does, and the next save persists the edits onto the same document. */
+    val amending: Boolean = false,
     val who: String = "",
     val vehPlate: String? = null,
     val veh: String = "",
@@ -750,6 +783,8 @@ class QuoteViewModel @Inject constructor(
     private fun beginFromIntake(h: IntakeHandoff) = _s.update {
         it.copy(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
+            // A fresh handoff is a different document — never an amend in progress.
+            amending = false,
             who = h.customerName, vehPlate = h.plate, veh = h.vehLabel,
             customerId = h.customerId, vehicleId = h.vehicleId,
             // Every car Yogen drove in with, in the order they were ticked. The first is
@@ -897,6 +932,8 @@ class QuoteViewModel @Inject constructor(
     fun newQuote() = _s.update {
         it.copy(
             mode = QuoteMode.BUILDER, quoteId = null, ref = "New quote", status = "draft",
+            // A fresh builder is a different document — never an amend in progress.
+            amending = false,
             who = "", vehPlate = null, veh = "", customerId = null, vehicleId = null,
             cars = emptyList(), activeCarId = null,
             lines = emptyList(), acceptOpen = false, crew = emptyList(), startAt = null,
@@ -1047,6 +1084,9 @@ class QuoteViewModel @Inject constructor(
         _s.update {
             it.copy(
                 mode = QuoteMode.BUILDER, quoteId = q.id, ref = q.number ?: "Draft", status = q.status,
+                // Opening a DIFFERENT quote ends any amend in progress — it belonged to
+                // whatever was open before, not to this one.
+                amending = false,
                 who = q.customers?.name ?: "—", vehPlate = q.vehicles?.plate,
                 customerEmail = q.customers?.email, customerPhone = q.customers?.phone,
                 veh = listOfNotNull(q.vehicles?.make, q.vehicles?.model).joinToString(" "),
@@ -1175,6 +1215,9 @@ class QuoteViewModel @Inject constructor(
                 pickerOpen = false, confirmDelete = false, sendOpen = false,
                 adhocOpen = false, acceptOpen = false, linesOpen = false,
                 datePickerOpen = false, timePickerOpen = false,
+                // Leaving the builder drops any amend with it: it named the quote
+                // just left, and must not unlock the next one opened.
+                amending = false,
                 // Leaving the builder drops the bill latch with it: it named the quote
                 // just left, and must not fire on the next one opened.
                 pendingBillOnOpen = false, pendingBillQuoteId = null,
@@ -1190,12 +1233,16 @@ class QuoteViewModel @Inject constructor(
     }
 
     /**
-     * Only a draft can be changed. Once a quote is issued the customer has been shown a
-     * price, and once accepted they have signed it — save_draft refuses either, so every
-     * keystroke past that point was work the operator would silently lose. Editing is
-     * closed here instead, and "Revise" opens a fresh draft to change.
+     * Only a draft can be changed — or a quote explicitly reopened with Revise
+     * ([QuoteState.amending]). Once a quote is issued the customer has been shown a
+     * price, and once accepted they have signed it, so every keystroke past that point
+     * used to be work the operator would silently lose (save_draft refused it).
+     * Since 20260910000110 revise reopens the SAME row instead of forking, and
+     * save_draft persists edits onto an issued/accepted quote — so the builder
+     * unlocks in place here, and saving keeps the whole agreement (signature,
+     * status, booking) with only the figures moved.
      */
-    fun editable(s: QuoteState): Boolean = s.status == "draft"
+    fun editable(s: QuoteState): Boolean = quoteEditable(s.status, s.amending)
 
     fun addProduct(p: ProductEntity) = _s.update { st ->
         if (!editable(st)) return@update st
@@ -1242,9 +1289,14 @@ class QuoteViewModel @Inject constructor(
     fun removeLine(i: Int) = _s.update { st -> if (!editable(st)) st else st.copy(lines = st.lines.filterIndexed { j, _ -> j != i }) }
 
     /**
-     * Change an issued or accepted quote: a NEW draft carrying its lines and discount,
-     * linked back to it. The original is never rewritten — a signed price the customer
-     * agreed to must still read, next year, exactly as they agreed it.
+     * Reopen an issued or accepted quote for editing, on the SAME row and number.
+     * The server checks the money guards (no live bill, job not delivered),
+     * audits the reopen and hands the quote back unchanged — and every later
+     * save keeps the whole agreement (signature, status, booking) with only
+     * the figures moved, so there is no second signature ceremony. [amending]
+     * unlocks the builder in place, and the next save persists onto this
+     * document — no fork, no second draft. A draft is already editable, so
+     * revising one is a no-op by construction.
      */
     fun reviseQuote() {
         val s = _s.value
@@ -1252,19 +1304,20 @@ class QuoteViewModel @Inject constructor(
         if (editable(s) || s.busy) return
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
-            runCatching {
-                val rev = api.reviseQuote(id)
-                // Re-read the list so the new draft arrives with its customer, vehicle and
-                // number attached — the RPC hands back the row, not the joins the builder needs.
-                val quotes = api.fetchQuotes()
-                rev.id to quotes
-            }.onSuccess { (newId, quotes) ->
-                _s.update { it.copy(busy = false, quotes = quotes) }
-                quotes.firstOrNull { it.id == newId }?.let { openQuote(it) }
-                    ?: _s.update { it.copy(error = "The revision was created — reopen it from the list.") }
-            }.onFailure { e ->
-                _s.update { it.copy(busy = false, error = e.uiMessage("Couldn’t start a revision")) }
-            }
+            runCatching { api.reviseQuote(id) }
+                .onSuccess { rev ->
+                    _s.update {
+                        it.copy(
+                            busy = false,
+                            amending = true,
+                            status = rev.status ?: it.status,
+                            ref = rev.number ?: it.ref,
+                            savedRef = null,
+                        )
+                    }
+                }.onFailure { e ->
+                    _s.update { it.copy(busy = false, error = e.uiMessage("Couldn’t reopen this quote")) }
+                }
         }
     }
 
@@ -1765,14 +1818,14 @@ class QuoteViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching {
                 val quoteId =
-                    if (s.status == "draft")
+                    if (s.status == "draft" || s.amending)
                         api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 if (s.jobId != null) api.convertQuoteToJobs(quoteId, technicianId = null, agreedVia = "revision")
                 else api.acceptQuoteOnly(quoteId, agreedVia = "revision")
                 quoteId
             }.onSuccess { id ->
-                _s.update { it.copy(busy = false, status = "accepted", savedRef = "Updated ✓", updateBill = null) }
+                _s.update { it.copy(busy = false, status = "accepted", savedRef = QUOTE_UPDATED_MSG, updateBill = null) }
                 loadQuotes()
                 loadSupersededBills(id)
             }.onFailure { e ->
@@ -2037,7 +2090,17 @@ class QuoteViewModel @Inject constructor(
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching { api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)) }
-                .onSuccess { d -> _s.update { it.copy(busy = false, quoteId = d.id, savedRef = d.number ?: "Draft saved") } }
+                .onSuccess { d ->
+                    _s.update {
+                        it.copy(
+                            busy = false, quoteId = d.id, savedRef = d.number ?: "Draft saved",
+                            status = d.status ?: it.status,
+                            // signed is deliberately untouched: a revise keeps the
+                            // agreement (20260910000130) — the signature, the status
+                            // and the booking all carry, only the figures move.
+                        )
+                    }
+                }
                 .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }
@@ -2047,7 +2110,7 @@ class QuoteViewModel @Inject constructor(
         val s = _s.value
         if (s.busy) return // double-tap on a fresh quote = two quotes -> two jobs
         val cid = s.customerId ?: return
-        if (s.status == "draft" && !s.linesLoaded) { _s.update { it.copy(error = "Items still loading — wait a moment before accepting.") }; return }
+        if ((s.status == "draft" || s.amending) && !s.linesLoaded) { _s.update { it.copy(error = "Items still loading — wait a moment before accepting.") }; return }
         // The database is the authority (app.assert_discount_allowed, raised from inside
         // issue_document) — this mirrors it so the discount is refused HERE rather than after
         // the client has signed, and so an offline accept is never queued only to fail the
@@ -2061,11 +2124,11 @@ class QuoteViewModel @Inject constructor(
                     val tenant = catalog.tenantId() ?: error("Not synced — pull the catalogue first")
                     api.uploadSignature(tenant, it)
                 }
-                // A draft gets the builder's edits persisted first. An issued/accepted
-                // quote is frozen — save_draft refuses "cannot edit an issued document" —
-                // so it converts as-is; the RPC is idempotent and hands back the same job.
+                // A draft — or a quote reopened with Revise — gets the builder's edits
+                // persisted first. Any other issued/accepted quote converts as-is; the
+                // RPC is idempotent and hands back the same job.
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
+                    if (s.status == "draft" || s.amending) api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 // Signed, but the work is not starting today — no job, no card on the board.
                 // "Create job" on this quote raises it whenever the customer comes back.
@@ -2202,12 +2265,15 @@ class QuoteViewModel @Inject constructor(
                 if (_s.value.takesPayments) depositInvoice?.let { collectBus.request(it, _s.value.depositCents) }
 
                 // signed = true: the tablet's accept flow requires the client's signature.
+                // The amend ends here: a signed quote locks again, or the next
+                // keystroke would silently un-sign the deal just agreed.
                 _s.update {
                     it.copy(
                         busy = false, quoteId = quoteId, status = "accepted", createdJobId = jobId, jobId = jobId,
                         acceptOpen = false, intake = null, signed = true,
                         sendBusy = false, sendDone = null, sendError = null,
                         depositPending = depositInvoice != null,
+                        amending = false,
                     )
                 }
                 // Three cars accepted means three cards; the screen offers each one.
@@ -2232,9 +2298,10 @@ class QuoteViewModel @Inject constructor(
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
-                // same freeze rule as accept: only drafts can be re-saved
+                // same freeze rule as accept: drafts — and quotes reopened with
+                // Revise — are re-saved, everything else converts as-is
                 val quoteId =
-                    if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
+                    if (s.status == "draft" || s.amending) api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
                 val draft = api.convertQuoteToInvoice(quoteId)
                 // Already issued (by the board, say) — nothing to add to, hand it back as it stands.
@@ -2255,6 +2322,8 @@ class QuoteViewModel @Inject constructor(
                             bills = it.bills.filterNot { b -> b.id == draft.id } +
                                 BillRef(draft.id, draft.number, draft.status, rupeesToCents(draft.totalIncl)),
                             error = "${draft.number ?: "This bill"} is already issued, so nothing can be added to it. Ring the extras up in Checkout as a counter sale.",
+                            // The bill owns the price now — the quote locks again.
+                            amending = false,
                         )
                     }
                 } else {
@@ -2264,6 +2333,9 @@ class QuoteViewModel @Inject constructor(
                             // is being worked on now, and it wants the same side of the screen.
                             busy = false, acceptOpen = false, linesOpen = false, status = "accepted",
                             billOpen = true, billDocId = draft.id, billLines = lines,
+                            // The bill owns the price from here: the quote locks again, so
+                            // a later tweak can't price the bill stale behind its back.
+                            amending = false,
                             // The quote's lines were copied across first, so they are the ones
                             // that are frozen. Counting the WHOLE draft would freeze the extras
                             // added on an earlier visit too, and they are still only a draft.
@@ -2522,7 +2594,7 @@ class QuoteViewModel @Inject constructor(
         _s.update { it.copy(sendBusy = true, sendError = null, sendDone = null) }
         viewModelScope.launch {
             val saved = runCatching {
-                if (s.status == "draft") api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
+                if (s.status == "draft" || s.amending) api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                 else s.quoteId ?: error("This quote hasn't been saved yet")
             }.getOrElse { e ->
                 _s.update { it.copy(sendBusy = false, sendError = e.uiMessage()) }

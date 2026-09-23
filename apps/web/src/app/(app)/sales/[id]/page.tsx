@@ -189,11 +189,13 @@ export default async function DocumentDetailPage({
             {/* What is still queued to go out. Scheduling a send used to be a one-way trip:
                 a toast, then nothing anywhere ever mentioned it again. */}
             <ScheduledSends documentId={doc.id} sends={scheduledSends} />
-            {/* Revising is negotiation; a billed quote is past negotiating — including
-                one billed through a quotation this one replaced, which billedHref cannot
-                see (that bill hangs off the superseded quote). revise_quote refuses both
-                cases; this stops the button offering what the RPC will only reject. */}
-            {doc.docType === "quote" && !billedHref && supersededBills.length === 0 && (
+            {/* Revising is negotiation: it reopens THIS quote in place (same id,
+                same number — no fork). A billed quote is past negotiating —
+                including one billed through a quotation this one replaced, which
+                billedHref cannot see (that bill hangs off the superseded quote).
+                revise_quote refuses those cases plus declined/expired/void; this
+                stops the button offering what the RPC will only reject. */}
+            {doc.docType === "quote" && !billedHref && supersededBills.length === 0 && !["declined", "expired", "void"].includes(doc.status) && (
               <ReviseButton quoteId={doc.id} />
             )}
             {doc.docType === "invoice" && <DuplicateButton documentId={doc.id} />}

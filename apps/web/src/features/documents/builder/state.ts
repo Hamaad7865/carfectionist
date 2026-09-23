@@ -49,6 +49,10 @@ export interface BuilderState {
   docId: string | null;
   docType: "quote" | "invoice";
   status: string;
+  /** Amend mode (20260910000110): an issued/accepted quote reopened by Revise —
+   *  editable in place on its own row and number. Structural moves (delete,
+   *  issue, type/customer change) stay draft-only; the server freezes them too. */
+  amending: boolean;
   number: string | null;
   issueDate: string | null; // the stored issue date once issued (for the preview)
   customerId: string | null;

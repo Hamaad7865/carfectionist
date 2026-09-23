@@ -1277,11 +1277,10 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 when {
                     // Already converted: a quote maps to exactly one job, so don't offer to make
                     // another — just open the one it produced.
-                    // NOT for a draft. revise_quote copies job_id onto the new draft, so a
-                    // revision arrives carrying the job its parent produced — and this branch
-                    // then offered "View job" INSTEAD of Save draft and Accept. A revised price
-                    // could be typed and never saved: the line was in memory, the button to
-                    // keep it did not exist, and navigating away lost it.
+                    // NOT while amending: revise reopens the SAME quote (same job link),
+                    // so this branch would offer "View job" INSTEAD of Save and Accept —
+                    // and a revised price could be typed and never saved. editable() is
+                    // true while amending, which keeps this branch away until then.
                     s.jobId != null && !vm.editable(s) -> {
                         // The customer is standing there with their wallet out — take them to the
                         // money before anything else. The pad is already waiting on their bill.
@@ -1484,11 +1483,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                     Text(if (s.busy) "Working…" else "Customer declined", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = Danger)
                                 }
                             }
-                            // A REVISION is a price that was agreed once already: the customer
-                            // signed the original, and the car is on the board with its crew and
-                            // its slot. Asking all of that again answers nothing, so it corrects
-                            // with one button. Everything else still goes through the accept panel.
-                            if (s.revisionOf != null) {
+                            // A price that was agreed once already is corrected with one
+                            // button, not the whole ceremony: an old fork carries the
+                            // agreement in revisionOf; an in-place amend carries it in
+                            // its kept signature. Everything else still goes through
+                            // the accept panel.
+                            if (showQuoteUpdate(s.revisionOf, s.amending, s.signed, s.bills.isNotEmpty())) {
                                 val ready = s.lines.isNotEmpty() && !s.busy && !s.updateChecking
                                 Box(
                                     Modifier.weight(1.6f).height(52.dp)
@@ -1497,7 +1497,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
-                                        if (s.busy) "Updating…" else if (s.updateChecking) "Checking…" else "Update",
+                                        if (s.busy) "Updating…" else if (s.updateChecking) "Checking…" else if (s.savedRef == QUOTE_UPDATED_MSG) QUOTE_UPDATED_MSG else "Update",
                                         fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
                                         color = if (ready) AccentInk else TextMuted,
                                     )
@@ -2118,7 +2118,7 @@ private fun RowScope.LockedQuotePanel(s: QuoteState, vm: QuoteViewModel) {
         // another screen, into a refusal from revise_quote. The bill is the door then.
         val canRevise = canReviseQuote(s.billed, s.supersededBills.size)
         val howToChange =
-            if (canRevise) " Revise to change them: a new quote carrying these lines, with this one kept as the record."
+            if (canRevise) " Revise to change them: this same quote reopens for editing on its number."
             else " These prices are billed now — anything else they take goes on that bill."
         Text(
             if (accepted)
@@ -2699,7 +2699,9 @@ private fun QuoteCustomerPicker(s: QuoteState, vm: QuoteViewModel) {
                     Modifier.weight(1f).height(48.dp).border(1.dp, Hairline, RoundedCornerShape(13.dp))
                         .clickable { if (s.customerId != null) vm.closePicker() else vm.back() },
                     contentAlignment = Alignment.Center,
-                ) { Text(if (s.customerId != null) "Skip" else "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
+                    // Ticking applies live, so closing IS confirming — and once a
+                    // customer is picked this reads as what it is: OK, not Skip.
+                ) { Text(if (s.customerId != null) "OK" else "Cancel", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextSecondary) }
             }
         }
     }

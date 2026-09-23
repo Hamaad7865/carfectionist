@@ -16,6 +16,8 @@ export function ReviseButton({ quoteId }: { quoteId: string }) {
     setBusy(true);
     const res = await reviseQuoteAction(quoteId);
     setBusy(false);
+    // In-place since 20260910000110: the RPC reopens THIS quote (same id, same
+    // number) instead of forking a new draft, so editing continues here.
     if (res.ok) router.push(`/sales/${res.data.id}/edit`);
     else setError(res.error);
   }
@@ -25,7 +27,7 @@ export function ReviseButton({ quoteId }: { quoteId: string }) {
       <button
         onClick={revise}
         disabled={busy}
-        title="Create an editable copy as a new draft quote"
+        title="Reopen this quote for editing — same quote, same number, no new draft"
         className={btn()}
       >
         <PencilLine size={15} /> {busy ? "Revising…" : "Revise"}

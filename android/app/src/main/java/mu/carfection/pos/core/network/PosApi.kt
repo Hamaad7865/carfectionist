@@ -869,8 +869,10 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         client.postgrest.rpc("convert_quote_to_invoice", buildJsonObject { put("p_quote_id", quoteId) }).decodeAs()
 
     /**
-     * A fresh draft carrying the quote's lines and discount, linked back to it. The
-     * original is never touched — what the customer signed stays exactly as they signed it.
+     * Reopen a quote for editing, on the SAME row and number (20260910000110). A
+     * draft comes straight back; an issued/accepted one is un-signed and handed
+     * back for in-place editing. The original is never forked — what the customer
+     * signs next is a new agreement on the same quotation.
      */
     suspend fun reviseQuote(quoteId: String): SavedDoc =
         client.postgrest.rpc("revise_quote", buildJsonObject { put("p_quote_id", quoteId) }).decodeAs()
