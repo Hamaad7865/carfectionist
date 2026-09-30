@@ -313,6 +313,20 @@ export const closeCashSession = (sb: Client, id: string, closingCount: number) =
   callRpc<{ id: string; variance: string }>(sb, "close_cash_session", { p_id: id, p_closing_count: closingCount });
 
 /**
+ * Close a till the Cashmag way: counts the drawer, freezes the Z (which now lists
+ * EVERY session of the day, open ones marked provisional) and banks the ticked
+ * methods. The web desk has no remit tick UI, so it banks nothing — everything
+ * carries on to the next service, exactly like the old close path did.
+ */
+export const closeService = (sb: Client, sessionId: string, countedCash: number, remit: string[] = [], note: string | null = null) =>
+  callRpc<{ id: string; number: string }>(sb, "close_service", {
+    p_session_id: sessionId,
+    p_counted_cash: countedCash,
+    p_remit: remit,
+    p_note: note,
+  });
+
+/**
  * Unseals today's trading day so a late customer can still be served. Owner/manager only,
  * and the reason lands on the day's audit trail.
  *

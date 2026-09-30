@@ -906,8 +906,10 @@ private fun enVatLabel(l: String?): String = (l ?: "")
     .replace("TAUX NORMAL", "STANDARD").replace("EXONERE", "EXEMPT").replace("EXONÉRÉ", "EXEMPT")
     .replaceFirst(Regex("^TAUX "), "RATE ")
 private fun JsonObject.zn(k: String) = this[k]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
+private fun JsonObject.znOrNull(k: String) = this[k]?.jsonPrimitive?.content?.toDoubleOrNull()
 private fun JsonObject.zi(k: String) = zn(k).toInt()
 private fun JsonObject.zs(k: String) = this[k]?.jsonPrimitive?.content?.takeIf { it != "null" }
+private fun JsonObject.isOpenService() = (this["provisional"]?.jsonPrimitive?.content == "true") || zs("status") == "open"
 private fun JsonObject.za(k: String) = (this[k] as? kotlinx.serialization.json.JsonArray)?.map { it.jsonObject } ?: emptyList()
 
 @Composable
@@ -961,10 +963,13 @@ private fun MeansOfPayment(o: JsonObject, mny: (Double) -> String) {
 /** One service's card: the Service pill, its floats + totals, and its means of payment. */
 @Composable
 private fun ServiceCard(s: JsonObject, scope: String, mny: (Double) -> String) = ZCard {
-    ZPill("Service ${s.zi("service_no")}")
+    val open = s.isOpenService()
+    ZPill(if (open) "Service ${s.zi("service_no")} · still open" else "Service ${s.zi("service_no")}")
     Spacer(Modifier.height(4.dp))
     ZRow("Initial cash float", mny(s.zn("float_initial")))
-    ZRow("Final cash float", mny(s.zn("float_final")))
+    // An open till has no counted drawer yet — never print a Rs 0.00 final.
+    s.znOrNull("float_final")?.let { ZRow("Final cash float", mny(it)) }
+    if (open) ZRow("Still open — not counted yet", "", TextMuted)
     Spacer(Modifier.height(2.dp))
     ZRow("Total service incl. tax", mny(s.zn("total_incl")), strong = true)
     ZRow("${s.zi("tickets")} tickets", "Avg. ${mny(s.zn("avg_basket"))}", TextMuted)

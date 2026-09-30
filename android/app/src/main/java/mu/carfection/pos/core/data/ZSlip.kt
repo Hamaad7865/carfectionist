@@ -26,8 +26,15 @@ object ZSlip {
     private fun JsonObject.int(key: String): Int =
         this[key]?.jsonPrimitive?.content?.toDoubleOrNull()?.toInt() ?: 0
 
+    private fun JsonObject.optNum(key: String): Double? =
+        this[key]?.jsonPrimitive?.content?.toDoubleOrNull()
+
     private fun JsonObject.str(key: String): String? =
         this[key]?.jsonPrimitive?.content?.takeIf { it != "null" }
+
+    private fun JsonObject.isOpen(): Boolean =
+        this["provisional"]?.jsonPrimitive?.content == "true" ||
+            str("status") == "open"
 
     private fun money(rupees: Double) = formatMUR(rupeesToCents(rupees))
 
@@ -107,15 +114,19 @@ object ZSlip {
         rule: () -> Unit,
         width: Int,
     ) {
-        centre("Service ${s.int("service_no")}")
+        val open = s.isOpen()
+        centre(if (open) "Service ${s.int("service_no")} (still open)" else "Service ${s.int("service_no")}")
         line("Initial cash float", money(s.num("float_initial")))
-        line("Final cash float", money(s.num("float_final")))
+        // An open till has no counted drawer yet — its float/count lines stay null so
+        // the paper never prints a misleading Rs 0.00 (2026-09-25's missing Service 2).
+        s.optNum("float_final")?.let { line("Final cash float", money(it)) }
         line("Deleted bills", s.int("voided_bills").toString())
         line("Canceled orders", "0")
         line("Delete items", "0")
-        line("Counted", money(s.num("counted_cash")))
-        val variance = s.num("variance")
+        s.optNum("counted_cash")?.let { line("Counted", money(it)) }
+        val variance = s.optNum("variance") ?: 0.0
         if (variance != 0.0) line("Variance", money(variance))
+        if (open) line("Still open", "provisional")
         line("Total service incl. tax", money(s.num("total_incl")))
         line("${s.int("tickets")} tickets", "Avg. " + money(s.num("avg_basket")))
         rule()

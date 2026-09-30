@@ -51,7 +51,11 @@ export async function closeTillAction(input: z.infer<typeof closeSchema>): Promi
   if (!p.success) return { ok: false, error: "Invalid count" };
   const sb = await createClient();
   try {
-    await rpc.closeCashSession(sb, p.data.id, p.data.countedCents / 100);
+    // close_service, not close_cash_session: cuts the service Z so the till's block
+    // prints on every Z of the day (a session closed without a Z is invisible to the
+    // day close's old services list — 2026-09-25's back-office Service 2). Banks
+    // nothing (no remit UI here); the drawer carries on, as before.
+    await rpc.closeService(sb, p.data.id, p.data.countedCents / 100, [], null);
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

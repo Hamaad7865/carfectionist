@@ -9,7 +9,9 @@ import * as rpc from "@/lib/supabase/rpc";
 type Result = { ok: true } | { ok: false; error: string };
 
 // Power off = close the device's till for the day (the owner's chosen meaning).
-// counted cash is required because close_cash_session derives expected/variance.
+// Counted cash is required because the close derives expected/variance, and the
+// close cuts the service Z — which lists every session of the day, so a till
+// closed here shows up on the tablet's paper too (2026-09-25's missing Service 2).
 const powerOffSchema = z.object({ sessionId: z.string(), countedCents: z.number().int().nonnegative() });
 export async function powerOffAction(input: z.infer<typeof powerOffSchema>): Promise<Result> {
   await requireRole("owner", "manager");
@@ -17,7 +19,7 @@ export async function powerOffAction(input: z.infer<typeof powerOffSchema>): Pro
   if (!p.success) return { ok: false, error: "Invalid count" };
   const sb = await createClient();
   try {
-    await rpc.closeCashSession(sb, p.data.sessionId, p.data.countedCents / 100);
+    await rpc.closeService(sb, p.data.sessionId, p.data.countedCents / 100, [], null);
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }

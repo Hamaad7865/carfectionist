@@ -58,13 +58,16 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
     <div style={indent ? sub : row}><span>{l}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{r ?? ""}</span></div>
   );
 
+  const isOpen = (s: Totals) => s.provisional === true || s.status === "open";
+  const hasNum = (s: Totals, k: string) => s[k] !== undefined && s[k] !== null;
   const floatBlock = (s: Totals, label: string) => (
     <div key={label} style={{ marginTop: 8 }}>
-      <div style={{ fontSize: 11, fontWeight: 700, color: MUTED }}>{label}</div>
+      <div style={{ fontSize: 11, fontWeight: 700, color: MUTED }}>{label}{isOpen(s) ? " (still open)" : ""}</div>
       <Kv l="Initial cash float" r={money(s.float_initial)} />
-      <Kv l="Final cash float" r={money(s.float_final)} />
-      {s.counted_cash !== undefined && <Kv l="Counted" r={money(s.counted_cash)} />}
+      {hasNum(s, "float_final") && <Kv l="Final cash float" r={money(s.float_final)} />}
+      {hasNum(s, "counted_cash") && <Kv l="Counted" r={money(s.counted_cash)} />}
       {Number(s.variance) !== 0 && <Kv l="Variance" r={money(s.variance)} />}
+      {isOpen(s) && <Kv l="Still open — not counted yet" />}
     </div>
   );
 
