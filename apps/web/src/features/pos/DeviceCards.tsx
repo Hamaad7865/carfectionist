@@ -105,6 +105,8 @@ function OpenTillInline() {
     setBusy(true);
     const r = await openTillAction({ openingFloatCents: parseMoneyInput(float) ?? 0 });
     setBusy(false);
+    // One drawer: the terminal opened first — that till is ours too. Join it.
+    if (!r.ok && r.error.includes("already open")) { setFloatStr(""); router.refresh(); return; }
     if (r.ok) { setFloatStr(""); router.refresh(); } else setError(r.error);
   }
 

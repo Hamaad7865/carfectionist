@@ -204,11 +204,27 @@ class TillViewModel @Inject constructor(
         viewModelScope.launch {
             runCatching { till.open(cents) }
                 .onSuccess { _s.value = _s.value.copy(busy = false, session = it); _justOpened.value = true }
-                .onFailure { _s.value = _s.value.copy(busy = false, error = it.uiMessage()) }
+                .onFailure { e ->
+                    // One drawer: the web back office (or another side) opened first —
+                    // join its till instead of failing the morning open.
+                    if (e.uiMessage().contains("already open", ignoreCase = true)) {
+                        runCatching { till.shopTill() }
+                            .onSuccess { joined ->
+                                if (joined != null) {
+                                    val where = joined.deviceId ?: "the drawer"
+                                    _s.value = _s.value.copy(
+                                        busy = false, session = joined,
+                                        notice = "Till already open on $where — joined it."
+                                    )
+                                    _justOpened.value = true
+                                } else _s.value = _s.value.copy(busy = false, error = e.uiMessage())
+                            }
+                            .onFailure { _s.value = _s.value.copy(busy = false, error = e.uiMessage()) }
+                    } else _s.value = _s.value.copy(busy = false, error = e.uiMessage())
+                }
         }
     }
 
-    // ── Reopening a day that was sealed too early ────────────────────────────
     fun openReopenPrompt() { _s.value = _s.value.copy(reopenOpen = true, reopenError = null) }
     fun cancelReopen() { _s.value = _s.value.copy(reopenOpen = false, reopenError = null) }
 

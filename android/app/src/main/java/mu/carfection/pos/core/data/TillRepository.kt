@@ -63,12 +63,25 @@ class TillRepository @Inject constructor(
     }
 
     /**
-     * Ask the server which session is open on this device. Offline this throws, and the
-     * caller keeps whatever [restoreCached] recovered — a stale-but-real till beats no till.
-     * Online, the server's answer is authoritative in both directions, including "none".
+     * Ask the server which till is open — the shop's shared drawer first, then
+     * this device's own. The shared lookup hides a stale self (yesterday's
+     * uncounted till), which still needs counting and closing, so it stays as
+     * the fallback. Offline both lookups throw: the caller keeps whatever
+     * [restoreCached] recovered, and the cache is never cleared on a network
+     * error — a stale-but-real till beats no till when selling offline.
      */
-    suspend fun openSession(): CashSessionDto? =
-        api.openSessionForDevice(session.deviceId()).also { _current.value = it; remember(it) }
+    suspend fun openSession(): CashSessionDto? {
+        val shop = runCatching { api.shopTill() }
+        val self = if (shop.getOrNull() == null) runCatching { api.openSessionForDevice(session.deviceId()) } else null
+        if (shop.isFailure && (self == null || self.isFailure)) return _current.value
+        val sess = shop.getOrNull() ?: self?.getOrNull()
+        _current.value = sess
+        remember(sess)
+        return sess
+    }
+
+    /** Today's shared drawer without touching the device fallback (join flow). */
+    suspend fun shopTill(): CashSessionDto? = api.shopTill()
 
     suspend fun open(openingFloatCents: Long): CashSessionDto =
         api.openCashSession(session.deviceId(), centsToRupees(openingFloatCents))

@@ -69,7 +69,8 @@ function previousMuMonth(): string {
 
 export async function getPosOverview(): Promise<PosOverview> {
   const sb = await createClient();
-  const [bsRes, devRes, sessRes, usersRes, closesRes] = await Promise.all([
+  const today = muToday();
+  const [bsRes, devRes, sessRes, usersRes, closesRes, dayRes] = await Promise.all([
     sb.from("business_settings").select("trading_name").limit(1).maybeSingle(),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (sb.from("devices" as any) as any).select("*").order("first_seen", { ascending: true }),
@@ -77,6 +78,8 @@ export async function getPosOverview(): Promise<PosOverview> {
     sb.from("app_users").select("id, display_name"),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (sb.from("period_closes" as any) as any).select("period").order("period", { ascending: false }).limit(1),
+    // One drawer: to mirror the terminal's open till onto the back-office card.
+    sb.from("trading_days").select("id").eq("business_date", today).maybeSingle(),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -147,6 +150,15 @@ export async function getPosOverview(): Promise<PosOverview> {
   }));
 
   // The web back office is always present, first in the list.
+  // One drawer: when the terminal holds today's till, the desk joins it — the
+  // back-office card mirrors the shared session (close from either side).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const todayId = ((dayRes as any)?.data as any)?.id ?? null;
+  const dayBySession = new Map(sessions.map((s) => [s.id, s.trading_day_id]));
+  const sharedToday =
+    todayId != null
+      ? [...openByDevice.values()].find((t) => dayBySession.get(t.sessionId) === todayId) ?? null
+      : null;
   devices.unshift({
     id: null,
     code: "back-office",
@@ -159,7 +171,7 @@ export async function getPosOverview(): Promise<PosOverview> {
     online: true,
     firstSeen: null,
     lastSeen: null,
-    till: openByDevice.get("back-office") ?? null,
+    till: openByDevice.get("back-office") ?? sharedToday,
   });
 
   // A till opened by a tablet that never registered (pre-registry APK) must

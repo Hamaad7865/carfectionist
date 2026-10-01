@@ -1545,4 +1545,14 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             }
             .decodeList<CashSessionDto>()
             .firstOrNull()
+
+    /**
+     * The shop's shared drawer: today's open till, whoever opened it (this
+     * tablet or the web back office). Null when the drawer is closed. One
+     * drawer ⇒ join it — opening a second till is refused server-side.
+     */
+    suspend fun shopTill(): CashSessionDto? =
+        runCatching {
+            client.postgrest.rpc("shop_till", buildJsonObject {}).decodeAs<CashSessionDto>()
+        }.getOrNull()
 }
