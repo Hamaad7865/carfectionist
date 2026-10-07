@@ -30,9 +30,10 @@ import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext, BuilderCustomer, BuilderVehicle } from "@/lib/supabase/queries/builder";
 import { reducer, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
+import { billToAddress } from "@/lib/pdf/fiscal-lock";
 import { NewCustomerButton } from "./NewCustomerButton";
 import { OwnerOverrideDialog } from "@/features/documents/OwnerOverrideDialog";
-import { saveVehicleAction } from "@/features/contacts/actions";
+import { saveVehicleAction, saveCustomerAddressAction } from "@/features/contacts/actions";
 import { btn } from "@/components/ui/button";
 
 // UUID keys so the builder's line keys can never collide with those minted
@@ -111,7 +112,17 @@ function MoneyField({ cents, onCents, className, placeholder, syncKey }: { cents
   );
 }
 
-export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial: BuilderState }) {
+export function DocumentBuilder({
+  ctx,
+  initial,
+  frozenBillToAddress,
+}: {
+  ctx: BuilderContext;
+  initial: BuilderState;
+  /** The address issue_document froze onto an already-issued document (null = issued
+   *  without one). Undefined for a draft, which has no snapshot yet. */
+  frozenBillToAddress?: string | null;
+}) {
   const router = useRouter();
   const [state, dispatch] = useReducer(reducer, initial);
   const [busy, setBusy] = useState(false);
@@ -172,6 +183,53 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     return [...createdCustomers.filter((c) => !known.has(c.id)), ...ctx.customers];
   }, [ctx.customers, createdCustomers]);
   const customer = allCustomers.find((c) => c.id === state.customerId);
+  // The bill-to address is the CUSTOMER's, not the document's: typing it here saves it on
+  // their record (so it prefills next time), and issue_document freezes that onto the
+  // document. Kept per customer id so swapping customers never carries one's text to another.
+  const [addrTyped, setAddrTyped] = useState<Record<string, string>>({});
+  // Tagged with the customer it is about, so swapping customers can't show one's "Saved" under another.
+  const [addrSave, setAddrSave] = useState<{ id: string; status: "saving" | "saved" | "error"; error?: string } | null>(null);
+  const addrSaved = useRef<Record<string, string>>({}); // the last text the server took, per customer
+  const addrChain = useRef<Promise<boolean>>(Promise.resolve(true));
+  const typedAddress = customer ? (addrTyped[customer.id] ?? customer.address ?? "") : "";
+  // What the document shows. While it is a draft that is the box as typed; once issued it is
+  // whatever the print route will print (lib/pdf/fiscal-lock), so the two can never disagree.
+  // A document issued in this very session has no snapshot prop yet — it was stamped with
+  // what is in the box.
+  const billAddress =
+    structLocked && frozenBillToAddress !== undefined
+      ? billToAddress({ docType: state.docType, status: state.status, frozen: frozenBillToAddress }, customer?.address)
+      : typedAddress;
+  const addrStatus = customer && addrSave?.id === customer.id ? addrSave.status : "idle";
+  // Customer and text are captured at CALL time — a blur that fires because the customer is
+  // being swapped out must still save against the customer the text was typed for.
+  const saveAddress = (): Promise<boolean> => {
+    const c = customer;
+    if (!c) return addrChain.current;
+    const text = typedAddress.trim();
+    const run = async (): Promise<boolean> => {
+      if (text === (addrSaved.current[c.id] ?? c.address ?? "").trim()) return true;
+      setAddrSave({ id: c.id, status: "saving" });
+      // A thrown action (network drop, Worker error) must read as a failed save, not as a
+      // rejection — Issue awaits this, and a rejection would leave its button stuck on "Working…".
+      let res: Awaited<ReturnType<typeof saveCustomerAddressAction>>;
+      try {
+        res = await saveCustomerAddressAction({ id: c.id, address: text });
+      } catch {
+        res = { ok: false, error: "No connection — try again." };
+      }
+      if (!res.ok) {
+        setAddrSave({ id: c.id, status: "error", error: res.error });
+        return false;
+      }
+      addrSaved.current[c.id] = text;
+      setAddrSave({ id: c.id, status: "saved" });
+      return true;
+    };
+    const next = addrChain.current.then(run, run);
+    addrChain.current = next.catch(() => false);
+    return next;
+  };
   const allVehicles = useMemo(() => {
     const known = new Set(ctx.vehicles.map((v) => v.id));
     return [...createdVehicles.filter((v) => !known.has(v.id)), ...ctx.vehicles];
@@ -262,6 +320,12 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     if (s.docType === "invoice" && !s.customerId) return dispatch({ type: "saveError", error: "An invoice requires a customer." });
     if (discountBlockReason) return dispatch({ type: "saveError", error: discountBlockReason });
     setBusy(true);
+    // Issuing freezes the customer's address onto the document, so an address still being
+    // typed (or mid-save) has to land first — otherwise the invoice is stamped without it.
+    if (!(await saveAddress())) {
+      setBusy(false);
+      return dispatch({ type: "saveError", error: "Couldn't save the customer's address — check it and try again." });
+    }
     const id = await doSave();
     if (!id) return setBusy(false);
     const res = await issueDocumentAction({ documentId: id, idempotencyKey: issueKey });
@@ -333,6 +397,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
       createdBy: ctx.createdBy,
       customerName: customer?.name ?? "",
       customerCountry: customer?.country ?? "Mauritius",
+      customerAddress: billAddress,
       customerBrn: customer?.brn ?? "",
       customerVatNo: customer?.vatNo ?? "",
       terms: ctx.templateTerms,
@@ -343,7 +408,7 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
     });
     return renderToStaticMarkup(<DocumentA4 {...props} />);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, ctx, customer, readOnly]);
+  }, [state, ctx, customer, billAddress, readOnly]);
 
   const previewHtml = useMemo(
     () =>
@@ -448,7 +513,9 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <DocumentShareBar
               documentId={state.docId}
               number={state.number}
-              onBeforeSend={async () => !!(await doSave())}
+              // The address first: sending a draft quotation issues it, which freezes the
+              // customer's address onto it — one still mid-save would be left off.
+              onBeforeSend={async () => (await saveAddress()) && !!(await doSave())}
               onSent={(issued) => {
                 if (!issued) return;
                 dispatch({ type: "issued", number: issued.number, status: issued.status });
@@ -535,20 +602,48 @@ export function DocumentBuilder({ ctx, initial }: { ctx: BuilderContext; initial
             <div>
               <div className={`${label} mb-2.5`}>Bill to</div>
               {customer ? (
-                <div className="flex h-11 items-center gap-2 rounded-[11px] border border-link bg-[rgba(43,140,255,0.08)] px-3.5">
-                  <span className="flex-1 truncate text-[13.5px] font-semibold text-link">{customer.name}</span>
-                  {/* The customer is frozen once issued (the server refuses the
-                      re-point) — amending edits what they were quoted, not who. */}
+                <>
+                  <div className="flex h-11 items-center gap-2 rounded-[11px] border border-link bg-[rgba(43,140,255,0.08)] px-3.5">
+                    <span className="flex-1 truncate text-[13.5px] font-semibold text-link">{customer.name}</span>
+                    {/* The customer is frozen once issued (the server refuses the
+                        re-point) — amending edits what they were quoted, not who. */}
+                    {!structLocked && (
+                      <button
+                        onClick={() => { dispatch({ type: "setCustomer", customerId: null }); setCustQuery(""); }}
+                        title="Change customer"
+                        className="grid size-6 place-items-center rounded-[7px] text-link hover:bg-[rgba(43,140,255,0.16)]"
+                      >
+                        <X size={14} strokeWidth={2.6} />
+                      </button>
+                    )}
+                  </div>
+                  {/* The customer's address, printed under their name in the "For" box. It is
+                      theirs rather than this document's: editing it here updates their record.
+                      Frozen with the customer once issued — the document carries the address
+                      it was issued with, so a later edit belongs in Contacts. */}
+                  <input
+                    aria-label="Customer address"
+                    value={billAddress}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setAddrTyped((m) => ({ ...m, [customer.id]: v }));
+                      setAddrSave(null);
+                    }}
+                    onBlur={() => void saveAddress()}
+                    onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
+                    disabled={structLocked}
+                    placeholder={structLocked ? "No address on file" : "Address — street, town"}
+                    className={`${inputCls} mt-2`}
+                  />
                   {!structLocked && (
-                    <button
-                      onClick={() => { dispatch({ type: "setCustomer", customerId: null }); setCustQuery(""); }}
-                      title="Change customer"
-                      className="grid size-6 place-items-center rounded-[7px] text-link hover:bg-[rgba(43,140,255,0.16)]"
-                    >
-                      <X size={14} strokeWidth={2.6} />
-                    </button>
+                    <p className={`mt-1.5 text-[11px] ${addrStatus === "error" ? "font-semibold text-rose" : "text-faint"}`}>
+                      {addrStatus === "saving" ? "Saving address…"
+                        : addrStatus === "saved" ? (billAddress.trim() ? `Saved to ${customer.name} — prints on this ${state.docType}.` : `Address removed from ${customer.name}.`)
+                        : addrStatus === "error" ? `Couldn't save the address: ${addrSave?.error}`
+                        : `Prints under the name on the ${state.docType}. Saved to ${customer.name} for next time.`}
+                    </p>
                   )}
-                </div>
+                </>
               ) : (
                 <>
                   <div className="flex gap-2">

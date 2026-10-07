@@ -64,6 +64,18 @@ describe("toDocumentProps — the Rs 88,780 quote", () => {
     expect(props.from.brn).toBe("C22190760");
     expect(props.billTo.name).toBe("Jean-Pierre Laval");
   });
+
+  it("carries the customer's address to the For box, and nothing when there is none", () => {
+    expect(props.billTo.address).toBe("");
+    const withAddress = toDocumentProps(state, business, {
+      createdBy: "Rakesh",
+      customerName: "ACME Ltd",
+      customerCountry: "Mauritius",
+      customerAddress: "12 Royal Road, Moka",
+      terms: [],
+    });
+    expect(withAddress.billTo.address).toBe("12 Royal Road, Moka");
+  });
 });
 
 describe("toDocumentProps — a gross-typed line presents ex-VAT and still totals the typed figure", () => {

@@ -20,6 +20,8 @@ export interface PreviewOpts {
   createdBy: string;
   customerName: string;
   customerCountry: string;
+  /** The customer's address as typed in "Bill to" — printed under their name. Empty prints nothing. */
+  customerAddress?: string;
   /** A business client's own fiscal numbers, previewed under their name. Empty for an individual. */
   customerBrn?: string;
   customerVatNo?: string;
@@ -89,7 +91,7 @@ export function toDocumentProps(
       phone: business.phone,
       vatNo: business.vatNo,
     },
-    billTo: { name: opts.customerName, country: opts.customerCountry, brn: opts.customerBrn ?? "", vatNo: opts.customerVatNo ?? "" },
+    billTo: { name: opts.customerName, address: opts.customerAddress ?? "", country: opts.customerCountry, brn: opts.customerBrn ?? "", vatNo: opts.customerVatNo ?? "" },
     lines,
     subtotalCents: totals.grossSubtotalCents,
     discountCents: orderDiscountExclCents > 0 ? orderDiscountExclCents : undefined,

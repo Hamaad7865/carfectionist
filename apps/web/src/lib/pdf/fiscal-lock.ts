@@ -41,3 +41,19 @@ export function effectiveSections(config: Partial<SectionFlags>, docType: DocTyp
 export function isSectionLocked(key: keyof SectionFlags, docType: DocType): boolean {
   return (docType === "invoice" || docType === "credit_note") && INVOICE_LOCKED.includes(key);
 }
+
+/**
+ * The bill-to address a document prints.
+ *
+ * An issued invoice or credit note prints only what issue_document froze onto it: editing
+ * the customer afterwards must never change a fiscal document already handed over, so one
+ * issued without an address stays without one. A draft has no snapshot yet, and a quotation
+ * is revisable in place, so both fall back to the customer's own record.
+ */
+export function billToAddress(
+  doc: { docType: DocType; status: string; frozen: string | null | undefined },
+  customerAddress: string | null | undefined,
+): string {
+  const fiscal = doc.status !== "draft" && doc.docType !== "quote";
+  return String(doc.frozen ?? (fiscal ? null : customerAddress) ?? "").trim();
+}

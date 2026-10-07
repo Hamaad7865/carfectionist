@@ -48,6 +48,8 @@ export interface BuilderCustomer {
   country: string;
   email: string | null;
   phone: string | null;
+  /** Where to bill them — shown and edited in the builder's "Bill to", printed in the A4's For box. */
+  address: string | null;
   /** A business client's own fiscal numbers — null for an individual. Previewed on the A4 the
    *  same way the printed/emailed PDF prints them. */
   brn: string | null;
@@ -95,7 +97,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
     sb.from("products").select("id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy").eq("is_active", true).order("kind").order("name"),
-    sb.from("customers").select("id, name, country, email, phone, brn, vat_number").order("name"),
+    sb.from("customers").select("id, name, country, email, phone, address, brn, vat_number").order("name"),
     sb.from("vehicles").select("id, customer_id, plate, make, model").eq("is_active", true).order("plate"),
   ]);
 
@@ -147,6 +149,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       country: c.country === "MU" ? "Mauritius" : (c.country ?? "Mauritius"),
       email: c.email ?? null,
       phone: c.phone ?? null,
+      address: c.address ?? null,
       brn: c.brn ?? null,
       vatNo: c.vat_number ?? null,
     })),
@@ -168,6 +171,9 @@ export interface LoadedDraft {
   number: string | null;
   issueDate: string | null;
   customerId: string | null;
+  /** The address issue_document froze onto the document — null on a draft, and on a
+   *  document issued to a customer who had none. */
+  billToAddress: string | null;
   revision: number;
   docDiscountKind: "percent" | "amount" | null;
   docDiscountValue: number; // percent: % ; amount: Cents (VAT-inclusive)
@@ -226,6 +232,7 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     number: d.number,
     issueDate: d.issue_date ?? null,
     customerId: d.customer_id,
+    billToAddress: d.bill_to_address ?? null,
     revision: d.revision,
     docDiscountKind: d.discount_kind ?? null,
     docDiscountValue: d.discount_kind === "amount" ? rupeesToCents(Number(d.discount_value)) : Number(d.discount_value ?? 0),

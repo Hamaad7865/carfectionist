@@ -53,6 +53,24 @@ export async function saveCustomerAction(input: z.input<typeof customerSchema>):
   return { ok: true, data: { id: (data as any).id } };
 }
 
+// The document builder's "Bill to" address. Narrow on purpose: saveCustomerAction rewrites
+// the whole row, and the builder holds only a slice of the customer — sending that slice
+// through it would blank the notes and the company flag it never loaded.
+const customerAddressSchema = z.object({ id: z.string().min(1), address: opt });
+
+export async function saveCustomerAddressAction(input: z.input<typeof customerAddressSchema>): Promise<Result> {
+  await requireRole(...CONTACT_ROLES);
+  const p = customerAddressSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Invalid address" };
+  const sb = await createClient();
+  // .select() so a row RLS hides reads as a failure rather than a silent no-op.
+  const { data, error } = await sb.from("customers").update({ address: p.data.address }).eq("id", p.data.id).select("id").maybeSingle();
+  if (error) return { ok: false, error: error.message };
+  if (!data) return { ok: false, error: "Customer not found." };
+  revalidatePath("/contacts");
+  return { ok: true };
+}
+
 // ── Vehicles ─────────────────────────────────────────────────────────────────
 const vehicleSchema = z.object({
   id: z.string().optional(),

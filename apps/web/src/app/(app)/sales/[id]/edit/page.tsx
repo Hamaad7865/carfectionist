@@ -56,7 +56,13 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
           Revising {draft.docType === "quote" ? "quotation" : "document"} {draft.number} — same quote, same number, same signature. Saving keeps everything it had.
         </p>
       )}
-      <DocumentBuilder key={id} ctx={ctx} initial={initial} />
+      <DocumentBuilder
+        key={id}
+        ctx={ctx}
+        initial={initial}
+        // Only an issued document has a frozen bill-to; a draft still follows the customer.
+        frozenBillToAddress={draft.status === "draft" ? undefined : draft.billToAddress}
+      />
     </div>
   );
 }

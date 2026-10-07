@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents, formatMUR, presentLine, presentLineDiscount } from "@/lib/money";
 import { muDateTime } from "@/lib/mu-date";
 import { resolveDocAssets } from "@/lib/pdf/assets";
+import { billToAddress } from "@/lib/pdf/fiscal-lock";
 import { parseRichDoc } from "@/lib/rich/schema";
 import type { DocumentA4Props } from "@/components/pdf/DocumentA4";
 import type { StatementA4Props } from "@/components/pdf/StatementA4";
@@ -83,7 +84,7 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
   const sb = sbOverride ?? (await createClient());
   const { data: doc } = await sb
     .from("documents")
-    .select("*, customers(name, country, brn, vat_number)")
+    .select("*, customers(name, address, country, brn, vat_number)")
     .eq("id", id)
     .maybeSingle();
   if (!doc) return null;
@@ -156,6 +157,9 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
     },
     billTo: {
       name: d.bill_to_name ?? d.customers?.name ?? "",
+      // The address issue_document froze. Only a draft or a quotation falls back to the
+      // customer's own — an issued invoice never picks up an address added later.
+      address: billToAddress({ docType: d.doc_type, status: d.status, frozen: d.bill_to_address }, d.customers?.address),
       country: d.customers?.country === "MU" ? "Mauritius" : (d.customers?.country ?? "Mauritius"),
       // Frozen bill-to snapshot first (the fiscal truth once issued), else the live customer for
       // a draft. Empty for an individual — the "For" box then omits the lines.

@@ -113,6 +113,25 @@ describe("DocumentA4 — a business client's fiscal identity", () => {
     expect(forBox).not.toContain("BRN:");
     expect(forBox).not.toContain("VAT NUMBER:");
   });
+
+  it("prints the client's address in the For box, between the name and the country", () => {
+    const html = renderToStaticMarkup(
+      <DocumentA4 {...base} billTo={{ name: "ACME Ltd", address: "12 Royal Road, Moka", country: "Mauritius" }} />,
+    );
+    const forBox = html.slice(html.indexOf("ACME Ltd"));
+    expect(forBox).toContain("12 Royal Road, Moka");
+    expect(forBox.indexOf("12 Royal Road, Moka")).toBeLessThan(forBox.indexOf("Mauritius"));
+  });
+
+  it("adds no line to the For box for a client with no address", () => {
+    const withBlank = renderToStaticMarkup(
+      <DocumentA4 {...base} billTo={{ name: "Jean-Pierre Laval", address: "   ", country: "Mauritius" }} />,
+    );
+    const without = renderToStaticMarkup(
+      <DocumentA4 {...base} billTo={{ name: "Jean-Pierre Laval", country: "Mauritius" }} />,
+    );
+    expect(withBlank).toBe(without);
+  });
 });
 
 describe("DocumentA4 — client acceptance stamp", () => {

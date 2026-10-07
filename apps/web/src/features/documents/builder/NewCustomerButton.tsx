@@ -58,6 +58,7 @@ export function NewCustomerButton({
       country: "Mauritius",
       email: f.email.trim() || null,
       phone: f.phone.trim() || null,
+      address: f.address.trim() || null,
       // A business gets its BRN/VAT straight onto the preview's "Bill to"; an individual carries neither.
       brn: f.isCompany ? f.brn.trim() || null : null,
       vatNo: f.isCompany ? f.vatNumber.trim() || null : null,
