@@ -1197,7 +1197,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             "customers(name, phone, email, points_balance), creator:app_users!documents_created_by_fkey(display_name), " +
             "bill_no, bill_to_brn, bill_to_vat_number, " +
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat, vehicles(plate, make, model)), " +
-            "payments(method, amount, tendered, change_given, reverses_payment_id, received_at)"
+            "payments(id, method, amount, tendered, change_given, reverses_payment_id, received_at)"
 
     /** Past sales with lines + payments — the history list and its reprints.
      *  No void bills: there is no receipt to reprint for money the shop handed
@@ -1226,6 +1226,26 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         client.postgrest.from("documents")
             .select(Columns.raw(SALE_COLS)) { filter { eq("id", id) } }
             .decodeList<SaleHistoryDto>()
+            .firstOrNull()
+
+    /**
+     * The live credit note raised against an invoice, or null. Its refund is booked on the
+     * credit note, not on the invoice — so this is the only thing that says the invoice's
+     * money went back. The web's getDocumentDetail asks the same question the same way.
+     *
+     * A lookup of its own, NOT an embed on SALE_COLS: documents→documents is
+     * self-referencing, and a wrong or ambiguous hint fails the WHOLE select (see
+     * [fetchOutstandingInvoices]) — on a shape the sales history list shares. Not
+     * best-effort either: swallowed, a failure here reads as "never credited".
+     */
+    suspend fun fetchCreditNoteFor(invoiceId: String): DocIdNumberDto? =
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, number")) {
+                filter { eq("source_document_id", invoiceId); eq("doc_type", "credit_note"); neq("status", "void") }
+                order("created_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(1)
+            }
+            .decodeList<DocIdNumberDto>()
             .firstOrNull()
 
     // ── Staff / technicians ───────────────────────────────────────────────────
