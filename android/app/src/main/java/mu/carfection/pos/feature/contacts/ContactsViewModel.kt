@@ -579,3 +579,17 @@ internal fun matchHints(rows: List<ContactDto>, term: String, mode: ContactSearc
     }
     return out
 }
+
+/**
+ * What is still owed on a document — null when there is no balance to show.
+ *
+ * Only a bill can owe. A credit note carries the invoice's total with amount_paid left at 0
+ * (its money is the refund's negative mirrors, create_and_issue_credit_note), so
+ * "total − paid" there read as the whole bill still owed. Same rule as the web's paymentTrail.
+ */
+internal fun balanceOwed(docType: String, totalIncl: Double, amountPaid: Double): Double? =
+    (totalIncl - amountPaid).takeIf { docType == "invoice" && it > 0.005 }
+
+/** What a credit note sent back to the customer: its refund mirrors, read as money out. */
+internal fun refundedOn(payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>): Double =
+    -payments.filter { it.reversesPaymentId != null }.sumOf { it.amount }

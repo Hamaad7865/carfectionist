@@ -24,6 +24,7 @@ import { ArchiveButton } from "@/features/documents/ArchiveButton";
 import { HandOverButton } from "@/features/documents/HandOverButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import { ScheduledSends } from "@/features/documents/ScheduledSends";
+import { paymentTrail } from "@/features/documents/payment-trail";
 import { getScheduledSends } from "@/lib/supabase/queries/scheduled-sends";
 import { CarDiagram } from "@/features/intake/CarDiagram";
 import { StartJobButton } from "@/features/intake/StartJobButton";
@@ -539,10 +540,9 @@ export default async function DocumentDetailPage({
                     // The story the owner asked for: a deposit then the balance must READ
                     // that way — each payment dated, attributed, and followed by what was
                     // still owed at that moment.
-                    let runningCents = 0;
-                    return doc.payments.map((p) => {
-                      runningCents += p.amountCents;
-                      const leftCents = Math.max(0, doc.totalCents - runningCents);
+                    const trail = paymentTrail(doc.docType, doc.totalCents, doc.payments.map((p) => p.amountCents));
+                    return doc.payments.map((p, i) => {
+                      const note = trail[i];
                       const cancelled = p.wasReversed || p.isReversal;
                       return (
                         <li key={p.id} className="px-4 py-2.5">
@@ -571,11 +571,9 @@ export default async function DocumentDetailPage({
                               <span className="num">{muDateTime(p.receivedAt)}</span>
                               {p.receivedByName ? ` · ${p.receivedByName}` : ""}
                             </span>
-                            {doc.totalCents > 0 && (
-                              leftCents > 0
-                                ? <span className="num text-amber-ink">{formatMUR(leftCents)} still to pay</span>
-                                : <span className="font-semibold text-mint">paid in full</span>
-                            )}
+                            {note?.kind === "owed" && <span className="num text-amber-ink">{formatMUR(note.leftCents)} still to pay</span>}
+                            {note?.kind === "settled" && <span className="font-semibold text-mint">paid in full</span>}
+                            {note?.kind === "refunded" && <span className="font-semibold text-muted">refunded</span>}
                           </div>
                           {/* reverse_payment is the only correction path for a wrong amount
                               or method — never an edit-in-place. Hidden once cancelled: the

@@ -909,12 +909,16 @@ private fun DocumentDetailDialog(doc: mu.carfection.pos.core.network.SaleHistory
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 MoneyRow("VAT", doc.vatTotal)
                 MoneyRow("TOTAL", doc.totalIncl, bold = true)
-                MoneyRow("Paid", doc.amountPaid)
-                val balance = doc.totalIncl - doc.amountPaid
-                if (balance > 0.005 && doc.docType != "quote") MoneyRow("Balance", balance, color = Warning)
-                doc.payments.filter { it.reversesPaymentId == null }.forEach { p ->
+                // A credit note is the refund, not a bill: it says what went back out, and by
+                // which method — never "Paid Rs 0.00" over a balance nobody owes.
+                val isCreditNote = doc.docType == "credit_note"
+                val refunded = refundedOn(doc.payments)
+                if (!isCreditNote) MoneyRow("Paid", doc.amountPaid)
+                else if (refunded > 0.005) MoneyRow("Refunded", refunded)
+                balanceOwed(doc.docType, doc.totalIncl, doc.amountPaid)?.let { MoneyRow("Balance", it, color = Warning) }
+                doc.payments.filter { (it.reversesPaymentId != null) == isCreditNote }.forEach { p ->
                     Text(
-                        "${p.method.replaceFirstChar { it.uppercase() }}  Rs ${money(p.amount)}",
+                        "${p.method.replaceFirstChar { it.uppercase() }}  Rs ${money(kotlin.math.abs(p.amount))}",
                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
                     )
                 }
