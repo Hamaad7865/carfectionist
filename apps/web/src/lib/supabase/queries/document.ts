@@ -69,6 +69,9 @@ export interface DocumentDetail {
    *  quote leaves the working list, so its page has to say where the work went. */
   revisedById: string | null;
   revisedByNumber: string | null;
+  /** The live credit note against this invoice. Its refund is booked on the credit note,
+   *  not here — so this is the only thing that says the invoice's money went back. */
+  creditedById: string | null;
   creditedByNumber: string | null;
   jobId: string | null;
   /** The job's live status — drives the "hand over on account" action on an open bill. */
@@ -202,9 +205,12 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     revisedByNumber = (rev as any)?.number ?? null;
   }
+  let creditedById: string | null = null;
   let creditedByNumber: string | null = null;
   if (d.doc_type === "invoice") {
-    const { data: cn } = await sb.from("documents").select("number").eq("source_document_id", id).eq("doc_type", "credit_note").neq("status", "void").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    const { data: cn } = await sb.from("documents").select("id, number").eq("source_document_id", id).eq("doc_type", "credit_note").neq("status", "void").order("created_at", { ascending: false }).limit(1).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    creditedById = (cn as any)?.id ?? null;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     creditedByNumber = (cn as any)?.number ?? null;
   }
@@ -288,6 +294,7 @@ export async function getDocumentDetail(id: string): Promise<DocumentDetail | nu
     sourceNumber,
     revisedById,
     revisedByNumber,
+    creditedById,
     creditedByNumber,
     jobId: d.job_id ?? null,
     jobStatus,

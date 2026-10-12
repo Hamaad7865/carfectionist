@@ -13,7 +13,7 @@ import * as rpc from "@/lib/supabase/rpc";
 import { btn } from "@/components/ui/button";
 import { RichContent } from "@/lib/rich/render";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
-import { methodChangeTargets } from "@/features/jobs/change-method";
+import { paymentControls } from "@/features/documents/payment-controls";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
 import { SupersededBillNotice } from "@/features/documents/SupersededBillNotice";
@@ -293,7 +293,8 @@ export default async function DocumentDetailPage({
         {isInvoice && doc.creditedByNumber && (
           <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
             <FileMinus size={15} className="text-pink" />
-            Credited by <span className="num font-bold text-pink">{doc.creditedByNumber}</span>.
+            Credited by{" "}
+            <Link href={`/sales/${doc.creditedById}`} className="num font-bold text-pink hover:underline">{doc.creditedByNumber}</Link>.
           </div>
         )}
 
@@ -544,6 +545,11 @@ export default async function DocumentDetailPage({
                     return doc.payments.map((p, i) => {
                       const note = trail[i];
                       const cancelled = p.wasReversed || p.isReversal;
+                      const controls = paymentControls(p, {
+                        creditedByNumber: doc.creditedByNumber,
+                        canReverse: canReversePayment,
+                        canChangeMethod,
+                      });
                       return (
                         <li key={p.id} className="px-4 py-2.5">
                           <div className="flex items-center justify-between gap-3">
@@ -551,6 +557,17 @@ export default async function DocumentDetailPage({
                               <span className="font-semibold text-ink">{METHOD_LABEL[p.method] ?? p.method}</span>
                               {p.isReversal && <span className="ml-2 rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">Reversal</span>}
                               {p.wasReversed && <span className="ml-2 rounded-[5px] bg-[rgba(214,59,80,0.12)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-rose">Reversed</span>}
+                              {/* The refund is booked on the credit note, so nothing among this
+                                  invoice's own rows shows it. Say it on the payment it undid — the
+                                  amount stays unstruck, because the bill still counts it as paid. */}
+                              {controls.refundedBy && (
+                                <Link
+                                  href={`/sales/${doc.creditedById}`}
+                                  className="ml-2 rounded-[5px] bg-[rgba(255,84,104,0.1)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-pink hover:underline"
+                                >
+                                  Refunded · {controls.refundedBy}
+                                </Link>
+                              )}
                               {p.externalRef && <span className="ml-2 text-[11px] text-faint">{p.externalRef}</span>}
                               {/* Cash overpaid → say what the customer handed over, not just the
                                   change: "change Rs 175.00" alone reads as an unexplained gap
@@ -577,10 +594,11 @@ export default async function DocumentDetailPage({
                             {note?.kind === "voided" && <span className="font-semibold text-muted">credit note voided</span>}
                           </div>
                           {/* reverse_payment is the only correction path for a wrong amount
-                              or method — never an edit-in-place. Hidden once cancelled: the
-                              RPC itself refuses reversing a reversal / a payment already
-                              reversed, this just keeps the dead-end control out of the way. */}
-                          {canReversePayment && !cancelled && (
+                              or method — never an edit-in-place. Hidden once cancelled, and on
+                              a credited invoice (the credit note already handed the money back):
+                              the RPC itself refuses all of those, paymentControls just keeps the
+                              dead-end control out of the way. */}
+                          {controls.reverse && (
                             <details className="mt-1">
                               <summary className="cursor-pointer text-[11px] font-semibold text-rose hover:underline">
                                 Reverse this payment
@@ -606,9 +624,9 @@ export default async function DocumentDetailPage({
                           )}
                           {/* Card declined at the terminal after it was recorded: swap the
                               method, same amount, same bill. A cashier may do this — the RPC
-                              refuses a cash-source change for a non-manager. */}
-                          {canChangeMethod && !cancelled &&
-                            methodChangeTargets(p.method, { canManage: canReversePayment }).length > 0 && (
+                              refuses a cash-source change for a non-manager, and any change at
+                              all on a credited invoice. */}
+                          {controls.methodTargets.length > 0 && (
                             <details className="mt-1">
                               <summary className="cursor-pointer text-[11px] font-semibold text-link hover:underline">
                                 Change method
@@ -621,7 +639,7 @@ export default async function DocumentDetailPage({
                                   required
                                   className="rounded-[8px] border border-line bg-transparent px-2 py-1 text-[11.5px] text-body"
                                 >
-                                  {methodChangeTargets(p.method, { canManage: canReversePayment }).map((m) => (
+                                  {controls.methodTargets.map((m) => (
                                     <option key={m} value={m}>{METHOD_LABEL[m] ?? m}</option>
                                   ))}
                                 </select>
