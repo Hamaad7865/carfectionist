@@ -84,6 +84,8 @@ data class ContactsState(
     val history: CustomerHistoryState? = null,
     /** The invoice/quote document opened from a history card. Null = closed. */
     val docDetail: mu.carfection.pos.core.network.SaleHistoryDto? = null,
+    /** The live credit note against [docDetail], when it is an invoice that has one. */
+    val docCreditNote: mu.carfection.pos.core.network.DocIdNumberDto? = null,
     val docLoading: Boolean = false,
     val addingCustomer: Boolean = false,
     val newName: String = "",
@@ -175,18 +177,23 @@ class ContactsViewModel @Inject constructor(
      * so one call serves every document kind.
      */
     fun openDoc(id: String) {
-        _s.update { it.copy(docLoading = true, docDetail = null) }
+        _s.update { it.copy(docLoading = true, docDetail = null, docCreditNote = null) }
         viewModelScope.launch {
-            runCatching { api.fetchInvoice(id) }
-                .onSuccess { d ->
-                    if (d != null) _s.update { it.copy(docLoading = false, docDetail = d) }
+            runCatching {
+                // An invoice's own rows never say it was credited — the refund sits on the
+                // credit note — so that is asked for alongside. If it cannot be answered the
+                // document does not open: "paid" with the refund missing is the wrong record.
+                api.fetchInvoice(id)?.let { d -> d to if (d.docType == "invoice") api.fetchCreditNoteFor(d.id) else null }
+            }
+                .onSuccess { loaded ->
+                    if (loaded != null) _s.update { it.copy(docLoading = false, docDetail = loaded.first, docCreditNote = loaded.second) }
                     else _s.update { it.copy(docLoading = false, toast = "Couldn't load that document") }
                 }
                 .onFailure { e -> _s.update { it.copy(docLoading = false, toast = e.uiMessage()) } }
         }
     }
 
-    fun closeDoc() = _s.update { it.copy(docDetail = null, docLoading = false) }
+    fun closeDoc() = _s.update { it.copy(docDetail = null, docCreditNote = null, docLoading = false) }
 
     private fun loadHistory(customerId: String) {
         viewModelScope.launch {
@@ -593,3 +600,23 @@ internal fun balanceOwed(docType: String, totalIncl: Double, amountPaid: Double)
 /** What a credit note sent back to the customer: its refund mirrors, read as money out. */
 internal fun refundedOn(payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>): Double =
     -payments.filter { it.reversesPaymentId != null }.sumOf { it.amount }
+
+/**
+ * The credit note that handed a payment back, by number — null when none did.
+ *
+ * A credit note books its refund as negative mirrors on the CREDIT NOTE
+ * (create_and_issue_credit_note), so the invoice's own rows show no reversal: the payment
+ * still stands and the bill still reads paid, on purpose. The credit note mirrors every
+ * payment standing when it is raised, and only those — a mirror, or an original a mirror on
+ * this same bill already undid, was never money to hand back. Same rule as the web's
+ * paymentControls.
+ */
+internal fun refundedBy(
+    payment: mu.carfection.pos.core.network.SaleHistoryPaymentDto,
+    payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>,
+    creditedByNumber: String?,
+): String? {
+    val cancelled = payment.reversesPaymentId != null ||
+        (payment.id != null && payments.any { it.reversesPaymentId == payment.id })
+    return creditedByNumber.takeUnless { cancelled }
+}

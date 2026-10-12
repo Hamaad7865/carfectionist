@@ -408,6 +408,9 @@ data class SaleHistoryLineDto(
 
 @Serializable
 data class SaleHistoryPaymentDto(
+    // What a reversal's reverses_payment_id points at — the only way to tell an original a
+    // mirror already undid from one that still stands.
+    val id: String? = null,
     val method: String = "cash",
     val amount: FlexDouble = 0.0,
     val tendered: FlexDouble? = null,

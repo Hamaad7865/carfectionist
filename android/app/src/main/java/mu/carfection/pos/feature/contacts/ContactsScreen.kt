@@ -40,8 +40,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -706,7 +709,7 @@ private fun CustomerHistoryScreen(h: CustomerHistoryState, vm: ContactsViewModel
             }
         }
     }
-    s.docDetail?.let { DocumentDetailDialog(it) { vm.closeDoc() } }
+    s.docDetail?.let { DocumentDetailDialog(it, s.docCreditNote, onOpenDoc = { id -> vm.openDoc(id) }) { vm.closeDoc() } }
 
     viewing?.let { p ->
         Dialog(onDismissRequest = { viewing = null }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
@@ -855,7 +858,14 @@ private fun money(v: Double): String = "%,.2f".format(java.util.Locale.ENGLISH, 
  * the money stands. Read-only — this is the record, not an editor.
  */
 @Composable
-private fun DocumentDetailDialog(doc: mu.carfection.pos.core.network.SaleHistoryDto, onClose: () -> Unit) {
+private fun DocumentDetailDialog(
+    doc: mu.carfection.pos.core.network.SaleHistoryDto,
+    creditNote: mu.carfection.pos.core.network.DocIdNumberDto?,
+    onOpenDoc: (String) -> Unit,
+    onClose: () -> Unit,
+) {
+    // A credit note still in draft has no number yet — nothing to name.
+    val creditedBy = creditNote?.number
     Dialog(onDismissRequest = onClose) {
         Column(
             Modifier.width(560.dp).fillMaxHeight(0.88f)
@@ -882,6 +892,24 @@ private fun DocumentDetailDialog(doc: mu.carfection.pos.core.network.SaleHistory
                 ).joinToString("  ·  ").ifBlank { "—" },
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted,
             )
+            // The refund is booked on the credit note, so nothing among this invoice's own
+            // rows shows it. Tap through to the credit note, where the money out is written.
+            if (creditNote != null && creditedBy != null) {
+                Row(
+                    Modifier.fillMaxWidth().background(Color(0x14D63A3A), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color(0x40D63A3A), RoundedCornerShape(10.dp))
+                        .clickable { onOpenDoc(creditNote.id) }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Text(
+                        buildAnnotatedString {
+                            append("Credited by ")
+                            withStyle(SpanStyle(fontFamily = Mono, fontWeight = FontWeight.Bold, color = Danger)) { append(creditedBy) }
+                        },
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary,
+                    )
+                }
+            }
 
             // Lines scroll; header and money stay put.
             Column(
@@ -917,10 +945,19 @@ private fun DocumentDetailDialog(doc: mu.carfection.pos.core.network.SaleHistory
                 else if (refunded > 0.005) MoneyRow("Refunded", refunded)
                 balanceOwed(doc.docType, doc.totalIncl, doc.amountPaid)?.let { MoneyRow("Balance", it, color = Warning) }
                 doc.payments.filter { (it.reversesPaymentId != null) == isCreditNote }.forEach { p ->
-                    Text(
-                        "${p.method.replaceFirstChar { it.uppercase() }}  Rs ${money(kotlin.math.abs(p.amount))}",
-                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
-                    )
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "${p.method.replaceFirstChar { it.uppercase() }}  Rs ${money(kotlin.math.abs(p.amount))}",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                        )
+                        // Said on the payment the credit note undid. The amount stays as it
+                        // is — the bill still counts it as paid.
+                        refundedBy(p, doc.payments, creditedBy)?.let { cn ->
+                            Box(Modifier.background(Color(0x22D63A3A), RoundedCornerShape(5.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                Text("Refunded · $cn".uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, letterSpacing = 0.7.sp, color = Danger)
+                            }
+                        }
+                    }
                 }
             }
         }

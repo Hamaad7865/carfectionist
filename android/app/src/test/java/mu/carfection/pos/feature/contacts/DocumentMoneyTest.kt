@@ -11,6 +11,9 @@ import org.junit.Test
  * A credit note carries the invoice's total with amount_paid left at 0, and its only payment
  * rows are the refund's negative mirrors. Read as a bill it claims the whole amount is still
  * owed (CN-0004: Rs 1,215.00 refunded by Juice, shown as a Rs 1,215.00 balance).
+ *
+ * The invoice it credits has the opposite gap: its payment still stands, and only the credit
+ * note says the money went back.
  */
 class DocumentMoneyTest {
 
@@ -50,5 +53,41 @@ class DocumentMoneyTest {
     @Test
     fun `a credit note from before refunds were booked has refunded nothing`() {
         assertEquals(0.0, refundedOn(emptyList()), 0.001)
+    }
+
+    // INV-0312: Rs 1,215.00 by Juice, credited by CN-0004. The refund's negative mirror sits
+    // on the credit note, so nothing among the invoice's own rows says the money went back —
+    // the dialog read "Paid Rs 1,215.00 / Juice Rs 1,215.00" and stopped there.
+    private val juice = SaleHistoryPaymentDto(id = "p-1", method = "juice", amount = 1215.0)
+
+    @Test
+    fun `a standing payment on a credited invoice names the credit note that refunded it`() {
+        assertEquals("CN-0004", refundedBy(juice, listOf(juice), "CN-0004"))
+    }
+
+    @Test
+    fun `nothing is refunded on an invoice no credit note stands against`() {
+        assertNull(refundedBy(juice, listOf(juice), null))
+    }
+
+    // A pair cancelled on the invoice BEFORE it was credited was never standing money, so the
+    // credit note mirrored neither row (create_and_issue_credit_note skips them).
+    @Test
+    fun `a payment already reversed on the invoice is not called refunded`() {
+        val mirror = SaleHistoryPaymentDto(id = "p-2", method = "juice", amount = -1215.0, reversesPaymentId = "p-1")
+        assertNull(refundedBy(juice, listOf(juice, mirror), "CN-0004"))
+    }
+
+    @Test
+    fun `a reversal mirror is not called refunded`() {
+        val mirror = SaleHistoryPaymentDto(id = "p-2", method = "juice", amount = -1215.0, reversesPaymentId = "p-1")
+        assertNull(refundedBy(mirror, listOf(juice, mirror), "CN-0004"))
+    }
+
+    @Test
+    fun `the payment that replaced a reversed one is the one refunded`() {
+        val mirror = SaleHistoryPaymentDto(id = "p-2", method = "juice", amount = -1215.0, reversesPaymentId = "p-1")
+        val card = SaleHistoryPaymentDto(id = "p-3", method = "card", amount = 1215.0)
+        assertEquals("CN-0004", refundedBy(card, listOf(juice, mirror, card), "CN-0004"))
     }
 }
