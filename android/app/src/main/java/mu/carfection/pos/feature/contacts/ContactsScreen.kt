@@ -43,6 +43,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
@@ -945,23 +946,38 @@ private fun DocumentDetailDialog(
                 if (!isCreditNote) MoneyRow("Paid", doc.amountPaid)
                 else if (refunded > 0.005) MoneyRow("Refunded", refunded)
                 balanceOwed(doc.docType, doc.totalIncl, doc.amountPaid, voided)?.let { MoneyRow("Balance", it, color = Warning) }
-                doc.payments.filter { (it.reversesPaymentId != null) == isCreditNote && !(isCreditNote && voided) }.forEach { p ->
+                // A bill lists its whole ledger, in the web's words: the payment a mirror undid
+                // is struck and says "Reversed", the mirror keeps its minus and says "Reversal".
+                // A credit note's rows are the refund itself, read as money out.
+                dialogPaymentRows(doc.docType, voided, doc.payments).forEach { p ->
+                    val reversed = wasReversed(p, doc.payments)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "${p.method.replaceFirstChar { it.uppercase() }}  Rs ${money(kotlin.math.abs(p.amount))}",
+                            buildAnnotatedString {
+                                append("${p.method.replaceFirstChar { it.uppercase() }}  ")
+                                withStyle(SpanStyle(textDecoration = if (reversed) TextDecoration.LineThrough else null)) {
+                                    append("Rs ${money(if (isCreditNote) kotlin.math.abs(p.amount) else p.amount)}")
+                                }
+                            },
                             fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
                         )
+                        if (!isCreditNote && p.reversesPaymentId != null) PaymentBadge("Reversal")
+                        if (reversed) PaymentBadge("Reversed")
                         // Said on the payment the credit note undid. The amount stays as it
                         // is — the bill still counts it as paid.
-                        refundedBy(p, doc.payments, creditedBy)?.let { cn ->
-                            Box(Modifier.background(Color(0x22D63A3A), RoundedCornerShape(5.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
-                                Text("Refunded · $cn".uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, letterSpacing = 0.7.sp, color = Danger)
-                            }
-                        }
+                        refundedBy(p, doc.payments, creditedBy)?.let { cn -> PaymentBadge("Refunded · $cn") }
                     }
                 }
             }
         }
+    }
+}
+
+/** What became of a payment, beside its row: "Reversed", "Reversal", "Refunded · CN-0004". */
+@Composable
+private fun PaymentBadge(label: String) {
+    Box(Modifier.background(Color(0x22D63A3A), RoundedCornerShape(5.dp)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+        Text(label.uppercase(), fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, letterSpacing = 0.7.sp, color = Danger)
     }
 }
 

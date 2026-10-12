@@ -2,7 +2,9 @@ package mu.carfection.pos.feature.contacts
 
 import mu.carfection.pos.core.network.SaleHistoryPaymentDto
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -99,5 +101,91 @@ class DocumentMoneyTest {
         val mirror = SaleHistoryPaymentDto(id = "p-2", method = "juice", amount = -1215.0, reversesPaymentId = "p-1")
         val card = SaleHistoryPaymentDto(id = "p-3", method = "card", amount = 1215.0)
         assertEquals("CN-0004", refundedBy(card, listOf(juice, mirror, card), "CN-0004"))
+    }
+
+    // Rs 500.00 cash, reversed, then Rs 500.00 by card (reverse_payment, or
+    // change_payment_method which reverses and re-books at the same instant). The dialog read
+    // "Paid Rs 500.00 / Cash Rs 500.00 / Card Rs 500.00" with nothing marking the cash undone.
+    private val cash = SaleHistoryPaymentDto(id = "p-1", method = "cash", amount = 500.0, receivedAt = "2026-08-31T19:06:24.904009+00:00")
+    private val cashMirror = SaleHistoryPaymentDto(id = "p-2", method = "cash", amount = -500.0, reversesPaymentId = "p-1", receivedAt = "2026-08-31T19:06:41.952385+00:00")
+    private val card = SaleHistoryPaymentDto(id = "p-3", method = "card", amount = 500.0, receivedAt = "2026-08-31T19:06:41.952385+00:00")
+
+    @Test
+    fun `a payment a mirror on the same bill undid was reversed`() {
+        assertTrue(wasReversed(cash, listOf(cash, cashMirror, card)))
+    }
+
+    @Test
+    fun `the mirror itself is a reversal, not a reversed payment`() {
+        assertFalse(wasReversed(cashMirror, listOf(cash, cashMirror, card)))
+    }
+
+    @Test
+    fun `the payment that replaced a reversed one still stands`() {
+        assertFalse(wasReversed(card, listOf(cash, cashMirror, card)))
+    }
+
+    @Test
+    fun `a payment nothing reversed still stands`() {
+        assertFalse(wasReversed(juice, listOf(juice)))
+    }
+
+    // TESTINV-0107: cash → juice → cash. The juice row replaced the first cash and was then
+    // undone itself.
+    @Test
+    fun `a replacement that was later reversed too is marked as well`() {
+        val juiceInstead = SaleHistoryPaymentDto(id = "p-3", method = "juice", amount = 500.0)
+        val juiceMirror = SaleHistoryPaymentDto(id = "p-4", method = "juice", amount = -500.0, reversesPaymentId = "p-3")
+        val cashAgain = SaleHistoryPaymentDto(id = "p-5", method = "cash", amount = 500.0)
+        val rows = listOf(cash, cashMirror, juiceInstead, juiceMirror, cashAgain)
+        assertEquals(listOf(true, false, true, false, false), rows.map { wasReversed(it, rows) })
+    }
+
+    // Matched on the id, never on method and amount: two identical cash payments, one undone.
+    @Test
+    fun `only the payment the mirror points at is reversed`() {
+        val twin = cash.copy(id = "p-9")
+        assertFalse(wasReversed(twin, listOf(cash, twin, cashMirror)))
+    }
+
+    // A row decoded without its id must not match every row that reverses nothing
+    // (null == null) — including itself.
+    @Test
+    fun `a payment with no id is never called reversed`() {
+        val noId = SaleHistoryPaymentDto(method = "cash", amount = 500.0)
+        assertFalse(wasReversed(noId, listOf(noId, card)))
+    }
+
+    // A credit note's mirrors point at payments on the INVOICE. None of its own rows was undone.
+    @Test
+    fun `a credit note's refund rows are not reversed payments`() {
+        val refund = SaleHistoryPaymentDto(id = "p-7", method = "juice", amount = -1215.0, reversesPaymentId = "p-1")
+        assertFalse(wasReversed(refund, listOf(refund)))
+    }
+
+    // Which rows the dialog lists. An invoice shows its whole ledger, as the web's payments
+    // panel does — the reversed original AND the mirror that undid it.
+    @Test
+    fun `an invoice lists the reversal beside the payment it undid`() {
+        assertEquals(listOf(cash, cashMirror, card), dialogPaymentRows("invoice", false, listOf(cash, cashMirror, card)))
+    }
+
+    // The embed comes back in no promised order, and change_payment_method books the mirror
+    // and its replacement at the same instant.
+    @Test
+    fun `an invoice's rows read oldest first, a reversal ahead of what replaced it`() {
+        assertEquals(listOf(cash, cashMirror, card), dialogPaymentRows("invoice", false, listOf(card, cashMirror, cash)))
+    }
+
+    @Test
+    fun `a credit note lists only its refund rows`() {
+        val refund = SaleHistoryPaymentDto(id = "p-7", method = "juice", amount = -1215.0, reversesPaymentId = "p-1")
+        assertEquals(listOf(refund), dialogPaymentRows("credit_note", false, listOf(refund)))
+    }
+
+    @Test
+    fun `a voided credit note lists no refund`() {
+        val refund = SaleHistoryPaymentDto(id = "p-7", method = "juice", amount = -1215.0, reversesPaymentId = "p-1")
+        assertEquals(emptyList<SaleHistoryPaymentDto>(), dialogPaymentRows("credit_note", true, listOf(refund)))
     }
 }

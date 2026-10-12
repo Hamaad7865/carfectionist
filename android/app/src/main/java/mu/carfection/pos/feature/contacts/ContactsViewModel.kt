@@ -621,7 +621,40 @@ internal fun refundedBy(
     payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>,
     creditedByNumber: String?,
 ): String? {
-    val cancelled = payment.reversesPaymentId != null ||
-        (payment.id != null && payments.any { it.reversesPaymentId == payment.id })
+    val cancelled = payment.reversesPaymentId != null || wasReversed(payment, payments)
     return creditedByNumber.takeUnless { cancelled }
+}
+
+/**
+ * Whether a mirror on this same bill already undid this payment — reverse_payment, or
+ * change_payment_method, which reverses and re-books. The web's `wasReversed`.
+ *
+ * Matched on the payment's id, the only thing a mirror's reverses_payment_id points at. A
+ * row without one is never matched: null == null would call every standing payment
+ * reversed. A credit note's mirrors point at the INVOICE's payments, so nothing a credit
+ * note handed back is "reversed" here — that is [refundedBy]'s to say.
+ */
+internal fun wasReversed(
+    payment: mu.carfection.pos.core.network.SaleHistoryPaymentDto,
+    payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>,
+): Boolean = payment.id != null && payments.any { it.reversesPaymentId == payment.id }
+
+/**
+ * The payment rows the document dialog lists, in reading order.
+ *
+ * A bill shows its whole ledger, as the web's payments panel does: a payment that was
+ * reversed and the mirror that undid it, neither one hidden. Oldest first — the embed comes
+ * back in no promised order — and change_payment_method books the mirror and its
+ * replacement at the same instant, so on a tie the mirror leads.
+ *
+ * A credit note is the refund: only its mirrors, and none of them once it is voided.
+ */
+internal fun dialogPaymentRows(
+    docType: String,
+    voided: Boolean,
+    payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>,
+): List<mu.carfection.pos.core.network.SaleHistoryPaymentDto> = when {
+    docType != "credit_note" -> payments.sortedWith(compareBy({ it.receivedAt ?: "" }, { it.reversesPaymentId == null }))
+    voided -> emptyList()
+    else -> payments.filter { it.reversesPaymentId != null }
 }
