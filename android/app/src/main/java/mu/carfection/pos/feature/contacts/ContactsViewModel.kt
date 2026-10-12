@@ -586,10 +586,15 @@ internal fun matchHints(rows: List<ContactDto>, term: String, mode: ContactSearc
  * Only a bill can owe. A credit note carries the invoice's total with amount_paid left at 0
  * (its money is the refund's negative mirrors, create_and_issue_credit_note), so
  * "total − paid" there read as the whole bill still owed. Same rule as the web's paymentTrail.
+ * A voided invoice owes nothing either: its total stays, its paid is 0.
  */
-internal fun balanceOwed(docType: String, totalIncl: Double, amountPaid: Double): Double? =
-    (totalIncl - amountPaid).takeIf { docType == "invoice" && it > 0.005 }
+internal fun balanceOwed(docType: String, totalIncl: Double, amountPaid: Double, voided: Boolean = false): Double? =
+    (totalIncl - amountPaid).takeIf { docType == "invoice" && !voided && it > 0.005 }
 
-/** What a credit note sent back to the customer: its refund mirrors, read as money out. */
-internal fun refundedOn(payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>): Double =
-    -payments.filter { it.reversesPaymentId != null }.sumOf { it.amount }
+/**
+ * What a credit note sent back to the customer: its refund mirrors, read as money out.
+ * A voided credit note refunded nothing that stands — its row only stays because the
+ * ledger is append-only.
+ */
+internal fun refundedOn(payments: List<mu.carfection.pos.core.network.SaleHistoryPaymentDto>, voided: Boolean = false): Double =
+    if (voided) 0.0 else -payments.filter { it.reversesPaymentId != null }.sumOf { it.amount }

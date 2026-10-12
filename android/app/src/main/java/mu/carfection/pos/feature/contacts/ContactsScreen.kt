@@ -869,7 +869,7 @@ private fun DocumentDetailDialog(doc: mu.carfection.pos.core.network.SaleHistory
                     fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 21.sp, letterSpacing = 1.sp, color = TextPrimary,
                     modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
-                HistoryStatusChip(if (doc.status == "paid" || doc.status == "partly_paid") doc.status else if (doc.docType == "quote") doc.status else "issued")
+                HistoryStatusChip(if (doc.status == "paid" || doc.status == "partly_paid" || doc.status == "void") doc.status else if (doc.docType == "quote") doc.status else "issued")
                 Box(Modifier.size(34.dp).border(1.dp, Hairline, RoundedCornerShape(10.dp)).clickable(onClick = onClose), contentAlignment = Alignment.Center) {
                     Text("✕", color = TextSecondary, fontSize = 13.sp)
                 }
@@ -912,11 +912,12 @@ private fun DocumentDetailDialog(doc: mu.carfection.pos.core.network.SaleHistory
                 // A credit note is the refund, not a bill: it says what went back out, and by
                 // which method — never "Paid Rs 0.00" over a balance nobody owes.
                 val isCreditNote = doc.docType == "credit_note"
-                val refunded = refundedOn(doc.payments)
+                val voided = doc.status == "void"
+                val refunded = refundedOn(doc.payments, voided)
                 if (!isCreditNote) MoneyRow("Paid", doc.amountPaid)
                 else if (refunded > 0.005) MoneyRow("Refunded", refunded)
-                balanceOwed(doc.docType, doc.totalIncl, doc.amountPaid)?.let { MoneyRow("Balance", it, color = Warning) }
-                doc.payments.filter { (it.reversesPaymentId != null) == isCreditNote }.forEach { p ->
+                balanceOwed(doc.docType, doc.totalIncl, doc.amountPaid, voided)?.let { MoneyRow("Balance", it, color = Warning) }
+                doc.payments.filter { (it.reversesPaymentId != null) == isCreditNote && !(isCreditNote && voided) }.forEach { p ->
                     Text(
                         "${p.method.replaceFirstChar { it.uppercase() }}  Rs ${money(kotlin.math.abs(p.amount))}",
                         fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,

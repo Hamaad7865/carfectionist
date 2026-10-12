@@ -28,6 +28,11 @@ class DocumentMoneyTest {
     }
 
     @Test
+    fun `a voided invoice shows no balance`() {
+        assertNull(balanceOwed("invoice", 1215.0, 0.0, voided = true))
+    }
+
+    @Test
     fun `a credit note never shows a balance`() {
         assertNull(balanceOwed("credit_note", 1215.0, 0.0))
     }
@@ -45,6 +50,11 @@ class DocumentMoneyTest {
     @Test
     fun `a split refund adds up`() {
         assertEquals(1215.0, refundedOn(listOf(pay(-500.0, mirror = true), pay(-715.0, mirror = true))), 0.001)
+    }
+
+    @Test
+    fun `a voided credit note has refunded nothing, whatever its ledger row says`() {
+        assertEquals(0.0, refundedOn(listOf(pay(-1215.0, mirror = true)), voided = true), 0.001)
     }
 
     @Test

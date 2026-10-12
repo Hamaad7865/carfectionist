@@ -272,8 +272,8 @@ export default async function DocumentDetailPage({
           <div className="mt-4 flex items-start gap-3 rounded-[13px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.06)] px-4 py-3">
             <span className="mt-0.5 rounded-full bg-rose px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">Void</span>
             <div className="text-[12.5px] text-body">
-              This {doc.docType} was voided{doc.voidedAt ? ` on ${doc.voidedAt.slice(0, 10)}` : ""}
-              {doc.voidReason ? <> — <span className="font-semibold">{doc.voidReason}</span></> : ""}. Stock movements were reversed; the number is retained.
+              This {title.toLowerCase()} was voided{doc.voidedAt ? ` on ${doc.voidedAt.slice(0, 10)}` : ""}
+              {doc.voidReason ? <> — <span className="font-semibold">{doc.voidReason.replace(/\.\s*$/, "")}</span></> : ""}.{isInvoice ? "Stock movements were reversed; the number is retained." : "The number is retained."}
             </div>
           </div>
         )}
@@ -540,7 +540,7 @@ export default async function DocumentDetailPage({
                     // The story the owner asked for: a deposit then the balance must READ
                     // that way — each payment dated, attributed, and followed by what was
                     // still owed at that moment.
-                    const trail = paymentTrail(doc.docType, doc.totalCents, doc.payments.map((p) => p.amountCents));
+                    const trail = paymentTrail(doc.docType, doc.totalCents, doc.payments.map((p) => p.amountCents), doc.status === "void");
                     return doc.payments.map((p, i) => {
                       const note = trail[i];
                       const cancelled = p.wasReversed || p.isReversal;
@@ -574,6 +574,7 @@ export default async function DocumentDetailPage({
                             {note?.kind === "owed" && <span className="num text-amber-ink">{formatMUR(note.leftCents)} still to pay</span>}
                             {note?.kind === "settled" && <span className="font-semibold text-mint">paid in full</span>}
                             {note?.kind === "refunded" && <span className="font-semibold text-muted">refunded</span>}
+                            {note?.kind === "voided" && <span className="font-semibold text-muted">credit note voided</span>}
                           </div>
                           {/* reverse_payment is the only correction path for a wrong amount
                               or method — never an edit-in-place. Hidden once cancelled: the

@@ -8,20 +8,25 @@
  * — so "total − paid" there adds the refund on top of the total and reads as twice
  * the bill still owed. Money on a credit note only ever goes back out: every row is
  * a refund, and nothing is owed.
+ *
+ * A VOIDED credit note refunded nothing that stands. Its row cannot leave the
+ * append-only ledger, so the row says the note was voided rather than "refunded".
  */
 
 export type PaymentTrailNote =
   | { kind: "owed"; leftCents: number }
   | { kind: "settled" }
   | { kind: "refunded" }
+  | { kind: "voided" }
   | null;
 
 export function paymentTrail(
   docType: "quote" | "invoice" | "credit_note",
   totalCents: number,
   amountsCents: number[],
+  voided = false,
 ): PaymentTrailNote[] {
-  if (docType === "credit_note") return amountsCents.map(() => ({ kind: "refunded" }));
+  if (docType === "credit_note") return amountsCents.map(() => ({ kind: voided ? "voided" : "refunded" }));
   if (totalCents <= 0) return amountsCents.map(() => null);
   let runningCents = 0;
   return amountsCents.map((amountCents) => {

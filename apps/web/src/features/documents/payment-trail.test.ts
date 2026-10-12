@@ -29,6 +29,12 @@ describe("paymentTrail", () => {
     ]);
   });
 
+  // CN-0004 again, once voided: the refund row stays in the append-only ledger, but a
+  // voided credit note refunded nothing that stands.
+  it("does not call a voided credit note's row a refund", () => {
+    expect(paymentTrail("credit_note", 121_500, [-121_500], true)).toEqual([{ kind: "voided" }]);
+  });
+
   it("says nothing on a zero-total bill", () => {
     expect(paymentTrail("invoice", 0, [0])).toEqual([null]);
   });
