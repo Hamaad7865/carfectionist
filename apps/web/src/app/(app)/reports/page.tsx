@@ -703,7 +703,7 @@ export default async function ReportsPage({
                         <span className="num text-right font-bold text-ink">{formatMUR(z.totalCents)}</span>
                         <span className={`num text-right font-bold ${z.varianceCents === 0 ? "text-mint" : z.varianceCents < 0 ? "text-rose" : "text-amber-ink"}`}>{z.varianceCents === 0 ? "—" : formatMUR(z.varianceCents)}</span>
                         <span className="flex flex-wrap items-center justify-end gap-3">
-                          <a href={`/api/z-reports/${z.id}/pdf`} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-link hover:underline">PDF</a>
+                          <a href={`/print/z-report/${z.id}`} target="_blank" rel="noreferrer" className="text-[13px] font-semibold text-link hover:underline">View</a>
                           <ZReportSendButton zId={z.id} number={z.number} />
                         </span>
                       </div>
