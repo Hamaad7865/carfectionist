@@ -298,6 +298,21 @@ export interface DeviceDashboard {
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
 
+/** The web's own till name — it opens tills but never registers as a device. */
+export const BACK_OFFICE_DEVICE = "back-office";
+/** Web and tablets share ONE drawer per day from this moment (c645d52). Before it, a
+ *  back-office till was its own drawer and does not belong on a tablet's page. */
+export const SHARED_TILL_SINCE = "2026-10-01T00:00:00+04:00";
+
+/** A tablet's own tills plus the shared back-office ones, newest first, each once. */
+export function mergeSharedTillSessions<T extends { id: string; opened_at: string; device_id?: string | null }>(own: T[], shared: T[]): T[] {
+  const since = Date.parse(SHARED_TILL_SINCE);
+  const seen = new Set<string>();
+  return [...own, ...shared.filter((s) => s.device_id === BACK_OFFICE_DEVICE && Date.parse(s.opened_at) >= since)]
+    .filter((s) => (seen.has(s.id) ? false : (seen.add(s.id), true)))
+    .sort((a, b) => Date.parse(b.opened_at) - Date.parse(a.opened_at));
+}
+
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** MU calendar day → [start, end) as epoch ms (Mauritius is UTC+04, no DST). */
 const muDayStart = (d: string) => Date.parse(`${d}T00:00:00+04:00`);
@@ -335,15 +350,24 @@ export async function getDeviceDashboard(
       .lt("created_at", new Date(muDayEnd(to)).toISOString());
   }
 
-  const [sessRes, usersRes, auditRes] = await Promise.all([
+  // A paying tablet also works the SHARED drawer: since 2026-10-01 web and tablet share
+  // one till per day, saved under whoever opened it first. On a day the back office
+  // opened it (2026-10-14), this page read "No till closure" while the tablet had
+  // traded on that very till. Quotation-only tablets never touch a till.
+  const sharesBackOfficeTill = device.takesPayments && !device.isBackOffice;
+  const [sessRes, sharedRes, usersRes, auditRes] = await Promise.all([
     // ALL of this device's sessions (≈1/day) — the pickers can reach any date.
     sb.from("cash_sessions").select("*").eq("device_id", code).order("opened_at", { ascending: false }).limit(400),
+    sharesBackOfficeTill
+      ? sb.from("cash_sessions").select("*").eq("device_id", BACK_OFFICE_DEVICE)
+          .gte("opened_at", SHARED_TILL_SINCE).order("opened_at", { ascending: false }).limit(400)
+      : Promise.resolve({ data: [] }),
     sb.from("app_users").select("id, display_name"),
     auditQ,
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const allSessions = (sessRes.data ?? []) as any[];
+  const allSessions = mergeSharedTillSessions((sessRes.data ?? []) as any[], (sharedRes.data ?? []) as any[]);
   const sessions = allSessions.slice(0, 20); // General tab window
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const nameById = new Map(((usersRes.data ?? []) as any[]).map((u) => [u.id, u.display_name as string]));
