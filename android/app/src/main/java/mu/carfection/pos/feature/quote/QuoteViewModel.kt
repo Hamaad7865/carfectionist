@@ -278,14 +278,6 @@ data class BillRef(
 }
 
 /**
- * Which lines on a bill the counter may still work on.
- *
- * Pulled out of the view model so the rule can be tested without one, and so there is a
- * single place that says it. The first [quotedCount] lines came across from the quotation —
- * that is the price the customer agreed, and no amount of tapping here re-opens it.
- * Everything after them was added at the counter and is a line like any other.
- */
-/**
  * May a latched bill-on-open fire for the quote on screen?
  *
  * The latch is armed by the jobs board for ONE quote, but its lines arrive later — and a
@@ -343,6 +335,15 @@ fun canReviseQuote(billed: Boolean, supersededCount: Int): Boolean =
 fun quoteEditable(status: String, amending: Boolean): Boolean =
     status == "draft" || amending
 
+/**
+ * Whether the typed-in "+ Ad-hoc line" sheet may open. A signed quote's own lines are
+ * frozen, but an open BILL is still being priced at the counter — so ad-hoc must open
+ * there too. Gating on [quoteEditable] alone made the button dead on an accepted quote
+ * with a bill open (the tap silently did nothing).
+ */
+fun adhocCanOpen(status: String, amending: Boolean, billOpen: Boolean): Boolean =
+    billOpen || quoteEditable(status, amending)
+
 /** What the footer confirms with after [confirmUpdate] lands. */
 const val QUOTE_UPDATED_MSG = "Quote updated ✓"
 
@@ -373,8 +374,44 @@ fun parseBookForAt(iso: String?): Long? =
 fun parseDepositDueCents(rupees: Double): Long =
     if (rupees <= 0) 0 else runCatching { rupeesToCents(rupees) }.getOrDefault(0)
 
-fun billLineEditable(index: Int, quotedCount: Int, lineCount: Int) =
-    index >= quotedCount && index >= 0 && index < lineCount
+/**
+ * Which lines on a draft bill the counter may work on: ALL of them.
+ *
+ * Owner's rule (2026-10-14, asked for repeatedly): an accepted quote is the starting
+ * point, not a lock on the bill. The bill must say what was actually done, so a line
+ * that came across from the quote can be repriced, discounted or removed exactly like
+ * one added at the counter. The draft bill is not a fiscal document yet — save_draft
+ * replaces its lines wholesale — and the fiscal lock starts only when it is issued.
+ * Only an index off the end is refused (a line removed under a pending tap).
+ */
+fun billLineEditable(index: Int, lineCount: Int) = index in 0 until lineCount
+
+/**
+ * How many of a bill's leading lines came across from the quote.
+ *
+ * convert_quote_to_invoice copies the quote's lines first and the counter appends after
+ * them, so the quoted lines are a prefix — but no longer a fixed-length one, now that a
+ * quoted line can be removed. Counting by position (`min(quote, bill)`) then labelled the
+ * next counter extra "quoted" and hid it from ALSO ON THEIR BILL. So the prefix is matched
+ * by content: walk the bill from the top, consuming quote lines by (product, title), and
+ * stop at the first line the quote does not account for.
+ */
+fun quotedPrefixLength(quoteKeys: List<Pair<String?, String>>, billKeys: List<Pair<String?, String>>): Int {
+    val left = quoteKeys.map { (p, t) -> p to t.trim() }.groupingBy { it }.eachCount().toMutableMap()
+    var n = 0
+    for ((p, t) in billKeys) {
+        val k = p to t.trim()
+        val c = left[k] ?: 0
+        if (c <= 0) break
+        left[k] = c - 1
+        n++
+    }
+    return n
+}
+
+/** A bill-line removal at [index] keeps the quoted prefix count honest. */
+fun quotedCountAfterRemoval(index: Int, quotedCount: Int): Int =
+    if (index in 0 until quotedCount) quotedCount - 1 else quotedCount
 
 /** A line at a given price in cents — keeps the constructor call sites readable. */
 fun quoteLine(
@@ -1256,7 +1293,7 @@ class QuoteViewModel @Inject constructor(
         st.copy(lines = lines)
     }
 
-    fun openAdhoc() = _s.update { if (editable(it)) it.copy(adhocOpen = true) else it }
+    fun openAdhoc() = _s.update { if (adhocCanOpen(it.status, it.amending, it.billOpen)) it.copy(adhocOpen = true) else it }
     fun closeAdhoc() = _s.update { it.copy(adhocOpen = false) }
     /** [isService] is asked for every time: work on a car sends the accepted quote to the
      *  board, goods over the counter do not, and a typed-in line has no product to ask. */
@@ -2336,10 +2373,10 @@ class QuoteViewModel @Inject constructor(
                             // The bill owns the price from here: the quote locks again, so
                             // a later tweak can't price the bill stale behind its back.
                             amending = false,
-                            // The quote's lines were copied across first, so they are the ones
-                            // that are frozen. Counting the WHOLE draft would freeze the extras
-                            // added on an earlier visit too, and they are still only a draft.
-                            billQuotedCount = minOf(it.lines.size, lines.size),
+                            // The quote's lines were copied across first — labelled "quoted",
+                            // still editable. Matched by content, not position: a quoted line
+                            // removed on an earlier visit must not turn an extra into "quoted".
+                            billQuotedCount = quotedPrefixLength(it.lines.map { l -> l.productId to l.title }, lines.map { l -> l.productId to l.title }),
                             // billDocId just (re)bound to draft.id — an approval taken out for a
                             // PRIOR visit's bill (already closed, see closeBill) must not be read
                             // as covering this one. When draft.id is the SAME still-draft bill
@@ -2368,7 +2405,7 @@ class QuoteViewModel @Inject constructor(
             else cur.copy(
                 bills = cur.bills.map { b ->
                     if (b.id != bill.id) b
-                    else b.copy(extras = lines.drop(cur.lines.size).map { storedLine(it, cur.pricesInclVat, cur.products, cur.carwashPct, cur.policyDefaults) })
+                    else b.copy(extras = lines.drop(quotedPrefixLength(cur.lines.map { l -> l.productId to l.title }, lines.map { l -> l.productId to l.title })).map { storedLine(it, cur.pricesInclVat, cur.products, cur.carwashPct, cur.policyDefaults) })
                 },
             )
         }
@@ -2395,15 +2432,9 @@ class QuoteViewModel @Inject constructor(
         )
     }
 
-    /**
-     * A line added at the counter is a full line, worked on exactly as a quote line is —
-     * its price, its unit, its discount, what it includes.
-     *
-     * The lines that came across from the quote are not: that is the price the customer
-     * agreed, and this screen does not get to re-open it. The guard lives here and not
-     * only in the UI, because this is the function that would change an agreed price.
-     */
-    private fun billEditable(st: QuoteState, i: Int) = billLineEditable(i, st.billQuotedCount, st.billLines.size)
+    /** Every line on a draft bill is worked on the same way — quoted or added at the
+     *  counter (see [billLineEditable] for the owner's rule). */
+    private fun billEditable(st: QuoteState, i: Int) = billLineEditable(i, st.billLines.size)
 
     private fun mapBillLine(i: Int, f: (QuoteLine) -> QuoteLine) = _s.update { st ->
         if (!billEditable(st, i)) st
@@ -2425,7 +2456,7 @@ class QuoteViewModel @Inject constructor(
 
     fun setBillQty(i: Int, q: Int) = _s.update { st ->
         if (!billEditable(st, i)) st
-        else if (q <= 0) st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i })
+        else if (q <= 0) st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i }, billQuotedCount = quotedCountAfterRemoval(i, st.billQuotedCount))
         else st.copy(billLines = st.billLines.mapIndexed { j, l -> if (j == i) l.copy(qty = q) else l })
     }
 
@@ -2448,7 +2479,7 @@ class QuoteViewModel @Inject constructor(
     }
 
     fun removeBillLine(i: Int) = _s.update { st ->
-        if (!billEditable(st, i)) st else st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i })
+        if (!billEditable(st, i)) st else st.copy(billLines = st.billLines.filterIndexed { j, _ -> j != i }, billQuotedCount = quotedCountAfterRemoval(i, st.billQuotedCount))
     }
 
     fun billTotals(s: QuoteState): DocDiscountTotals = lineTotals(s, s.billLines)

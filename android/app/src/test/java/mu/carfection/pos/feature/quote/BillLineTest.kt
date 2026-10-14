@@ -9,44 +9,62 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * A customer having a service walks the shop and picks something up.
+ * A customer having a service walks the shop and picks something up — and the work
+ * done is not always the work quoted.
  *
- * It goes on their BILL, not on the quotation — the quote is the price agreed for the
- * work, and reopening it would need a fresh signature for a bottle of wax. So the bill
- * carries two kinds of line at once, and they are not the same thing: the ones that came
- * across from the quote are settled, the ones added at the counter are still being priced.
- *
- * That line was drawn in the UI alone. It is drawn here now, because [billLineEditable]
- * is what the setters ask before they change anything.
+ * Owner's rule (2026-10-14): every line on a draft bill can be edited or removed,
+ * including the ones that came across from the accepted quote. The bill says what was
+ * actually done. This file used to assert the opposite (quoted lines frozen); that rule
+ * was the owner's complaint, not a test being weakened. The fiscal lock starts when the
+ * bill is ISSUED, not before.
  */
 class BillLineTest {
 
-    /** A quote of two lines, then a bottle of wax the customer picked up. */
-    private val quotedCount = 2
-    private val lineCount = 3
-
     @Test
-    fun `a line the customer already agreed is frozen`() {
-        assertFalse(billLineEditable(0, quotedCount, lineCount))
-        assertFalse(billLineEditable(1, quotedCount, lineCount))
+    fun `a line that came across from the quote can be edited`() {
+        assertTrue(billLineEditable(0, 3))
+        assertTrue(billLineEditable(1, 3))
     }
 
     @Test
-    fun `what they picked up at the counter is still open`() {
-        assertTrue(billLineEditable(2, quotedCount, lineCount))
-    }
-
-    @Test
-    fun `a bill raised with nothing quoted is open all the way down`() {
-        assertTrue(billLineEditable(0, 0, 2))
-        assertTrue(billLineEditable(1, 0, 2))
+    fun `what they picked up at the counter is editable too`() {
+        assertTrue(billLineEditable(2, 3))
     }
 
     /** A line removed under a pending tap must not take the next one with it. */
     @Test
     fun `an index off the end is refused`() {
-        assertFalse(billLineEditable(3, quotedCount, lineCount))
-        assertFalse(billLineEditable(-1, quotedCount, lineCount))
+        assertFalse(billLineEditable(3, 3))
+        assertFalse(billLineEditable(-1, 3))
+    }
+
+    @Test
+    fun `removing a quoted line shrinks the quoted count, removing an extra does not`() {
+        assertEquals(1, quotedCountAfterRemoval(0, 2))
+        assertEquals(1, quotedCountAfterRemoval(1, 2))
+        assertEquals(2, quotedCountAfterRemoval(2, 2))
+    }
+
+    /** Quote: engine bay + under chassis. Bill after a visit: under chassis + a wax bottle. */
+    @Test
+    fun `a removed quoted line does not turn the counter extra into a quoted one`() {
+        val quote = listOf("p-bay" to "STEAM ENGINE BAY", "p-chassis" to "Under Chassis")
+        val bill = listOf("p-chassis" to "Under Chassis", "p-wax" to "Wax 500ml")
+        assertEquals(1, quotedPrefixLength(quote, bill))
+    }
+
+    @Test
+    fun `an extra of the same product as a quoted line still counts as an extra`() {
+        val quote = listOf("p-wax" to "Wax 500ml")
+        val bill = listOf("p-wax" to "Wax 500ml", "p-wax" to "Wax 500ml")
+        assertEquals(1, quotedPrefixLength(quote, bill))
+    }
+
+    @Test
+    fun `an untouched bill is all quoted, then the extras`() {
+        val quote = listOf(null to "Polish", "p-1" to "Wash")
+        assertEquals(2, quotedPrefixLength(quote, quote + ("p-9" to "Air freshener")))
+        assertEquals(0, quotedPrefixLength(quote, listOf("p-9" to "Air freshener")))
     }
 
     /**

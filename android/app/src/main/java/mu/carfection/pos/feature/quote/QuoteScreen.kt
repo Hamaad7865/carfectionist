@@ -328,7 +328,7 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
             // The basket also holds the running total and the actions, so an editor opened in
             // it has nowhere to unfold — the same squeeze that moved the quote's lines onto a
             // panel of their own. This is the way there.
-            if (s.billLines.size > s.billQuotedCount) {
+            if (s.billLines.isNotEmpty()) {
                 Spacer(Modifier.width(10.dp))
                 Box(
                     Modifier.height(30.dp).background(AccentSoft, RoundedCornerShape(9.dp))
@@ -351,11 +351,11 @@ private fun RowScope.BillPanel(s: QuoteState, vm: QuoteViewModel) {
                 // The ledger's ex-VAT line amount (owner decision, 2026-08-14): the price shows
                 // without VAT and the footer's VAT row carries the tax.
                 val lineTotal = t.lineExclCents.getOrNull(i) ?: 0L
-                // Only what was added here can be changed. The quoted lines are the price
-                // the customer agreed — this screen does not get to re-open that.
+                // Every line can be changed — the bill says what was actually done, and a
+                // quoted line is only where it started (owner's rule, 2026-10-14).
                 val quoted = i < s.billQuotedCount
                 LineCard(
-                    l, i, lineTotal, editable = !quoted, ops = billLineOps(vm),
+                    l, i, lineTotal, editable = true, ops = billLineOps(vm),
                     note = if (quoted) "quoted" else "added now",
                     noteColor = if (quoted) TextMuted else Accent,
                     onTap = { vm.openBillLines() },
@@ -586,8 +586,8 @@ private fun BoxScope.BillLinesSheet(s: QuoteState, vm: QuoteViewModel) {
                     val lineTotal = t.lineExclCents.getOrNull(i) ?: 0L
                     val quoted = i < s.billQuotedCount
                     LineCard(
-                        l, i, lineTotal, editable = !quoted, ops = billLineOps(vm),
-                        note = if (quoted) "quoted — agreed, not editable" else "added now",
+                        l, i, lineTotal, editable = true, ops = billLineOps(vm),
+                        note = if (quoted) "from the quote" else "added now",
                         noteColor = if (quoted) TextMuted else Accent,
                     )
                 }
