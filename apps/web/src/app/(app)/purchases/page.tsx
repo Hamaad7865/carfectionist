@@ -52,7 +52,7 @@ export default async function PurchasesPage({ searchParams }: { searchParams: Pr
                 {/* Desktop grid */}
                 <div className="hidden grid-cols-[100px_150px_1fr_100px_140px] items-center gap-3 px-5 py-3.5 text-[13px] md:grid">
                   <span className="num text-muted">{e.date}</span>
-                  <span className="text-[#5e6a77]">{e.category}</span>
+                  <span className="text-muted">{e.category}</span>
                   <span className="font-semibold text-body">{e.description ?? "—"}</span>
                   <span><StatusPill status={e.status} /></span>
                   <span className="num text-right font-bold text-ink">{formatMUR(e.amountCents + e.vatCents)}</span>

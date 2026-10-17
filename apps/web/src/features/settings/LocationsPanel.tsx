@@ -23,7 +23,7 @@ function Badge({ tone, children }: { tone: "brand" | "mint" | "faint"; children:
   const cls = {
     brand: "bg-[rgba(43,140,255,0.12)] text-link",
     mint: "bg-[rgba(13,167,124,0.14)] text-mint",
-    faint: "bg-[rgba(15,23,32,0.08)] text-faint",
+    faint: "bg-shade/[0.08] text-faint",
   }[tone];
   return <span className={`shrink-0 rounded-[5px] px-1.5 py-0.5 text-[9px] font-bold tracking-wide ${cls}`}>{children}</span>;
 }

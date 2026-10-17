@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+/* dark: utilities follow the app's own switch (data-theme on <html>), not the OS. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* ── Carfection — LIGHT design system (from the Claude Design handoff) ──────
    Archivo (display) · Manrope (UI) · JetBrains Mono (numbers).
    Blue→purple brand with teal/amber/rose semantics on light surfaces. */
@@ -13,6 +16,12 @@
   --color-band: #e2e8ef;
   --color-line: rgba(15, 23, 32, 0.08);
   --color-line-2: rgba(15, 23, 32, 0.12);
+  /* the colour of tints and hover washes: `bg-shade/4` is a faint dark wash
+     on light, a faint light wash on dark. Use it instead of rgba(15,23,32,x). */
+  --color-shade: #0f1720;
+  /* blue "hero" total cards (Reports, Sales Journal, device page) */
+  --color-hero-ink: #0f2f5e;
+  --color-hero-sub: #3d5978;
 
   /* ink */
   --color-ink: #172130;
@@ -49,6 +58,12 @@
   html {
     color-scheme: light;
   }
+  :root {
+    --hero-a: #e8f1ff;
+    --hero-b: #dbe9ff;
+    --avatar-a: #e5eaf1;
+    --avatar-b: #d2dae4;
+  }
   body {
     background: radial-gradient(1400px 800px at 50% -20%, #f3f5f8, #e2e7ed 72%);
     color: var(--color-body);
@@ -75,6 +90,78 @@
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+}
+
+/* ── Dark mode ─────────────────────────────────────────────────────────────
+   Set by the topbar's theme switch (ThemeToggle) on <html data-theme="dark">,
+   only inside the signed-in app. Every token flips here; colours written as
+   hex in components do not, so new UI should use the tokens. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-app: #0c1117;
+  --color-card: #151c25;
+  --color-sub: #111821;
+  --color-band: #1f2935;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-line-2: rgba(255, 255, 255, 0.13);
+  --color-shade: #ffffff;
+  --color-hero-ink: #e4efff;
+  --color-hero-sub: #9fb7d6;
+  --hero-a: #16273d;
+  --hero-b: #132136;
+  --avatar-a: #253140;
+  --avatar-b: #1d2733;
+
+  --color-ink: #e6ebf1;
+  --color-ink-strong: #f3f6f9;
+  --color-body: #c8d1db;
+  --color-muted: #95a1ae;
+  --color-faint: #7d8996;
+  --color-fainter: #6b7783;
+  --color-th: #b3bfcc;
+
+  --color-link: #5ea8ff;
+  --color-mint: #2cc794;
+  --color-amber-ink: #e3b453;
+  --color-rose: #f0687b;
+}
+:root[data-theme="dark"] body {
+  background: var(--color-app);
+}
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+}
+:root[data-theme="dark"] ::selection {
+  color: #f3f6f9;
+}
+/* Plain white surfaces written as bg-white in older screens. */
+:root[data-theme="dark"] .bg-white {
+  background-color: var(--color-card);
+}
+
+/* Paper stays paper: invoices, receipts and statements previewed inside the
+   app keep their printed (light) colours in dark mode. */
+.paper {
+  color-scheme: light;
+  --color-app: #eef2f6;
+  --color-card: #ffffff;
+  --color-sub: #f6f8fb;
+  --color-band: #e2e8ef;
+  --color-line: rgba(15, 23, 32, 0.08);
+  --color-line-2: rgba(15, 23, 32, 0.12);
+  --color-shade: #0f1720;
+  --color-ink: #172130;
+  --color-ink-strong: #111927;
+  --color-body: #2a3747;
+  --color-muted: #68737f;
+  --color-faint: #8c96a1;
+  --color-fainter: #9aa3ad;
+  --color-th: #3d4a59;
+  --color-link: #1e6fe0;
+  --color-mint: #0da77c;
+  --color-amber-ink: #b07c14;
+  --color-rose: #d63b50;
+  color: var(--color-body);
 }
 
 /* Brand gradients (specific hues — used sparingly) */
@@ -357,7 +444,7 @@
   .rich-editor-content table { border-collapse: collapse; margin: 4px 0; width: 100%; }
   .rich-editor-content td,
   .rich-editor-content th { border: 1px solid var(--line-2, #c9d2dc); padding: 2px 6px; text-align: left; }
-  .rich-editor-content th { background: rgba(15, 23, 32, 0.04); font-weight: 700; }
+  .rich-editor-content th { background: color-mix(in oklab, var(--color-shade) 4%, transparent); font-weight: 700; }
   /* ProseMirror's own placeholder for a completely empty document. */
   .rich-editor-content p.is-editor-empty:first-child::before {
     content: attr(data-placeholder);

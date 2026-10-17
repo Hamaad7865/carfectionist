@@ -28,7 +28,7 @@ export function ConvertEnquiryButton({ enquiryId, converted }: { enquiryId: stri
       <button
         onClick={go}
         disabled={busy}
-        className={btnBase("md", "border border-[rgba(43,140,255,0.4)] bg-[rgba(43,140,255,0.1)] font-bold text-[#2f78de]")}
+        className={btnBase("md", "border border-[rgba(43,140,255,0.4)] bg-[rgba(43,140,255,0.1)] font-bold text-link")}
       >
         {busy ? "…" : "Convert →"}
       </button>

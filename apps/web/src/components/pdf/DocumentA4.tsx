@@ -267,7 +267,7 @@ export function DocumentA4(props: DocumentA4Props) {
   const logoUrl = props.assets?.logoUrl || DEFAULT_LOGO;
 
   return (
-    <div style={s.page}>
+    <div className="paper" style={s.page}>
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
 
       {props.voided && <div style={s.voidWatermark}>VOID</div>}

@@ -45,7 +45,7 @@ export function PointsPanel({
   return (
     <>
       <div className="mb-2.5 flex items-center justify-between">
-        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]">Points</div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Points</div>
         {!pointsEnabled && (
           <span className="rounded-full bg-sub px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-faint">
             Switched off

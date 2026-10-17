@@ -57,7 +57,7 @@ export function ReportsShell({
               title="Collapse report list"
               aria-label="Collapse report list"
               aria-expanded={open}
-              className="grid size-8 place-items-center rounded-[9px] text-faint transition-transform duration-300 hover:scale-110 hover:bg-[rgba(15,23,32,0.05)] hover:text-body active:scale-90"
+              className="grid size-8 place-items-center rounded-[9px] text-faint transition-transform duration-300 hover:scale-110 hover:bg-shade/[0.05] hover:text-body active:scale-90"
             >
               <PanelLeftClose size={16} />
             </button>

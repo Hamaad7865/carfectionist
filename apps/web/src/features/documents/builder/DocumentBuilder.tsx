@@ -463,7 +463,7 @@ export function DocumentBuilder({
     setAdKind("service");
   }
 
-  const label = "text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]";
+  const label = "text-[11px] font-bold uppercase tracking-[0.12em] text-faint";
   const inputCls = "h-11 w-full rounded-[11px] border border-line-2 bg-sub px-3.5 text-[13.5px] font-medium text-ink outline-none placeholder:text-faint focus:border-brand";
 
   return (
@@ -823,7 +823,7 @@ export function DocumentBuilder({
                       </button>
                     ))}
                   </div>
-                  <button onClick={addAdhoc} className="inline-flex h-[42px] items-center justify-center rounded-[9px] bg-[#e2e8ef] px-4 text-[13px] font-bold text-body">Add</button>
+                  <button onClick={addAdhoc} className="inline-flex h-[42px] items-center justify-center rounded-[9px] bg-band px-4 text-[13px] font-bold text-body">Add</button>
                 </div>
               </>
             )}
@@ -935,7 +935,7 @@ export function DocumentBuilder({
                       )}
                       <button
                         onClick={() => !readOnly && dispatch({ type: "patchLine", key: l.key, patch: { vatRatePct: l.vatRatePct > 0 ? 0 : 15 } })}
-                        className={`h-7 rounded-[7px] px-2.5 text-[10.5px] font-bold ${l.vatRatePct > 0 ? "bg-[rgba(43,140,255,0.14)] text-link" : "bg-[rgba(15,23,32,0.06)] text-faint"}`}
+                        className={`h-7 rounded-[7px] px-2.5 text-[10.5px] font-bold ${l.vatRatePct > 0 ? "bg-[rgba(43,140,255,0.14)] text-link" : "bg-shade/[0.06] text-faint"}`}
                       >
                         VAT
                       </button>
@@ -994,9 +994,9 @@ export function DocumentBuilder({
                       )}
                       {!readOnly && (
                         <div className="flex items-center gap-1.5">
-                          <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: Math.max(1, l.qty - 1) } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-[#e9edf3] text-[14px] font-bold text-body">−</button>
+                          <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: Math.max(1, l.qty - 1) } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-band text-[14px] font-bold text-body">−</button>
                           <span className="num min-w-4 text-center text-[13px] font-bold text-ink">{l.qty}</span>
-                          <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: l.qty + 1 } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-[#e9edf3] text-[14px] font-bold text-body">+</button>
+                          <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: l.qty + 1 } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-band text-[14px] font-bold text-body">+</button>
                           <input
                             value={l.unitLabel}
                             onChange={(e) => dispatch({ type: "patchLine", key: l.key, patch: { unitLabel: e.target.value.slice(0, 24) } })}
@@ -1201,7 +1201,7 @@ export function DocumentBuilder({
 
         {/* PREVIEW */}
         {showPreview && (
-          <div className="flex min-h-0 flex-col border-l border-line bg-[#e2e7ee]">
+          <div className="flex min-h-0 flex-col border-l border-line bg-band">
             <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-sub px-3">
               <span className="mr-auto text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Preview</span>
               <button onClick={() => zoomBy(-0.1)} title="Zoom out" className="grid size-7 place-items-center rounded-[8px] border border-line-2 bg-card text-body hover:border-brand">

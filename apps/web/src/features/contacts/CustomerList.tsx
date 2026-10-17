@@ -52,8 +52,8 @@ export function CustomerList({ customers, selectedId }: { customers: CustomerSum
                 className={`mb-1 flex w-full items-center gap-3 rounded-[11px] border px-3 py-2.5 ${on ? "border-link bg-[rgba(43,140,255,0.08)]" : "border-transparent hover:bg-sub"}`}
               >
                 <span
-                  className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-[#3f5065]"
-                  style={{ background: "linear-gradient(140deg,#e5eaf1,#d2dae4)" }}
+                  className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-th"
+                  style={{ background: "linear-gradient(140deg,var(--avatar-a),var(--avatar-b))" }}
                 >
                   {initials(c.name)}
                 </span>

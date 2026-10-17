@@ -15,7 +15,7 @@ export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${archivo.variable} ${manrope.variable} ${jetbrains.variable} h-full`}>
+    <html lang="en" suppressHydrationWarning className={`${archivo.variable} ${manrope.variable} ${jetbrains.variable} h-full`}>
       <body className="min-h-full">{children}</body>
     </html>
   );

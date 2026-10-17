@@ -64,7 +64,7 @@ export function VehiclesEditor({ customerId, vehicles }: { customerId: string; v
   return (
     <>
       <div className="mb-2.5 flex items-center justify-between">
-        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]">Vehicles</div>
+        <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Vehicles</div>
         <button onClick={() => launch()} className={btn("ghost", "sm")}>
           <Plus size={13} /> Add vehicle
         </button>

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { CalendarDays, Bell, Menu, X } from "lucide-react";
 import { NAV } from "@/lib/auth/roles";
 import { GlobalSearch } from "./GlobalSearch";
+import { ThemeToggle } from "./ThemeToggle";
 import { dismissNotificationAction, dismissAllNotificationsAction } from "@/features/shell/notification-actions";
 import type { NotifItem } from "@/lib/supabase/queries/notifications";
 
@@ -44,8 +45,7 @@ export function Topbar({
 
   return (
     <header
-      className="relative flex h-[58px] shrink-0 items-center gap-3 border-b border-line px-4 md:h-[62px] md:gap-4 md:px-6"
-      style={{ background: "linear-gradient(180deg,rgba(255,255,255,.92),rgba(246,248,251,.75))" }}
+      className="relative flex h-[58px] shrink-0 items-center gap-3 border-b border-line bg-linear-to-b from-card/92 to-sub/75 px-4 md:h-[62px] md:gap-4 md:px-6"
     >
       <button onClick={onMenu} aria-label="Open menu" className="grid size-9 shrink-0 place-items-center rounded-[10px] border border-line-2 bg-white text-body md:hidden">
         <Menu size={18} />
@@ -64,7 +64,7 @@ export function Topbar({
       <div className="relative z-50 hidden sm:block">
         <button
           onClick={() => setMenu((m) => (m === "fy" ? null : "fy"))}
-          className={`flex h-[38px] items-center gap-1.5 rounded-[10px] border bg-white px-3 text-[12.5px] font-semibold text-[#3d4a59] ${menu === "fy" ? "border-brand" : "border-line-2"}`}
+          className={`flex h-[38px] items-center gap-1.5 rounded-[10px] border bg-white px-3 text-[12.5px] font-semibold text-th ${menu === "fy" ? "border-brand" : "border-line-2"}`}
         >
           <CalendarDays size={15} className="text-link" />
           {fyLabel}
@@ -80,6 +80,8 @@ export function Topbar({
           </div>
         )}
       </div>
+
+      <ThemeToggle />
 
       {/* Notifications */}
       <div className="relative z-50">

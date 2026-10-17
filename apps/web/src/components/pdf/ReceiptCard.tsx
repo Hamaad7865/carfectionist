@@ -74,7 +74,7 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
 
   return (
     <div
-      className="receipt-zig"
+      className="paper receipt-zig"
       style={{
         position: "relative", width: 300, maxWidth: "100%", margin: "0 auto",
         background: "#faf7f1", color: INK,

@@ -209,7 +209,7 @@ export default async function SalesPage({
                     <span className="num text-[13px] font-bold" style={{ color: r.doc_type === "quote" ? "#6f5cd9" : "#1e6fe0" }}>{r.number ?? "Draft"}</span>
                     <StatusPill status={r.status} />
                     {r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}
-                    {r.archivedReason && <span className="rounded-[5px] bg-[rgba(15,23,32,0.07)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">{r.archivedReason}</span>}
+                    {r.archivedReason && <span className="rounded-[5px] bg-shade/[0.07] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">{r.archivedReason}</span>}
                   </div>
                   <div className="mt-1 truncate text-[13px] font-semibold text-body">{r.customerName ?? "—"}</div>
                   <div className="mt-0.5 text-[11.5px] text-muted">{r.issue_date ?? r.created_at.slice(0, 10)} · {r.methodLabel}</div>
@@ -246,7 +246,7 @@ export default async function SalesPage({
                 <span className="flex items-center gap-1.5">
                   <StatusPill status={r.status} />
                   {r.hasDiscount && <span className="rounded-[5px] bg-[rgba(245,166,35,0.16)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-amber-ink">Disc</span>}
-                  {r.archivedReason && <span className="rounded-[5px] bg-[rgba(15,23,32,0.07)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">{r.archivedReason}</span>}
+                  {r.archivedReason && <span className="rounded-[5px] bg-shade/[0.07] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">{r.archivedReason}</span>}
                 </span>
                 <span className="num text-right text-[13px] font-bold text-ink-strong">{rs(r.total_incl)}</span>
                 <span className="flex items-center justify-end gap-1.5 text-faint">

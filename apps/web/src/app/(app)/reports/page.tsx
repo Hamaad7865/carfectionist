@@ -112,7 +112,7 @@ export default async function ReportsPage({
                   key={x.key}
                   href={`/reports${qs({ r: x.key, from: sp.from, to: sp.to })}`}
                   style={{ animationDelay: `${Math.min(i, 10) * 28}ms` }}
-                  className={`rail-item relative flex h-10 items-center rounded-[9px] px-3.5 text-[14px] font-semibold ${on ? "bg-[rgba(43,140,255,0.10)] text-link" : "text-[#3d4a59] hover:bg-[rgba(15,23,32,0.04)]"}`}
+                  className={`rail-item relative flex h-10 items-center rounded-[9px] px-3.5 text-[14px] font-semibold ${on ? "bg-[rgba(43,140,255,0.10)] text-link" : "text-th hover:bg-shade/[0.04]"}`}
                 >
                   {on && <span className="grad-rail absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-[3px]" />}
                   {x.label}
@@ -121,7 +121,7 @@ export default async function ReportsPage({
             })}
           </div>
           <div className="rail-item mt-4 rounded-[12px] border border-[rgba(43,140,255,0.14)] bg-[rgba(43,140,255,0.06)] p-3" style={{ animationDelay: "320ms" }}>
-            <div className="mb-1 text-[12px] font-bold text-[#2f78de]">Cash vs revenue</div>
+            <div className="mb-1 text-[12px] font-bold text-link">Cash vs revenue</div>
             <div className="text-[12px] font-medium leading-relaxed text-muted">
               Reports separate <b className="text-body">cash received</b> (the till) from <b className="text-body">revenue invoiced</b> (VAT &amp; P&amp;L).
             </div>
@@ -183,9 +183,9 @@ export default async function ReportsPage({
                 })}
               </div>
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-                <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-                  <div className="text-[13px] font-semibold text-[#3d5978]">Cash received · {rangeLabel}</div>
-                  <div className="num mt-2 text-[32px] font-extrabold text-[#0f2f5e]">{formatMUR(data.collectedCents)}</div>
+                <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+                  <div className="text-[13px] font-semibold text-hero-sub">Cash received · {rangeLabel}</div>
+                  <div className="num mt-2 text-[32px] font-extrabold text-hero-ink">{formatMUR(data.collectedCents)}</div>
                 </div>
                 <div className="rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[13px] font-semibold text-muted">Revenue invoiced</div>
@@ -212,7 +212,7 @@ export default async function ReportsPage({
                           <span className="flex-1 text-[14px] font-semibold text-body">{METHOD_LABEL[m.method] ?? m.method}</span>
                           <span className="num text-[14px] font-bold text-ink">{formatMUR(m.cents)}</span>
                         </div>
-                        <div className="mt-1.5 h-[7px] overflow-hidden rounded-[4px] bg-[rgba(15,23,32,0.06)]">
+                        <div className="mt-1.5 h-[7px] overflow-hidden rounded-[4px] bg-shade/[0.06]">
                           <div className="h-full rounded-[4px]" style={{ width: `${Math.round((m.cents / methodMax) * 100)}%`, background: METHOD_COLOR[m.method] ?? "#8c96a1" }} />
                         </div>
                       </div>
@@ -259,10 +259,10 @@ export default async function ReportsPage({
                   <div className="num mt-2 text-[24px] font-extrabold text-ink-strong">{formatMUR(data.vat.inputCents)}</div>
                   <div className="mt-1 text-[12px] font-medium text-faint">On expenses</div>
                 </div>
-                <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-                  <div className="text-[13px] font-semibold text-[#3d5978]">Net VAT payable</div>
-                  <div className="num mt-2 text-[24px] font-extrabold text-[#0f2f5e]">{formatMUR(data.vat.netCents)}</div>
-                  <div className="mt-1 text-[12px] font-medium text-[#3d5978]">Output − Input</div>
+                <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+                  <div className="text-[13px] font-semibold text-hero-sub">Net VAT payable</div>
+                  <div className="num mt-2 text-[24px] font-extrabold text-hero-ink">{formatMUR(data.vat.netCents)}</div>
+                  <div className="mt-1 text-[12px] font-medium text-hero-sub">Output − Input</div>
                 </div>
               </div>
               <p className="mt-4 text-[13.5px] font-medium text-muted">Output VAT (15% on issued invoices) minus input VAT (recorded on expenses) gives the net VAT payable to the MRA for the period.</p>
@@ -372,7 +372,7 @@ export default async function ReportsPage({
                       <span className="text-[14px] font-semibold text-body">{b.label}</span>
                       <span className="num text-[14px] font-bold text-ink">{formatMUR(b.cents)}</span>
                     </div>
-                    <div className="mt-1.5 h-[7px] overflow-hidden rounded-[4px] bg-[rgba(15,23,32,0.06)]">
+                    <div className="mt-1.5 h-[7px] overflow-hidden rounded-[4px] bg-shade/[0.06]">
                       <div className="h-full rounded-[4px]" style={{ width: `${pct}%`, background: b.label.startsWith("90") ? "#d63b50" : "#f5a623" }} />
                     </div>
                   </div>
@@ -407,8 +407,8 @@ export default async function ReportsPage({
                   </div>
                   <span className="num text-[14px] font-bold text-body">{formatMUR(-extra.pnl.expensesCents)}</span>
                 </div>
-                <div className="flex items-center justify-between px-5 py-4" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-                  <span className="text-[14px] font-extrabold text-[#0f2f5e]">Net profit</span>
+                <div className="flex items-center justify-between px-5 py-4" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+                  <span className="text-[14px] font-extrabold text-hero-ink">Net profit</span>
                   <span className="num text-[19.5px] font-extrabold" style={{ color: extra.pnl.netCents >= 0 ? "#0f2f5e" : "#d63b50" }}>{formatMUR(extra.pnl.netCents)}</span>
                 </div>
               </div>
@@ -431,7 +431,7 @@ export default async function ReportsPage({
                       <span className="num font-bold text-faint">{i + 1}</span>
                       <div className="min-w-0">
                         <div className="truncate font-semibold text-body">{b.name}</div>
-                        <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-[rgba(15,23,32,0.06)]">
+                        <div className="mt-1 h-[5px] overflow-hidden rounded-full bg-shade/[0.06]">
                           <div className="grad-brand h-full rounded-full" style={{ width: `${Math.round((b.revenueCents / max) * 100)}%` }} />
                         </div>
                       </div>
@@ -467,9 +467,9 @@ export default async function ReportsPage({
             <div className="flex flex-col gap-4">
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
                 <div className="rounded-[15px] border border-[rgba(245,166,35,0.3)] p-5" style={{ background: "linear-gradient(150deg,#fff5e4,#ffedd0)" }}>
-                  <div className="text-[13px] font-semibold text-[#8a6410]">Discount given · {rangeLabel}</div>
+                  <div className="text-[13px] font-semibold text-amber-ink">Discount given · {rangeLabel}</div>
                   <div className="num mt-2 text-[32px] font-extrabold text-[#7a4f00]">{formatMUR(discounts.totalDiscountCents)}</div>
-                  <div className="mt-1 text-[12px] font-medium text-[#8a6410]">Revenue foregone (excl. VAT)</div>
+                  <div className="mt-1 text-[12px] font-medium text-amber-ink">Revenue foregone (excl. VAT)</div>
                 </div>
                 <div className="rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[13px] font-semibold text-muted">Whole-sale vs line</div>
@@ -637,8 +637,8 @@ export default async function ReportsPage({
                       <div className="text-[13px] font-semibold text-muted">Paid + credited</div>
                       <div className="num mt-2 text-[24px] font-extrabold text-mint">{formatMUR(statement.data.settledCents)}</div>
                     </div>
-                    <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-                      <div className="text-[13px] font-semibold text-[#3d5978]">Balance due</div>
+                    <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+                      <div className="text-[13px] font-semibold text-hero-sub">Balance due</div>
                       <div className="num mt-2 text-[24px] font-extrabold" style={{ color: statement.data.closingCents > 0 ? "#0f2f5e" : "#0da77c" }}>{formatMUR(statement.data.closingCents)}</div>
                     </div>
                   </div>

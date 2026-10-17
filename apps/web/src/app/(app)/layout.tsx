@@ -2,6 +2,7 @@ import { requireSession } from "@/lib/auth/session";
 import { AppShell } from "@/components/shell/AppShell";
 import { AuthKeepalive } from "@/components/shell/AuthKeepalive";
 import { fiscalYears } from "@/lib/supabase/queries/notifications";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireSession();
@@ -14,6 +15,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   return (
     <>
+      {/* Dark mode, applied before first paint (lib/theme.ts). */}
+      <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       <AuthKeepalive />
       <AppShell ctx={ctx} fiscalYears={fiscalYears()}>
         {children}

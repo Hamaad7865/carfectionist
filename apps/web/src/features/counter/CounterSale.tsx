@@ -431,7 +431,7 @@ export function CounterSale({
                   {p.isStocked && (
                     <span
                       className={`num shrink-0 whitespace-nowrap rounded-[4px] px-1.5 py-0.5 text-[9.5px] font-bold ${
-                        p.shopQty <= 0 ? "bg-[rgba(214,59,80,0.14)] text-rose" : "bg-[rgba(15,23,32,0.07)] text-muted"
+                        p.shopQty <= 0 ? "bg-[rgba(214,59,80,0.14)] text-rose" : "bg-shade/[0.07] text-muted"
                       }`}
                     >
                       {Math.max(0, p.shopQty)}

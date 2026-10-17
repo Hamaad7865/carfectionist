@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
+import { clearAppliedTheme, restoreSavedTheme } from "@/lib/theme";
 import type { SessionContext } from "@/lib/auth/session";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
@@ -19,6 +20,13 @@ export function AppShell({
   const pathname = usePathname();
   // Close the mobile drawer whenever the route changes.
   useEffect(() => setNavOpen(false), [pathname]);
+  // Dark mode belongs to the back office only: re-apply the saved choice on
+  // entry (a client navigation in from /login skips the layout's inline
+  // script) and drop it on the way out, so login and public pages stay light.
+  useEffect(() => {
+    restoreSavedTheme();
+    return clearAppliedTheme;
+  }, []);
 
   return (
     <div className="flex h-dvh overflow-hidden bg-app">

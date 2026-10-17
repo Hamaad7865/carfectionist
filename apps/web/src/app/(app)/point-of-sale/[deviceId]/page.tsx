@@ -74,13 +74,13 @@ export default async function DeviceDashboardPage({
             <div className="flex items-center gap-2.5">
               <h2 className="truncate font-display text-[20px] font-extrabold text-ink-strong">{device.name}</h2>
               {!device.isBackOffice && (
-                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${device.online ? "bg-[rgba(13,167,124,0.12)] text-mint" : "bg-[rgba(15,23,32,0.06)] text-faint"}`}>
+                <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10.5px] font-bold ${device.online ? "bg-[rgba(13,167,124,0.12)] text-mint" : "bg-shade/[0.06] text-faint"}`}>
                   <span className={`size-1.5 rounded-full ${device.online ? "bg-mint" : "bg-[#c9d2dc]"}`} />
                   {device.online ? "Online" : "Offline"}
                 </span>
               )}
-              {!device.isActive && <span className="rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Inactive</span>}
-              {!device.takesPayments && <span className="rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Quotation only</span>}
+              {!device.isActive && <span className="rounded-[5px] bg-shade/[0.08] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Inactive</span>}
+              {!device.takesPayments && <span className="rounded-[5px] bg-shade/[0.08] px-1.5 py-0.5 text-[9.5px] font-bold uppercase tracking-wide text-faint">Quotation only</span>}
             </div>
             <div className="mt-0.5 flex flex-wrap gap-x-2 text-[12px] text-muted">
               {device.model && <span>{device.model}</span>}
@@ -122,10 +122,10 @@ export default async function DeviceDashboardPage({
           {tab === "general" && (
             <div className="flex flex-col gap-4">
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-                <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-                  <div className="text-[12px] font-semibold text-[#3d5978]">Taken today on this device</div>
-                  <div className="num mt-2 text-[26px] font-extrabold text-[#0f2f5e]">{formatMUR(todayTotal)}</div>
-                  <div className="mt-1 text-[11px] text-[#3d5978]">{todayCents.map((m) => `${METHOD_LABEL[m.method] ?? m.method} ${formatMUR(m.cents)}`).join(" · ") || "No payments yet"}</div>
+                <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+                  <div className="text-[12px] font-semibold text-hero-sub">Taken today on this device</div>
+                  <div className="num mt-2 text-[26px] font-extrabold text-hero-ink">{formatMUR(todayTotal)}</div>
+                  <div className="mt-1 text-[11px] text-hero-sub">{todayCents.map((m) => `${METHOD_LABEL[m.method] ?? m.method} ${formatMUR(m.cents)}`).join(" · ") || "No payments yet"}</div>
                 </div>
                 <div className="rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[12px] font-semibold text-muted">Till</div>
@@ -257,7 +257,7 @@ export default async function DeviceDashboardPage({
                     <div className="px-4 py-8 text-center text-[12.5px] text-faint">No data for this period.</div>
                   ) : (
                     cashflow.inflows.map((m) => (
-                      <div key={m.id} className={`border-b border-line px-4 py-2.5 last:border-b-0 ${m.wasReversed ? "bg-[rgba(15,23,32,0.02)]" : ""}`}>
+                      <div key={m.id} className={`border-b border-line px-4 py-2.5 last:border-b-0 ${m.wasReversed ? "bg-shade/[0.02]" : ""}`}>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] md:hidden">
                           <span className="text-muted">{m.at}</span>
                           <span className="rounded-[5px] bg-sub px-1.5 py-0.5 text-[10px] font-bold uppercase text-muted">{METHOD_LABEL[m.method] ?? m.method}</span>
@@ -296,7 +296,7 @@ export default async function DeviceDashboardPage({
                     <div className="px-4 py-8 text-center text-[12.5px] text-faint">No data for this period.</div>
                   ) : (
                     cashflow.outflows.map((m) => (
-                      <div key={m.key} className={`border-b border-line px-4 py-2.5 last:border-b-0 ${m.cancelled ? "bg-[rgba(15,23,32,0.02)]" : ""}`}>
+                      <div key={m.key} className={`border-b border-line px-4 py-2.5 last:border-b-0 ${m.cancelled ? "bg-shade/[0.02]" : ""}`}>
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] md:hidden">
                           <span className="text-muted">{m.at}</span>
                           <span className="rounded-[5px] bg-[rgba(214,59,80,0.08)] px-1.5 py-0.5 text-[10px] font-bold uppercase text-rose">{METHOD_LABEL[m.method] ?? m.method}</span>

@@ -101,7 +101,7 @@ function Toolbar({ editor }: { editor: Editor }) {
             placeholder="https://…"
             className="h-7 w-52 rounded-[6px] border border-line-2 bg-sub px-2 text-[12px] text-ink outline-none focus:border-brand"
           />
-          <button type="button" onClick={applyLink} className="h-7 rounded-[6px] bg-[#e2e8ef] px-2 text-[11.5px] font-bold text-body">
+          <button type="button" onClick={applyLink} className="h-7 rounded-[6px] bg-band px-2 text-[11.5px] font-bold text-body">
             Apply
           </button>
           <button type="button" title="Cancel" onClick={() => setLinkOpen(false)} className={TOOLBAR_BTN}>

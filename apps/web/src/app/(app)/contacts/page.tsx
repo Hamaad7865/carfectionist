@@ -104,7 +104,7 @@ export default async function ContactsPage({
               </div>
 
               <div className="px-[22px] pb-[22px] pt-3.5">
-                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]">Service history · {sel.history.length}</div>
+                <div className="mb-2.5 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Service history · {sel.history.length}</div>
                 <div className="flex flex-col">
                   {sel.history.length === 0 && <div className="rounded-[11px] border border-dashed border-line-2 p-4 text-center text-[12px] text-faint">No documents yet.</div>}
                   {sel.history.map((h) => (

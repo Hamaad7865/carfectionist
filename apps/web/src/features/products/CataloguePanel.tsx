@@ -220,10 +220,10 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5">
                     <span className="truncate text-[13px] font-semibold text-body">{r.name}</span>
-                    {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold text-[#5b45b0]">SERVICE</span>}
+                    {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold text-[#5b45b0] dark:text-[#b2a6f5]">SERVICE</span>}
                     {r.barcode && <Barcode size={12} className="shrink-0 text-faint" />}
                     <StockBadge state={r.state} floor={floorName} />
-                    {!r.isActive && <span className="shrink-0 rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold text-faint">ARCHIVED</span>}
+                    {!r.isActive && <span className="shrink-0 rounded-[5px] bg-shade/[0.08] px-1.5 py-0.5 text-[9px] font-bold text-faint">ARCHIVED</span>}
                   </div>
                   <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
                     {r.category && <span className="rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 font-semibold text-link">{r.category}</span>}
@@ -244,10 +244,10 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                   <span className="min-w-0 truncate" title={r.name}>{r.name}</span>
                   {/* Purple = workshop work, the same colour the dashboard uses
                       to split workshop revenue from counter revenue. */}
-                  {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[#5b45b0]">SERVICE</span>}
+                  {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[#5b45b0] dark:text-[#b2a6f5]">SERVICE</span>}
                   {r.barcode && <Barcode size={13} className="shrink-0 text-faint" />}
                   <StockBadge state={r.state} floor={floorName} />
-                  {!r.isActive && <span className="shrink-0 rounded-[5px] bg-[rgba(15,23,32,0.08)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-faint">ARCHIVED</span>}
+                  {!r.isActive && <span className="shrink-0 rounded-[5px] bg-shade/[0.08] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-faint">ARCHIVED</span>}
                 </span>
                 <span className="min-w-0 truncate">
                   {r.category ? <span className="rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 text-[10.5px] font-semibold text-link" title={r.category}>{r.category}</span> : <span className="text-[11px] text-faint">—</span>}

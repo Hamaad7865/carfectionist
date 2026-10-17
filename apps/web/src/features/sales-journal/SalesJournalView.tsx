@@ -124,13 +124,13 @@ export function SalesJournalView({
           )}
         </div>
 
-        <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,#e8f1ff,#dbe9ff)" }}>
-          <div className="text-[13px] font-semibold text-[#3d5978]">Total received incl tax</div>
-          <div className="num mt-2 text-[32px] font-extrabold text-[#0f2f5e]">{money(j.totalInclCents)}</div>
-          <div className="num mt-1 text-[12.5px] font-medium text-[#3d5978]">Avg {money(j.avgInclCents)}</div>
+        <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+          <div className="text-[13px] font-semibold text-hero-sub">Total received incl tax</div>
+          <div className="num mt-2 text-[32px] font-extrabold text-hero-ink">{money(j.totalInclCents)}</div>
+          <div className="num mt-1 text-[12.5px] font-medium text-hero-sub">Avg {money(j.avgInclCents)}</div>
           {cmp && (
             <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="num text-[12.5px] font-medium text-[#3d5978]">{money(prior!.totalInclCents)}</span>
+              <span className="num text-[12.5px] font-medium text-hero-sub">{money(prior!.totalInclCents)}</span>
               <Delta now={j.totalInclCents} prev={prior!.totalInclCents} />
             </div>
           )}

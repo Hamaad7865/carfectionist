@@ -26,7 +26,7 @@ export default async function EnquiriesPage() {
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
         <div className="flex items-center justify-between border-b border-line px-5 py-4">
           <span className="font-display text-[14px] font-bold text-ink">Enquiry inbox</span>
-          <span className="rounded-lg bg-[rgba(43,140,255,0.14)] px-2.5 py-1 text-[11px] font-bold text-[#2f78de]">{newCount} new</span>
+          <span className="rounded-lg bg-[rgba(43,140,255,0.14)] px-2.5 py-1 text-[11px] font-bold text-link">{newCount} new</span>
         </div>
         {rows.length === 0 ? (
           <div className="px-5 py-16 text-center text-[13px] text-faint">
@@ -35,7 +35,7 @@ export default async function EnquiriesPage() {
         ) : (
           rows.map((e) => (
             <div key={e.id} className="flex items-center gap-3.5 border-b border-line px-5 py-4">
-              <span className="grid size-10 shrink-0 place-items-center rounded-[11px] font-display text-[13px] font-extrabold text-[#3f5065]" style={{ background: "linear-gradient(140deg,#e5eaf1,#d2dae4)" }}>
+              <span className="grid size-10 shrink-0 place-items-center rounded-[11px] font-display text-[13px] font-extrabold text-th" style={{ background: "linear-gradient(140deg,var(--avatar-a),var(--avatar-b))" }}>
                 {initials(e.name)}
               </span>
               <div className="min-w-0 flex-1">
@@ -44,7 +44,7 @@ export default async function EnquiriesPage() {
                   <StatusPill status={e.status} />
                   <span className="text-[11px] text-faint">{e.createdAt.slice(0, 10)}</span>
                 </div>
-                <div className="mt-0.5 truncate text-[12.5px] text-[#5e6a77]">
+                <div className="mt-0.5 truncate text-[12.5px] text-muted">
                   {[e.vehicleInfo, e.message ? `“${e.message}”` : null].filter(Boolean).join(" · ") || e.phone || e.email || "—"}
                 </div>
               </div>
@@ -56,7 +56,7 @@ export default async function EnquiriesPage() {
 
       {/* public form info */}
       <div className="rounded-[15px] border border-line bg-card p-5">
-        <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-[#7e8894]">Public enquiry form</div>
+        <div className="mb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Public enquiry form</div>
         <a href="/enquiry" target="_blank" rel="noreferrer" className="mb-3.5 flex items-center gap-1.5 text-[12px] font-semibold text-link">
           Open the form <ExternalLink size={12} />
         </a>

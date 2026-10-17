@@ -201,7 +201,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
         {members.map((m) => (
           <div key={m.id} className={`grid ${GRID} min-w-[600px] items-center gap-3 border-b border-line px-5 py-3 ${m.active ? "" : "opacity-55"}`}>
             <div className="flex items-center gap-3">
-              <span className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-[#3f5065]" style={{ background: "linear-gradient(140deg,#e5eaf1,#d2dae4)" }}>{initials(m.name)}</span>
+              <span className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-th" style={{ background: "linear-gradient(140deg,var(--avatar-a),var(--avatar-b))" }}>{initials(m.name)}</span>
               <div className="min-w-0">
                 <div className="truncate text-[13px] font-bold text-ink">{m.name}{m.isSelf && <span className="ml-2 text-[10px] font-bold uppercase text-faint">you</span>}</div>
                 <div className="truncate text-[11.5px] text-muted">{m.email ?? "—"}</div>

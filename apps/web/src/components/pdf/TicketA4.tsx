@@ -11,7 +11,7 @@ const td: React.CSSProperties = { fontSize: 12.5, color: "#1c2733", padding: "7p
 
 export function TicketA4({ r }: { r: ReceiptData }) {
   return (
-    <div style={{ width: 794, minHeight: 1000, margin: "0 auto", background: "#fff", padding: "56px 64px", fontFamily: "Inter, Arial, sans-serif", color: "#1c2733" }}>
+    <div className="paper" style={{ width: 794, minHeight: 1000, margin: "0 auto", background: "#fff", padding: "56px 64px", fontFamily: "Inter, Arial, sans-serif", color: "#1c2733" }}>
       {/* company */}
       <div style={{ fontSize: 17, fontWeight: 800, letterSpacing: "0.02em" }}>{r.studioName.toUpperCase()}</div>
       {r.address && <div style={{ fontSize: 12, color: "#5b6572", marginTop: 2, whiteSpace: "pre-line" }}>{r.address}</div>}

@@ -66,7 +66,7 @@ export function SalesJournalA4(p: SalesJournalA4Props) {
   const right: React.CSSProperties = { textAlign: "right", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" };
 
   return (
-    <div style={{ width: "190mm", margin: "0 auto", fontFamily: "Arial, Helvetica, sans-serif", color: INK }}>
+    <div className="paper" style={{ width: "190mm", margin: "0 auto", fontFamily: "Arial, Helvetica, sans-serif", color: INK }}>
       {/* ── header ── */}
       <div style={{ borderBottom: `2px solid ${INK}`, paddingBottom: 10 }}>
         <div style={{ fontSize: 9, letterSpacing: 1.2, textTransform: "uppercase", color: MUTED, fontWeight: 700 }}>

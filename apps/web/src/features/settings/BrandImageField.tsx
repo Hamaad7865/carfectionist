@@ -110,7 +110,7 @@ export function BrandImageField({
     <div>
       <div className="mb-1 flex items-center gap-2">
         <span className="text-[11px] font-bold uppercase tracking-wider text-faint">{label}</span>
-        {usingDefault && defaultPreview !== "" && <span className="rounded-[5px] bg-[rgba(15,23,32,0.06)] px-1.5 py-0.5 text-[9px] font-bold text-faint">BUILT-IN</span>}
+        {usingDefault && defaultPreview !== "" && <span className="rounded-[5px] bg-shade/[0.06] px-1.5 py-0.5 text-[9px] font-bold text-faint">BUILT-IN</span>}
       </div>
 
       <div className={`relative ${aspect} overflow-hidden rounded-[10px] border border-line bg-sub`}>

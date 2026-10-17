@@ -48,7 +48,7 @@ export function StatementA4({ from, customerName, refDate, soldeCents, buckets, 
   const money: React.CSSProperties = { fontVariantNumeric: "tabular-nums", textAlign: "right", whiteSpace: "nowrap" };
 
   return (
-    <div style={{ width: "190mm", margin: "0 auto", padding: "12mm 0", fontFamily: "Arial, Helvetica, sans-serif", color: INK }}>
+    <div className="paper" style={{ width: "190mm", margin: "0 auto", padding: "12mm 0", fontFamily: "Arial, Helvetica, sans-serif", color: INK }}>
       {/* header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", borderBottom: `2px solid ${INK}`, paddingBottom: 12 }}>
         <div>

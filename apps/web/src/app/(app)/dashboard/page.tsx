@@ -155,7 +155,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <span className="num w-5 text-[14px] font-extrabold text-link">{i + 1}</span>
                   <div className="min-w-0 flex-1">
                     <div className="truncate text-[13.5px] font-semibold text-body">{s.name}</div>
-                    <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-[rgba(15,23,32,0.06)]">
+                    <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-shade/[0.06]">
                       <div className="h-full rounded-[3px]" style={{ width: `${Math.round((s.cents / bestMax) * 100)}%`, background: "#10b5aa" }} />
                     </div>
                   </div>
