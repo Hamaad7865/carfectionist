@@ -12,7 +12,7 @@ export function Brand({ showWordmark = true, subtitle = "BACK OFFICE" }: { showW
         className="block h-auto w-[184px] rounded-[8px]"
       />
       {showWordmark && subtitle ? (
-        <span className="pl-1 text-[8px] font-semibold uppercase tracking-[0.2em] text-fainter">{subtitle}</span>
+        <span className="pl-1 text-[10px] font-bold uppercase tracking-[0.18em] text-muted">{subtitle}</span>
       ) : null}
     </div>
   );

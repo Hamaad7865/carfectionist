@@ -31,7 +31,7 @@ export function AppShell({
   return (
     <div className="flex h-dvh overflow-hidden bg-app">
       {/* Desktop sidebar (fixed) */}
-      <div className="hidden md:flex md:w-[236px] md:shrink-0">
+      <div className="hidden md:flex md:w-[256px] md:shrink-0">
         <Sidebar role={ctx.role} displayName={ctx.displayName} modules={ctx.modules} />
       </div>
 

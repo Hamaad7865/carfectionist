@@ -74,10 +74,10 @@ export function Sidebar({ role, displayName, modules }: { role: Role; displayNam
                   type="button"
                   onClick={() => toggle(section.key)}
                   aria-expanded={open}
-                  className="flex h-6 w-full items-center gap-1 rounded-[8px] px-[13px] text-[10.5px] font-bold uppercase tracking-[0.12em] text-fainter transition-colors hover:text-muted"
+                  className="flex h-7 w-full items-center gap-1 rounded-[8px] px-[13px] text-[12px] font-extrabold uppercase tracking-[0.08em] text-ink transition-colors hover:text-link"
                 >
                   <span className="flex-1 text-left">{section.label}</span>
-                  <ChevronDown size={13} strokeWidth={2.4} className={`transition-transform ${open ? "" : "-rotate-90"}`} />
+                  <ChevronDown size={15} strokeWidth={2.6} className={`text-muted transition-transform ${open ? "" : "-rotate-90"}`} />
                 </button>
               )}
               {open && (
@@ -93,8 +93,8 @@ export function Sidebar({ role, displayName, modules }: { role: Role; displayNam
                         key={item.href}
                         href={item.href}
                         aria-current={active ? "page" : undefined}
-                        className={`group relative flex h-9 items-center gap-3 rounded-[10px] px-[13px] text-[13.5px] font-semibold transition-colors ${
-                          active ? "bg-brand/10 text-link" : "text-th hover:bg-shade/4"
+                        className={`group relative flex h-9 items-center gap-3 rounded-[10px] px-[13px] text-[14.5px] font-bold transition-colors ${
+                          active ? "bg-brand/10 text-link" : "text-body hover:bg-shade/4"
                         }`}
                       >
                         {active && <span className="grad-rail absolute left-0 top-2.5 bottom-2.5 w-[3px] rounded-r-[3px]" />}
