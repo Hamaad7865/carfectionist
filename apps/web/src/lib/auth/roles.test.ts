@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { effectiveModules, hasModule, navForUser, defaultModulesForRole, TOGGLEABLE_MODULES } from "./roles";
+import { effectiveModules, hasModule, navForUser, defaultModulesForRole, TOGGLEABLE_MODULES, groupNav, NAV, NAV_GROUPS } from "./roles";
 
 describe("per-user module access", () => {
   it("owner is always full-access, regardless of override", () => {
@@ -55,5 +55,32 @@ describe("per-user module access", () => {
 
   it("offers Reconciliation in the per-user module toggles", () => {
     expect(TOGGLEABLE_MODULES.some((m) => m.href === "/reconciliation")).toBe(true);
+  });
+});
+
+describe("sidebar groups", () => {
+  it("files every module under a known group", () => {
+    const known = new Set(NAV_GROUPS.map((g) => g.key));
+    for (const item of NAV) expect(known.has(item.group)).toBe(true);
+  });
+
+  it("keeps Dashboard on its own at the top", () => {
+    const sections = groupNav(navForUser("owner", null));
+    expect(sections[0].label).toBeNull();
+    expect(sections[0].items.map((i) => i.href)).toEqual(["/dashboard"]);
+  });
+
+  it("drops a group the user has nothing in", () => {
+    // A technician sees Jobs and Certificates, never Finance or Admin.
+    const labels = groupNav(navForUser("technician", null)).map((s) => s.label);
+    expect(labels).not.toContain("Finance");
+    expect(labels).not.toContain("Admin");
+    expect(labels).toContain("Workshop");
+  });
+
+  it("loses no module in the grouping", () => {
+    const flat = navForUser("owner", null);
+    const grouped = groupNav(flat).flatMap((s) => s.items);
+    expect(grouped).toHaveLength(flat.length);
   });
 });

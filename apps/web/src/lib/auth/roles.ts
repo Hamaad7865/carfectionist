@@ -29,12 +29,27 @@ export const ROLE_LABEL: Record<Role, string> = {
   accountant: "Accountant",
 };
 
+export type NavGroupKey = "home" | "workshop" | "sales" | "customers" | "stock" | "finance" | "admin";
+
 export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
   roles: Role[];
+  group: NavGroupKey;
 }
+
+/** Sidebar sections, in order. "home" has no heading — Dashboard sits on its
+ *  own at the top. A new module only needs a `group`; the sidebar does the rest. */
+export const NAV_GROUPS: { key: NavGroupKey; label: string | null }[] = [
+  { key: "home", label: null },
+  { key: "workshop", label: "Workshop" },
+  { key: "sales", label: "Sales" },
+  { key: "customers", label: "Customers" },
+  { key: "stock", label: "Stock & Purchasing" },
+  { key: "finance", label: "Finance" },
+  { key: "admin", label: "Admin" },
+];
 
 const ALL: Role[] = ["owner", "manager", "cashier", "technician", "accountant"];
 
@@ -42,23 +57,23 @@ const ALL: Role[] = ["owner", "manager", "cashier", "technician", "accountant"];
 // Accounting & Reports (and Purchases/Settings) — enforced again at the
 // route layout and by RLS.
 export const NAV: NavItem[] = [
-  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ALL },
-  { label: "Jobs", href: "/jobs", icon: ClipboardList, roles: ["owner", "manager", "cashier", "technician"] },
-  { label: "Appointments", href: "/appointments", icon: CalendarClock, roles: ["owner", "manager", "cashier"] },
-  { label: "Contacts", href: "/contacts", icon: Users, roles: ["owner", "manager", "cashier", "accountant"] },
-  { label: "Sales & Invoices", href: "/sales", icon: ReceiptText, roles: ["owner", "manager", "cashier", "accountant"] },
-  { label: "Products & Inventory", href: "/products", icon: Package, roles: ["owner", "manager", "cashier"] },
-  { label: "Point of Sale", href: "/point-of-sale", icon: MonitorSmartphone, roles: ["owner", "manager"] },
-  { label: "Certificates", href: "/certificates", icon: BadgeCheck, roles: ["owner", "manager", "cashier", "technician"] },
-  { label: "Purchases & Expenses", href: "/purchases", icon: Truck, roles: ["owner", "manager", "accountant"] },
-  { label: "Sales Journal", href: "/sales-journal", icon: BookText, roles: ["owner", "manager", "accountant"] },
-  { label: "Reconciliation", href: "/reconciliation", icon: Scale, roles: ["owner", "manager", "accountant"] },
-  { label: "Accounting & Reports", href: "/reports", icon: BarChart3, roles: ["owner", "manager", "accountant"] },
-  { label: "Forms & Enquiries", href: "/enquiries", icon: Inbox, roles: ["owner", "manager"] },
-  { label: "Messages", href: "/messages", icon: MessageCircle, roles: ["owner", "manager", "cashier"] },
-  { label: "Marketing", href: "/marketing", icon: Megaphone, roles: ["owner"] },
-  { label: "Team & Settings", href: "/settings", icon: Settings2, roles: ["owner", "manager"] },
-  { label: "Activity", href: "/activity", icon: History, roles: ["owner"] },
+  { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, roles: ALL, group: "home" },
+  { label: "Jobs", href: "/jobs", icon: ClipboardList, roles: ["owner", "manager", "cashier", "technician"], group: "workshop" },
+  { label: "Appointments", href: "/appointments", icon: CalendarClock, roles: ["owner", "manager", "cashier"], group: "workshop" },
+  { label: "Contacts", href: "/contacts", icon: Users, roles: ["owner", "manager", "cashier", "accountant"], group: "customers" },
+  { label: "Sales & Invoices", href: "/sales", icon: ReceiptText, roles: ["owner", "manager", "cashier", "accountant"], group: "sales" },
+  { label: "Products & Inventory", href: "/products", icon: Package, roles: ["owner", "manager", "cashier"], group: "stock" },
+  { label: "Point of Sale", href: "/point-of-sale", icon: MonitorSmartphone, roles: ["owner", "manager"], group: "sales" },
+  { label: "Certificates", href: "/certificates", icon: BadgeCheck, roles: ["owner", "manager", "cashier", "technician"], group: "workshop" },
+  { label: "Purchases & Expenses", href: "/purchases", icon: Truck, roles: ["owner", "manager", "accountant"], group: "stock" },
+  { label: "Sales Journal", href: "/sales-journal", icon: BookText, roles: ["owner", "manager", "accountant"], group: "sales" },
+  { label: "Reconciliation", href: "/reconciliation", icon: Scale, roles: ["owner", "manager", "accountant"], group: "finance" },
+  { label: "Accounting & Reports", href: "/reports", icon: BarChart3, roles: ["owner", "manager", "accountant"], group: "finance" },
+  { label: "Forms & Enquiries", href: "/enquiries", icon: Inbox, roles: ["owner", "manager"], group: "customers" },
+  { label: "Messages", href: "/messages", icon: MessageCircle, roles: ["owner", "manager", "cashier"], group: "customers" },
+  { label: "Marketing", href: "/marketing", icon: Megaphone, roles: ["owner"], group: "customers" },
+  { label: "Team & Settings", href: "/settings", icon: Settings2, roles: ["owner", "manager"], group: "admin" },
+  { label: "Activity", href: "/activity", icon: History, roles: ["owner"], group: "admin" },
 ];
 
 export function navForRole(role: Role): NavItem[] {
@@ -93,6 +108,11 @@ export function hasModule(role: Role, override: string[] | null | undefined, hre
 export function navForUser(role: Role, override: string[] | null | undefined): NavItem[] {
   const allowed = new Set(effectiveModules(role, override));
   return NAV.filter((item) => allowed.has(item.href));
+}
+
+/** The user's nav cut into sidebar sections; empty sections are dropped. */
+export function groupNav(items: NavItem[]): { key: NavGroupKey; label: string | null; items: NavItem[] }[] {
+  return NAV_GROUPS.map((g) => ({ ...g, items: items.filter((i) => i.group === g.key) })).filter((g) => g.items.length > 0);
 }
 
 /** Best-matching nav label for a pathname (for the topbar title). */
