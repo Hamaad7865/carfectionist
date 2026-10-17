@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { muToday } from "@/lib/mu-date";
 
@@ -39,6 +39,8 @@ const MONTHS_LONG = [
   "July", "August", "September", "October", "November", "December",
 ];
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
+const POPUP_WIDTH = 302;
+const POPUP_MARGIN = 8; // kept clear of the page edge
 
 /** Strict "yyyy-mm-dd" check — rejects 2026-02-30 and the like, timezone-free. */
 export function isValidISODate(value: string): boolean {
@@ -140,6 +142,52 @@ export function pendingToRange(pending: PendingRange): DateRangeValue {
   return { from: pending.anchor, to: pending.end ?? pending.anchor };
 }
 
+/**
+ * Where the popup sits so it never runs off the visible page: under the field
+ * with left edges lined up; failing that, right edges lined up (a field near
+ * the right of the page, like the dashboard's); failing both, slid inside the
+ * page. `left` is relative to the field's left edge; the popup shrinks to
+ * `maxWidth` on a page narrower than it.
+ */
+export function placePopover({
+  triggerLeft,
+  triggerRight,
+  width,
+  boundLeft,
+  boundRight,
+  margin,
+}: {
+  triggerLeft: number;
+  triggerRight: number;
+  width: number;
+  boundLeft: number;
+  boundRight: number;
+  margin: number;
+}): { left: number; maxWidth: number } {
+  const maxWidth = Math.max(0, boundRight - boundLeft - 2 * margin);
+  const w = Math.min(width, maxWidth);
+  const min = boundLeft + margin;
+  const max = boundRight - margin - w;
+  if (triggerLeft >= min && triggerLeft <= max) return { left: 0, maxWidth };
+  const rightAligned = triggerRight - w;
+  if (rightAligned >= min && rightAligned <= max) return { left: rightAligned - triggerLeft, maxWidth };
+  return { left: Math.max(min, Math.min(triggerLeft, max)) - triggerLeft, maxWidth };
+}
+
+/** The visible horizontal span the popup must stay inside: the nearest
+ *  ancestor that clips sideways (the app's scrolling <main>), else the window.
+ *  clientWidth leaves out a vertical scrollbar. */
+function horizontalBounds(el: HTMLElement): { boundLeft: number; boundRight: number } {
+  for (let node = el.parentElement; node; node = node.parentElement) {
+    if (getComputedStyle(node).overflowX !== "visible") {
+      const rect = node.getBoundingClientRect();
+      const boundLeft = rect.left + node.clientLeft;
+      return { boundLeft, boundRight: boundLeft + node.clientWidth };
+    }
+  }
+  return { boundLeft: 0, boundRight: document.documentElement.clientWidth };
+}
+
 export function PeriodDatePicker({
   from,
   to,
@@ -177,6 +225,32 @@ export function PeriodDatePicker({
     setView({ y, m });
     setOpen(true);
   }
+
+  // Keep the popup on the page: measured before paint, written straight to its
+  // style (no re-render), and again whenever the window is resized while open.
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const popupRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const wrap = wrapRef.current;
+      const popup = popupRef.current;
+      if (!wrap || !popup) return;
+      const field = wrap.getBoundingClientRect();
+      const { left, maxWidth } = placePopover({
+        triggerLeft: field.left,
+        triggerRight: field.right,
+        width: POPUP_WIDTH,
+        margin: POPUP_MARGIN,
+        ...horizontalBounds(wrap),
+      });
+      popup.style.left = `${left}px`;
+      popup.style.maxWidth = `${maxWidth}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
 
   // Close on Escape.
   useEffect(() => {
@@ -217,7 +291,7 @@ export function PeriodDatePicker({
   const leadBlanks = firstWeekday(view.y, view.m);
 
   return (
-    <div className="relative">
+    <div ref={wrapRef} className="relative">
       {/* ── closed field ─────────────────────────────────────────── */}
       <button
         type="button"
@@ -242,9 +316,11 @@ export function PeriodDatePicker({
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} aria-hidden="true" />
           <div
+            ref={popupRef}
             role="dialog"
             aria-label={caption}
-            className="absolute left-0 top-[calc(100%+6px)] z-50 w-[302px] max-w-[calc(100vw-3rem)] overflow-hidden rounded-[14px] border border-line bg-card shadow-[0_24px_60px_-18px_rgba(15,23,32,0.4)]"
+            style={{ width: POPUP_WIDTH }}
+            className="absolute left-0 top-[calc(100%+6px)] z-50 max-w-[calc(100vw-3rem)] overflow-hidden rounded-[14px] border border-line bg-card shadow-[0_24px_60px_-18px_rgba(15,23,32,0.4)]"
           >
             {/* ── header: year/month label + steppers ────────────── */}
             <div className="flex items-center justify-between border-b border-line px-4 py-2.5">

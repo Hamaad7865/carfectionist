@@ -13,6 +13,7 @@ import {
   monthIndexOf,
   pendingToRange,
   PeriodDatePicker,
+  placePopover,
   stepMonth,
 } from './PeriodDatePicker';
 
@@ -122,6 +123,43 @@ describe('pendingToRange', () => {
 
   it('commits nothing when nothing was staged', () => {
     expect(pendingToRange({ anchor: null, end: null })).toEqual({ from: '', to: '' });
+  });
+});
+
+describe('placePopover', () => {
+  // The visible area is x = 200..1000 (a sidebar on the left, the edge of the
+  // scrolling page on the right); 8px is kept clear of both edges.
+  const bounds = { boundLeft: 200, boundRight: 1000, margin: 8 };
+
+  it('opens under the field, left edges lined up, when it fits', () => {
+    expect(placePopover({ ...bounds, triggerLeft: 300, triggerRight: 520, width: 302 })).toEqual({
+      left: 0,
+      maxWidth: 784,
+    });
+  });
+
+  it('lines up with the right edge of a field near the right of the page', () => {
+    // Left-aligned it would end at 1052, past the edge (the dashboard bug).
+    expect(placePopover({ ...bounds, triggerLeft: 750, triggerRight: 970, width: 302 })).toEqual({
+      left: 220 - 302,
+      maxWidth: 784,
+    });
+  });
+
+  it('slides inside the page when neither edge lines up', () => {
+    // A narrow page: 300 wide, field 220 wide in the middle.
+    const narrow = { boundLeft: 0, boundRight: 300, margin: 8 };
+    const placed = placePopover({ ...narrow, triggerLeft: 40, triggerRight: 260, width: 280 });
+    expect(placed.maxWidth).toBe(284);
+    // 300 - 8 - 280 = 12 on screen, i.e. 28 left of the field.
+    expect(placed.left).toBe(12 - 40);
+  });
+
+  it('shrinks to the page and stops at its left margin when wider than it', () => {
+    const tiny = { boundLeft: 0, boundRight: 250, margin: 8 };
+    const placed = placePopover({ ...tiny, triggerLeft: 20, triggerRight: 240, width: 302 });
+    expect(placed.maxWidth).toBe(234);
+    expect(placed.left).toBe(8 - 20);
   });
 });
 
