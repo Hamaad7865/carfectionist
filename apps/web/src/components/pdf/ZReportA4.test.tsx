@@ -24,7 +24,7 @@ const totals = {
 
 describe("ZReportA4 open service", () => {
   const html = renderToStaticMarkup(
-    <ZReportA4 from={from} number="Z000088" scope="service" closedAt="2026-09-25T13:21:38" note={null} totals={totals} />,
+    <ZReportA4 from={from} number="Z000088" scope="service" closedAt="2026-09-25T13:21:38" closedByName="Nick" note={null} totals={totals} />,
   );
 
   it("labels the open block still open", () => {
@@ -42,5 +42,37 @@ describe("ZReportA4 open service", () => {
     // One open block hides its Final/Counted; two closed blocks keep theirs (2 each).
     expect(html.match(/Final cash float/g)?.length).toBe(2);
     expect(html.match(/Counted/g)?.length).toBe(2);
+  });
+});
+
+/**
+ * 2026-10-19: Z000114 (no sales) printed "Closed by —" although Anshika closed it, and
+ * stamped 13:12 for a 17:12 close. "Closed by" read the first cashier in the frozen totals
+ * (nobody, on a no-sale day) and the time was the raw UTC string.
+ */
+describe("ZReportA4 closed by", () => {
+  const noSales = { service_no: 1, float_initial: 2000, float_final: 2000, total_incl: 0, tickets: 0, avg_basket: 0, cashiers: [] };
+
+  it("names the person who closed the till, even with no sales", () => {
+    const html = renderToStaticMarkup(
+      <ZReportA4 from={from} number="Z000114" scope="day" closedAt="2026-10-19T13:12:04.235083+00:00" closedByName="Anshika" note={null} totals={noSales} />,
+    );
+    expect(html).toContain("Closed by Anshika");
+  });
+
+  it("names the closer, not whoever rang the sales", () => {
+    const html = renderToStaticMarkup(
+      <ZReportA4 from={from} number="Z000088" scope="service" closedAt="2026-09-25T13:21:38+00:00" closedByName="Anshika" note={null} totals={totals} />,
+    );
+    expect(html).toContain("Closed by Anshika");
+    expect(html).not.toContain("Closed by Nick");
+  });
+
+  it("prints the close time in Mauritius time", () => {
+    const html = renderToStaticMarkup(
+      <ZReportA4 from={from} number="Z000114" scope="day" closedAt="2026-10-19T13:12:04.235083+00:00" closedByName="Anshika" note={null} totals={noSales} />,
+    );
+    expect(html).toContain("2026-10-19 17:12");
+    expect(html).not.toContain("13:12");
   });
 });

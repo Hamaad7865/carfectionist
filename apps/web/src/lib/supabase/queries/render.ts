@@ -14,7 +14,7 @@ import { getCustomerAgedStatement } from "@/lib/supabase/queries/reports";
  *  business header. Shared by the Z-report PDF endpoint and the email path. */
 export async function getZReportProps(id: string, sbOverride?: SupabaseClient<any>): Promise<ZReportA4Props | null> {
   const sb = sbOverride ?? (await createClient());
-  const { data: z } = await sb.from("z_reports").select("number, scope, totals, note, closed_at").eq("id", id).maybeSingle();
+  const { data: z } = await sb.from("z_reports").select("number, scope, totals, note, closed_at, closer:app_users!z_reports_closed_by_fkey(display_name)").eq("id", id).maybeSingle();
   if (!z) return null;
   const { data: bs } = await sb.from("business_settings").select("*").limit(1).single();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -32,6 +32,9 @@ export async function getZReportProps(id: string, sbOverride?: SupabaseClient<an
     number: d.number,
     scope: d.scope,
     closedAt: d.closed_at ?? null,
+    // The person who closed the till. The slip used to name the first cashier instead, so a
+    // no-sale day printed a blank (Z000114) and a handover named the wrong person.
+    closedByName: d.closer?.display_name?.replace(/\s*\(.*\)\s*$/, "").trim() || null,
     note: d.note ?? null,
     totals: d.totals ?? {},
   };

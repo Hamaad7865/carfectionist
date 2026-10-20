@@ -4,6 +4,7 @@ import { renderZReportPdf } from "@/lib/pdf/zreport-pdf";
 import { PdfConfigError } from "@/lib/pdf/render";
 import { sendZReportEmail } from "@/lib/email";
 import { logAudit } from "@/lib/supabase/audit";
+import { muDateTime } from "@/lib/mu-date";
 
 // Tablet entry point for "Email this Z-report": the POS calls this with the operator's
 // Supabase access token as a Bearer header, same trust model as the document send route.
@@ -67,7 +68,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     number: props.number,
     scope: props.scope,
     totalCents: Math.round(Number(periodTotals?.total_incl ?? 0) * 100),
-    closedAt: props.closedAt ? props.closedAt.slice(0, 16).replace("T", " ") : "",
+    closedAt: props.closedAt ? muDateTime(props.closedAt) : "",
     pdfBase64: Buffer.from(pdf).toString("base64"),
     studioName: props.from.tradingName,
   });

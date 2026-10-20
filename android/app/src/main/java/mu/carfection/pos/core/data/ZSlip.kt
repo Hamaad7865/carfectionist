@@ -38,6 +38,16 @@ object ZSlip {
 
     private fun money(rupees: Double) = formatMUR(rupeesToCents(rupees))
 
+    /**
+     * The close time in Mauritius time. The server hands back UTC, and printing it raw
+     * stamped Z000114 at 13:12 for a 17:12 close. Falls back to the raw text if it won't parse.
+     */
+    fun muStamp(iso: String): String = runCatching {
+        java.time.OffsetDateTime.parse(iso)
+            .atZoneSameInstant(java.time.ZoneOffset.ofHours(4))
+            .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"))
+    }.getOrElse { iso.take(16).replace('T', ' ') }
+
     /** VAT rate labels are frozen in the owner's Cashmag French — show them in English. */
     private fun enVat(label: String?): String = (label ?: "")
         .replace("TAUX NORMAL", "STANDARD").replace("EXONERE", "EXEMPT").replace("EXONÉRÉ", "EXEMPT")
@@ -69,7 +79,7 @@ object ZSlip {
         centre("Period close")
         biz.address?.takeIf { it.isNotBlank() }?.let { centre(it) }
         centre(z.number)
-        z.closedAt?.let { centre(it.take(16).replace('T', ' ')) }
+        z.closedAt?.let { centre(muStamp(it)) }
         rule()
 
         // A day slip carries every service, then the period — exactly like the owner's till.
@@ -101,7 +111,8 @@ object ZSlip {
         }
         rule()
 
-        appendLine("Closed by ${(t["cashiers"]?.jsonArray?.firstOrNull()?.jsonObject?.str("name")) ?: "—"}")
+        // The person who closed the till, not the first cashier: a no-sale day has no cashiers.
+        appendLine("Closed by ${z.closedByName ?: "—"}")
         z.note?.takeIf { it.isNotBlank() }?.let { appendLine("Note: $it") }
         appendLine()
         appendLine()

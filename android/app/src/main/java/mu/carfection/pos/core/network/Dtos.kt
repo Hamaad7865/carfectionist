@@ -798,6 +798,9 @@ data class ZReportDto(
     val totals: kotlinx.serialization.json.JsonObject,
     val note: String? = null,
     @SerialName("closed_at") val closedAt: String? = null,
+    @SerialName("closed_by") val closedBy: String? = null,
+    /** The closer's name, looked up from [closedBy] — not part of the RPC's row. */
+    @SerialName("closed_by_name") val closedByName: String? = null,
 )
 
 /**

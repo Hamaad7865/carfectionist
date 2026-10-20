@@ -7,6 +7,7 @@ import { renderZReportPdf } from "@/lib/pdf/zreport-pdf";
 import { PdfConfigError } from "@/lib/pdf/render";
 import { sendZReportEmail } from "@/lib/email";
 import { logAudit } from "@/lib/supabase/audit";
+import { muDateTime } from "@/lib/mu-date";
 
 // Z-reports are money data — same role floor as Reports (owner/manager only,
 // no accountant: the tablet send route already enforces this).
@@ -43,7 +44,7 @@ export async function sendZReportEmailAction(zId: string, to: string): Promise<R
     number: props.number,
     scope: props.scope,
     totalCents: Math.round(Number(periodTotals?.total_incl ?? 0) * 100),
-    closedAt: props.closedAt ? props.closedAt.slice(0, 16).replace("T", " ") : "",
+    closedAt: props.closedAt ? muDateTime(props.closedAt) : "",
     pdfBase64: Buffer.from(pdf).toString("base64"),
     studioName: props.from.tradingName,
   });

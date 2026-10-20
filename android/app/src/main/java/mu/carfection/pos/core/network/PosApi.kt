@@ -1508,11 +1508,27 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             put("p_counted_cash", countedCashRupees)
             put("p_remit", kotlinx.serialization.json.JsonArray(remit.map { kotlinx.serialization.json.JsonPrimitive(it) }))
             if (note.isNullOrBlank()) put("p_note", JsonNull) else put("p_note", note)
-        }).decodeAs()
+        }).decodeAs<ZReportDto>().withCloserName()
 
     /** Seals the day. Every till must be closed first; afterwards no money can be taken. */
     suspend fun closeDay(dayId: String): ZReportDto =
-        client.postgrest.rpc("close_day", buildJsonObject { put("p_day_id", dayId) }).decodeAs()
+        client.postgrest.rpc("close_day", buildJsonObject { put("p_day_id", dayId) }).decodeAs<ZReportDto>().withCloserName()
+
+    /**
+     * Names the person who closed the till for the slip's "Closed by". It used to print the
+     * first cashier instead, so a no-sale day read "Closed by -" (Z000114) and a handover
+     * named whoever rang the sales. The close has already committed by the time this runs,
+     * so a failed lookup only leaves the name off; it never fails the close.
+     */
+    private suspend fun ZReportDto.withCloserName(): ZReportDto {
+        val id = closedBy ?: return this
+        val name = runCatching {
+            client.postgrest.from("app_users")
+                .select(Columns.raw("id, display_name")) { filter { eq("id", id) }; limit(1) }
+                .decodeList<UserNameDto>().firstOrNull()?.displayName
+        }.getOrNull()?.replace(Regex("""\s*\(.*\)\s*$"""), "")?.trim()?.takeIf { it.isNotEmpty() }
+        return copy(closedByName = name)
+    }
 
     /**
      * The way back in after [closeDay] — for the customer who walks in after the shop has

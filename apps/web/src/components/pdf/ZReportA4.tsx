@@ -1,4 +1,5 @@
 import { formatMUR, rupeesToCents } from "@/lib/money";
+import { muDateTime } from "@/lib/mu-date";
 
 /**
  * A4 "Clôture de période" — the till-close Z-report, rendered from the report's FROZEN
@@ -17,6 +18,8 @@ export interface ZReportA4Props {
   number: string;
   scope: string; // "service" | "day"
   closedAt: string | null;
+  /** Whoever actually closed the till (z_reports.closed_by), not whoever rang sales. */
+  closedByName: string | null;
   note: string | null;
   totals: Totals;
 }
@@ -32,7 +35,7 @@ const int = (v: unknown) => Math.round(Number(v) || 0);
 const enVat = (label: unknown) =>
   String(label ?? "").replace("TAUX NORMAL", "STANDARD").replace(/EXON[ÉE]RE/g, "EXEMPT").replace(/^TAUX /, "RATE ");
 
-export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZReportA4Props) {
+export function ZReportA4({ from, number, scope, closedAt, closedByName, note, totals: t }: ZReportA4Props) {
   // A service close on a multi-service day freezes BOTH the closed service's own figures
   // (top level) and the whole-day running aggregate (totals.period). Everything that belongs
   // to the period roll-up must read through it — mirrors the tablet slip (ZSlip.kt), which
@@ -47,8 +50,6 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
   const services: Totals[] = Array.isArray(t.services) ? t.services : [];
   const credit = p.customer_credit as Totals | undefined;
   const movements = p.movements as Totals | undefined;
-  // "Closed by" names whoever rang THIS service close, same as the tablet — not the day's roll-up.
-  const closedByCashiers: Totals[] = Array.isArray(t.cashiers) ? t.cashiers : [];
 
   const sec: React.CSSProperties = { marginTop: 18, fontSize: 12, fontWeight: 800, borderBottom: `1px solid ${LINE}`, paddingBottom: 4 };
   const row: React.CSSProperties = { display: "flex", justifyContent: "space-between", fontSize: 11, padding: "3px 0", color: INK };
@@ -81,7 +82,7 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
         <div style={{ fontSize: 15, fontWeight: 800, letterSpacing: 1, marginTop: 10 }}>CLÔTURE DE PÉRIODE</div>
         <div style={{ fontSize: 10.5, color: MUTED, marginTop: 2 }}>
           {number} · {scope === "day" ? "Day" : `Service ${int(t.service_no)}`}
-          {closedAt ? ` · ${closedAt.slice(0, 16).replace("T", " ")}` : ""}
+          {closedAt ? ` · ${muDateTime(closedAt)}` : ""}
         </div>
       </div>
 
@@ -179,7 +180,7 @@ export function ZReportA4({ from, number, scope, closedAt, note, totals: t }: ZR
       <Kv l={`SALES [${from.tradingName.toUpperCase()}]`} r={money(p.total_incl)} indent />
 
       {note && <div style={{ marginTop: 16, fontSize: 10, color: MUTED }}>Note: {note}</div>}
-      <div style={{ marginTop: 10, fontSize: 10, color: MUTED }}>Closed by {closedByCashiers[0]?.name ?? "—"}</div>
+      <div style={{ marginTop: 10, fontSize: 10, color: MUTED }}>Closed by {closedByName ?? "—"}</div>
     </div>
   );
 }

@@ -826,7 +826,7 @@ private fun ZReportDialog(
                 Text(bizName.uppercase(), color = TextPrimary, fontFamily = Condensed, fontSize = 21.sp, fontWeight = FontWeight.Bold, letterSpacing = 0.8.sp)
                 Text("Period close", color = TextSecondary, fontFamily = Barlow, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                 t.str("device")?.let { Text("Device $it", color = TextMuted, fontFamily = Barlow, fontSize = 12.sp) }
-                Text("${z.number} · ${z.closedAt?.take(16)?.replace('T', ' ') ?: ""}", color = TextMuted, fontFamily = Mono, fontSize = 12.sp)
+                Text("${z.number} · ${z.closedAt?.let { mu.carfection.pos.core.data.ZSlip.muStamp(it) } ?: ""}", color = TextMuted, fontFamily = Mono, fontSize = 12.sp)
             }
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
 

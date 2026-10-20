@@ -3,7 +3,7 @@ import { Download } from "lucide-react";
 import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement, getSettleableInvoices, getCustomerPointsContext, listZReports } from "@/lib/supabase/queries/reports";
 import { getDailySummary } from "@/lib/supabase/queries/daily-summary";
 import { DailySummaryTable, parseSections, ALL_SECTIONS, type SectionKey } from "@/features/reports/DailySummaryTable";
-import { muToday } from "@/lib/mu-date";
+import { muToday, muDateTime } from "@/lib/mu-date";
 import { DateRangeFilter } from "@/components/ui/DateRangeFilter";
 import { ReportsShell } from "@/features/reports/ReportsShell";
 import { StatementPicker } from "@/features/reports/StatementPicker";
@@ -697,7 +697,7 @@ export default async function ReportsPage({
                     zReports.map((z) => (
                       <div key={z.id} className="grid grid-cols-[76px_132px_84px_minmax(90px,1fr)_124px_70px_110px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
                         <span className="num font-bold text-body">{z.number}</span>
-                        <span className="num whitespace-nowrap text-muted">{z.closedAt.slice(0, 16).replace("T", " ")}</span>
+                        <span className="num whitespace-nowrap text-muted">{muDateTime(z.closedAt)}</span>
                         <span className="num text-muted">{z.device ?? "—"}</span>
                         <span className="truncate text-body">{z.closedBy ?? "—"}</span>
                         <span className="num text-right font-bold text-ink">{formatMUR(z.totalCents)}</span>
