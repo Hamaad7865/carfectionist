@@ -20,9 +20,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -66,6 +69,14 @@ class SessionRepository @Inject constructor(
      */
     private val operatorLocked = MutableStateFlow(false)
 
+    /**
+     * Set when an offline admission was ended because the device holds no sign-in — the PIN
+     * pad says why it came back. Cleared by the next online sign-in. Declared above `init`:
+     * the restore coroutine there can reach it before the constructor finishes.
+     */
+    private val _signInExpired = MutableStateFlow(false)
+    val signInExpired: StateFlow<Boolean> = _signInExpired.asStateFlow()
+
     init {
         // Restore the operator identity persisted at last login, so a process restart shows the
         // right name/role even when the post-login metadata refresh had failed (importSession keeps
@@ -79,7 +90,48 @@ class SessionRepository @Inject constructor(
             if (opId == null) opId = p[opIdKey]
             offlineUnlocked.value = p[opOfflineKey] ?: false
             operatorLocked.value = p[opLockedKey] ?: false
+            // Started only once the flags are restored, or the first edge would read "not
+            // offline-admitted" off the default and never look again.
+            connectivity.online.collect { if (it) recheckOfflineAdmission() }
         }
+    }
+
+    /** The screen came back on — the moment a dead admission is worth catching. */
+    fun onAppForeground() {
+        scope.launch { recheckOfflineAdmission() }
+    }
+
+    /**
+     * An operator let in by the offline PIN, on a device with no live sign-in, once the
+     * network is back: every read now goes out on the anon key and RLS answers `[]` — the
+     * reception tablet spent a morning of 2026-10-24 like that, every list empty. Send them
+     * to the PIN pad, where an online PIN mints a real session. The device's tokens are not
+     * touched (there are none worth keeping), so held sales replay under the new session.
+     */
+    private suspend fun recheckOfflineAdmission() {
+        if (!offlineUnlocked.value) return
+        val status = client.auth.sessionStatus.first { it !is SessionStatus.Initializing }
+        if (!needsOnlineReSignIn(connectivity.online.value, offlineUnlocked.value, status)) return
+        offlineUnlocked.value = false
+        _signInExpired.value = true
+        runCatching { prefs.edit { it[opOfflineKey] = false } }
+    }
+
+    /**
+     * Null when a read will carry this device's sign-in; otherwise what to tell the operator
+     * instead of showing an empty list. A renewal in flight is waited out briefly — the
+     * library retries on its own every few seconds once the network is back.
+     */
+    suspend fun readsUnavailableReason(): String? {
+        val now = client.auth.sessionStatus.value
+        val status = if (now is SessionStatus.Authenticated || !connectivity.online.value) now
+        else withTimeoutOrNull(RENEWAL_WAIT_MS) {
+            client.auth.sessionStatus.first { it is SessionStatus.Authenticated || it is SessionStatus.NotAuthenticated }
+        } ?: client.auth.sessionStatus.value
+        // No sign-in at all while online: the PIN pad is the way back, so go there now
+        // rather than leave the operator reading a message about it.
+        if (status is SessionStatus.NotAuthenticated) recheckOfflineAdmission()
+        return readsUnavailableReason(status, connectivity.online.value)
     }
 
     /** null = still restoring; true/false = known. */
@@ -146,6 +198,7 @@ class SessionRepository @Inject constructor(
         opId = s.operator.appUserId
         offlineUnlocked.value = false // a real session owns the state again
         operatorLocked.value = false
+        _signInExpired.value = false
         // Durably remember who signed in — the metadata refresh below can fail on a flaky link and
         // isn't retried, so this is what a restart falls back to (see the init block).
         runCatching {
@@ -230,4 +283,31 @@ class SessionRepository @Inject constructor(
         prefs.edit { it[deviceKey] = fresh }
         return fresh
     }
+}
+
+/** How long a read waits for an in-flight renewal before saying so — the library retries every 10 s. */
+private const val RENEWAL_WAIT_MS = 12_000L
+
+internal const val OFFLINE_READS = "No internet — this needs the server. It will load once the tablet is back online."
+
+/**
+ * Whether an operator let in by the offline PIN must go back to the PIN pad: the network is
+ * back and the device holds no sign-in at all. Only a definite NotAuthenticated counts — a
+ * renewal that is merely retrying recovers by itself, and kicking the cashier out over a blip
+ * once wiped carts (audit #8).
+ */
+internal fun needsOnlineReSignIn(online: Boolean, offlineUnlocked: Boolean, status: SessionStatus): Boolean =
+    online && offlineUnlocked && status is SessionStatus.NotAuthenticated
+
+/**
+ * What to tell the operator instead of an empty list, or null when the read can go ahead.
+ * Without a live session the client sends the anon key and RLS answers `[]` with HTTP 200 —
+ * indistinguishable from "no customers" unless asked here first.
+ */
+internal fun readsUnavailableReason(status: SessionStatus, online: Boolean): String? = when {
+    status is SessionStatus.Authenticated -> null
+    !online -> OFFLINE_READS
+    status is SessionStatus.NotAuthenticated ->
+        "This tablet's sign-in has expired — enter your PIN to reconnect."
+    else -> "Reconnecting to the server… try again in a moment."
 }

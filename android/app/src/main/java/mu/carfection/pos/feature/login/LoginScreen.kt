@@ -91,6 +91,9 @@ class LoginViewModel @Inject constructor(
     private val _state = MutableStateFlow(LoginUiState(configured = pinApi.configured, loadingRoster = pinApi.configured))
     val state = _state.asStateFlow()
 
+    /** True when the offline admission was ended for want of a sign-in — say why we're back here. */
+    val signInExpired = session.signInExpired
+
     init { if (pinApi.configured) loadRoster() }
 
     fun loadRoster() {
@@ -291,6 +294,14 @@ private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel)
             // sign-in here — not "has used this tablet", which server seeding outgrew.
             Text(
                 "Offline — sign-in still works for staff the tablet already knows.",
+                color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 16.sp,
+            )
+            Spacer(Modifier.height(4.dp))
+        }
+        val expired by vm.signInExpired.collectAsState()
+        if (expired && !s.offlineRoster) {
+            Text(
+                "Back online — sign in again so the tablet can load customers, jobs and quotes.",
                 color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, lineHeight = 16.sp,
             )
             Spacer(Modifier.height(4.dp))

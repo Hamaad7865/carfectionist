@@ -114,13 +114,22 @@ class ContactsViewModel @Inject constructor(
     private val api: PosApi,
     private val catalog: mu.carfection.pos.core.data.CatalogRepository,
     private val openJobBus: OpenJobBus,
+    private val session: mu.carfection.pos.core.data.SessionRepository,
 ) : ViewModel() {
     private val _s = MutableStateFlow(ContactsState())
     val state = _s.asStateFlow()
 
     private var searchJob: Job? = null
 
-    init { load("") }
+    /** Only the newest load may land — an earlier, slower one must not overwrite it. */
+    private var loadGen = 0
+
+    /**
+     * Every entry re-reads the book, like Jobs/Checkout/Stock do. This ViewModel outlives the
+     * tab (it is activity-scoped), so loading once in `init` meant one empty answer stayed on
+     * screen all day. A repeat entry refreshes in place rather than flashing "Loading…".
+     */
+    fun onShown() = load(_s.value.query, quiet = _s.value.contacts.isNotEmpty())
 
     fun setQuery(q: String) {
         _s.update { it.copy(query = q) }
@@ -139,15 +148,32 @@ class ContactsViewModel @Inject constructor(
         load(_s.value.query)
     }
 
-    fun load(term: String) {
+    fun load(term: String, quiet: Boolean = false) {
         val mode = _s.value.mode
-        _s.update { it.copy(loading = true, error = null) }
+        val gen = ++loadGen
+        if (!quiet) _s.update { it.copy(loading = true, error = null) }
         viewModelScope.launch {
+            // Without a live sign-in the server answers an empty book, not an error — so ask
+            // first, and say why rather than show "No customers yet."
+            val blocked = session.readsUnavailableReason()
+            if (gen != loadGen) return@launch
+            if (blocked != null) {
+                _s.update { it.copy(loading = false, error = blocked) }
+                return@launch
+            }
             runCatching { fetchFor(mode, term) }
                 .onSuccess { rows ->
-                    _s.update { it.copy(loading = false, contacts = displayOrder(rows, term, mode), matchHint = matchHints(rows, term, mode)) }
+                    if (gen != loadGen) return@onSuccess
+                    _s.update { st ->
+                        st.copy(
+                            loading = false, error = null,
+                            contacts = displayOrder(rows, term, mode), matchHint = matchHints(rows, term, mode),
+                            // Keep the open card pointed at the same customer, with fresh cars.
+                            open = st.open?.let { o -> rows.firstOrNull { it.id == o.id } ?: o },
+                        )
+                    }
                 }
-                .onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
+                .onFailure { e -> if (gen == loadGen) _s.update { it.copy(loading = false, error = e.uiMessage()) } }
         }
     }
 
@@ -438,23 +464,8 @@ class ContactsViewModel @Inject constructor(
         }
     }
 
-    /** Re-fetch and keep the open card pointed at the same customer. */
-    private fun reload() {
-        val openId = _s.value.open?.id
-        val mode = _s.value.mode
-        val term = _s.value.query
-        viewModelScope.launch {
-            runCatching { fetchFor(mode, term) }.onSuccess { rows ->
-                _s.update { st ->
-                    st.copy(
-                        contacts = displayOrder(rows, st.query, st.mode),
-                        matchHint = matchHints(rows, st.query, st.mode),
-                        open = rows.firstOrNull { it.id == openId } ?: st.open,
-                    )
-                }
-            }
-        }
-    }
+    /** Re-fetch in place after an edit; load() keeps the open card pointed at the same customer. */
+    private fun reload() = load(_s.value.query, quiet = true)
 
     /**
      * Start a job straight from the contact card - a returning customer whose car and history

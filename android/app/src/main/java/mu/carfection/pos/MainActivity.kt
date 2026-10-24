@@ -11,6 +11,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.CompositionLocalProvider
 import dagger.hilt.android.AndroidEntryPoint
 import mu.carfection.pos.core.data.OpenJobBus
+import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.hardware.CaptureBus
 import mu.carfection.pos.core.notify.EXTRA_JOB_ID
 import mu.carfection.pos.core.notify.JobWatcher
@@ -30,6 +31,9 @@ class MainActivity : ComponentActivity() {
     // A tapped notification opens that job on the board — the same latched bus the quote
     // builder's "View job" uses, so there is one way in, not two.
     @Inject lateinit var openJobBus: OpenJobBus
+
+    // Re-checks an offline admission each time the screen comes back (see onStart).
+    @Inject lateinit var session: SessionRepository
 
     // Registered on the Activity so the result survives a Compose teardown while the external
     // camera is foregrounded (which happens on a memory-tight tablet). Must be created before
@@ -61,6 +65,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    /**
+     * The screen came back on. A tablet let in by the offline PIN that has since lost its
+     * sign-in would otherwise go on reading empty lists — send it to the PIN pad now.
+     */
+    override fun onStart() {
+        super.onStart()
+        session.onAppForeground()
     }
 
     /** The activity is singleTop in practice — a tap while we are already open lands here. */

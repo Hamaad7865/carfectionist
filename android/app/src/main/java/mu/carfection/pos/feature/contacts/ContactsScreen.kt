@@ -90,6 +90,7 @@ import mu.carfection.pos.ui.theme.Warning
 @Composable
 fun ContactsScreen(onJobStarted: () -> Unit = {}, viewModel: ContactsViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
+    LaunchedEffect(Unit) { viewModel.onShown() } // refresh the book on entry, like every other tab
 
     // Chain into Jobs the same way Intake/Quote hand off — "Start job" put the car straight on
     // the board, so the operator should land there too, not stay on the customer card reading a
