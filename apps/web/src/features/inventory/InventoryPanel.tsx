@@ -1,11 +1,13 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Minus, SlidersHorizontal } from "lucide-react";
 import { Field, inputCls, FormError } from "@/components/ui/form";
 import { recordAdjustmentAction } from "./actions";
 import type { InventoryOpsData } from "@/lib/supabase/queries/movements";
+import { pickSalesFloor } from "@/lib/supabase/locations";
+import { onHandAt, roundQty } from "@/lib/stock/balance";
 import { btn } from "@/components/ui/button";
 
 /** The shop's stock-movement vocabulary. Mirror of the tablet's STOCK_REASONS
@@ -28,14 +30,23 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
   const [productId, setProductId] = useState("");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const [locationId, setLocationId] = useState(data.locations[0]?.id ?? "");
+  // The shop floor, by flag — locations now come default (warehouse) first, and
+  // counts on the floor are what this form is mostly used for.
+  const [locationId, setLocationId] = useState(pickSalesFloor(data.locations)?.id ?? data.locations[0]?.id ?? "");
   const [dir, setDir] = useState<1 | -1>(1);
   const [qtyStr, setQtyStr] = useState("");
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Pending until the refreshed counts have landed, so the old number never
+  // sits there looking confirmed.
+  const [refreshing, startRefresh] = useTransition();
 
   const unit = data.products.find((p) => p.id === productId)?.unit ?? "";
+  // The tablet's adjust dialog reads "on hand N … → new on-hand N"; same here.
+  const typed = parseFloat(qtyStr);
+  const locName = data.locations.find((l) => l.id === locationId)?.name ?? "";
+  const after = productId && locationId && typed > 0 ? roundQty(onHandAt(data.onHand, productId, locationId) + dir * typed) : null;
   const matches = useMemo(() => {
     const s = query.trim().toLowerCase();
     if (!s) return [];
@@ -54,7 +65,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
     if (r.ok) {
       setQtyStr("");
       setNote("");
-      router.refresh();
+      startRefresh(() => router.refresh());
     } else setError(r.error);
   }
 
@@ -92,7 +103,15 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
                       className="flex w-full items-center justify-between gap-2 rounded-[8px] px-2.5 py-2 text-left hover:bg-sub"
                     >
                       <span className="min-w-0 truncate text-[13px] font-semibold text-body">{p.name}</span>
-                      {p.unit && <span className="shrink-0 text-[11px] text-faint">{p.unit}</span>}
+                      <span className="shrink-0 text-[11px] text-faint">
+                        {data.locations.map((l, i) => (
+                          <span key={l.id}>
+                            {i > 0 && " · "}
+                            {l.name} <span className="num font-semibold text-body">{num(onHandAt(data.onHand, p.id, l.id))}</span>
+                          </span>
+                        ))}
+                        {p.unit && <span className="ml-1.5">{p.unit}</span>}
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -152,21 +171,59 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
             {busy ? "Saving…" : "Record"}
           </button>
         </div>
+        {productId && (
+          <div
+            aria-live="polite"
+            aria-busy={refreshing}
+            className={`mt-3 flex flex-wrap items-center gap-2 rounded-[12px] border border-line bg-sub px-3 py-2 transition-opacity motion-reduce:transition-none ${refreshing ? "opacity-60" : ""}`}
+          >
+            <span className="text-[11px] font-bold uppercase tracking-wide text-faint">On hand</span>
+            {/* One chip per location; tapping one picks it, same as the Location select. */}
+            {data.locations.map((l) => {
+              const n = onHandAt(data.onHand, productId, l.id);
+              const on = l.id === locationId;
+              return (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => setLocationId(l.id)}
+                  aria-pressed={on}
+                  title={`Adjust stock at ${l.name}`}
+                  className={`inline-flex h-8 items-center gap-1.5 rounded-[9px] border bg-card px-2.5 ${on ? "border-brand" : "border-line-2 hover:border-brand"}`}
+                >
+                  <span className="text-[12px] font-semibold text-muted">{l.name}</span>
+                  <span className={`num text-[15px] font-extrabold ${n < 0 ? "text-rose" : "text-ink"}`}>{num(n)}</span>
+                </button>
+              );
+            })}
+            {after != null && (
+              <span className="text-[12.5px] text-muted">
+                → new on-hand at {locName}{" "}
+                <span className={`num text-[15px] font-extrabold ${after < 0 ? "text-rose" : "text-ink"}`}>{num(after)}</span>
+              </span>
+            )}
+            {refreshing && <span className="text-[11.5px] text-faint">Updating…</span>}
+          </div>
+        )}
         <div className="mt-3"><FormError error={error} /></div>
       </div>
 
       {/* ledger */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th md:grid">
-          <span>Date</span><span>Product</span><span>Location</span><span>Type</span><span className="text-right">Qty</span><span>Note</span>
+        <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th md:grid">
+          <span>Date</span><span>Product</span><span>Location</span><span>Type</span><span className="text-right">Qty</span>
+          <span className="text-right" title="On hand at that location right after this movement">Stock after</span>
+          <span>Note</span>
         </div>
         {data.movements.length === 0 ? (
           <div className="px-5 py-14 text-center text-[13px] text-faint">No stock movements yet.</div>
         ) : (
           data.movements.map((m) => {
             const st = REF_STYLE[m.refType] ?? { label: m.refType, cls: "bg-sub text-muted" };
+            const balCls = m.balanceAfter < 0 ? "text-rose" : "text-body";
             return (
-              <div key={m.id} className="border-b border-line">
+              // Tint the product being adjusted, so its recent history reads at a glance.
+              <div key={m.id} className={`border-b border-line ${productId && m.productId === productId ? "bg-brand/[0.06]" : ""}`}>
                 {/* Mobile card */}
                 <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
                   <div className="min-w-0 flex-1">
@@ -182,15 +239,19 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
                   </div>
                   <div className="shrink-0 text-right">
                     <div className={`num text-[14px] font-bold ${m.qty < 0 ? "text-rose" : "text-mint"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty)}</div>
+                    <div className="text-[11px] text-faint" title="On hand at that location right after this movement">
+                      → <span className={`num font-semibold ${balCls}`}>{num(m.balanceAfter)}</span>
+                    </div>
                   </div>
                 </div>
                 {/* Desktop grid */}
-                <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_1fr] items-center gap-3 px-5 py-2.5 text-[12.5px] md:grid">
+                <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_90px_1fr] items-center gap-3 px-5 py-2.5 text-[12.5px] md:grid">
                   <span className="num text-muted">{m.movedAt.slice(0, 10)}</span>
                   <span className="truncate font-semibold text-body">{m.productName}</span>
                   <span className="text-muted">{m.locationName}</span>
                   <span><span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${st.cls}`}>{st.label}</span></span>
                   <span className={`num text-right font-bold ${m.qty < 0 ? "text-rose" : "text-mint"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty)}</span>
+                  <span className={`num text-right font-semibold ${balCls}`}>{num(m.balanceAfter)}</span>
                   <span className="truncate text-faint">{m.note ?? (m.by ? `by ${m.by}` : "—")}</span>
                 </div>
               </div>

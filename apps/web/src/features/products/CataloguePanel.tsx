@@ -261,11 +261,12 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                 {locations.map((l) => {
                   const n = r.stock ? r.stock[l.id] : null;
                   const isFloor = l.isSalesFloor;
+                  // Theme tokens, not hex: a fixed #172130 was dark-on-dark in dark mode.
+                  const floorCls = r.low ? "text-amber-ink" : n == null ? "text-faint" : "text-ink";
                   return (
                     <span
                       key={l.id}
-                      className={`num text-right ${isFloor ? "text-[14px] font-extrabold" : "text-[12px] text-muted"}`}
-                      style={isFloor ? { color: r.low ? "#b07c14" : n == null ? "#8c96a1" : "#172130" } : undefined}
+                      className={`num text-right ${isFloor ? `text-[14px] font-extrabold ${floorCls}` : "text-[12px] text-muted"}`}
                     >
                       {qty(n)}
                     </span>
