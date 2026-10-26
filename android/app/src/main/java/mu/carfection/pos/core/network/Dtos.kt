@@ -589,6 +589,18 @@ data class StockAdjustmentDto(
     // Null on every row written before the tablet started stamping it — the slip then
     // simply omits the operator rather than inventing one.
     val creator: JobTechDto? = null,
+    // The keys the "stock after" walk needs (StockBalance) — names alone can't join on-hand.
+    @SerialName("product_id") val productId: String? = null,
+    @SerialName("location_id") val locationId: String? = null,
+)
+
+/** Any movement (sale, transfer, adjustment…) — the bare ledger line the "stock after" walk sums. */
+@Serializable
+data class StockMoveDto(
+    val id: String,
+    @SerialName("product_id") val productId: String,
+    @SerialName("location_id") val locationId: String,
+    val qty: FlexDouble = 0.0,
 )
 
 @Serializable data class AppUserIdDto(val id: String)

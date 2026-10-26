@@ -297,11 +297,22 @@ private fun AdjustmentLogDialog(s: StockState, vm: StockViewModel) {
                                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 )
                             }
-                            Text(
-                                r.qtyLabel,
-                                fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 19.sp,
-                                color = if (r.qty < 0) Danger else Success,
-                            )
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(
+                                    r.qtyLabel,
+                                    fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 19.sp,
+                                    color = if (r.qty < 0) Danger else Success,
+                                )
+                                // What the shelf held right after — same figure as the web
+                                // Inventory ledger's "Stock after". Left off when unknown.
+                                r.balanceLabel?.let { b ->
+                                    Text(
+                                        "→ $b on hand",
+                                        fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp,
+                                        color = if ((r.balanceAfter ?: 0.0) < 0) Danger else TextMuted,
+                                    )
+                                }
+                            }
                         }
                     }
                 }

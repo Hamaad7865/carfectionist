@@ -14,11 +14,20 @@ data class AdjustmentRow(
     val reason: String,
     val location: String?,
     val who: String?,
+    /** On hand at [location] right after this adjustment (StockBalance). Null when it
+     *  couldn't be worked out — the row then simply doesn't claim one. Screen only. */
+    val balanceAfter: Double? = null,
 ) {
     /** "+3" / "−1" — the sign is the whole point of the line, so it is never dropped. */
     val qtyLabel: String get() {
         val n = if (qty % 1.0 == 0.0) qty.toInt().toString() else qty.toString()
         return if (qty < 0) "−" + n.removePrefix("-") else "+$n"
+    }
+
+    /** "14" / "2.5" / "−1" — no "+": it's a count, not a movement. */
+    val balanceLabel: String? get() = balanceAfter?.let { b ->
+        val n = if (b % 1.0 == 0.0) b.toLong().toString() else b.toString()
+        if (b < 0) "−" + n.removePrefix("-") else n
     }
 }
 

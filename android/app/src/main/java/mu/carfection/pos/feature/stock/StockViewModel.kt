@@ -11,7 +11,9 @@ import kotlinx.coroutines.launch
 import mu.carfection.pos.core.data.AdjustmentRow
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.StockAdjustmentSlip
+import mu.carfection.pos.core.data.StockBalance
 import mu.carfection.pos.core.data.adjustmentRow
+import mu.carfection.pos.core.network.StockAdjustmentDto
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.network.NewStockMovementDto
@@ -207,12 +209,26 @@ class StockViewModel @Inject constructor(
             val fromIso = range.days?.let {
                 today.minusDays(it).atStartOfDay(mu).toOffsetDateTime().toString()
             }
-            val rows = runCatching { api.fetchStockAdjustments(fromIso = fromIso) }
-                .getOrDefault(emptyList()).map(::adjustmentRow)
+            val dtos = runCatching { api.fetchStockAdjustments(fromIso = fromIso) }.getOrDefault(emptyList())
+            val after = balancesAfter(dtos)
+            val rows = dtos.map { adjustmentRow(it).copy(balanceAfter = after[it.id]) }
             // Everything in range starts ticked: the usual errand is "print what is on screen",
             // and un-ticking a few beats ticking many.
             _s.update { it.copy(logBusy = false, log = rows, logPicked = rows.map { r -> r.id }.toSet()) }
         }
+    }
+
+    /**
+     * "→ N on hand" for each log row — the web Inventory ledger's "Stock after". Its own
+     * runCatching: if this read fails the log still lists, just without the counts.
+     */
+    private suspend fun balancesAfter(log: List<StockAdjustmentDto>): Map<String, Double> {
+        val oldest = log.lastOrNull()?.movedAt ?: return emptyMap() // newest first, so last = oldest
+        val ids = log.mapNotNull { it.productId }
+        if (ids.isEmpty()) return emptyMap()
+        return runCatching {
+            StockBalance.after(api.fetchMovesSince(ids, oldest), api.fetchStockOnHandFor(ids))
+        }.getOrDefault(emptyMap())
     }
 
     fun closeLog() = _s.update { it.copy(logOpen = false, log = emptyList(), logPicked = emptySet()) }

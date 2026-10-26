@@ -385,7 +385,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         client.postgrest.from("stock_movements")
             .select(
                 Columns.raw(
-                    "id, qty, note, moved_at, products(name), stock_locations(name), " +
+                    "id, qty, note, moved_at, product_id, location_id, products(name), stock_locations(name), " +
                         "creator:app_users!stock_movements_created_by_fkey(display_name)",
                 ),
             ) {
@@ -397,9 +397,48 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                     if (toIso != null) lte("moved_at", toIso)
                 }
                 order("moved_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                // A stock count files many rows in one instant; the "stock after" walk
+                // (fetchMovesSince) needs the same fixed order on both sides.
+                order("id", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(limit)
             }
             .decodeList()
+
+    /**
+     * EVERY movement (sales, transfers, jobs — not just adjustments) of these products since
+     * [fromIso], newest first. The log lists adjustments only, so a sale between two of them is
+     * invisible there yet still moved the shelf; the "stock after" walk has to see it.
+     * Ids go in chunks (a 200-id IN list is a 7KB URL) and each chunk is paged, so the
+     * 1000-row cap can't silently drop the oldest lines. A product's rows all land in one
+     * chunk, in server order.
+     */
+    suspend fun fetchMovesSince(productIds: Collection<String>, fromIso: String, pageSize: Long = 1000): List<StockMoveDto> {
+        val all = ArrayList<StockMoveDto>()
+        for (ids in productIds.distinct().chunked(60)) {
+            var from = 0L
+            do {
+                val page = client.postgrest.from("stock_movements")
+                    .select(Columns.raw("id, product_id, location_id, qty")) {
+                        filter { isIn("product_id", ids); gte("moved_at", fromIso) }
+                        order("moved_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                        order("id", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                        range(from, from + pageSize - 1)
+                    }
+                    .decodeList<StockMoveDto>()
+                all += page
+                from += pageSize
+            } while (page.size == pageSize.toInt())
+        }
+        return all
+    }
+
+    /** On-hand at EVERY location for these products — the log shows warehouse rows too. */
+    suspend fun fetchStockOnHandFor(productIds: Collection<String>): List<StockOnHandDto> =
+        productIds.distinct().chunked(60).flatMap { ids ->
+            client.postgrest.from("stock_on_hand")
+                .select(Columns.raw("product_id, location_id, qty_on_hand")) { filter { isIn("product_id", ids) } }
+                .decodeList<StockOnHandDto>()
+        }
 
     /**
      * This operator's app_users row id, for stamping what they write. The JWT carries a
