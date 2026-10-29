@@ -96,3 +96,19 @@ export function toJobDoc(d: RawDoc): JobDoc {
 /** What the customer still owes on this job, across every live invoice. */
 export const outstandingCents = (docs: RawDoc[]): number =>
   liveInvoices(docs).reduce((sum, d) => sum + toJobDoc(d).outstandingCents, 0);
+
+/**
+ * The bills of an IN-PROGRESS job that was settled before anyone marked it ready — every
+ * issued bill on it paid in full, and at least one. Empty otherwise.
+ *
+ * Paying an in-progress bill at the counter does not hand the car back (rightly: a prepaid
+ * car may still be in the bay), so JOB-49B3 sat "in progress" with its money taken and the
+ * car gone (27 Oct 2026). The card names the paid bill and offers the handover when this is
+ * non-empty. Drafts are not bills yet and voids are history; neither counts. Same rule as
+ * the tablet's paidAheadBills.
+ */
+export function paidAheadBills<D extends { docType: string; status: string }>(jobStatus: string, docs: D[]): D[] {
+  if (jobStatus !== "in_progress") return [];
+  const billed = docs.filter((d) => d.docType === "invoice" && d.status !== "void" && d.status !== "draft");
+  return billed.length > 0 && billed.every((d) => d.status === "paid") ? billed : [];
+}

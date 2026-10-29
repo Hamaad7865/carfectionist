@@ -26,6 +26,7 @@ import mu.carfection.pos.core.money.centsToRupees
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.network.ChecklistItemDto
+import mu.carfection.pos.core.network.FlowInvoiceRefDto
 import mu.carfection.pos.core.network.JobBoardDto
 import mu.carfection.pos.core.network.JobPhotoDto
 import mu.carfection.pos.core.network.NewCertificateDto
@@ -77,6 +78,23 @@ fun showDepositButton(depositCents: Long, hasLiveBill: Boolean): Boolean =
  */
 fun deliveredOutstandingCents(totalIncl: Double, amountPaid: Double): Long =
     (rupeesToCents(totalIncl) - rupeesToCents(amountPaid)).coerceAtLeast(0)
+
+/**
+ * The bills of an IN-PROGRESS job that was settled before anyone marked it ready — every
+ * issued bill on it paid in full, and at least one. Empty otherwise.
+ *
+ * Paying an in-progress bill at the counter ("Add to bill" → issue and take payment) does
+ * not hand the car back — rightly, a prepaid car may still be in the bay — so the job sat
+ * at "Mark ready (0/4 checklist)" with its money in the drawer and the car gone (JOB-49B3,
+ * 27 Oct 2026). The card names the paid bill and offers the handover when this is
+ * non-empty. Drafts are not bills yet and voids are history; neither counts. Pulled out so
+ * the rule can be tested without a ViewModel.
+ */
+fun paidAheadBills(status: String, invoices: List<FlowInvoiceRefDto>): List<FlowInvoiceRefDto> {
+    if (status != "in_progress") return emptyList()
+    val billed = invoices.filter { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
+    return if (billed.isNotEmpty() && billed.all { it.status == "paid" }) billed else emptyList()
+}
 
 /**
  * Which words the invoice-amount dialog uses, because the same typed figure is stored
@@ -819,6 +837,22 @@ class JobsViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Paid at the counter while still in progress, and the car has gone: finish and deliver
+     * in one server step (see [paidAheadBills]). The server re-checks every bill is settled
+     * and refuses otherwise, leaving the job where it was.
+     */
+    fun handBackPaidJob() {
+        val id = _s.value.activeJobId ?: return
+        if (_s.value.busy) return
+        _s.update { it.copy(busy = true) }
+        viewModelScope.launch {
+            runCatching { api.handBackPaidJob(id) }
+                .onSuccess { _s.update { it.copy(busy = false, toast = "Delivered — car collected") }; load() }
+                .onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) }; load() }
+        }
+    }
+
     // ── job timer pause/resume ─────────────────────────────────────────────────
     private fun isoToInstant(iso: String?): Instant? =
         iso?.let { runCatching { java.time.OffsetDateTime.parse(it).toInstant() }.getOrNull() }
@@ -845,6 +879,9 @@ class JobsViewModel @Inject constructor(
         val id = _s.value.activeJobId ?: return
         if (_s.value.busy) return
         val job = _s.value.jobs.firstOrNull { it.id == id }
+        // Settled at the counter already: there is no bill to wait at checkout, and saying
+        // there is sent staff looking for one (and fearing a second) — JOB-49B3.
+        val paidAlready = job != null && paidAheadBills(job.status, job.invoices).isNotEmpty()
         _s.update { it.copy(busy = true) }
         viewModelScope.launch {
             runCatching {
@@ -862,11 +899,12 @@ class JobsViewModel @Inject constructor(
                     // priced invoice is created + issued NOW (idempotent), so checkout's
                     // TO COLLECT already has it when the customer walks up.
                     val quoteId = job?.sourceQuoteId
-                    val invoiced = quoteId != null && runCatching { ensureQuoteDraftBill(quoteId) }.isSuccess
+                    val invoiced = !paidAlready && quoteId != null && runCatching { ensureQuoteDraftBill(quoteId) }.isSuccess
                     _s.update {
                         it.copy(
                             busy = false,
                             toast = when {
+                                paidAlready -> "Ready — bill already paid. Tap \"Car collected\" when they pick it up"
                                 invoiced -> "Ready — invoice waiting at checkout"
                                 quoteId != null -> "Ready — invoice pending; Go to checkout will retry"
                                 else -> "Marked ready for collection"

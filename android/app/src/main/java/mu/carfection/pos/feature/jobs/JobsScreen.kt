@@ -668,8 +668,32 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                         )
                     }
                 }
+                // Settled at the counter before anyone marked it ready (JOB-49B3): name the
+                // bill, so nobody fears raising a second one, and lead with the handover —
+                // a customer who has paid has usually driven off. "Mark ready" stays below
+                // for the prepaid car that really is still in the bay.
+                val paidAhead = paidAheadBills(j.status, j.invoices)
+                if (paidAhead.isNotEmpty()) {
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(Color(0x141FA361), RoundedCornerShape(13.dp))
+                            .border(1.dp, Color(0x401FA361), RoundedCornerShape(13.dp))
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                    ) {
+                        Text(
+                            "Bill paid — " + paidAhead.joinToString(", ") { it.number ?: "invoice" } +
+                                " · " + formatMUR(paidAhead.sumOf { rupeesToCents(it.totalIncl) }),
+                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Success,
+                        )
+                        Text(
+                            "Customer already left with the car? Record the handover. Still in the bay? Mark it ready as usual.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextSecondary,
+                        )
+                    }
+                }
                 val (label, action) = when {
                     j.status == "scheduled" -> "▶  Start job" to { vm.startJob() }
+                    paidAhead.isNotEmpty() -> "Car collected — mark delivered" to { vm.handBackPaidJob() }
                     j.status == "in_progress" -> (if (j.checklist.isNotEmpty() && doneN == j.checklist.size) "Mark ready for collection" else "Mark ready" + if (j.checklist.isNotEmpty()) " ($doneN/${j.checklist.size} checklist)" else "") to { vm.markReady() }
                     // Bill settled before the car was done: checkout has nothing to collect, so
                     // the handover is recorded here — the only ready→delivered path for prepaid.
@@ -686,6 +710,15 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                 val muted = j.status == "delivered"
                 if (!deliveredOwing) Box(Modifier.fillMaxWidth().height(56.dp).background(if (muted || s.busy) InsetAlt else Accent, RoundedCornerShape(14.dp)).clickable(enabled = !s.busy) { action() }, contentAlignment = Alignment.Center) {
                     Text(if (s.busy) "Working…" else label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (muted || s.busy) TextSecondary else AccentInk)
+                }
+                if (paidAhead.isNotEmpty()) Box(
+                    Modifier.fillMaxWidth().height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable(enabled = !s.busy) { vm.markReady() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "Car still here — mark ready" + if (j.checklist.isNotEmpty()) " ($doneN/${j.checklist.size} checklist)" else "",
+                        color = if (s.busy) TextMuted else Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp,
+                    )
                 }
                 // A booking that won't happen can be cancelled (owner/manager) — the server
                 // resolves the bill in the same stroke: drafts go, unpaid bills void, money

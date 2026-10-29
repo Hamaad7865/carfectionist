@@ -303,6 +303,22 @@ export async function deliverPaidJobAction(jobId: string): Promise<Result> {
   return { ok: true };
 }
 
+/**
+ * Car collected on a bill paid at the counter before anyone marked the job ready
+ * (JOB-49B3). hand_back_paid_job finishes and delivers in one transaction and re-checks
+ * every bill through deliver_paid_job — a refusal leaves the job in progress. Same RPC as
+ * the tablet's "Car collected — mark delivered" on a paid in-progress job.
+ */
+export async function handBackPaidJobAction(jobId: string): Promise<Result> {
+  await requireRole("owner", "manager", "cashier");
+  const sb = await createClient();
+  const { error } = await sb.rpc("hand_back_paid_job", { p_job_id: jobId });
+  if (error) return { ok: false, error: error.message };
+  revalidatePath(`/jobs/${jobId}`);
+  revalidatePath("/jobs");
+  return { ok: true };
+}
+
 /** Cancel a job that hasn't been handed over — scheduled, in progress or ready. The RPC
  *  (owner/manager) resolves its bill in the
  *  same transaction: a draft is deleted, an unpaid bill voided, money already taken comes

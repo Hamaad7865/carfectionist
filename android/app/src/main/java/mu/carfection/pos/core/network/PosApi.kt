@@ -1103,6 +1103,15 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }).decodeAs()
 
     /**
+     * Car collected on a bill paid before anyone marked the job ready: finishes AND
+     * delivers in one server transaction (a refused handover leaves it in progress).
+     */
+    suspend fun handBackPaidJob(jobId: String): Boolean =
+        client.postgrest.rpc("hand_back_paid_job", buildJsonObject {
+            put("p_job_id", jobId)
+        }).decodeAs()
+
+    /**
      * Cancel a job that hasn't been handed over — scheduled, in progress or ready
      * (owner/manager). The server resolves its bill in
      * the same transaction: a draft is deleted, an unpaid bill voided, money already taken

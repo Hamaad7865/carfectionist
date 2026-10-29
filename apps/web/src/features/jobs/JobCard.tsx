@@ -20,6 +20,7 @@ import {
   setJobDepartmentAction,
   updateChecklistAction,
   deliverPaidJobAction,
+  handBackPaidJobAction,
   cancelJobAction,
   completeJobAction,
   createDocumentFromJobAction,
@@ -28,6 +29,7 @@ import {
   setJobScheduleAction,
 } from "./actions";
 import { estimatedFinish } from "./clock";
+import { paidAheadBills } from "./job-docs";
 import { btn } from "@/components/ui/button";
 
 const DOC_LABEL: Record<string, string> = { quote: "Quotation", invoice: "Invoice", credit_note: "Credit note" };
@@ -266,7 +268,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const [busy, setBusy] = useState(false);
   // Errors render next to the control that caused them — a banner pinned at the
   // top is invisible when the Billing/Complete buttons are below the fold.
-  const [error, setError] = useState<{ at: "top" | "photos" | "billing" | "bottom"; msg: string } | null>(null);
+  const [error, setError] = useState<{ at: "top" | "photos" | "billing" | "handover" | "bottom"; msg: string } | null>(null);
   const [docBusy, setDocBusy] = useState<null | "quote" | "invoice">(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
@@ -352,7 +354,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
     setEditWhen(false);
   }
 
-  async function run(fn: () => Promise<{ ok: boolean; error?: string }>, at: "top" | "bottom" = "top") {
+  async function run(fn: () => Promise<{ ok: boolean; error?: string }>, at: "top" | "handover" | "bottom" = "top") {
     setBusy(true);
     setError(null);
     const r = await fn();
@@ -377,7 +379,7 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
   const checkDone = checklist.filter((c) => c.done).length;
   const consumeName = (id: string) => refData.consumables.find((p) => p.id === id)?.name ?? id;
 
-  const errNote = (at: "top" | "photos" | "billing" | "bottom") =>
+  const errNote = (at: "top" | "photos" | "billing" | "handover" | "bottom") =>
     error?.at === at ? (
       <p className="my-3 rounded-[10px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[13px] text-rose">{error.msg}</p>
     ) : null;
@@ -672,6 +674,34 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
           </div>
         )}
       </div>
+
+      {/* Settled at the counter before anyone marked it ready (JOB-49B3): name the bill, so
+          nobody fears raising a second one, and offer the handover — a customer who has paid
+          has usually driven off. Completing below stays the path for a prepaid car that is
+          really still in the bay. */}
+      {(() => {
+        const paidAhead = paidAheadBills(job.status, job.documents);
+        if (paidAhead.length === 0) return null;
+        return (
+          <div className="mt-6 rounded-[15px] border border-[rgba(31,163,97,0.35)] bg-[rgba(31,163,97,0.07)] p-4">
+            <div className="text-[14px] font-bold text-mint">
+              Bill paid — {paidAhead.map((d) => d.number ?? "invoice").join(", ")} ·{" "}
+              <span className="num">{formatMUR(paidAhead.reduce((s, d) => s + d.totalCents, 0))}</span>
+            </div>
+            <p className="mt-1 text-[12.5px] text-muted">
+              Customer already left with the car? Record the handover. Still in the bay? Complete the job below as usual.
+            </p>
+            <button
+              onClick={() => run(() => handBackPaidJobAction(job.id), "handover")}
+              disabled={busy}
+              className="grad-brand shadow-brand mt-3 flex h-12 w-full items-center justify-center rounded-[13px] font-display text-[15px] font-extrabold text-white disabled:opacity-60"
+            >
+              Car collected — mark delivered
+            </button>
+            {errNote("handover")}
+          </div>
+        );
+      })()}
 
       {/* consumption + complete */}
       {!readOnly && (() => {
