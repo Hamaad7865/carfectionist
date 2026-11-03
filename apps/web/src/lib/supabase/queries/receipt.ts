@@ -321,7 +321,9 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
       .eq("document_id", id)
       .order("sort_order"),
     sb.from("payments").select("*").eq("document_id", id).order("received_at"),
-    sb.from("business_settings").select("trading_name, address, brn, vat_number, phone, receipt_footer_text, receipt_logo_path").limit(1).maybeSingle(),
+    // The bill's own shop: the public /t/[token] page reads on the service role, where an
+    // unfiltered read is whichever business_settings row comes back first.
+    sb.from("business_settings").select("trading_name, address, brn, vat_number, phone, receipt_footer_text, receipt_logo_path").eq("id", d.tenant_id).maybeSingle(),
     // This document's own earn row, if any (award_points_for_invoice, 20260811000030) — at
     // most one exists (idx_points_ledger_one_earn_per_doc). Harmless to run even when the
     // bill names no customer; the result is only READ when it does, below.

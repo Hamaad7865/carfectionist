@@ -14,9 +14,9 @@ import { getCustomerAgedStatement } from "@/lib/supabase/queries/reports";
  *  business header. Shared by the Z-report PDF endpoint and the email path. */
 export async function getZReportProps(id: string, sbOverride?: SupabaseClient<any>): Promise<ZReportA4Props | null> {
   const sb = sbOverride ?? (await createClient());
-  const { data: z } = await sb.from("z_reports").select("number, scope, totals, note, closed_at, closer:app_users!z_reports_closed_by_fkey(display_name)").eq("id", id).maybeSingle();
+  const { data: z } = await sb.from("z_reports").select("tenant_id, number, scope, totals, note, closed_at, closer:app_users!z_reports_closed_by_fkey(display_name)").eq("id", id).maybeSingle();
   if (!z) return null;
-  const { data: bs } = await sb.from("business_settings").select("*").limit(1).single();
+  const { data: bs } = await sb.from("business_settings").select("*").eq("id", z.tenant_id).maybeSingle();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const b: any = bs ?? {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -44,10 +44,13 @@ export async function getZReportProps(id: string, sbOverride?: SupabaseClient<an
  *  header, shared by the statement PDF endpoint and the email path. */
 export async function getStatementProps(customerId: string, sbOverride?: SupabaseClient<any>): Promise<StatementA4Props | null> {
   const sb = sbOverride ?? (await createClient());
-  const aged = await getCustomerAgedStatement(customerId);
-  if (!aged) return null;
+  const [aged, { data: cust }] = await Promise.all([
+    getCustomerAgedStatement(customerId),
+    sb.from("customers").select("tenant_id").eq("id", customerId).maybeSingle(),
+  ]);
+  if (!aged || !cust) return null;
 
-  const { data: bs } = await sb.from("business_settings").select("*").limit(1).single();
+  const { data: bs } = await sb.from("business_settings").select("*").eq("id", cust.tenant_id).maybeSingle();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const b: any = bs ?? {};
 
@@ -96,8 +99,14 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
     // vehicles(...) rides along so a document covering several cars prints its charges
     // under the right plate — the join is what makes the grouping possible at all.
     sb.from("document_lines").select("*, vehicles(id, plate, make, model)").eq("document_id", id).order("sort_order"),
-    sb.from("business_settings").select("*").limit(1).single(),
-    sb.from("document_templates").select("config").eq("is_default", true).maybeSingle(),
+    // The shop that owns the document. RLS narrows these to one tenant already, but the
+    // share link and the scheduled-send cron run on the service role, where an unfiltered
+    // read is whichever row comes back first — the sandbox's name and no BRN on a
+    // customer's invoice, or the live shop's terms on a sandbox one.
+    sb.from("business_settings").select("*").eq("id", doc.tenant_id).maybeSingle(),
+    // limit(1): a shop may keep one default per document type, and maybeSingle() errors
+    // on two rows — which left config {} and silently dropped the terms and banners.
+    sb.from("document_templates").select("config").eq("tenant_id", doc.tenant_id).eq("is_default", true).limit(1).maybeSingle(),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
