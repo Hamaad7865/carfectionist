@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { liveTenantId } from "@/lib/supabase/live-tenant";
 import { requireRole } from "@/lib/auth/session";
 
 const enquirySchema = z.object({
@@ -28,9 +29,7 @@ export async function submitEnquiryAction(input: z.input<typeof enquirySchema>):
   if (d.company && d.company.trim() !== "") return { ok: true };
 
   const admin = createAdminClient();
-  const { data: bs } = await admin.from("business_settings").select("id").limit(1).single();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const tenantId = (bs as any)?.id;
+  const tenantId = await liveTenantId(admin);
   if (!tenantId) return { ok: false, error: "Unable to submit right now." };
 
   const { error } = await admin.from("enquiries").insert({

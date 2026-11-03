@@ -1,4 +1,5 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { liveTenantId } from "@/lib/supabase/live-tenant";
 import { ingestInbound } from "@/lib/wa-inbox";
 import { verifyWebhookSignature, webhookVerifyToken, explainWaFailure } from "@/lib/whatsapp";
 
@@ -37,9 +38,9 @@ export async function POST(req: Request) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const entries = ((body as any)?.entry ?? []) as any[];
 
-  // Single-tenant deployment: resolve the studio once for the inbound writes.
-  const { data: bs } = await admin.from("business_settings").select("id").limit(1).maybeSingle();
-  const tenantId = (bs as { id?: string } | null)?.id ?? null;
+  // One WhatsApp number per deployment, and it is the live shop's — never the
+  // sandbox's. Resolved once for the inbound writes and the inbox ticks.
+  const tenantId = await liveTenantId(admin);
 
   for (const entry of entries) {
     for (const change of entry.changes ?? []) {
