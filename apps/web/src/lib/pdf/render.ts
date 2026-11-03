@@ -45,7 +45,11 @@ export async function htmlToPdf(html: string, paginate?: PaginatedPdf): Promise<
     const browser = await puppeteer.launch(browserBinding as any);
     try {
       const page = await browser.newPage();
-      await page.setContent(html, { waitUntil: "networkidle0" });
+      // "load", not "networkidle0": on Browser Run's Chrome 152 setContent never
+      // reports network-idle, even for a blank page, so every PDF timed out after
+      // 30 s (2026-11-03). "load" still waits for every <img> (banners, logo,
+      // signature) — the scrollHeight measured below needs them laid out.
+      await page.setContent(html, { waitUntil: "load" });
 
       let options: Record<string, unknown>;
       if (paginate) {
