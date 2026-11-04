@@ -2,37 +2,52 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import type { ExpenseRow } from "@/lib/supabase/queries/purchases";
 import { formatMUR, parseMoneyInput } from "@/lib/money";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { Modal } from "@/components/ui/Modal";
 import { FormError } from "@/components/ui/form";
-import { btn } from "@/components/ui/button";
-import { updateExpenseAction } from "./actions";
+import { btn, btnBase } from "@/components/ui/button";
+import { updateExpenseAction, deleteExpenseAction } from "./actions";
 import { ExpenseFields, expenseFormFrom, type ExpenseFormState } from "./ExpenseFields";
 
-// Date · category · description · status · amount · edit
-const GRID = "md:grid-cols-[100px_136px_1fr_92px_128px_32px]";
+// Date · category · description · status · amount · edit + delete
+const GRID = "md:grid-cols-[100px_132px_1fr_92px_120px_60px]";
 
-// 28px on touch, 24px on mouse: the pencil must not make every row taller than
-// the text it sits beside (the old row was 24px of text + py-3.5 = ~49px).
-const editBtn =
-  "grid size-7 md:size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-sub hover:text-brand " +
+// 28px on touch, 24px on mouse: two icons must not make every row taller than
+// the text they sit beside (the old row was 24px of text + py-3.5 = ~49px).
+const iconBtn =
+  "grid size-7 md:size-6 shrink-0 place-items-center rounded-md text-muted transition-colors hover:bg-sub " +
   "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand";
+const editBtn = `${iconBtn} hover:text-brand`;
+const deleteBtn = `${iconBtn} hover:text-rose`;
 
 /**
- * Expenses list with a per-row edit dialog. Rows are server-rendered data, but a
- * mistake can only be fixed where the handler lives, so the row markup moved
- * into this client island to carry the pencil + modal. Totals stay computed on
- * the server (and are recomputed there after the refresh).
+ * Expenses list with a per-row edit dialog and (owner/manager only) delete
+ * confirmation. Rows are server-rendered data, but a mistake can only be fixed
+ * where the handler lives, so the row markup moved into this client island.
+ * Totals stay computed on the server and are recomputed after the refresh.
  */
-export function ExpensesPanel({ expenses, totalCents }: { expenses: ExpenseRow[]; totalCents: number }) {
+export function ExpensesPanel({
+  expenses,
+  totalCents,
+  canDelete,
+}: {
+  expenses: ExpenseRow[];
+  totalCents: number;
+  /** Mirrors the exp_delete RLS policy: owner/manager only. */
+  canDelete: boolean;
+}) {
   const router = useRouter();
   const [editing, setEditing] = useState<ExpenseRow | null>(null);
   const [form, setForm] = useState<ExpenseFormState | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [deleting, setDeleting] = useState<ExpenseRow | null>(null);
+  const [delBusy, setDelBusy] = useState(false);
+  const [delError, setDelError] = useState<string | null>(null);
 
   function launch(row: ExpenseRow) {
     setEditing(row);
@@ -76,6 +91,29 @@ export function ExpensesPanel({ expenses, totalCents }: { expenses: ExpenseRow[]
     } else setError(res.error);
   }
 
+  function launchDelete(row: ExpenseRow) {
+    setDeleting(row);
+    setDelError(null);
+  }
+
+  function closeDelete() {
+    if (delBusy) return;
+    setDeleting(null);
+    setDelError(null);
+  }
+
+  async function remove() {
+    if (!deleting) return;
+    setDelError(null);
+    setDelBusy(true);
+    const res = await deleteExpenseAction(deleting.id);
+    setDelBusy(false);
+    if (res.ok) {
+      setDeleting(null);
+      router.refresh();
+    } else setDelError(res.error);
+  }
+
   return (
     <>
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
@@ -103,11 +141,16 @@ export function ExpensesPanel({ expenses, totalCents }: { expenses: ExpenseRow[]
                   </div>
                   <div className="mt-1 flex items-center justify-between gap-3">
                     <span className="min-w-0 truncate text-[11.5px] text-muted">{e.category} · {e.date}</span>
-                    <div className="flex shrink-0 items-center gap-1.5">
+                    <div className="flex shrink-0 items-center gap-1">
                       <StatusPill status={e.status} />
                       <button onClick={() => launch(e)} aria-label={`Edit ${label}`} title="Edit expense" className={editBtn}>
                         <Pencil size={14} />
                       </button>
+                      {canDelete && (
+                        <button onClick={() => launchDelete(e)} aria-label={`Delete ${label}`} title="Delete expense" className={deleteBtn}>
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -119,9 +162,16 @@ export function ExpensesPanel({ expenses, totalCents }: { expenses: ExpenseRow[]
                   <span className="min-w-0 font-semibold text-body">{label}</span>
                   <span><StatusPill status={e.status} /></span>
                   <span className="num text-right font-bold text-ink">{formatMUR(e.amountCents + e.vatCents)}</span>
-                  <button onClick={() => launch(e)} aria-label={`Edit ${label}`} title="Edit expense" className={editBtn}>
-                    <Pencil size={14} />
-                  </button>
+                  <div className="flex items-center justify-end gap-0.5">
+                    <button onClick={() => launch(e)} aria-label={`Edit ${label}`} title="Edit expense" className={editBtn}>
+                      <Pencil size={14} />
+                    </button>
+                    {canDelete && (
+                      <button onClick={() => launchDelete(e)} aria-label={`Delete ${label}`} title="Delete expense" className={deleteBtn}>
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -154,6 +204,35 @@ export function ExpensesPanel({ expenses, totalCents }: { expenses: ExpenseRow[]
             <ExpenseFields form={form} set={set} layout="modal" />
             <p className="text-[11.5px] text-faint">
               Corrections flow straight into input VAT and the profit &amp; loss report.
+            </p>
+          </div>
+        )}
+      </Modal>
+
+      <Modal
+        open={!!deleting}
+        onClose={closeDelete}
+        title="Delete this expense?"
+        subtitle={deleting ? `${deleting.category} · ${deleting.date}` : undefined}
+        footer={
+          <div className="flex items-center justify-end gap-2">
+            <button onClick={closeDelete} disabled={delBusy} className={btn("quiet", "lg")}>Cancel</button>
+            <button onClick={remove} disabled={delBusy} className={btnBase("lg", "bg-rose px-5 font-bold text-white")}>
+              {delBusy ? "Deleting…" : "Delete expense"}
+            </button>
+          </div>
+        }
+      >
+        {deleting && (
+          <div className="flex flex-col gap-3">
+            <FormError error={delError} />
+            <div className="rounded-[12px] border border-line bg-sub px-3.5 py-3">
+              <div className="text-[13px] font-semibold text-body">{deleting.description ?? deleting.category}</div>
+              <div className="num mt-1 text-[15px] font-extrabold text-ink">{formatMUR(deleting.amountCents + deleting.vatCents)}</div>
+            </div>
+            <p className="text-[12.5px] leading-[1.5] text-muted">
+              It comes out of expenses, input VAT and profit immediately. This can’t be undone — what it was and who
+              deleted it stay in the Activity log.
             </p>
           </div>
         )}

@@ -14,6 +14,7 @@ export function fakeAdmin(tables: Record<string, Row[]>) {
     const orders: [string, 1 | -1][] = []; // first call is the primary key, as in PostgREST
     let limit = Infinity;
     let patch: Row | null = null;
+    let removing = false;
 
     // Evaluated when the chain ends, so call order doesn't matter — same as SQL.
     const run = () =>
@@ -62,10 +63,21 @@ export function fakeAdmin(tables: Record<string, Row[]>) {
         patch = p;
         return proxy;
       },
-      // Awaiting the chain runs it: an update writes to the rows the filters kept.
+      delete: () => {
+        removing = true;
+        return proxy;
+      },
+      // Awaiting the chain runs it: an update writes to the rows the filters keep,
+      // a delete removes them and hands them back as `data` (as PostgREST does).
       then: (resolve: (v: unknown) => void) => {
         const rows = run();
         if (patch) for (const r of rows) Object.assign(r, patch);
+        if (removing) {
+          for (const r of rows) {
+            const i = all.indexOf(r);
+            if (i >= 0) all.splice(i, 1);
+          }
+        }
         resolve({ data: rows, error: null });
       },
     };

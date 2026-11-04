@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents, formatMUR } from "@/lib/money";
 
 export type ActivityTone = "sale" | "money" | "stock" | "cash" | "job" | "admin" | "warn" | "neutral" | "auth";
-export type ActivityCategory = "sales" | "payments" | "stock" | "cash" | "jobs" | "admin" | "catalogue" | "auth";
+export type ActivityCategory = "sales" | "payments" | "expenses" | "stock" | "cash" | "jobs" | "admin" | "catalogue" | "auth";
 
 export interface ActivityEvent {
   id: string;
@@ -27,6 +27,7 @@ export interface ActivityData {
 export const ACTIVITY_CATEGORIES: { key: ActivityCategory; label: string }[] = [
   { key: "sales", label: "Sales" },
   { key: "payments", label: "Payments" },
+  { key: "expenses", label: "Purchases" },
   { key: "stock", label: "Stock" },
   { key: "cash", label: "Cash-up" },
   { key: "jobs", label: "Jobs" },
@@ -241,6 +242,22 @@ function mapAudit(a: any, nm: (id: string | null) => string): ActivityEvent | nu
       return { ...base, kind: "technician_assigned", category: "jobs", title: "Technician assigned", detail: p.tech ? String(p.tech) : "—", amountCents: null, href: a.ref_id ? `/jobs/${a.ref_id}` : null, tone: "job" };
     case "signed_in":
       return { ...base, kind: "signed_in", category: "auth", title: "Signed in", detail: p.device === "pos" ? "POS tablet" : "Web", amountCents: null, href: null, tone: "auth" };
+    case "expense.deleted": {
+      // The row is gone, so this is the only place the expense still exists —
+      // keep what it was and what it cost, not just "an expense was deleted".
+      const net = money(p.amount);
+      const vat = money(p.vat) ?? 0;
+      return {
+        ...base,
+        kind: "expense_deleted",
+        category: "expenses",
+        title: `Expense deleted${p.description ? ` — ${p.description}` : ""}`,
+        detail: [p.category, p.date].filter(Boolean).join(" · ") || "—",
+        amountCents: net != null ? net + vat : null,
+        href: "/purchases",
+        tone: "warn",
+      };
+    }
     default: {
       const title = ADMIN_TITLE[a.event_type as string];
       if (!title) return null;
