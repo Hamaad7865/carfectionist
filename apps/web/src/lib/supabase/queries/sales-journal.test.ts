@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSalesJournal, allocate, facetsOf, saleMethodLabelFor, servicePlates, BACK_OFFICE, UNCATEGORISED, type JournalInput, type RawLine } from "./sales-journal";
+import { buildSalesJournal, allocate, facetsOf, saleMethodLabelFor, servicePlates, servicesDone, serviceLabel, servicesLabel, BACK_OFFICE, UNCATEGORISED, type JournalInput, type RawLine } from "./sales-journal";
 
 // The property this report lives or dies by: EVERY section foots to the same
 // pair of totals — the MONEY RECEIVED in the period, the cash basis the owner
@@ -605,5 +605,81 @@ describe("servicePlates — which bills name a car", () => {
     expect(servicePlates({ vehicle_id: "v3" }, [svc()], plates)).toEqual(["5 JN 21"]);
     expect(servicePlates({ job_id: "j9" }, [adhoc("Polish")], plates, new Map([["j9", "v2"]]))).toEqual(["88 MR 03"]);
     expect(servicePlates({}, [svc()], plates)).toEqual([]);
+  });
+});
+
+describe("servicesDone — what a bill's own dropdown lists", () => {
+  const plates = new Map([["v1", "1234 AB 26"], ["v2", "88 MR 03"]]);
+  const line = (name: string | null, kind: string | null, over: Partial<RawLine> = {}): RawLine => ({
+    document_id: "d", title: name ?? "", qty: 1, unit_price: 100, vat_rate: 15, line_total_excl: 100, line_vat: 15,
+    products: kind ? { name: name ?? "", category: "X", kind } : null, ...over,
+  });
+
+  it("lists the services and leaves the shelf products out", () => {
+    const lines = [line("Full valet", "service"), line("WIPER 24", "product"), line("Engine bay clean", "service")];
+    expect(servicesDone({ vehicle_id: "v1" }, lines, plates)).toEqual([
+      { name: "Full valet", qty: 1, plate: null },
+      { name: "Engine bay clean", qty: 1, plate: null },
+    ]);
+  });
+
+  it("counts what was typed in on a service bill — that is how job work gets written", () => {
+    // A job bill with no catalogue service at all, like INV-0489.
+    const lines = [line("BASS AMPLIFIED JBL", "product"), line("LABOUR & WIRING", null), line("LABOUR TO INSTALL DASHCAM", null)];
+    expect(servicesDone({ job_id: "j1" }, lines, plates).map((s) => s.name)).toEqual(["LABOUR & WIRING", "LABOUR TO INSTALL DASHCAM"]);
+  });
+
+  it("lists nothing for a sale that is not a service bill", () => {
+    expect(servicesDone({ vehicle_id: "v1" }, [line("WIPER 24", "product"), line("Gift wrap", null)], plates)).toEqual([]);
+  });
+
+  it("follows the order printed on the bill, not the order the rows arrived in", () => {
+    const lines = [line("Polish", "service", { sort_order: 2 }), line("Wash", "service", { sort_order: 1 })];
+    expect(servicesDone({}, lines, plates).map((s) => s.name)).toEqual(["Wash", "Polish"]);
+  });
+
+  it("rolls the same service into one entry with its quantities added, ignoring case", () => {
+    const lines = [line("Overdirt", null), line("OVERDIRT", null, { qty: 2 }), line("Full valet", "service")];
+    expect(servicesDone({ job_id: "j1" }, lines, plates)).toEqual([
+      { name: "Overdirt", qty: 3, plate: null },
+      { name: "Full valet", qty: 1, plate: null },
+    ]);
+  });
+
+  it("names the car on each service when the bill covers several", () => {
+    // Same service on two cars stays two entries — the car is what tells them apart.
+    const lines = [
+      line("Full valet", "service", { vehicle_id: "v1" }),
+      line("Full valet", "service", { vehicle_id: "v2" }),
+      line("Ceramic coating", "service", { vehicle_id: "v2" }),
+    ];
+    const s = servicesDone({ vehicle_id: "v1" }, lines, plates);
+    expect(s).toEqual([
+      { name: "Full valet", qty: 1, plate: "1234 AB 26" },
+      { name: "Full valet", qty: 1, plate: "88 MR 03" },
+      { name: "Ceramic coating", qty: 1, plate: "88 MR 03" },
+    ]);
+    expect(servicesLabel(s)).toBe("Full valet (1234 AB 26) · Full valet (88 MR 03) · Ceramic coating (88 MR 03)");
+  });
+
+  it("writes quantities without trailing zeros", () => {
+    expect(serviceLabel({ name: "Wash", qty: 2, plate: null })).toBe("Wash ×2");
+    expect(serviceLabel({ name: "Polish", qty: 1.5, plate: null })).toBe("Polish ×1.5");
+    expect(serviceLabel({ name: "Valet", qty: 1, plate: null })).toBe("Valet");
+  });
+
+  it("reaches the bill refs the journal lists", () => {
+    // d3 off a job card, its call-out a catalogue service and its wash typed in by hand.
+    const j = J({
+      docs: input().docs.map((d) => (d.id === "d3" ? { ...d, job_id: "j3" } : d)),
+      lines: input().lines.map((l) =>
+        l.document_id !== "d3" ? l
+        : l.products?.name === "Call-out" ? { ...l, products: { ...l.products, kind: "service" } }
+        : { ...l, title: "Exterior wash", products: null }),
+    });
+    expect(j.payments.find((p) => p.method === "cash")!.invoices[0].services.map((s) => s.name)).toEqual(["Call-out", "Exterior wash"]);
+    // d1: catalogue lines, no service among them and no job — not a service bill.
+    expect(j.payments.find((p) => p.method === "card")!.invoices[0].services).toEqual([]);
+    expectFooting(j); // listing services moves no money
   });
 });

@@ -23,6 +23,9 @@ const money = (c: number) => formatMUR(c);
 
 export interface JournalTableRow {
   label: string;
+  /** A quiet second line under the label — e.g. a bill's services. Wraps freely,
+   *  unlike the right-hand cells, which never break. */
+  sub?: string | null;
   /** rendered right-aligned, in order; a null renders as an empty cell */
   cells: (string | null)[];
   emphasis?: boolean;
@@ -134,7 +137,10 @@ export function SalesJournalA4(p: SalesJournalA4Props) {
               ) : (
                 t.rows.map((r, ri) => (
                   <tr key={r.label + ri}>
-                    <td style={{ ...td, fontWeight: 600 }}>{r.label}</td>
+                    <td style={{ ...td, fontWeight: 600 }}>
+                      {r.label}
+                      {r.sub && <div style={{ fontSize: 8.5, fontWeight: 400, color: MUTED, marginTop: 2 }}>{r.sub}</div>}
+                    </td>
                     {r.cells.map((c, i) => (
                       <td key={i} style={{ ...td, ...right, color: i === r.cells.length - 1 ? INK : MUTED, fontWeight: i === r.cells.length - 1 ? 700 : 400 }}>
                         {c ?? ""}

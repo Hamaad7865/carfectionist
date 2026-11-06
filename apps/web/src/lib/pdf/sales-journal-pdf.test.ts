@@ -123,6 +123,8 @@ describe("sales journal PDF — the figures match the screen", () => {
     expect(memo.rows.map((r) => [r.label, ...r.cells])).toEqual([
       ["INV-0165 (billed 2026-07-20)", "KHADAFEE JAWAHEERKHAN", "4521 ZR 19", "Rs 1,200.00"],
     ]);
+    // …and the work done, under the bill — the PDF's stand-in for the screen's dropdown.
+    expect(memo.rows[0].sub).toBe("Exterior wash");
     expect(memo.total.cells).toEqual([null, null, "Rs 1,200.00"]);
   });
 
@@ -146,6 +148,7 @@ describe("sales journal PDF — the figures match the screen", () => {
     });
     const memo = toJournalTables(shelf).find((x) => x.title === "Settled earlier bills")!;
     expect(memo.rows.map((r) => r.cells)).toEqual([["KHADAFEE JAWAHEERKHAN", null, "Rs 575.00"]]);
+    expect(memo.rows[0].sub).toBeNull(); // and no services line
   });
 
   it("categories, with each share of ex-VAT", () => {

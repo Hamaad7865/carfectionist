@@ -83,10 +83,32 @@ export interface JournalInvoiceRef {
    *  service (see `servicePlates`). Empty for a retail sale, or a bill with no car
    *  on file. Several on a one-visit-several-cars bill, in line order. */
   plates: string[];
+  /** The work done — what the bill's own dropdown lists. Empty unless the bill is
+   *  a service bill (same rule as `plates`, see `servicesDone`). */
+  services: ServiceDone[];
+}
+
+/** One service on a bill, repeats of the same service rolled into one. */
+export interface ServiceDone {
+  name: string;
+  qty: number;
+  /** Which car it was for — set only on a bill covering several cars, where it is
+   *  the one thing that tells two "Full valet" lines apart. */
+  plate: string | null;
 }
 
 /** How a bill's plates read on one line, on screen and on the PDF alike. */
 export const platesLabel = (plates: string[]) => plates.join(" · ");
+
+/** "2" for a whole quantity, "1.5" for a part one — never "2.000". */
+export const qtyLabel = (qty: number) => String(Number(qty.toFixed(3)));
+
+/** One service as text: "Full valet ×2 (1234 AB 26)". */
+export const serviceLabel = (s: ServiceDone) =>
+  `${s.name}${s.qty !== 1 ? ` ×${qtyLabel(s.qty)}` : ""}${s.plate ? ` (${s.plate})` : ""}`;
+
+/** All of a bill's services on one line — the PDF, which has no dropdowns. */
+export const servicesLabel = (services: ServiceDone[]) => services.map(serviceLabel).join(" · ");
 export interface PaymentRow {
   method: string;
   label: string;
@@ -223,6 +245,8 @@ export interface RawLine {
   title?: string | null;
   /** The car this charge was for (one visit, several cars — 20260905000020). */
   vehicle_id?: string | null;
+  /** The line's place on the bill — services are listed in this order. */
+  sort_order?: number | null;
   qty: number | string;
   unit_price: number | string;
   vat_rate: number | string;
@@ -295,28 +319,40 @@ export function allocate(total: number, weights: number[]): number[] {
   return floor;
 }
 
+/** What a line is called on the journal — the catalogue name, else what was typed. */
+const itemName = (l: RawLine) => (l.products?.name ?? l.title ?? "").trim() || "Ad-hoc item";
+
+/** The bill's lines in the order they were printed on it. */
+const inBillOrder = (lines: RawLine[]) => [...lines].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+
+type ServiceDoc = { vehicle_id?: string | null; job_id?: string | null };
+
 /**
- * The plate(s) a bill's dropdown row shows — only when the bill IS, or CONTAINS,
- * a service (the owner's rule, 6 Nov 2026). A bill counts as a service when any
- * line is a catalogue `service` product, or when it came off a job card: job
- * bills often carry their labour as free-typed lines ("LABOUR & WIRING"), and a
- * catalogue check alone would miss them. A shelf sale to a customer who happens
- * to have a car on file is NOT a service and shows no plate.
+ * Is this a service bill — one that IS, or CONTAINS, a service (the owner's rule,
+ * 6 Nov 2026)? Yes when any line is a catalogue `service` product, or when it came
+ * off a job card: job bills often carry their labour as free-typed lines ("LABOUR
+ * & WIRING", "FULL STEAM VALETING"), and a catalogue check alone would miss them.
+ * A shelf sale to a customer who happens to have a car on file is not.
+ */
+export const isServiceBill = (doc: ServiceDoc, lines: RawLine[]) =>
+  !!doc.job_id || lines.some((l) => l.products?.kind === "service");
+
+/**
+ * The plate(s) a bill's dropdown row shows — service bills only (isServiceBill).
  *
  * Which car: every distinct line car, in line order (a one-visit-several-cars
  * bill names each), else the bill's own car (bills from before per-line cars),
  * else its job's car. No car anywhere → nothing, rather than a guess.
  */
 export function servicePlates(
-  doc: { vehicle_id?: string | null; job_id?: string | null },
+  doc: ServiceDoc,
   lines: RawLine[],
   vehiclePlate: Map<string, string>,
   jobVehicle: Map<string, string> = new Map(),
 ): string[] {
-  const isService = !!doc.job_id || lines.some((l) => l.products?.kind === "service");
-  if (!isService) return [];
+  if (!isServiceBill(doc, lines)) return [];
   const cars: string[] = [];
-  for (const l of lines) if (l.vehicle_id && !cars.includes(l.vehicle_id)) cars.push(l.vehicle_id);
+  for (const l of inBillOrder(lines)) if (l.vehicle_id && !cars.includes(l.vehicle_id)) cars.push(l.vehicle_id);
   if (cars.length === 0 && doc.vehicle_id) cars.push(doc.vehicle_id);
   if (cars.length === 0 && doc.job_id && jobVehicle.has(doc.job_id)) cars.push(jobVehicle.get(doc.job_id)!);
   const plates: string[] = [];
@@ -325,6 +361,38 @@ export function servicePlates(
     if (plate && !plates.includes(plate)) plates.push(plate);
   }
   return plates;
+}
+
+/**
+ * The services done on a bill — what the bill's own dropdown lists. Service bills
+ * only (isServiceBill), in the order they were printed on the bill.
+ *
+ * A catalogue `service` line always counts; a shelf product (wipers, a shampoo)
+ * never does, even on a job. A free-typed line counts too, because on a service
+ * bill that is how the work gets written: of the job bills with no catalogue
+ * service at all, nearly every line is typed ("wash only SUV", "Window Tint 25%",
+ * "diagnosis"). The odd typed part ("PARKING SENSOR") rides along with them —
+ * better than a job bill that lists nothing.
+ *
+ * The same service twice (same name, ignoring case, same car) is one entry with
+ * its quantities added. On a bill covering several cars each entry names its car.
+ */
+export function servicesDone(doc: ServiceDoc, lines: RawLine[], vehiclePlate: Map<string, string>): ServiceDone[] {
+  if (!isServiceBill(doc, lines)) return [];
+  const ordered = inBillOrder(lines);
+  const multiCar = new Set(ordered.map((l) => l.vehicle_id).filter(Boolean)).size > 1;
+  const out: ServiceDone[] = [];
+  for (const l of ordered) {
+    const isService = l.products?.kind === "service" || !l.products;
+    if (!isService) continue;
+    const name = itemName(l);
+    const plate = multiCar && l.vehicle_id ? (vehiclePlate.get(l.vehicle_id)?.trim() || null) : null;
+    const qty = Number(l.qty);
+    const same = out.find((s) => s.name.toLowerCase() === name.toLowerCase() && s.plate === plate);
+    if (same) same.qty += qty;
+    else out.push({ name, qty, plate });
+  }
+  return out;
 }
 
 /** "HH:MM" → minutes since midnight, or null if unparseable. */
@@ -371,8 +439,6 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     if (arr) arr.push(l);
     else linesByDoc.set(l.document_id, [l]);
   }
-  const itemName = (l: RawLine) => (l.products?.name ?? l.title ?? "").trim() || "Ad-hoc item";
-
   const t0 = minutes(filters.timeFrom);
   const t1 = minutes(filters.timeTo);
 
@@ -459,6 +525,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
       businessDay: d.business_day,
       earlier: !keep.has(docId),
       plates: servicePlates(d, linesByDoc.get(d.id) ?? [], vehiclePlate, jobVehicle),
+      services: servicesDone(d, linesByDoc.get(d.id) ?? [], vehiclePlate),
     };
   };
   /** Collapse repeat settlements of one bill into a single dropdown entry. */
@@ -758,7 +825,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     fetchAllRows<any>(() =>
       sb
         .from("document_lines")
-        .select("id, document_id, title, qty, unit_price, vat_rate, line_total_excl, line_vat, price_includes_vat, vehicle_id, products(name, category, kind)")
+        .select("id, document_id, title, qty, unit_price, vat_rate, line_total_excl, line_vat, price_includes_vat, vehicle_id, sort_order, products(name, category, kind)")
         .in("document_id", lineDocIds),
     ),
     sessionIds.length ? fetchAllRows<any>(() => sb.from("cash_sessions").select("id, device_id").in("id", sessionIds)) : Promise.resolve([] as any[]),
@@ -855,7 +922,7 @@ export function facetsOf(input: JournalInput): JournalFacets {
   // stranger bills' lines too (their money needs them), but a service the period
   // never sold has no business in the period's filter dropdown.
   const inPeriod = new Set(input.docs.map((d) => d.id));
-  for (const l of input.lines) if (inPeriod.has(l.document_id)) services.add((l.products?.name ?? l.title ?? "").trim() || "Ad-hoc item");
+  for (const l of input.lines) if (inPeriod.has(l.document_id)) services.add(itemName(l));
   const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b));
   return { devices: sorted(devices), services: sorted(services), users: sorted(users) };
 }

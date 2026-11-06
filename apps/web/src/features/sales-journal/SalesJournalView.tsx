@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Receipt } from "lucide-react";
 import { formatMUR } from "@/lib/money";
 import { btn } from "@/components/ui/button";
-import { platesLabel, type SalesJournal, type JournalInvoiceRef } from "@/lib/supabase/queries/sales-journal";
+import { platesLabel, qtyLabel, type SalesJournal, type JournalInvoiceRef } from "@/lib/supabase/queries/sales-journal";
 import { rangeLabel, shortRangeLabel, type Range } from "./periods";
 
 // The Cashmag "Journal de ventes": one period, aggregated once, broken down five
@@ -438,51 +438,106 @@ function Drawer({
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">{head}</summary>
       <div className="border-b border-line bg-sub">
         {invoices.map((r) => (
-          <div
-            key={r.id}
-            className="grid items-center gap-3 px-5 py-2 pl-10 text-[12.5px] text-muted"
-            style={{ gridTemplateColumns: "1fr 150px 180px" }}
-          >
-            <span className="flex items-center gap-2 truncate">
-              {/* The bill itself: opens the invoice screen (lines, payments, corrections). */}
-              <Link
-                href={`/sales/${r.id}`}
-                title={`Open ${r.number ?? "invoice"}`}
-                className="flex min-w-0 items-center gap-2 truncate rounded hover:underline"
-              >
-                <span className="num shrink-0 font-semibold text-brand">{r.number ?? "—"}</span>
-                <span className="truncate">{r.customer ?? "Walk-in customer"}</span>
-                {/* Service bills only: which car the work was on. */}
-                {r.plates.length > 0 && (
-                  <span
-                    title={r.plates.length > 1 ? "Vehicles" : "Vehicle"}
-                    className="num shrink-0 rounded border border-line-2 bg-card px-1.5 py-px text-[11px] font-bold uppercase tracking-wide text-body"
-                  >
-                    {platesLabel(r.plates)}
-                  </span>
-                )}
-              </Link>
-              {/* Why this bill is here at all when it was raised in another period. */}
-              {r.earlier && (
-                <span className="shrink-0 rounded-full bg-band px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-amber-ink">
-                  billed {r.businessDay}
-                </span>
-              )}
-              {/* The paper the customer got: opens as a modal over this screen. */}
-              <Link
-                href={`/sales-journal?${query}&receipt=${encodeURIComponent(r.id)}`}
-                scroll={false}
-                title="View receipt"
-                className={btn("subtle", "sm", "h-7 px-2 text-[11.5px]")}
-              >
-                <Receipt size={13} /> Receipt
-              </Link>
-            </span>
-            <span />
-            <span className="num text-right font-semibold text-body">{money(r.cents)}</span>
-          </div>
+          <BillRow key={r.id} r={r} query={query} />
         ))}
       </div>
+    </details>
+  );
+}
+
+/** A plate, styled like a number plate so it reads at a glance. */
+function PlateChip({ plate, title = "Vehicle" }: { plate: string; title?: string }) {
+  return (
+    <span
+      title={title}
+      className="num shrink-0 rounded border border-line-2 bg-card px-1.5 py-px text-[11px] font-bold uppercase tracking-wide text-body"
+    >
+      {plate}
+    </span>
+  );
+}
+
+/**
+ * One bill inside a method's dropdown. A service bill is itself a dropdown — a
+ * second level, the owner's ask (6 Nov 2026) — that opens to the services done.
+ * Anything else (a shelf sale) stays a plain row. Also native <details>: the two
+ * links inside the summary are interactive content, so clicking them navigates
+ * without toggling, and clicking anywhere else on the row opens it.
+ */
+function BillRow({ r, query }: { r: JournalInvoiceRef; query: string }) {
+  const hasServices = r.services.length > 0;
+  const row = (
+    <div
+      className="grid items-center gap-3 px-5 py-2 pl-10 text-[12.5px] text-muted"
+      style={{ gridTemplateColumns: "1fr 150px 180px" }}
+    >
+      <span className="flex items-center gap-2 truncate">
+        {/* The toggle slot is kept on plain rows too, so every bill number lines up. */}
+        <span className="w-3 shrink-0 select-none text-[9px] text-faint">
+          {hasServices && <span className="inline-block transition-transform group-open/bill:rotate-90">▶</span>}
+        </span>
+        {/* The bill itself: opens the invoice screen (lines, payments, corrections). */}
+        <Link
+          href={`/sales/${r.id}`}
+          title={`Open ${r.number ?? "invoice"}`}
+          className="flex min-w-0 items-center gap-2 truncate rounded hover:underline"
+        >
+          <span className="num shrink-0 font-semibold text-brand">{r.number ?? "—"}</span>
+          <span className="truncate">{r.customer ?? "Walk-in customer"}</span>
+          {/* Service bills only: which car the work was on. */}
+          {r.plates.length > 0 && (
+            <PlateChip plate={platesLabel(r.plates)} title={r.plates.length > 1 ? "Vehicles" : "Vehicle"} />
+          )}
+        </Link>
+        {hasServices && (
+          <span className="num shrink-0 text-[11.5px] font-medium text-faint">
+            ({r.services.length} {r.services.length === 1 ? "service" : "services"})
+          </span>
+        )}
+        {/* Why this bill is here at all when it was raised in another period. */}
+        {r.earlier && (
+          <span className="shrink-0 rounded-full bg-band px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-amber-ink">
+            billed {r.businessDay}
+          </span>
+        )}
+        {/* The paper the customer got: opens as a modal over this screen. */}
+        <Link
+          href={`/sales-journal?${query}&receipt=${encodeURIComponent(r.id)}`}
+          scroll={false}
+          title="View receipt"
+          className={btn("subtle", "sm", "h-7 px-2 text-[11.5px]")}
+        >
+          <Receipt size={13} /> Receipt
+        </Link>
+      </span>
+      <span />
+      <span className="num text-right font-semibold text-body">{money(r.cents)}</span>
+    </div>
+  );
+
+  if (!hasServices) return row;
+
+  return (
+    // A NAMED group: this sits inside the method's own <details>, whose plain
+    // `group` would otherwise turn this arrow too whenever the method is open.
+    <details className="group/bill">
+      <summary
+        title="Show the services done"
+        className="cursor-pointer list-none hover:bg-band/60 [&::-webkit-details-marker]:hidden"
+      >
+        {row}
+      </summary>
+      {/* Indented to the bill number above (row pl-10 + toggle slot + gap). */}
+      <ul className="pb-2.5 pl-[60px] pr-5 text-[12.5px] text-body">
+        {r.services.map((s, i) => (
+          <li key={`${s.name}-${s.plate ?? ""}-${i}`} className="flex items-center gap-2 py-0.5">
+            <span className="h-1 w-1 shrink-0 rounded-full bg-current text-faint" />
+            <span className="font-medium">{s.name}</span>
+            {s.qty !== 1 && <span className="num text-faint">×{qtyLabel(s.qty)}</span>}
+            {s.plate && <PlateChip plate={s.plate} />}
+          </li>
+        ))}
+      </ul>
     </details>
   );
 }
