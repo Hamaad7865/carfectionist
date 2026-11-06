@@ -3,7 +3,7 @@ import { SalesJournalA4, type SalesJournalA4Props, type JournalTable } from "@/c
 import { htmlToPdf, documentHtml } from "@/lib/pdf/render";
 import { formatMUR } from "@/lib/money";
 import { muDayLabel } from "@/lib/mu-date";
-import type { SalesJournal } from "@/lib/supabase/queries/sales-journal";
+import { platesLabel, type SalesJournal } from "@/lib/supabase/queries/sales-journal";
 import { rangeLabel, shortRangeLabel, type Range } from "@/features/sales-journal/periods";
 
 // SalesJournal → the printable A4 shape. Kept out of the route (and free of any
@@ -51,12 +51,13 @@ export function toJournalTables(j: SalesJournal): JournalTable[] {
     ...(j.settlingEarlierCents !== 0
       ? [{
           title: "Settled earlier bills",
-          head: ["Bill", "Customer", "Amount"],
+          head: ["Bill", "Customer", "Vehicle", "Amount"],
           rows: j.settlingEarlier.map((r) => ({
             label: `${r.number ?? "—"}${r.earlier && r.businessDay ? ` (billed ${r.businessDay})` : ""}`,
-            cells: [r.customer ?? "Walk-in customer", money(r.cents)],
+            // Vehicle: service bills only, as on screen — blank for a shelf sale.
+            cells: [r.customer ?? "Walk-in customer", platesLabel(r.plates) || null, money(r.cents)],
           })),
-          total: { label: "Total", cells: [null, money(j.settlingEarlierCents)] },
+          total: { label: "Total", cells: [null, null, money(j.settlingEarlierCents)] },
         }]
       : []),
     {

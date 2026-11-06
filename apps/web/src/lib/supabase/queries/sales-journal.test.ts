@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildSalesJournal, allocate, facetsOf, saleMethodLabelFor, BACK_OFFICE, UNCATEGORISED, type JournalInput } from "./sales-journal";
+import { buildSalesJournal, allocate, facetsOf, saleMethodLabelFor, servicePlates, BACK_OFFICE, UNCATEGORISED, type JournalInput, type RawLine } from "./sales-journal";
 
 // The property this report lives or dies by: EVERY section foots to the same
 // pair of totals — the MONEY RECEIVED in the period, the cash basis the owner
@@ -407,6 +407,46 @@ describe("sales journal — money is dated by when it ARRIVED", () => {
     expect(cash.invoices.map((r) => r.number)).toEqual(["INV-3"]);
   });
 
+  it("names the car on a service bill in the method's dropdown, and not on a shelf sale", () => {
+    const j = J({
+      docs: input().docs.map((d) => (d.id === "d3" ? { ...d, vehicle_id: "v1" } : d.id === "d2" ? { ...d, vehicle_id: "v2" } : d)),
+      lines: input().lines.map((l) =>
+        l.document_id === "d3" ? { ...l, products: { ...l.products!, kind: "service" } }
+        : l.document_id === "d2" ? { ...l, products: { ...l.products!, kind: "product" } }
+        : l),
+      vehiclePlate: new Map([["v1", "1234 AB 26"], ["v2", "77 ZZ 05"]]),
+    });
+    expect(j.payments.find((p) => p.method === "cash")!.invoices[0]).toMatchObject({ number: "INV-3", plates: ["1234 AB 26"] });
+    // d2 has a car on file but sold a product: no plate.
+    expect(j.payments.find((p) => p.method === "juice")!.invoices[0].plates).toEqual([]);
+    expectFooting(j); // presentation only — not a cent moves
+  });
+
+  it("names the car on a bill settled from an earlier period", () => {
+    const j = buildSalesJournal("2026-08-01", "2026-08-01", {
+      ...input(),
+      docs: [],
+      lines: [{ document_id: "d0", qty: 1, unit_price: 1043.48, vat_rate: 15, line_total_excl: 1043.48, line_vat: 156.52, vehicle_id: "v9", products: { name: "Exterior wash", category: "CAR WASH EXPERTS", kind: "service" } }],
+      payments: [{ document_id: "d0", method: "cash", amount: 1200.00, received_at: "2026-08-01T09:00:00Z" }],
+      paymentDocs: [{
+        id: "d0", number: "INV-0165", business_day: "2026-07-20", customer_id: null,
+        doc_type: "invoice", cash_session_id: null, issued_by: "u1", issued_at: "2026-07-20T09:00:00Z",
+        total_incl: 1200.00, subtotal_excl: 1043.48, vat_total: 156.52,
+      }],
+      vehiclePlate: new Map([["v9", "4521 ZR 19"]]),
+    });
+    expect(j.settlingEarlier[0]).toMatchObject({ number: "INV-0165", plates: ["4521 ZR 19"] });
+  });
+
+  it("puts the car on the on-account entry of an unpaid service bill", () => {
+    const j = J({
+      payments: input().payments.filter((p) => p.document_id !== "d3"),
+      docs: input().docs.map((d) => (d.id === "d3" ? { ...d, job_id: "j3", vehicle_id: "v1" } : d)),
+      vehiclePlate: new Map([["v1", "1234 AB 26"]]),
+    });
+    expect(j.onAccount[0]).toMatchObject({ number: "INV-3", plates: ["1234 AB 26"] });
+  });
+
   it("rolls two settlements of one bill into a single dropdown entry", () => {
     const j = J({
       payments: [
@@ -524,5 +564,46 @@ describe("facetsOf", () => {
     expect(f.devices).toEqual([BACK_OFFICE, "Caisse 1"]);
     expect(f.users).toEqual(["Anshika", "Nicolas"]);
     expect(f.services).toEqual(["Call-out", "Cologne treatment", "Exterior wash"]);
+  });
+});
+
+describe("servicePlates — which bills name a car", () => {
+  const plates = new Map([["v1", "1234 AB 26"], ["v2", "88 MR 03"], ["v3", "5 JN 21"]]);
+  const svc = (over: Partial<RawLine> = {}): RawLine => ({
+    document_id: "d", qty: 1, unit_price: 100, vat_rate: 15, line_total_excl: 100, line_vat: 15,
+    products: { name: "Full valet", category: "DETAILING", kind: "service" }, ...over,
+  });
+  const shelf = (over: Partial<RawLine> = {}): RawLine => ({
+    document_id: "d", qty: 1, unit_price: 100, vat_rate: 15, line_total_excl: 100, line_vat: 15,
+    products: { name: "WIPER 24", category: "WIPERS", kind: "product" }, ...over,
+  });
+  const adhoc = (title: string): RawLine => ({
+    document_id: "d", title, qty: 1, unit_price: 100, vat_rate: 15, line_total_excl: 100, line_vat: 15, products: null,
+  });
+
+  it("a bill that contains a service names its car", () => {
+    expect(servicePlates({ vehicle_id: "v1" }, [shelf(), svc()], plates)).toEqual(["1234 AB 26"]);
+  });
+
+  it("a job bill counts as a service even when its labour was free-typed", () => {
+    // INV-0489's shape: speakers off the shelf plus "LABOUR & WIRING" typed in.
+    expect(servicePlates({ vehicle_id: "v1", job_id: "j1" }, [shelf(), adhoc("LABOUR & WIRING")], plates)).toEqual(["1234 AB 26"]);
+  });
+
+  it("a shelf sale names no car, even with one on file", () => {
+    expect(servicePlates({ vehicle_id: "v1" }, [shelf()], plates)).toEqual([]);
+    expect(servicePlates({ vehicle_id: "v1" }, [adhoc("Gift card")], plates)).toEqual([]);
+  });
+
+  it("a one-visit-several-cars bill names every car, in line order, once each", () => {
+    // documents.vehicle_id holds only the FIRST car — the lines carry the rest.
+    const lines = [svc({ vehicle_id: "v2" }), svc({ vehicle_id: "v1" }), shelf({ vehicle_id: "v2" })];
+    expect(servicePlates({ vehicle_id: "v2" }, lines, plates)).toEqual(["88 MR 03", "1234 AB 26"]);
+  });
+
+  it("falls back to the bill's car, then the job's car, then nothing", () => {
+    expect(servicePlates({ vehicle_id: "v3" }, [svc()], plates)).toEqual(["5 JN 21"]);
+    expect(servicePlates({ job_id: "j9" }, [adhoc("Polish")], plates, new Map([["j9", "v2"]]))).toEqual(["88 MR 03"]);
+    expect(servicePlates({}, [svc()], plates)).toEqual([]);
   });
 });

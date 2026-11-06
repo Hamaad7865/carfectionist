@@ -103,24 +103,49 @@ describe("sales journal PDF — the figures match the screen", () => {
       payments: [...input.payments, { document_id: "d0", method: "cash", amount: 1200.00 }],
       lines: [
         ...input.lines,
-        { document_id: "d0", qty: 1, unit_price: 1043.48, vat_rate: 15, line_total_excl: 1043.48, line_vat: 156.52, products: { name: "Exterior wash", category: "CAR WASH EXPERTS" } },
+        { document_id: "d0", qty: 1, unit_price: 1043.48, vat_rate: 15, line_total_excl: 1043.48, line_vat: 156.52, products: { name: "Exterior wash", category: "CAR WASH EXPERTS", kind: "service" } },
       ],
       paymentDocs: [{
         id: "d0", number: "INV-0165", business_day: "2026-07-20", customer_id: "c9",
         doc_type: "invoice", cash_session_id: "s1", issued_by: "u1", issued_at: "2026-07-20T09:00:00Z",
-        total_incl: 1200.00, subtotal_excl: 1043.48, vat_total: 156.52,
+        total_incl: 1200.00, subtotal_excl: 1043.48, vat_total: 156.52, vehicle_id: "v9",
       }],
       customerName: new Map([["c9", "KHADAFEE JAWAHEERKHAN"]]),
+      vehiclePlate: new Map([["v9", "4521 ZR 19"]]),
     });
     const tables = toJournalTables(earlier);
     const payments = tables.find((x) => x.title === "Payments")!;
     expect(payments.notes ?? []).toEqual([]);
     const memo = tables.find((x) => x.title === "Settled earlier bills")!;
     expect(tables.indexOf(memo)).toBe(tables.indexOf(payments) + 1);
+    expect(memo.head).toEqual(["Bill", "Customer", "Vehicle", "Amount"]);
+    // A service bill prints the car it was for, as the screen's dropdown does.
     expect(memo.rows.map((r) => [r.label, ...r.cells])).toEqual([
-      ["INV-0165 (billed 2026-07-20)", "KHADAFEE JAWAHEERKHAN", "Rs 1,200.00"],
+      ["INV-0165 (billed 2026-07-20)", "KHADAFEE JAWAHEERKHAN", "4521 ZR 19", "Rs 1,200.00"],
     ]);
-    expect(memo.total.cells).toEqual([null, "Rs 1,200.00"]);
+    expect(memo.total.cells).toEqual([null, null, "Rs 1,200.00"]);
+  });
+
+  it("leaves the Vehicle cell blank for a shelf sale settled late", () => {
+    // Same customer, same car on file — but the bill sold a bottle of shampoo, not
+    // a service, so there is no car to name.
+    const shelf = buildSalesJournal(FROM, TO, {
+      ...input,
+      payments: [...input.payments, { document_id: "d0", method: "cash", amount: 575.00 }],
+      lines: [
+        ...input.lines,
+        { document_id: "d0", qty: 1, unit_price: 500.00, vat_rate: 15, line_total_excl: 500.00, line_vat: 75.00, products: { name: "Ceramic Shampoo 500ml", category: "SHAMPOO", kind: "product" } },
+      ],
+      paymentDocs: [{
+        id: "d0", number: "INV-0166", business_day: "2026-07-20", customer_id: "c9",
+        doc_type: "invoice", cash_session_id: "s1", issued_by: "u1", issued_at: "2026-07-20T09:00:00Z",
+        total_incl: 575.00, subtotal_excl: 500.00, vat_total: 75.00, vehicle_id: "v9",
+      }],
+      customerName: new Map([["c9", "KHADAFEE JAWAHEERKHAN"]]),
+      vehiclePlate: new Map([["v9", "4521 ZR 19"]]),
+    });
+    const memo = toJournalTables(shelf).find((x) => x.title === "Settled earlier bills")!;
+    expect(memo.rows.map((r) => r.cells)).toEqual([["KHADAFEE JAWAHEERKHAN", null, "Rs 575.00"]]);
   });
 
   it("categories, with each share of ex-VAT", () => {

@@ -79,7 +79,14 @@ export interface JournalInvoiceRef {
   businessDay: string;
   /** True when the bill predates this period — a customer settling an old debt. */
   earlier: boolean;
+  /** The car(s) the work was done on — only for a bill that is, or contains, a
+   *  service (see `servicePlates`). Empty for a retail sale, or a bill with no car
+   *  on file. Several on a one-visit-several-cars bill, in line order. */
+  plates: string[];
 }
+
+/** How a bill's plates read on one line, on screen and on the PDF alike. */
+export const platesLabel = (plates: string[]) => plates.join(" · ");
 export interface PaymentRow {
   method: string;
   label: string;
@@ -175,6 +182,11 @@ export interface RawDoc {
   issued_at?: string | null;
   /** Shown in the payment and on-account dropdowns. */
   number?: string | null;
+  /** The bill's car — the FIRST car on a multi-car bill (see servicePlates). */
+  vehicle_id?: string | null;
+  /** Set when the bill came off a job card — workshop work, so a service bill
+   *  even when its labour was free-typed rather than picked from the catalogue. */
+  job_id?: string | null;
 }
 export interface RawPayment {
   document_id: string;
@@ -203,10 +215,14 @@ export interface RawPaymentDoc {
   total_incl: number | string;
   subtotal_excl: number | string;
   vat_total: number | string;
+  vehicle_id?: string | null;
+  job_id?: string | null;
 }
 export interface RawLine {
   document_id: string;
   title?: string | null;
+  /** The car this charge was for (one visit, several cars — 20260905000020). */
+  vehicle_id?: string | null;
   qty: number | string;
   unit_price: number | string;
   vat_rate: number | string;
@@ -214,7 +230,7 @@ export interface RawLine {
   line_vat: number | string;
   /** True: unit_price IS the VAT-inclusive gross, so the list basis extracts VAT (20260812000030). */
   price_includes_vat?: boolean | null;
-  products?: { name: string; category: string | null } | null;
+  products?: { name: string; category: string | null; kind?: string | null } | null;
 }
 export interface JournalInput {
   docs: RawDoc[];
@@ -230,6 +246,9 @@ export interface JournalInput {
   deviceName: Map<string, string>; // device_code → friendly name
   sellerName: Map<string, string>; // app_user id → display name
   customerName?: Map<string, string>; // customer id → name, for the dropdowns
+  vehiclePlate?: Map<string, string>; // vehicle id → plate, for the dropdowns
+  /** job id → its car, the last resort for an old job bill that never stored one. */
+  jobVehicle?: Map<string, string>;
   /** The shop's one sale method, e.g. "SALES [CARFECTIONIST]". See below. */
   saleMethodLabel?: string;
   filters?: SalesJournalFilters;
@@ -274,6 +293,38 @@ export function allocate(total: number, weights: number[]): number[] {
     rest -= step;
   }
   return floor;
+}
+
+/**
+ * The plate(s) a bill's dropdown row shows — only when the bill IS, or CONTAINS,
+ * a service (the owner's rule, 6 Nov 2026). A bill counts as a service when any
+ * line is a catalogue `service` product, or when it came off a job card: job
+ * bills often carry their labour as free-typed lines ("LABOUR & WIRING"), and a
+ * catalogue check alone would miss them. A shelf sale to a customer who happens
+ * to have a car on file is NOT a service and shows no plate.
+ *
+ * Which car: every distinct line car, in line order (a one-visit-several-cars
+ * bill names each), else the bill's own car (bills from before per-line cars),
+ * else its job's car. No car anywhere → nothing, rather than a guess.
+ */
+export function servicePlates(
+  doc: { vehicle_id?: string | null; job_id?: string | null },
+  lines: RawLine[],
+  vehiclePlate: Map<string, string>,
+  jobVehicle: Map<string, string> = new Map(),
+): string[] {
+  const isService = !!doc.job_id || lines.some((l) => l.products?.kind === "service");
+  if (!isService) return [];
+  const cars: string[] = [];
+  for (const l of lines) if (l.vehicle_id && !cars.includes(l.vehicle_id)) cars.push(l.vehicle_id);
+  if (cars.length === 0 && doc.vehicle_id) cars.push(doc.vehicle_id);
+  if (cars.length === 0 && doc.job_id && jobVehicle.has(doc.job_id)) cars.push(jobVehicle.get(doc.job_id)!);
+  const plates: string[] = [];
+  for (const id of cars) {
+    const plate = vehiclePlate.get(id)?.trim();
+    if (plate && !plates.includes(plate)) plates.push(plate);
+  }
+  return plates;
 }
 
 /** "HH:MM" → minutes since midnight, or null if unparseable. */
@@ -369,6 +420,8 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   //    under. Nothing about an unpaid bill reaches the figures any more.
   const docById = new Map<string, RawDoc>(input.docs.map((d) => [d.id, d]));
   const customerName = input.customerName ?? new Map<string, string>();
+  const vehiclePlate = input.vehiclePlate ?? new Map<string, string>();
+  const jobVehicle = input.jobVehicle ?? new Map<string, string>();
 
   /** The document behind a payment, whether or not it belongs to this period. */
   const docOf = (id: string): RawDoc | RawPaymentDoc | null => docById.get(id) ?? strangerById.get(id) ?? null;
@@ -405,6 +458,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
       cents,
       businessDay: d.business_day,
       earlier: !keep.has(docId),
+      plates: servicePlates(d, linesByDoc.get(d.id) ?? [], vehiclePlate, jobVehicle),
     };
   };
   /** Collapse repeat settlements of one bill into a single dropdown entry. */
@@ -631,6 +685,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
 const emptyInput = (): JournalInput => ({
   docs: [], payments: [], lines: [], paymentDocs: [],
   sessionDevice: new Map(), deviceName: new Map(), sellerName: new Map(), customerName: new Map(),
+  vehiclePlate: new Map(), jobVehicle: new Map(),
 });
 
 /** The period as an instant range in Mauritius local time. business_day is already a
@@ -643,7 +698,7 @@ const MU_DAY_END = (d: string) => `${d}T23:59:59.999+04:00`;
 export async function fetchJournalInput(from: string, to: string): Promise<JournalInput> {
   const sb = await createClient();
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const DOC_COLUMNS = "id, doc_type, business_day, total_incl, subtotal_excl, vat_total, customer_id, issued_by, cash_session_id, issued_at, number";
+  const DOC_COLUMNS = "id, doc_type, business_day, total_incl, subtotal_excl, vat_total, customer_id, issued_by, cash_session_id, issued_at, number, vehicle_id, job_id";
   const LIVE = ["issued", "partly_paid", "paid"]; // drafts and VOIDs never count
 
   // Two independent axes, deliberately fetched apart:
@@ -703,7 +758,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     fetchAllRows<any>(() =>
       sb
         .from("document_lines")
-        .select("id, document_id, title, qty, unit_price, vat_rate, line_total_excl, line_vat, price_includes_vat, products(name, category)")
+        .select("id, document_id, title, qty, unit_price, vat_rate, line_total_excl, line_vat, price_includes_vat, vehicle_id, products(name, category, kind)")
         .in("document_id", lineDocIds),
     ),
     sessionIds.length ? fetchAllRows<any>(() => sb.from("cash_sessions").select("id, device_id").in("id", sessionIds)) : Promise.resolve([] as any[]),
@@ -714,6 +769,27 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     sb.from("business_settings").select("trading_name").limit(1).maybeSingle(),
   ]);
 
+  // Plates for the dropdowns — a second hop, because the cars come off the lines
+  // as well as the bills. A job's car is fetched only for a job bill that stored
+  // no car of its own (a handful of early bills); everything else has one already.
+  const linesWithCar = new Set<string>(lines.filter((l) => l.vehicle_id).map((l) => l.document_id));
+  const carlessJobIds = [
+    ...new Set(everyDoc.filter((d) => d.job_id && !d.vehicle_id && !linesWithCar.has(d.id)).map((d) => d.job_id)),
+  ] as string[];
+  const jobs = carlessJobIds.length
+    ? await fetchAllRows<any>(() => sb.from("jobs").select("id, vehicle_id").in("id", carlessJobIds))
+    : [];
+  const vehicleIds = [
+    ...new Set([
+      ...everyDoc.map((d) => d.vehicle_id),
+      ...lines.map((l) => l.vehicle_id),
+      ...jobs.map((jb) => jb.vehicle_id),
+    ].filter(Boolean)),
+  ] as string[];
+  const vehicles = vehicleIds.length
+    ? await fetchAllRows<any>(() => sb.from("vehicles").select("id, plate").in("id", vehicleIds))
+    : [];
+
   return {
     docs: docs as RawDoc[],
     payments: payments as RawPayment[],
@@ -723,6 +799,8 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     deviceName: new Map(devices.map((d) => [d.device_code, d.display_name || d.device_code])),
     sellerName: new Map(sellers.map((u) => [u.id, u.display_name || "—"])),
     customerName: new Map(customers.map((c) => [c.id, c.name as string])),
+    vehiclePlate: new Map(vehicles.map((v) => [v.id, v.plate as string])),
+    jobVehicle: new Map(jobs.filter((jb) => jb.vehicle_id).map((jb) => [jb.id, jb.vehicle_id as string])),
     saleMethodLabel: saleMethodLabelFor(settings.data?.trading_name || "Carfectionist"),
   };
   /* eslint-enable @typescript-eslint/no-explicit-any */

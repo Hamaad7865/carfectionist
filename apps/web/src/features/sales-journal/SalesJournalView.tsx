@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Receipt } from "lucide-react";
 import { formatMUR } from "@/lib/money";
 import { btn } from "@/components/ui/button";
-import type { SalesJournal, JournalInvoiceRef } from "@/lib/supabase/queries/sales-journal";
+import { platesLabel, type SalesJournal, type JournalInvoiceRef } from "@/lib/supabase/queries/sales-journal";
 import { rangeLabel, shortRangeLabel, type Range } from "./periods";
 
 // The Cashmag "Journal de ventes": one period, aggregated once, broken down five
@@ -452,6 +452,15 @@ function Drawer({
               >
                 <span className="num shrink-0 font-semibold text-brand">{r.number ?? "—"}</span>
                 <span className="truncate">{r.customer ?? "Walk-in customer"}</span>
+                {/* Service bills only: which car the work was on. */}
+                {r.plates.length > 0 && (
+                  <span
+                    title={r.plates.length > 1 ? "Vehicles" : "Vehicle"}
+                    className="num shrink-0 rounded border border-line-2 bg-card px-1.5 py-px text-[11px] font-bold uppercase tracking-wide text-body"
+                  >
+                    {platesLabel(r.plates)}
+                  </span>
+                )}
               </Link>
               {/* Why this bill is here at all when it was raised in another period. */}
               {r.earlier && (
