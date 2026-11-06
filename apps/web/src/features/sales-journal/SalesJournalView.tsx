@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Receipt } from "lucide-react";
 import { formatMUR } from "@/lib/money";
 import { btn } from "@/components/ui/button";
-import { platesLabel, qtyLabel, type SalesJournal, type JournalInvoiceRef } from "@/lib/supabase/queries/sales-journal";
+import { platesLabel, qtyLabel, servicesLabel, type SalesJournal, type JournalInvoiceRef, type ServiceDone } from "@/lib/supabase/queries/sales-journal";
 import { rangeLabel, shortRangeLabel, type Range } from "./periods";
 
 // The Cashmag "Journal de ventes": one period, aggregated once, broken down five
@@ -219,7 +219,8 @@ export function SalesJournalView({
 
       {/* ── 3. Payments ── */}
       <Card title="Payments">
-        <div className="min-w-[560px]">
+        {/* Wide enough for the bill table that opens under each method. */}
+        <div className="min-w-[880px]">
           <div className={HEAD} style={grid("1fr 150px 180px")}>
             <span>Payment method</span>
             <span className="text-right">Quantity</span>
@@ -233,6 +234,7 @@ export function SalesJournalView({
               <Drawer
                 key={p.method}
                 cols={grid("1fr 150px 180px")}
+                cmp={cmp}
                 label={p.label}
                 qty={p.n}
                 cents={p.cents}
@@ -258,6 +260,7 @@ export function SalesJournalView({
           {j.onAccountCents !== 0 && (
             <Drawer
               cols={grid("1fr 150px 180px")}
+              cmp={cmp}
               label="On account (not yet paid)"
               note={`of ${money(j.paymentsTotalCents)} invoiced`}
               cents={j.onAccountCents}
@@ -278,7 +281,7 @@ export function SalesJournalView({
           this is why the two can differ. */}
       {j.settlingEarlierCents !== 0 && (
         <Card title="Settled earlier bills">
-          <div className="min-w-[560px]">
+          <div className="min-w-[880px]">
             <div className={HEAD} style={grid("1fr 150px 180px")}>
               <span>Bill</span>
               <span />
@@ -287,6 +290,7 @@ export function SalesJournalView({
             </div>
             <Drawer
               cols={grid("1fr 150px 180px")}
+              cmp={cmp}
               label="Settled earlier bills"
               cents={j.settlingEarlierCents}
               invoices={j.settlingEarlier}
@@ -388,9 +392,11 @@ function Empty({ label = "Nothing in this period." }: { label?: string }) {
  * JavaScript for. It also means the rows stay open when the page is printed.
  */
 function Drawer({
-  cols, label, note, qty, cents, invoices, query, prior, tone = "text-ink", muted = false, divider = false,
+  cols, cmp, label, note, qty, cents, invoices, query, prior, tone = "text-ink", muted = false, divider = false,
 }: {
   cols: React.CSSProperties;
+  /** Comparing with a prior period — the bill table keeps that column too, so amounts stay aligned. */
+  cmp: boolean;
   label: string;
   /** Quiet second line under the label — context that is not itself a figure. */
   note?: string;
@@ -437,20 +443,56 @@ function Drawer({
     <details className="group">
       <summary className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">{head}</summary>
       <div className="border-b border-line bg-sub">
-        {invoices.map((r) => (
-          <BillRow key={r.id} r={r} query={query} />
-        ))}
+        <div
+          className={`${BILL_ROW} border-b border-line py-2 text-[10.5px] font-bold uppercase tracking-[0.1em] text-faint`}
+          style={billGrid(cmp)}
+        >
+          <span />
+          <span>Bill</span>
+          <span>Customer</span>
+          <span>Vehicle</span>
+          <span>Services</span>
+          <span />
+          <span className="text-right">Amount</span>
+          {cmp && <span />}
+        </div>
+        <div className="divide-y divide-line">
+          {invoices.map((r) => (
+            <BillRow key={r.id} r={r} query={query} cmp={cmp} />
+          ))}
+        </div>
       </div>
     </details>
   );
 }
+
+// ── The bill table inside an opened money row ────────────────────────────────
+// One fixed set of columns, so every bill number, plate, service and amount sits
+// under its heading instead of trailing wherever the text before it ended. The
+// Amount column is the card's own 180px (and the comparison's 170px follows it),
+// so each bill's figure lines up under the method's total above.
+const BILL_COLS = "14px 92px minmax(120px,1.1fr) 132px minmax(150px,1.5fr) 92px 180px";
+const billGrid = (cmp: boolean): React.CSSProperties => ({ gridTemplateColumns: cmp ? `${BILL_COLS} 170px` : BILL_COLS });
+const BILL_ROW = "grid items-center gap-3 py-2.5 pl-10 pr-5";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "2026-10-20" → "20 Oct" — short enough to sit under a bill number. */
+const shortDay = (day: string) => {
+  const [, m, d] = day.split("-");
+  return `${Number(d)} ${MONTHS[Number(m) - 1] ?? ""}`;
+};
+
+/** A service without its car — the Vehicle column already says which car. */
+const nameAndQty = (s: ServiceDone) => `${s.name}${s.qty !== 1 ? ` ×${qtyLabel(s.qty)}` : ""}`;
+
+const Dash = () => <span className="text-faint">—</span>;
 
 /** A plate, styled like a number plate so it reads at a glance. */
 function PlateChip({ plate, title = "Vehicle" }: { plate: string; title?: string }) {
   return (
     <span
       title={title}
-      className="num shrink-0 rounded border border-line-2 bg-card px-1.5 py-px text-[11px] font-bold uppercase tracking-wide text-body"
+      className="num shrink-0 truncate rounded border border-line-2 bg-card px-1.5 py-px text-[11px] font-bold uppercase tracking-wide text-body"
     >
       {plate}
     </span>
@@ -458,49 +500,79 @@ function PlateChip({ plate, title = "Vehicle" }: { plate: string; title?: string
 }
 
 /**
- * One bill inside a method's dropdown. A service bill is itself a dropdown — a
- * second level, the owner's ask (6 Nov 2026) — that opens to the services done.
- * Anything else (a shelf sale) stays a plain row. Also native <details>: the two
- * links inside the summary are interactive content, so clicking them navigates
- * without toggling, and clicking anywhere else on the row opens it.
+ * One bill in the table. A bill with one service shows it in place; one with
+ * several (or several cars) opens — the owner's second dropdown (6 Nov 2026) —
+ * to a row per service, each under the Services column and, on a multi-car bill,
+ * its car under Vehicle. A shelf sale is a plain row with dashes.
+ *
+ * Native <details>: the bill-number and Receipt links inside the summary are
+ * interactive content, so clicking them navigates without toggling, and a click
+ * anywhere else on the row opens it.
  */
-function BillRow({ r, query }: { r: JournalInvoiceRef; query: string }) {
-  const hasServices = r.services.length > 0;
+function BillRow({ r, query, cmp }: { r: JournalInvoiceRef; query: string; cmp: boolean }) {
+  const opens = r.services.length > 1 || r.plates.length > 1;
+  const [first] = r.services;
+
   const row = (
-    <div
-      className="grid items-center gap-3 px-5 py-2 pl-10 text-[12.5px] text-muted"
-      style={{ gridTemplateColumns: "1fr 150px 180px" }}
-    >
-      <span className="flex items-center gap-2 truncate">
-        {/* The toggle slot is kept on plain rows too, so every bill number lines up. */}
-        <span className="w-3 shrink-0 select-none text-[9px] text-faint">
-          {hasServices && <span className="inline-block transition-transform group-open/bill:rotate-90">▶</span>}
-        </span>
-        {/* The bill itself: opens the invoice screen (lines, payments, corrections). */}
-        <Link
-          href={`/sales/${r.id}`}
-          title={`Open ${r.number ?? "invoice"}`}
-          className="flex min-w-0 items-center gap-2 truncate rounded hover:underline"
-        >
-          <span className="num shrink-0 font-semibold text-brand">{r.number ?? "—"}</span>
-          <span className="truncate">{r.customer ?? "Walk-in customer"}</span>
-          {/* Service bills only: which car the work was on. */}
-          {r.plates.length > 0 && (
-            <PlateChip plate={platesLabel(r.plates)} title={r.plates.length > 1 ? "Vehicles" : "Vehicle"} />
-          )}
+    <div className={`${BILL_ROW} text-[13px] hover:bg-band/50`} style={billGrid(cmp)}>
+      <span className="select-none text-[9px] text-faint">
+        {opens && <span className="inline-block transition-transform group-open/bill:rotate-90">▶</span>}
+      </span>
+
+      {/* The bill itself: opens the invoice screen (lines, payments, corrections). */}
+      <span className="min-w-0 leading-tight">
+        <Link href={`/sales/${r.id}`} title={`Open ${r.number ?? "invoice"}`} className="num font-semibold text-brand hover:underline">
+          {r.number ?? "—"}
         </Link>
-        {hasServices && (
-          <span className="num shrink-0 text-[11.5px] font-medium text-faint">
-            ({r.services.length} {r.services.length === 1 ? "service" : "services"})
-          </span>
-        )}
         {/* Why this bill is here at all when it was raised in another period. */}
         {r.earlier && (
-          <span className="shrink-0 rounded-full bg-band px-1.5 py-0.5 text-[10.5px] font-bold uppercase tracking-wide text-amber-ink">
-            billed {r.businessDay}
+          <span className="mt-0.5 block text-[10.5px] font-semibold text-amber-ink" title={`Billed ${r.businessDay}`}>
+            billed {shortDay(r.businessDay)}
           </span>
         )}
-        {/* The paper the customer got: opens as a modal over this screen. */}
+      </span>
+
+      <span className={`truncate font-medium ${r.customer ? "text-body" : "text-muted"}`} title={r.customer ?? "Walk-in customer"}>
+        {r.customer ?? "Walk-in customer"}
+      </span>
+
+      {/* Service bills only: which car the work was on. */}
+      <span className="flex min-w-0 items-center gap-1.5">
+        {r.plates.length === 0 ? (
+          <Dash />
+        ) : (
+          <>
+            <PlateChip plate={r.plates[0]} />
+            {r.plates.length > 1 && (
+              <span className="num shrink-0 text-[11px] font-semibold text-faint" title={platesLabel(r.plates)}>
+                +{r.plates.length - 1}
+              </span>
+            )}
+          </>
+        )}
+      </span>
+
+      <span className="min-w-0 truncate text-muted" title={r.services.length ? servicesLabel(r.services) : undefined}>
+        {!first ? (
+          <Dash />
+        ) : !opens ? (
+          <span className="font-medium text-body">{nameAndQty(first)}</span>
+        ) : (
+          <>
+            {/* Closed: the first service and how many more. Open: the rows below say it all. */}
+            <span className="group-open/bill:hidden">
+              <span className="font-medium text-body">{nameAndQty(first)}</span>
+              {r.services.length > 1 && <span className="text-faint"> +{r.services.length - 1} more</span>}
+            </span>
+            <span className="hidden font-semibold text-faint group-open/bill:inline">
+              {r.services.length} {r.services.length === 1 ? "service" : "services"}
+            </span>
+          </>
+        )}
+      </span>
+
+      {/* The paper the customer got: opens as a modal over this screen. */}
+      <span>
         <Link
           href={`/sales-journal?${query}&receipt=${encodeURIComponent(r.id)}`}
           scroll={false}
@@ -510,34 +582,39 @@ function BillRow({ r, query }: { r: JournalInvoiceRef; query: string }) {
           <Receipt size={13} /> Receipt
         </Link>
       </span>
-      <span />
-      <span className="num text-right font-semibold text-body">{money(r.cents)}</span>
+
+      <span className="num text-right font-semibold text-ink">{money(r.cents)}</span>
+      {cmp && <span />}
     </div>
   );
 
-  if (!hasServices) return row;
+  if (!opens) return row;
 
   return (
     // A NAMED group: this sits inside the method's own <details>, whose plain
     // `group` would otherwise turn this arrow too whenever the method is open.
     <details className="group/bill">
-      <summary
-        title="Show the services done"
-        className="cursor-pointer list-none hover:bg-band/60 [&::-webkit-details-marker]:hidden"
-      >
+      <summary title="Show the services done" className="cursor-pointer list-none [&::-webkit-details-marker]:hidden">
         {row}
       </summary>
-      {/* Indented to the bill number above (row pl-10 + toggle slot + gap). */}
-      <ul className="pb-2.5 pl-[60px] pr-5 text-[12.5px] text-body">
+      <div className="pb-2">
         {r.services.map((s, i) => (
-          <li key={`${s.name}-${s.plate ?? ""}-${i}`} className="flex items-center gap-2 py-0.5">
-            <span className="h-1 w-1 shrink-0 rounded-full bg-current text-faint" />
-            <span className="font-medium">{s.name}</span>
-            {s.qty !== 1 && <span className="num text-faint">×{qtyLabel(s.qty)}</span>}
-            {s.plate && <PlateChip plate={s.plate} />}
-          </li>
+          <div key={`${s.name}-${s.plate ?? ""}-${i}`} className={`${BILL_ROW} py-1 text-[12.5px]`} style={billGrid(cmp)}>
+            <span />
+            <span />
+            <span />
+            <span className="flex min-w-0 items-center">{s.plate && <PlateChip plate={s.plate} />}</span>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="h-1 w-1 shrink-0 rounded-full bg-current text-faint" />
+              <span className="truncate font-medium text-body">{s.name}</span>
+              {s.qty !== 1 && <span className="num shrink-0 text-faint">×{qtyLabel(s.qty)}</span>}
+            </span>
+            <span />
+            <span />
+            {cmp && <span />}
+          </div>
         ))}
-      </ul>
+      </div>
     </details>
   );
 }
