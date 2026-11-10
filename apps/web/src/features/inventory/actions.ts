@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
+import { getProductMovements, type MovementRow } from "@/lib/supabase/queries/movements";
 
 const ROLES = ["owner", "manager"] as const;
 type Result = { ok: true } | { ok: false; error: string };
@@ -50,4 +51,18 @@ export async function recordAdjustmentAction(input: z.input<typeof schema>): Pro
   if (error) return { ok: false, error: error.message };
   revalidatePath("/products");
   return { ok: true };
+}
+
+/** One product's full stock history, for the Inventory tab once a product is picked. */
+export async function productHistoryAction(
+  productId: string,
+): Promise<{ ok: true; movements: MovementRow[]; truncated: boolean } | { ok: false; error: string }> {
+  await requireRole(...ROLES);
+  const id = z.string().uuid().safeParse(productId);
+  if (!id.success) return { ok: false, error: "Unknown product." };
+  try {
+    return { ok: true, ...(await getProductMovements(id.data)) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : "Could not load this product's history." };
+  }
 }

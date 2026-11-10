@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Plus, Minus, SlidersHorizontal } from "lucide-react";
 import { Field, inputCls, FormError } from "@/components/ui/form";
-import { recordAdjustmentAction } from "./actions";
-import type { InventoryOpsData } from "@/lib/supabase/queries/movements";
+import { productHistoryAction, recordAdjustmentAction } from "./actions";
+import type { InventoryOpsData, MovementRow } from "@/lib/supabase/queries/movements";
 import { pickSalesFloor } from "@/lib/supabase/locations";
 import { onHandAt, roundQty } from "@/lib/stock/balance";
 import { btn } from "@/components/ui/button";
@@ -41,6 +42,27 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
   // Pending until the refreshed counts have landed, so the old number never
   // sits there looking confirmed.
   const [refreshing, startRefresh] = useTransition();
+  // Picking a product swaps the ledger to that product's whole history — the
+  // shop-wide list only carries the latest movements, so it has its own fetch.
+  const [history, setHistory] = useState<
+    { productId: string; movements: MovementRow[]; truncated: boolean } | { productId: string; error: string } | null
+  >(null);
+  const [historyNonce, setHistoryNonce] = useState(0);
+  useEffect(() => {
+    if (!productId) return;
+    let live = true;
+    productHistoryAction(productId)
+      .then((r) => {
+        if (!live) return;
+        setHistory(r.ok ? { productId, movements: r.movements, truncated: r.truncated } : { productId, error: r.error });
+      })
+      .catch(() => live && setHistory({ productId, error: "Could not load this product's history." }));
+    return () => { live = false; };
+  }, [productId, historyNonce]);
+  const productName = data.products.find((p) => p.id === productId)?.name ?? query;
+  const shown = history && history.productId === productId ? history : null;
+  const rows: MovementRow[] = productId ? (shown && "movements" in shown ? shown.movements : []) : data.movements;
+  const historyLoading = !!productId && !shown;
 
   const unit = data.products.find((p) => p.id === productId)?.unit ?? "";
   // The tablet's adjust dialog reads "on hand N … → new on-hand N"; same here.
@@ -65,6 +87,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
     if (r.ok) {
       setQtyStr("");
       setNote("");
+      setHistoryNonce((n) => n + 1);
       startRefresh(() => router.refresh());
     } else setError(r.error);
   }
@@ -210,26 +233,62 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
 
       {/* ledger */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th md:grid">
+        {productId && (
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-line px-5 py-3">
+            <span className="text-[13px] text-muted">
+              History of <span className="font-semibold text-ink-strong">{productName}</span>
+              {shown && "movements" in shown && (
+                <span className="text-faint">
+                  {" "}· {shown.movements.length} movement{shown.movements.length === 1 ? "" : "s"}
+                  {shown.truncated && " (latest shown)"}
+                </span>
+              )}
+            </span>
+            <button
+              type="button"
+              onClick={() => { setProductId(""); setQuery(""); }}
+              className="text-[12.5px] font-semibold text-brand hover:underline"
+            >
+              Show all products
+            </button>
+          </div>
+        )}
+        <div className="hidden grid-cols-[110px_1fr_120px_180px_90px_90px_1fr] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th md:grid">
           <span>Date</span><span>Product</span><span>Location</span><span>Type</span><span className="text-right">Qty</span>
           <span className="text-right" title="On hand at that location right after this movement">Stock after</span>
           <span>Note</span>
         </div>
-        {data.movements.length === 0 ? (
-          <div className="px-5 py-14 text-center text-[13px] text-faint">No stock movements yet.</div>
+        {historyLoading ? (
+          <div className="px-5 py-14 text-center text-[13px] text-faint">Loading history…</div>
+        ) : shown && "error" in shown ? (
+          <div className="px-5 py-14 text-center text-[13px] text-rose">{shown.error}</div>
+        ) : rows.length === 0 ? (
+          <div className="px-5 py-14 text-center text-[13px] text-faint">
+            {productId ? "This product has no stock movements yet." : "No stock movements yet."}
+          </div>
         ) : (
-          data.movements.map((m) => {
+          rows.map((m) => {
             const st = REF_STYLE[m.refType] ?? { label: m.refType, cls: "bg-sub text-muted" };
             const balCls = m.balanceAfter < 0 ? "text-rose" : "text-body";
+            // The bill behind a sale / credit-note restock — opens it.
+            const docLink = m.docId ? (
+              <Link
+                href={`/sales/${m.docId}`}
+                title={`Open ${m.docNumber ?? "the bill"}`}
+                className="num shrink-0 truncate text-[11.5px] font-bold text-link hover:underline"
+              >
+                {m.docNumber ?? "Open bill"}
+              </Link>
+            ) : null;
             return (
-              // Tint the product being adjusted, so its recent history reads at a glance.
-              <div key={m.id} className={`border-b border-line ${productId && m.productId === productId ? "bg-brand/[0.06]" : ""}`}>
+              <div key={m.id} className="border-b border-line">
                 {/* Mobile card */}
                 <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="min-w-0 truncate text-[13px] font-semibold text-body">{m.productName}</span>
                       <span className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${st.cls}`}>{st.label}</span>
+                      {docLink}
                     </div>
                     <div className="mt-1 truncate text-[12px] text-muted">{m.locationName}</div>
                     <div className="mt-0.5 truncate text-[11.5px] text-faint">
@@ -245,11 +304,14 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
                   </div>
                 </div>
                 {/* Desktop grid */}
-                <div className="hidden grid-cols-[110px_1fr_120px_110px_90px_90px_1fr] items-center gap-3 px-5 py-2.5 text-[12.5px] md:grid">
+                <div className="hidden grid-cols-[110px_1fr_120px_180px_90px_90px_1fr] items-center gap-3 px-5 py-2.5 text-[12.5px] md:grid">
                   <span className="num text-muted">{m.movedAt.slice(0, 10)}</span>
                   <span className="truncate font-semibold text-body">{m.productName}</span>
                   <span className="text-muted">{m.locationName}</span>
-                  <span><span className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${st.cls}`}>{st.label}</span></span>
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className={`inline-block shrink-0 rounded-full px-2 py-0.5 text-[10px] font-bold ${st.cls}`}>{st.label}</span>
+                    {docLink}
+                  </span>
                   <span className={`num text-right font-bold ${m.qty < 0 ? "text-rose" : "text-mint"}`}>{m.qty > 0 ? "+" : ""}{num(m.qty)}</span>
                   <span className={`num text-right font-semibold ${balCls}`}>{num(m.balanceAfter)}</span>
                   <span className="truncate text-faint">{m.note ?? (m.by ? `by ${m.by}` : "—")}</span>
