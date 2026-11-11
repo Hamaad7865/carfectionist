@@ -3,9 +3,11 @@ import { AppShell } from "@/components/shell/AppShell";
 import { AuthKeepalive } from "@/components/shell/AuthKeepalive";
 import { fiscalYears } from "@/lib/supabase/queries/notifications";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import { getBrand } from "@/lib/brand-server";
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireSession();
+  const brand = await getBrand();
 
   // The bell fetches its own alerts from /api/notifications (see Topbar). It used
   // to be computed here, which cost every page ~1s AND froze the badge — a layout
@@ -18,7 +20,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
       {/* Dark mode, applied before first paint (lib/theme.ts). */}
       <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       <AuthKeepalive />
-      <AppShell ctx={ctx} fiscalYears={fiscalYears()}>
+      <AppShell ctx={ctx} brand={brand} fiscalYears={fiscalYears()}>
         {children}
       </AppShell>
     </>

@@ -10,14 +10,14 @@ const initial: LoginState = {};
 const input =
   "h-11 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-sm text-ink outline-none transition-colors placeholder:text-faint focus:border-brand";
 
-export function LoginForm() {
+export function LoginForm({ emailPlaceholder = "you@carfectionist.mu" }: { emailPlaceholder?: string }) {
   const [state, action, pending] = useActionState(login, initial);
 
   return (
     <form action={action} className="mt-7 space-y-4">
       <label className="block">
         <span className="mb-1.5 block text-xs font-bold tracking-wide text-muted">Email</span>
-        <input name="email" type="email" autoComplete="email" required className={input} placeholder="you@carfectionist.mu" />
+        <input name="email" type="email" autoComplete="email" required className={input} placeholder={emailPlaceholder} />
       </label>
 
       <label className="block">

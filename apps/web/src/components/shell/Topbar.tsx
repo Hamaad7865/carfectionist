@@ -31,7 +31,9 @@ const TONE: Record<string, string> = { warn: "#b07c14", danger: "#d63b50", info:
 export function Topbar({
   onMenu,
   fiscalYears = [],
+  brand,
 }: {
+  brand?: { name: string };
   onMenu?: () => void;
   fiscalYears?: { label: string; from: string; to: string }[];
 }) {
@@ -39,7 +41,7 @@ export function Topbar({
   const [menu, setMenu] = useState<null | "notif" | "fy">(null);
   const { items: notifications, dismiss, dismissAll } = useLiveNotifications(pathname);
   const match = NAV.filter((n) => pathname === n.href || pathname.startsWith(`${n.href}/`)).sort((a, b) => b.href.length - a.href.length)[0];
-  const title = match?.label ?? "Carfectionist";
+  const title = match?.label ?? brand?.name ?? "Carfectionist";
   const sub = match ? (SUBS[match.href] ?? "") : "";
   const fyLabel = fiscalYears[0]?.label ?? "FY";
 

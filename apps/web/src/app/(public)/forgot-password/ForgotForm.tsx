@@ -10,7 +10,7 @@ const initial: ForgotState = {};
 const input =
   "h-11 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-sm text-ink outline-none transition-colors placeholder:text-faint focus:border-brand";
 
-export function ForgotForm() {
+export function ForgotForm({ emailPlaceholder = "you@carfectionist.mu" }: { emailPlaceholder?: string }) {
   const [state, action, pending] = useActionState(requestPasswordReset, initial);
 
   // Only shown once the email has actually gone out, so it can name the address
@@ -36,7 +36,7 @@ export function ForgotForm() {
     <form action={action} className="mt-7 space-y-4">
       <label className="block">
         <span className="mb-1.5 block text-xs font-bold tracking-wide text-muted">Email</span>
-        <input name="email" type="email" autoComplete="email" required autoFocus className={input} placeholder="you@carfectionist.mu" />
+        <input name="email" type="email" autoComplete="email" required autoFocus className={input} placeholder={emailPlaceholder} />
       </label>
 
       {state.error && (

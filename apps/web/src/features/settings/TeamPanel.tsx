@@ -259,7 +259,7 @@ export function TeamPanel({ members, canManage }: { members: TeamMember[]; canMa
         <div className="flex flex-col gap-3">
           <FormError error={error} />
           <Field label="Full name"><input className={inputCls} value={f.displayName} onChange={set("displayName")} placeholder="e.g. Priya Naiko" autoFocus /></Field>
-          <Field label="Email"><input className={inputCls} value={f.email} onChange={set("email")} placeholder="name@carfectionist.mu" /></Field>
+          <Field label="Email"><input className={inputCls} value={f.email} onChange={set("email")} placeholder="name@yourbusiness.mu" /></Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Temporary password" hint="Min 8 characters"><input className={inputCls} value={f.password} onChange={set("password")} placeholder="They can change it later" /></Field>
             <Field label="Role">

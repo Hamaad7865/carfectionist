@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth/session";
 import { Brand } from "@/components/shell/Brand";
+import { getBrand } from "@/lib/brand-server";
 import { LoginForm } from "./LoginForm";
 
 export default async function LoginPage() {
+  const brand = await getBrand();
   // Already signed in → straight to the dashboard (replaces the old proxy bounce).
   const ctx = await getSessionContext();
   if (ctx) redirect("/dashboard");
@@ -16,12 +18,12 @@ export default async function LoginPage() {
       />
       <div className="relative w-full max-w-sm">
         <div className="rounded-[18px] border border-line bg-card p-8" style={{ boxShadow: "0 30px 80px rgba(15,23,32,.12)" }}>
-          <Brand />
+          <Brand brand={brand} />
           <h1 className="mt-7 font-display text-xl font-extrabold text-ink-strong">Sign in</h1>
-          <p className="mt-1 text-sm text-muted">Detailing studio management — back office.</p>
-          <LoginForm />
+          <p className="mt-1 text-sm text-muted">{brand.loginBlurb}</p>
+          <LoginForm emailPlaceholder={brand.emailPlaceholder} />
         </div>
-        <p className="mt-5 text-center text-xs text-faint">Carfectionist · Mauritius · under Haz Software</p>
+        <p className="mt-5 text-center text-xs text-faint">{brand.footer}</p>
       </div>
     </div>
   );

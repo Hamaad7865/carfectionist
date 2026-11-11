@@ -1,9 +1,11 @@
 import { redirect } from "next/navigation";
 import { getSessionContext } from "@/lib/auth/session";
 import { Brand } from "@/components/shell/Brand";
+import { getBrand } from "@/lib/brand-server";
 import { ForgotForm } from "./ForgotForm";
 
 export default async function ForgotPasswordPage({ searchParams }: { searchParams: Promise<{ expired?: string }> }) {
+  const brand = await getBrand();
   const [ctx, sp] = await Promise.all([getSessionContext(), searchParams]);
   if (ctx) redirect("/dashboard"); // already signed in — nothing to reset your way back into
 
@@ -15,7 +17,7 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
       />
       <div className="relative w-full max-w-sm">
         <div className="rounded-[18px] border border-line bg-card p-8" style={{ boxShadow: "0 30px 80px rgba(15,23,32,.12)" }}>
-          <Brand />
+          <Brand brand={brand} />
           <h1 className="mt-7 font-display text-xl font-extrabold text-ink-strong">Forgot your password?</h1>
           <p className="mt-1 text-sm text-muted">Enter your email and we&apos;ll send you a link to set a new one.</p>
           {sp.expired === "1" && (
@@ -23,9 +25,9 @@ export default async function ForgotPasswordPage({ searchParams }: { searchParam
               That link has expired or was already used. Ask for a new one below.
             </p>
           )}
-          <ForgotForm />
+          <ForgotForm emailPlaceholder={brand.emailPlaceholder} />
         </div>
-        <p className="mt-5 text-center text-xs text-faint">Carfectionist · Mauritius · under Haz Software</p>
+        <p className="mt-5 text-center text-xs text-faint">{brand.footer}</p>
       </div>
     </div>
   );

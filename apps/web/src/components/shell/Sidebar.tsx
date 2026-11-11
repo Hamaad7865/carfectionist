@@ -7,6 +7,7 @@ import { Plus, LogOut, ChevronDown } from "lucide-react";
 import { groupNav, navForUser, ROLE_LABEL, type NavGroupKey, type Role } from "@/lib/auth/roles";
 import { signOut } from "@/lib/auth/actions";
 import { Brand } from "./Brand";
+import type { BrandInfo } from "@/lib/brand";
 import { btn } from "@/components/ui/button";
 import { ANIMATED_NAV_ICONS } from "./NavIcons";
 
@@ -19,7 +20,7 @@ function initials(name: string): string {
   return letters.toUpperCase();
 }
 
-export function Sidebar({ role, displayName, modules }: { role: Role; displayName: string; modules: string[] | null }) {
+export function Sidebar({ role, displayName, modules, brand }: { role: Role; displayName: string; modules: string[] | null; brand: BrandInfo }) {
   const pathname = usePathname();
   const sections = groupNav(navForUser(role, modules));
   const name = displayName.replace(/\s*\(.*\)\s*$/, "").trim();
@@ -52,7 +53,7 @@ export function Sidebar({ role, displayName, modules }: { role: Role; displayNam
   return (
     <nav className="flex h-full w-full shrink-0 flex-col border-r border-line bg-linear-to-b from-card to-sub px-[13px] py-[18px]">
       <div className="px-2 pb-[18px] pt-1">
-        <Brand />
+        <Brand brand={brand} />
       </div>
 
       <Link
