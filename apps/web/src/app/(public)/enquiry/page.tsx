@@ -1,7 +1,11 @@
+import { notFound } from "next/navigation";
 import { Brand } from "@/components/shell/Brand";
+import { getBrand } from "@/lib/brand-server";
 import { PublicEnquiryForm } from "./PublicEnquiryForm";
 
-export default function EnquiryPage() {
+export default async function EnquiryPage() {
+  // Carfectionist's public booking form — not served on the HAZ Software demo address.
+  if ((await getBrand()).key === "haz") notFound();
   return (
     <div className="relative grid min-h-dvh place-items-center px-4 py-10">
       <div

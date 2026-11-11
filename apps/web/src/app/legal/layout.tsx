@@ -1,9 +1,14 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
+import { getBrand } from "@/lib/brand-server";
 
 // Public, unauthenticated pages. Meta requires a reachable Privacy Policy URL
 // before an app can be published, and publishing is what makes WhatsApp deliver
 // real customer messages to us rather than test pings.
-export default function LegalLayout({ children }: { children: React.ReactNode }) {
+export default async function LegalLayout({ children }: { children: React.ReactNode }) {
+  // These pages carry the Carfectionist company's registration details; the HAZ Software
+  // demo address (app.hazsoftware.com) must not serve them.
+  if ((await getBrand()).key === "haz") notFound();
   return (
     <div className="min-h-full bg-ground">
       <header className="border-b border-line bg-card">
