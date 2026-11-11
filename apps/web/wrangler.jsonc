@@ -8,6 +8,14 @@
   // process.env.<SECRET> read (PDF engine, WhatsApp keys, admin client) is
   // undefined in production while working fine in `next dev`.
   "compatibility_flags": ["nodejs_compat", "nodejs_compat_populate_process_env", "global_fetch_strictly_public"],
+  // Custom domains (DNS record + certificate are created on deploy; the zones
+  // live on this Cloudflare account). app.hazsoftware.com is the HAZ Software
+  // demo address — same Worker, the demo tenant is reached by its own login.
+  // Only the new domain is listed: app-carfectionist.com is already attached
+  // on the dashboard and is left untouched.
+  "routes": [
+    { "pattern": "app.hazsoftware.com", "custom_domain": true }
+  ],
   "assets": {
     "directory": ".open-next/assets",
     "binding": "ASSETS"
