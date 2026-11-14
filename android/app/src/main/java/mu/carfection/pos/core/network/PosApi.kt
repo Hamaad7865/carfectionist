@@ -472,12 +472,16 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         model: String?,
         version: String?,
         heartbeat: Boolean,
+        hardwareId: String? = null,
     ): JsonObject? {
         val res = client.postgrest.rpc("register_device", buildJsonObject {
             put("p_code", code)
             if (model != null) put("p_model", model) else put("p_model", JsonNull)
             if (version != null) put("p_version", version) else put("p_version", JsonNull)
             put("p_heartbeat", heartbeat)
+            // The server links a NEW code carrying a known fingerprint to the same tablet,
+            // so a wiped app never shows up as a second device (2026-11-14).
+            if (hardwareId != null) put("p_hardware_id", hardwareId)
         })
         return runCatching { res.decodeAs<JsonObject>() }.getOrNull()
     }

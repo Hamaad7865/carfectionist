@@ -204,12 +204,12 @@ class RootViewModel @Inject constructor(
             session.isLoggedIn.collectLatest { logged ->
                 if (logged == true) {
                     runCatching {
-                        api.registerDevice(session.deviceId(), Build.MODEL, BuildConfig.VERSION_NAME, heartbeat = announced)
+                        api.registerDevice(session.deviceId(), Build.MODEL, BuildConfig.VERSION_NAME, heartbeat = announced, hardwareId = session.hardwareId())
                     }.getOrNull()?.let { deviceRole.remember(mu.carfection.pos.core.data.takesPaymentsOf(it)) }
                     announced = true
                     while (true) {
                         delay(HEARTBEAT_MS)
-                        runCatching { api.registerDevice(session.deviceId(), null, null, heartbeat = true) }
+                        runCatching { api.registerDevice(session.deviceId(), null, null, heartbeat = true, hardwareId = session.hardwareId()) }
                             .getOrNull()?.let { deviceRole.remember(mu.carfection.pos.core.data.takesPaymentsOf(it)) }
                     }
                 }

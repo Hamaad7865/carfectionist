@@ -47,12 +47,13 @@ export default async function DeviceDashboardPage({
 }) {
   const { deviceId } = await params;
   const sp = await searchParams;
-  const code = decodeURIComponent(deviceId);
-  const data = await getDeviceDashboard(code, { ref: sp.ref, from: sp.from, to: sp.to });
+  const data = await getDeviceDashboard(decodeURIComponent(deviceId), { ref: sp.ref, from: sp.from, to: sp.to });
   if (!data) notFound();
+  // The tablet's CURRENT code — an earlier code's URL resolves to the same device.
+  const code = data.device.code;
 
   const tab = TABS.some((t) => t.key === sp.tab) ? sp.tab! : "general";
-  const { device, sessions, trace, todayCents, cashflow } = data;
+  const { device, sessions, trace, todayCents, cashflow, linkCandidates } = data;
   const Icon = device.isBackOffice ? Monitor : TabletSmartphone;
   const todayTotal = todayCents.reduce((s, m) => s + m.cents, 0);
   // Struck rows don't count: totals are NET of cancelled pairs (a reversed
@@ -86,6 +87,9 @@ export default async function DeviceDashboardPage({
               {device.model && <span>{device.model}</span>}
               <span className="num text-faint">#{device.code}</span>
               {device.appVersion && <span className="num">v{device.appVersion}</span>}
+              {device.earlierCodes.length > 0 && (
+                <span className="text-faint">· history includes {device.earlierCodes.map((e) => `#${e.code}`).join(", ")}</span>
+              )}
             </div>
           </div>
         </div>
@@ -172,7 +176,7 @@ export default async function DeviceDashboardPage({
           )}
 
           {/* ── SETTINGS ── */}
-          {tab === "settings" && <DeviceSettings device={device} />}
+          {tab === "settings" && <DeviceSettings device={device} linkCandidates={linkCandidates} />}
 
           {/* ── CASH FLOW — everything driven by the date pickers (Cashmag spec) ── */}
           {tab === "cashflow" && (

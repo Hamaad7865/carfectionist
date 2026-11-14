@@ -182,10 +182,18 @@ const p2 = (x: number) => String(x).padStart(2, "0");
  * Null when the sale wasn't rung on a registered terminal: the web opens its own tills as
  * 'back-office', which is not in the device registry. The slip then omits the line rather than
  * inventing a number, exactly as the tablet does when it doesn't know.
+ *
+ * `currentCodeOf` maps an EARLIER code of a tablet to the code it uses now (devices.merged_into,
+ * 2026-11-14): a sale rung as TAB-84A1 before the till's app data was wiped still prints the
+ * till's number, not nothing — the bill reference carries it too.
  */
-export function terminalNoOf(activeCodes: string[], deviceCode: string | null): number | null {
+export function terminalNoOf(
+  activeCodes: string[],
+  deviceCode: string | null,
+  currentCodeOf?: ReadonlyMap<string, string>,
+): number | null {
   if (!deviceCode) return null;
-  const i = activeCodes.indexOf(deviceCode);
+  const i = activeCodes.indexOf(currentCodeOf?.get(deviceCode) ?? deviceCode);
   return i >= 0 ? i + 1 : null;
 }
 
@@ -273,21 +281,31 @@ export function receiptTenders(rows: ReceiptPaymentRow[]): ReceiptTender[] {
  * only, and a receipt whose printed terminal number changed depending on who opened it would be
  * a defect. The registry is not sensitive here — that number is printed on the customer's copy
  * either way — and the read stays scoped to this document's own tenant.
+ *
+ * Also returns earlier code → current code (devices.merged_into), so a sale rung under a code
+ * the tablet has since replaced keeps its number.
  */
-async function activeDeviceCodes(tenantId: string | null): Promise<string[]> {
-  if (!tenantId) return [];
+async function activeDeviceCodes(tenantId: string | null): Promise<{ codes: string[]; currentCodeOf: Map<string, string> }> {
+  const none = { codes: [] as string[], currentCodeOf: new Map<string, string>() };
+  if (!tenantId) return none;
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data } = await ((createAdminClient().from("devices" as any) as any)
-      .select("device_code")
+      .select("id, device_code, is_active, merged_into")
       .eq("tenant_id", tenantId)
-      .eq("is_active", true)
       .order("first_seen", { ascending: true }));
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return ((data ?? []) as any[]).map((r) => String(r.device_code));
+    const rows = (data ?? []) as any[];
+    const codeById = new Map(rows.map((r) => [r.id as string, String(r.device_code)]));
+    const currentCodeOf = new Map<string, string>();
+    for (const r of rows) {
+      const to = r.merged_into ? codeById.get(r.merged_into) : undefined;
+      if (to) currentCodeOf.set(String(r.device_code), to);
+    }
+    return { codes: rows.filter((r) => r.is_active).map((r) => String(r.device_code)), currentCodeOf };
   } catch {
     // No service-role key in this context — the Appareil line simply doesn't print.
-    return [];
+    return none;
   }
 }
 
@@ -358,7 +376,7 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     // No till session, no terminal: back-office documents skip the device
     // registry read entirely (it used to cost a service-role round-trip on
     // every receipt view, then resolve to null anyway).
-    d.cash_session_id ? activeDeviceCodes(d.tenant_id) : Promise.resolve([] as string[]),
+    d.cash_session_id ? activeDeviceCodes(d.tenant_id) : Promise.resolve({ codes: [] as string[], currentCodeOf: new Map<string, string>() }),
   ]);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const cashier = (((u as any)?.display_name ?? "") as string).replace(/\s*\(.*\)\s*$/, "").trim();
@@ -370,7 +388,7 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   // slip omits the Appareil line rather than inventing a number for it.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const deviceCode = ((sess as any)?.device_id ?? null) as string | null;
-  const terminalNo = terminalNoOf(deviceCodes, deviceCode);
+  const terminalNo = terminalNoOf(deviceCodes.codes, deviceCode, deviceCodes.currentCodeOf);
   const billLabel = billReference(d.bill_no, terminalNo);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const b: any = bs ?? {};

@@ -75,6 +75,39 @@ export async function setDeviceTakesPaymentsAction(input: z.infer<typeof takesPa
   return { ok: true };
 }
 
+// Same tablet, new code (its app data was wiped / it was reinstalled on an app too old to
+// send a hardware fingerprint): fold the old code's history into this device.
+const linkSchema = z.object({ oldDeviceId: z.string().uuid(), deviceId: z.string().uuid() });
+export async function linkDeviceAction(input: z.infer<typeof linkSchema>): Promise<Result> {
+  await requireRole("owner", "manager");
+  const p = linkSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Invalid input" };
+  if (p.data.oldDeviceId === p.data.deviceId) return { ok: false, error: "A device cannot be linked to itself" };
+  const sb = await createClient();
+  try {
+    await rpc.linkDevice(sb, p.data.oldDeviceId, p.data.deviceId);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  revalidatePath("/point-of-sale");
+  return { ok: true };
+}
+
+const unlinkSchema = z.object({ deviceId: z.string().uuid() });
+export async function unlinkDeviceAction(input: z.infer<typeof unlinkSchema>): Promise<Result> {
+  await requireRole("owner", "manager");
+  const p = unlinkSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Invalid input" };
+  const sb = await createClient();
+  try {
+    await rpc.unlinkDevice(sb, p.data.deviceId);
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  revalidatePath("/point-of-sale");
+  return { ok: true };
+}
+
 // Petty cash out of an open till (Cashmag's "Autre" outflow rows). The RPC
 // enforces the real rules: open session, positive amount, reason, ≤ drawer.
 const cashOutSchema = z.object({

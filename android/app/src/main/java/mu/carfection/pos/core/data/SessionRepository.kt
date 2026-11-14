@@ -1,5 +1,8 @@
 package mu.carfection.pos.core.data
 
+import android.content.Context
+import android.provider.Settings
+import dagger.hilt.android.qualifiers.ApplicationContext
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -47,6 +50,7 @@ import javax.inject.Singleton
  */
 @Singleton
 class SessionRepository @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val client: SupabaseClient,
     private val prefs: DataStore<Preferences>,
     private val connectivity: OnlineSignal,
@@ -275,14 +279,24 @@ class SessionRepository @Inject constructor(
         }
     }
 
-    /** Stable per-tablet id for the till (one open session per device). */
+    /**
+     * Stable per-tablet id for the till (one open session per device). See [DeviceIdentity].
+     *
+     * Minted INSIDE the DataStore transaction: edits are serialized and each sees the latest
+     * value, so callers racing an empty store all get the one code. The old read-then-write
+     * let two startup callers each mint their own (TAB-BDAD and TAB-36FA, 8 s apart).
+     */
     suspend fun deviceId(): String {
-        val current = prefs.data.first()[deviceKey]
-        if (current != null) return current
-        val fresh = "TAB-" + java.util.UUID.randomUUID().toString().take(4).uppercase()
-        prefs.edit { it[deviceKey] = fresh }
-        return fresh
+        prefs.data.first()[deviceKey]?.let { return it }
+        val minted = DeviceIdentity.codeFor(hardwareId())
+        val stored = prefs.edit { if (it[deviceKey] == null) it[deviceKey] = minted }
+        return stored[deviceKey] ?: minted
     }
+
+    /** The tablet's hardware fingerprint (hashed Android ID) — survives reinstall and cleared data. */
+    fun hardwareId(): String? = DeviceIdentity.hardwareId(
+        runCatching { Settings.Secure.getString(context.contentResolver, Settings.Secure.ANDROID_ID) }.getOrNull(),
+    )
 }
 
 /** How long a read waits for an in-flight renewal before saying so — the library retries every 10 s. */

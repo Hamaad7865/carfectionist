@@ -33,6 +33,11 @@ export interface PosDevice {
   firstSeen: string | null;
   lastSeen: string | null;
   till: DeviceTill | null;
+  /** Every code this tablet has traded under: its current one first, then the earlier
+   *  ones linked to it (devices.merged_into — e.g. after its app data was wiped). Pages
+   *  query by ALL of them so a code change never splits the tablet's history. */
+  codes: string[];
+  earlierCodes: { id: string; code: string; lastSeen: string | null }[];
 }
 
 export interface RecentCashup {
@@ -65,6 +70,35 @@ function previousMuMonth(): string {
   const m = mu.getUTCMonth(); // 0-based current month → previous month = m-1
   const prev = new Date(Date.UTC(m === 0 ? y - 1 : y, m === 0 ? 11 : m - 1, 1));
   return `${prev.getUTCFullYear()}-${String(prev.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+interface DeviceRowLike {
+  id: string;
+  device_code: string;
+  merged_into?: string | null;
+  last_seen?: string | null;
+}
+
+/**
+ * Split the registry into the tablets themselves and their earlier codes. A row with
+ * merged_into set is an old code of the tablet it points at (the DB flattens chains on
+ * link, but a dangling pointer is tolerated: such a row simply stands as its own device).
+ */
+export function groupDeviceRows<T extends DeviceRowLike>(rows: T[]) {
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const isEarlier = (r: T) => !!r.merged_into && byId.has(r.merged_into) && !byId.get(r.merged_into)!.merged_into;
+  const canonical = rows.filter((r) => !isEarlier(r));
+  const earlierOf = new Map<string, T[]>();
+  const canonicalCode = new Map<string, string>();
+  for (const r of rows) {
+    if (!isEarlier(r)) continue;
+    const arr = earlierOf.get(r.merged_into!) ?? [];
+    arr.push(r);
+    earlierOf.set(r.merged_into!, arr);
+    canonicalCode.set(r.device_code, byId.get(r.merged_into!)!.device_code);
+  }
+  for (const arr of earlierOf.values()) arr.sort((a, b) => ((a.last_seen ?? "") < (b.last_seen ?? "") ? 1 : -1));
+  return { canonical, earlierOf, canonicalCode };
 }
 
 export async function getPosOverview(): Promise<PosOverview> {
@@ -134,20 +168,29 @@ export async function getPosOverview(): Promise<PosOverview> {
   }
 
   const now = Date.now();
-  const devices: PosDevice[] = deviceRows.map((d) => ({
-    id: d.id,
-    code: d.device_code,
-    name: d.display_name || d.device_code,
-    model: d.model ?? null,
-    appVersion: d.app_version ?? null,
-    isActive: !!d.is_active,
-    takesPayments: d.takes_payments !== false,
-    isBackOffice: false,
-    online: now - Date.parse(d.last_seen) < ONLINE_WINDOW_MS,
-    firstSeen: d.first_seen,
-    lastSeen: d.last_seen,
-    till: openByDevice.get(d.device_code) ?? null,
-  }));
+  const { canonical, earlierOf, canonicalCode } = groupDeviceRows(deviceRows);
+  const devices: PosDevice[] = canonical.map((d) => {
+    const earlier = earlierOf.get(d.id) ?? [];
+    const codes = [d.device_code, ...earlier.map((e) => e.device_code)];
+    // An earlier code that somehow reports again (restored backup) still counts as this tablet.
+    const lastSeen = [d, ...earlier].map((r) => r.last_seen).filter(Boolean).sort().at(-1) ?? d.last_seen;
+    return {
+      id: d.id,
+      code: d.device_code,
+      name: d.display_name || d.device_code,
+      model: d.model ?? null,
+      appVersion: d.app_version ?? null,
+      isActive: !!d.is_active,
+      takesPayments: d.takes_payments !== false,
+      isBackOffice: false,
+      online: now - Date.parse(lastSeen) < ONLINE_WINDOW_MS,
+      firstSeen: d.first_seen,
+      lastSeen,
+      till: codes.map((c) => openByDevice.get(c)).find(Boolean) ?? null,
+      codes,
+      earlierCodes: earlier.map((e) => ({ id: e.id, code: e.device_code, lastSeen: e.last_seen ?? null })),
+    };
+  });
 
   // The web back office is always present, first in the list.
   // One drawer: when the terminal holds today's till, the desk joins it — the
@@ -172,17 +215,19 @@ export async function getPosOverview(): Promise<PosOverview> {
     firstSeen: null,
     lastSeen: null,
     till: openByDevice.get("back-office") ?? sharedToday,
+    codes: ["back-office"],
+    earlierCodes: [],
   });
 
   // A till opened by a tablet that never registered (pre-registry APK) must
   // still be visible — synthesize an entry from its session.
-  const known = new Set(devices.map((d) => d.code));
+  const known = new Set(devices.flatMap((d) => d.codes));
   for (const [code, till] of openByDevice) {
     if (!known.has(code)) {
       devices.push({
         id: null, code, name: code, model: null, appVersion: null,
         isActive: true, isBackOffice: false, online: false, takesPayments: true,
-        firstSeen: null, lastSeen: null, till,
+        firstSeen: null, lastSeen: null, till, codes: [code], earlierCodes: [],
       });
     }
   }
@@ -192,7 +237,8 @@ export async function getPosOverview(): Promise<PosOverview> {
     .slice(0, 12)
     .map((s) => ({
       id: s.id,
-      deviceCode: s.device_id,
+      // Shown under the tablet's CURRENT code, so one till reads as one till.
+      deviceCode: canonicalCode.get(s.device_id) ?? s.device_id,
       openedAt: s.opened_at,
       closedAt: s.closed_at,
       expectedCents: rupeesToCents(Number(s.expected_cash ?? 0)),
@@ -211,7 +257,7 @@ export async function getPosOverview(): Promise<PosOverview> {
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     tradingName: ((bsRes.data as any)?.trading_name as string) ?? "Carfectionist",
-    deviceCount: deviceRows.filter((d) => d.is_active).length,
+    deviceCount: canonical.filter((d) => d.is_active).length,
     devices,
     recent,
     periods,
@@ -294,6 +340,8 @@ export interface DeviceDashboard {
   trace: TraceEvent[];
   todayCents: { method: string; cents: number }[]; // takings today (MU) by method
   cashflow: CashflowData;
+  /** Other registered tablets the owner may link to this one as earlier codes. */
+  linkCandidates: { id: string; code: string; name: string; model: string | null; lastSeen: string | null }[];
 }
 
 const METHOD_LABEL: Record<string, string> = { cash: "Cash", card: "Card", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
@@ -324,8 +372,12 @@ export async function getDeviceDashboard(
 ): Promise<DeviceDashboard | null> {
   const sb = await createClient();
   const overview = await getPosOverview();
-  const device = overview.devices.find((d) => d.code === code);
+  // An earlier code's old URL lands on the tablet it now belongs to.
+  const device = overview.devices.find((d) => d.code === code) ?? overview.devices.find((d) => d.codes.includes(code));
   if (!device) return null;
+  // Every code this tablet ever traded under — sessions and audit rows keep the code
+  // that really rang them, so the history is the union.
+  const codes = device.codes;
 
   // Cash Flow is driven entirely by date pickers (owner's Cashmag spec):
   // reference date for the closure history, from–to period for movements.
@@ -341,7 +393,7 @@ export async function getDeviceDashboard(
   let auditQ = sb
     .from("audit_events")
     .select("id, event_type, payload, created_at, actor_id, ref_id")
-    .eq("device_id", code)
+    .in("device_id", codes)
     .order("created_at", { ascending: false })
     .limit(rangeGiven ? 300 : 120);
   if (rangeGiven) {
@@ -357,7 +409,7 @@ export async function getDeviceDashboard(
   const sharesBackOfficeTill = device.takesPayments && !device.isBackOffice;
   const [sessRes, sharedRes, usersRes, auditRes] = await Promise.all([
     // ALL of this device's sessions (≈1/day) — the pickers can reach any date.
-    sb.from("cash_sessions").select("*").eq("device_id", code).order("opened_at", { ascending: false }).limit(400),
+    sb.from("cash_sessions").select("*").in("device_id", codes).order("opened_at", { ascending: false }).limit(400),
     sharesBackOfficeTill
       ? sb.from("cash_sessions").select("*").eq("device_id", BACK_OFFICE_DEVICE)
           .gte("opened_at", SHARED_TILL_SINCE).order("opened_at", { ascending: false }).limit(400)
@@ -758,5 +810,10 @@ export async function getDeviceDashboard(
     trace: trace.slice(0, 150),
     todayCents: [...todayMap.entries()].map(([method, cents]) => ({ method, cents })),
     cashflow,
+    linkCandidates: device.isBackOffice || !device.id
+      ? []
+      : overview.devices
+          .filter((d) => d.id && !d.isBackOffice && d.id !== device.id)
+          .map((d) => ({ id: d.id!, code: d.code, name: d.name, model: d.model, lastSeen: d.lastSeen })),
   };
 }

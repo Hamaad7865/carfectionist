@@ -4,17 +4,47 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { FormError } from "@/components/ui/form";
 import { muDateTime } from "@/lib/mu-date";
-import { renameDeviceAction, setDeviceActiveAction, setDeviceTakesPaymentsAction } from "./actions";
-import type { PosDevice } from "@/lib/supabase/queries/pos-devices";
+import { linkDeviceAction, renameDeviceAction, setDeviceActiveAction, setDeviceTakesPaymentsAction, unlinkDeviceAction } from "./actions";
+import type { DeviceDashboard, PosDevice } from "@/lib/supabase/queries/pos-devices";
 
 const field = "h-10 w-full rounded-[11px] border border-line-2 bg-sub px-3 text-[14px] text-ink outline-none focus:border-brand";
 
-export function DeviceSettings({ device }: { device: PosDevice }) {
+export function DeviceSettings({ device, linkCandidates = [] }: { device: PosDevice; linkCandidates?: DeviceDashboard["linkCandidates"] }) {
   const router = useRouter();
   const [name, setName] = useState(device.name === device.code ? "" : device.name);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [linkId, setLinkId] = useState("");
+
+  async function run(fn: () => Promise<{ ok: true } | { ok: false; error: string }>) {
+    setError(null);
+    setBusy(true);
+    try {
+      const r = await fn();
+      if (r.ok) router.refresh(); else setError(r.error);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function linkEarlier() {
+    if (!device.id || !linkId) return;
+    const other = linkCandidates.find((c) => c.id === linkId);
+    if (!other) return;
+    if (!window.confirm(
+      `Treat ${other.name} (#${other.code}) as an earlier code of this tablet?\n\n` +
+      `Its tills, cash flow and traceability will show here, and it disappears from the device list. ` +
+      `Only do this if it is the SAME physical tablet.`,
+    )) return;
+    await run(() => linkDeviceAction({ oldDeviceId: linkId, deviceId: device.id! }));
+    setLinkId("");
+  }
+
+  async function unlink(id: string, code: string) {
+    if (!window.confirm(`Separate #${code} from this tablet again? It will show as its own inactive device.`)) return;
+    await run(() => unlinkDeviceAction({ deviceId: id }));
+  }
 
   async function saveName() {
     if (!device.id) return;
@@ -104,6 +134,43 @@ export function DeviceSettings({ device }: { device: PosDevice }) {
                 {device.isActive ? "Deactivate" : "Reactivate"}
               </button>
             </div>
+          </div>
+
+          {/* Same tablet, earlier codes — a wiped/reinstalled app shows up with a new code */}
+          <div className="rounded-[15px] border border-line bg-card p-5">
+            <div className="text-[13px] font-bold text-ink">Earlier codes of this tablet</div>
+            <p className="mt-0.5 text-[12px] text-muted">
+              If this tablet&apos;s app was reinstalled or its data cleared, it may have come back under a new code.
+              Linked codes keep their tills, cash flow and traceability under this device.
+            </p>
+            {device.earlierCodes.length > 0 && (
+              <div className="mt-3 overflow-hidden rounded-[11px] border border-line">
+                {device.earlierCodes.map((e) => (
+                  <div key={e.id} className="flex items-center justify-between gap-3 border-b border-line px-3.5 py-2 text-[12.5px] last:border-b-0">
+                    <span className="num font-semibold text-body">#{e.code}</span>
+                    <span className="text-faint">{e.lastSeen ? `last seen ${muDateTime(e.lastSeen)}` : ""}</span>
+                    <button onClick={() => unlink(e.id, e.code)} disabled={busy} className="ml-auto text-[12px] font-bold text-muted hover:text-rose disabled:opacity-60">
+                      Separate
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {linkCandidates.length > 0 && (
+              <div className="mt-3 flex gap-2">
+                <select className={`${field} flex-1`} value={linkId} onChange={(e) => setLinkId(e.target.value)}>
+                  <option value="">Choose a code to link…</option>
+                  {linkCandidates.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name === c.code ? c.code : `${c.name} (${c.code})`}{c.model ? ` · ${c.model}` : ""}{c.lastSeen ? ` · last seen ${muDateTime(c.lastSeen)}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <button onClick={linkEarlier} disabled={busy || !linkId} className="h-10 shrink-0 rounded-[11px] border border-line-2 px-4 text-[13px] font-bold text-body hover:border-brand disabled:opacity-60">
+                  Link
+                </button>
+              </div>
+            )}
           </div>
         </>
       ) : (

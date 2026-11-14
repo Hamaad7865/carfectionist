@@ -217,6 +217,17 @@ describe("Appareil — the terminal is an ordinal, never a device code", () => {
     expect(terminalNoOf(active, "TAB-68A1")).toBeNull(); // retired — not a live terminal
     expect(terminalNoOf([], "TAB-84A1")).toBeNull();     // registry unreadable
   });
+
+  it("a sale rung under a tablet's earlier code keeps that tablet's number", () => {
+    // 2026-11-14: the till's app data was wiped; TAB-84A1 and TAB-BDAD are now earlier codes
+    // of TAB-36FA (inactive, merged_into). A reprint of a 13 Nov sale must still say Appareil 1.
+    const now = ["TAB-36FA", "TAB-66D2"];
+    const currentCodeOf = new Map([["TAB-84A1", "TAB-36FA"], ["TAB-BDAD", "TAB-36FA"]]);
+    expect(terminalNoOf(now, "TAB-84A1", currentCodeOf)).toBe(1);
+    expect(terminalNoOf(now, "TAB-36FA", currentCodeOf)).toBe(1);
+    expect(terminalNoOf(now, "TAB-66D2", currentCodeOf)).toBe(2);
+    expect(terminalNoOf(now, "TAB-84A1")).toBeNull(); // without the link the number would vanish
+  });
 });
 
 describe("Bill — the internal order reference", () => {

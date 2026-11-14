@@ -370,6 +370,14 @@ export const setDeviceActive = (sb: Client, deviceId: string, active: boolean) =
 export const setDeviceTakesPayments = (sb: Client, deviceId: string, takes: boolean) =>
   callRpc<DeviceRow>(sb, "set_device_takes_payments", { p_device_id: deviceId, p_takes: takes });
 
+/** Make `oldDeviceId` an earlier code of `deviceId` (same tablet, new code). */
+export const linkDevice = (sb: Client, oldDeviceId: string, deviceId: string) =>
+  callRpc<DeviceRow>(sb, "link_device", { p_old_device_id: oldDeviceId, p_device_id: deviceId });
+
+/** Undo a wrong link: the earlier code stands as its own (inactive) device again. */
+export const unlinkDevice = (sb: Client, deviceId: string) =>
+  callRpc<DeviceRow>(sb, "unlink_device", { p_device_id: deviceId });
+
 export const closePeriod = (sb: Client, period: string) =>
   callRpc<{ id: string; period: string; totals: unknown }>(sb, "close_period", { p_period: period });
 
