@@ -109,6 +109,9 @@ data class CounterUiState(
     // How much of the bill is being settled now. Empty = all of it. Only a collect can
     // carry a balance, so only a collect can type here.
     val payText: String = "",
+    // The cashier pressed Deposit: an empty payText now means NOTHING typed yet, not the
+    // whole balance — so Take stays dead until a figure is keyed in.
+    val depositEntry: Boolean = false,
     val padField: PadField = PadField.TENDER, // which display the numpad is typing into
     val refText: String = "",
     val comment: String = "", // internal note for the sale — shown in the back office, never on the receipt
@@ -250,12 +253,14 @@ data class CounterUiState(
     /**
      * What is being taken RIGHT NOW in single-method mode — a deposit, or the lot. Capped at
      * what the method can actually cover. Empty = that ceiling, so an untouched walk-in
-     * still settles in full, and picking Points fills in what the points are worth.
+     * still settles in full, and picking Points fills in what the points are worth — unless
+     * the cashier is typing a deposit, where empty is zero.
      */
     val payCents: Long
         get() {
             val typed = if (payText.isBlank()) null else parseMoneyToCents(payText)
-            return (typed ?: methodCeilingCents).coerceIn(0, methodCeilingCents.coerceAtLeast(0))
+            val untyped = if (depositEntry && collect != null) 0L else methodCeilingCents
+            return (typed ?: untyped).coerceIn(0, methodCeilingCents.coerceAtLeast(0))
         }
 
     /** Money still owed after this entry lands — what stays in TO COLLECT. */
@@ -1103,7 +1108,7 @@ class CounterViewModel @Inject constructor(
     fun openBillQuote(quoteId: String) { openQuoteBus.request(quoteId) }
     fun openBillJob(jobId: String) { openJobBus.request(jobId) }
 
-    fun collectOn(bill: OutstandingInvoiceDto, amountCents: Long? = null) {
+    fun collectOn(bill: OutstandingInvoiceDto, amountCents: Long? = null, askAmount: Boolean = false) {
         // Starting a new collection would rotate saleKey and abandon an in-flight settle.
         if (frozenBySettle()) return
         saleKey = UUID.randomUUID().toString()
@@ -1111,11 +1116,13 @@ class CounterViewModel @Inject constructor(
             collect = bill, padOpen = true, method = PayMethod.CASH,
             collectLines = emptyList(), collectJob = null, collectDetailFailed = false, collectSourceNumber = null,
             // Every bill opens at its full balance — unless a deposit was agreed at signing,
-            // which dials the pad in for the cashier. A part payment typed for the LAST
-            // customer must never ride along into this one's.
+            // which dials the pad in for the cashier, or the job card asked for a deposit
+            // nobody agreed, which opens on an empty figure to type. A part payment typed
+            // for the LAST customer must never ride along into this one's.
             tenderText = "",
-            payText = amountCents?.let { centsToText(it) } ?: "",
-            padField = PadField.TENDER,
+            payText = if (askAmount) "" else amountCents?.let { centsToText(it) } ?: "",
+            depositEntry = askAmount,
+            padField = if (askAmount) PadField.AMOUNT else PadField.TENDER,
             refText = "", error = null, splitMode = false, splitText = emptyMap(),
             // Points are tendered on the pad, not in the till — but they were armed on the
             // LAST bill, for the last customer, against the last balance. Leaving them set
@@ -1187,7 +1194,7 @@ class CounterViewModel @Inject constructor(
                         local.value = local.value.copy(mode = CheckoutMode.LIST, bills = bills, error = blocked)
                     } else {
                         local.value = local.value.copy(mode = CheckoutMode.LIST, bills = bills)
-                        collectOn(bill, req.amountCents)
+                        collectOn(bill, req.amountCents, req.askAmount)
                     }
                 }
                 // Consume either way: a bill already settled (or a failed fetch) must not leave
@@ -1773,7 +1780,7 @@ class CounterViewModel @Inject constructor(
         // retry MUST replay identically, so reopening the pad must NOT reset them (the server
         // ignores a retry's arguments; a reset would print a receipt that lies about the tender).
         if (local.value.pendingSettle != null) { local.value = local.value.copy(padOpen = true, error = settleError()); return }
-        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", payText = "", error = null, splitMode = false, splitText = emptyMap())
+        local.value = local.value.copy(padOpen = true, method = PayMethod.CASH, tenderText = "", refText = "", payText = "", depositEntry = false, error = null, splitMode = false, splitText = emptyMap())
     }
     fun closePad() {
         val st = local.value
@@ -1832,7 +1839,7 @@ class CounterViewModel @Inject constructor(
         // mid-settle, and choosing how to pay is not editing the basket.
         val s = state.value
         if (s.pointsAppliedCents > 0) {
-            local.value = local.value.copy(pointsAppliedCents = 0, payText = "", tenderText = "", splitText = emptyMap(), error = null)
+            local.value = local.value.copy(pointsAppliedCents = 0, payText = "", depositEntry = false, tenderText = "", splitText = emptyMap(), error = null)
             return
         }
         if (s.pointsCapCents <= 0) return
@@ -1855,7 +1862,7 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(
             pointsAppliedCents = chosen,
             pointsPickerOpen = false,
-            payText = "", tenderText = "", splitText = emptyMap(),
+            payText = "", depositEntry = false, tenderText = "", splitText = emptyMap(),
             error = null,
         )
     }
@@ -1867,7 +1874,7 @@ class CounterViewModel @Inject constructor(
         val s = local.value
         local.value = if (s.splitMode) s.copy(splitMode = false, splitText = emptyMap(), error = null)
         else s.copy(splitMode = true, splitFocus = PayMethod.CASH, splitText = emptyMap(),
-            payText = "", tenderText = "", refText = "", error = null)
+            payText = "", depositEntry = false, tenderText = "", refText = "", error = null)
     }
 
     /** Focus a method row so the numpad types into it. */
@@ -1916,8 +1923,18 @@ class CounterViewModel @Inject constructor(
         if (frozenBySettle()) return
         local.value = local.value.copy(
             payText = cents?.let { centsToText(it) } ?: "",
+            depositEntry = false,
             tenderText = "", // the tender was for the old figure; re-open it at "exact"
         )
+    }
+
+    /**
+     * The pad's Deposit button: clear the figure and point the numpad at it, so the cashier
+     * types what the customer is leaving. The lot is still one tap away on Full.
+     */
+    fun startDepositEntry() {
+        if (frozenBySettle() || local.value.collect == null) return
+        local.value = local.value.copy(payText = "", depositEntry = true, tenderText = "", padField = PadField.AMOUNT, error = null)
     }
 
     fun focusPad(f: PadField) { if (frozenBySettle()) return; local.value = local.value.copy(padField = f) }

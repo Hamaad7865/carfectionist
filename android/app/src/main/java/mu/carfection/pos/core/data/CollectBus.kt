@@ -35,6 +35,10 @@ fun isCollectRequestExpired(requestedAtMs: Long, nowMs: Long = System.currentTim
  * [amountCents] is a suggestion the cashier can still change at the pad — the money is not
  * taken until they press the button with the customer's cash in hand.
  *
+ * [askAmount] opens the pad on an EMPTY deposit instead of the full balance: a deposit
+ * nobody agreed at signing has no figure to dial in, and opening on the lot invites
+ * taking it.
+ *
  * [requestedAtMs] is when the request was latched. The counter ignores (but still
  * consumes) a request older than [COLLECT_REQUEST_TTL_MS] — without it a deposit latched
  * before lunch would spring the pad open on whoever next visits Checkout, over a bill
@@ -42,13 +46,18 @@ fun isCollectRequestExpired(requestedAtMs: Long, nowMs: Long = System.currentTim
  */
 @Singleton
 class CollectBus @Inject constructor() {
-    data class Request(val invoiceId: String, val amountCents: Long?, val requestedAtMs: Long = System.currentTimeMillis())
+    data class Request(
+        val invoiceId: String,
+        val amountCents: Long?,
+        val requestedAtMs: Long = System.currentTimeMillis(),
+        val askAmount: Boolean = false,
+    )
 
     private val _pending = MutableStateFlow<Request?>(null)
     val pending = _pending.asStateFlow()
 
-    fun request(invoiceId: String, amountCents: Long? = null) {
-        _pending.value = Request(invoiceId, amountCents)
+    fun request(invoiceId: String, amountCents: Long? = null, askAmount: Boolean = false) {
+        _pending.value = Request(invoiceId, amountCents, askAmount = askAmount)
     }
 
     fun consume() { _pending.value = null }

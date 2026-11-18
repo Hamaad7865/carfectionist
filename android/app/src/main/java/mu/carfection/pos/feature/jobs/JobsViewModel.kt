@@ -69,6 +69,37 @@ private fun epochOrNull(iso: String): Long? =
 fun showDepositButton(depositCents: Long, hasLiveBill: Boolean): Boolean =
     depositCents > 0 && !hasLiveBill
 
+/** What the job card's deposit button does, when it shows at all — see [depositOffer]. */
+sealed interface DepositOffer {
+    /** Agreed at signing, no bill yet: raise the bill with that figure dialled in. */
+    data class Agreed(val cents: Long) : DepositOffer
+    /** Nothing agreed, no bill yet: raise the bill and let the cashier type the figure. */
+    data object RaiseBill : DepositOffer
+    /** The bill already stands with money owed: open it on the pad to type the figure. */
+    data class OnBill(val invoiceId: String, val number: String?) : DepositOffer
+}
+
+/**
+ * Whether — and how — the job card offers to take a deposit.
+ *
+ * The agreed-at-signing case is unchanged ([showDepositButton]). Beyond it, a car booked
+ * for another day can leave a deposit nobody agreed when signing (INV-0558, 18 Nov 2026):
+ * with no button for it, the staff walked the job Start → Mark ready → Credit just to get
+ * a bill in front of the till, and Credit handed a car that had not arrived over on account.
+ * So every job not yet ready offers it — raising the bill from its quote when none is
+ * issued (a job with no quote has nothing priced to bill), or opening the standing bill
+ * while money is still owed on it. Pulled out so the rule can be tested without a ViewModel.
+ */
+fun depositOffer(status: String, sourceQuoteId: String?, depositCents: Long, invoices: List<FlowInvoiceRefDto>): DepositOffer? {
+    val live = invoices.filter { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
+    if (sourceQuoteId != null && showDepositButton(depositCents, live.isNotEmpty())) return DepositOffer.Agreed(depositCents)
+    if (status != "scheduled" && status != "in_progress") return null
+    if (live.isEmpty()) return if (sourceQuoteId != null) DepositOffer.RaiseBill else null
+    val owing = live.firstOrNull { it.status != "paid" && deliveredOutstandingCents(it.totalIncl, it.amountPaid) > 0 }
+        ?: return null
+    return DepositOffer.OnBill(owing.id, owing.number)
+}
+
 /**
  * What is still owed on a delivered job's bill, in till cents.
  *
@@ -402,6 +433,56 @@ class JobsViewModel @Inject constructor(
                 _s.update { it.copy(depositBusy = false, toast = e.uiMessage("Couldn't raise the deposit bill")) }
             }
         }
+    }
+
+    /**
+     * The job card's deposit button for a deposit nobody agreed at signing ([depositOffer]):
+     * raise the bill from the quote if none is issued, then open it on the pad with the
+     * figure empty for the cashier to type. On a quotation tablet there is no pad — the
+     * bill waits in TO COLLECT and the toast says where to take the money.
+     *
+     * Raising issues the bill, exactly as the agreed-deposit path does: a deposit needs a
+     * real invoice to land in, so its price is fixed from here (extras later go on a
+     * separate bill).
+     */
+    fun takeDeposit(onGo: () -> Unit) {
+        val s0 = _s.value
+        val job = active(s0) ?: return
+        val agreed: Long = job.sourceQuote?.depositDue?.let { runCatching { rupeesToCents(it) }.getOrDefault(0L) } ?: 0L
+        when (val offer = depositOffer(job.status, job.sourceQuoteId, agreed, job.invoices)) {
+            null -> note("Nothing to take a deposit on — this job has no bill or quote")
+            is DepositOffer.Agreed -> raiseDepositBill()
+            is DepositOffer.OnBill -> openDepositPad(offer.invoiceId, s0.takesPayments, onGo)
+            DepositOffer.RaiseBill -> {
+                val quoteId = job.sourceQuoteId ?: return
+                if (s0.depositBusy) return
+                _s.update { it.copy(depositBusy = true) }
+                viewModelScope.launch {
+                    runCatching {
+                        val inv = api.convertQuoteToInvoice(quoteId)
+                        if (inv.status == null || inv.status == "draft")
+                            api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                        inv.id
+                    }.onSuccess { invoiceId ->
+                        _s.update { it.copy(depositBusy = false) }
+                        load()
+                        openDepositPad(invoiceId, s0.takesPayments, onGo)
+                    }.onFailure { e ->
+                        _s.update { it.copy(depositBusy = false, toast = e.uiMessage("Couldn't raise the bill for the deposit")) }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun openDepositPad(invoiceId: String, takesPayments: Boolean, onGo: () -> Unit) {
+        if (!takesPayments) {
+            _s.update { it.copy(toast = "The bill is at the till — tap it in TO COLLECT, then Deposit.") }
+            return
+        }
+        collectBus.request(invoiceId, amountCents = null, askAmount = true)
+        close()
+        onGo()
     }
 
     /**

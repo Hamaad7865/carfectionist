@@ -577,28 +577,56 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
             Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 13.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 // A deposit was agreed on this job's quote and no live bill exists yet:
                 // one tap raises the bill and parks it in TO COLLECT with the deposit
-                // dialled in, so the customer can walk to the cashier. Once a bill is
-                // issued the cashier collects on it there instead — a second raise
-                // would only hand that bill back.
+                // dialled in, so the customer can walk to the cashier. A car booked for
+                // another day can also leave a deposit nobody agreed — then the button
+                // raises the bill (or opens the standing one) for the cashier to type it.
                 val depositCents = runCatching { rupeesToCents(j.sourceQuote?.depositDue ?: 0.0) }.getOrDefault(0)
-                val hasLiveBill = j.invoices.any { it.docType == "invoice" && it.status != "void" && it.status != "draft" }
-                if (mu.carfection.pos.feature.jobs.showDepositButton(depositCents, hasLiveBill)) {
-                    Box(
-                        Modifier.fillMaxWidth().height(52.dp)
-                            .background(if (s.depositBusy) InsetAlt else Accent, RoundedCornerShape(13.dp))
-                            .clickable(enabled = !s.depositBusy) { vm.raiseDepositBill() },
-                        contentAlignment = Alignment.Center,
-                    ) {
+                when (val offer = mu.carfection.pos.feature.jobs.depositOffer(j.status, j.sourceQuoteId, depositCents, j.invoices)) {
+                    null -> Unit
+                    is DepositOffer.Agreed -> {
+                        Box(
+                            Modifier.fillMaxWidth().height(52.dp)
+                                .background(if (s.depositBusy) InsetAlt else Accent, RoundedCornerShape(13.dp))
+                                .clickable(enabled = !s.depositBusy) { vm.raiseDepositBill() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (s.depositBusy) "Raising…" else "●  Collect ${formatMUR(offer.cents)} deposit  →",
+                                color = if (s.depositBusy) TextMuted else AccentInk,
+                                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                            )
+                        }
                         Text(
-                            if (s.depositBusy) "Raising…" else "●  Collect ${formatMUR(depositCents)} deposit  →",
-                            color = if (s.depositBusy) TextMuted else AccentInk,
-                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                            "Raises the bill now — the cashier taps it in TO COLLECT with ${formatMUR(offer.cents)} dialled in. The balance stays for collection day.",
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
                         )
                     }
-                    Text(
-                        "Raises the bill now — the cashier taps it in TO COLLECT with ${formatMUR(depositCents)} dialled in. The balance stays for collection day.",
-                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
-                    )
+                    else -> {
+                        Box(
+                            Modifier.fillMaxWidth().height(52.dp)
+                                .border(1.5.dp, AccentLine, RoundedCornerShape(13.dp))
+                                .background(if (s.depositBusy) InsetAlt else AccentSoft, RoundedCornerShape(13.dp))
+                                .clickable(enabled = !s.depositBusy && !s.busy) { vm.takeDeposit(onGoCheckout) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                if (s.depositBusy) "Raising the bill…" else "●  Take a deposit  →",
+                                color = if (s.depositBusy) TextMuted else Accent,
+                                fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp,
+                            )
+                        }
+                        Text(
+                            when {
+                                offer is DepositOffer.OnBill && !s.takesPayments ->
+                                    "Take it on the paying till: TO COLLECT → ${offer.number ?: "the bill"} → Deposit. The balance stays for collection day."
+                                offer is DepositOffer.OnBill ->
+                                    "Opens ${offer.number ?: "the bill"} at the till — type what the customer is leaving. The balance stays for collection day."
+                                else ->
+                                    "Raises the bill now so the deposit has something to pay into — its price is fixed from here. The cashier types the amount; the balance stays for collection day."
+                            },
+                            fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.5.sp, color = TextMuted,
+                        )
+                    }
                 }
                 // The car is still in the bay and the customer is wandering the shop — which is
                 // when they find the thing they want. Their bill can be opened and added to now

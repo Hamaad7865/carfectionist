@@ -1287,11 +1287,8 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
             }
             Spacer(Modifier.height(8.dp))
         }
-        if (s.cashNeedsTill) {
-            Text("Open the till first — every payment lands on a service that gets counted.",
-                color = Warning, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
-            Spacer(Modifier.height(6.dp))
-        }
+        // The till warning rides in the button's own label: as a line of its own it appeared
+        // with the first digit typed and shrank the keypad under the cashier's finger.
         Box(
             Modifier.fillMaxWidth().height(56.dp).background(if (s.canRecord) Accent else InsetAlt, RoundedCornerShape(14.dp))
                 .clickable(enabled = s.canRecord) { vm.confirm() },
@@ -1299,6 +1296,7 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
         ) {
             Text(
                 if (s.busy) "Recording…"
+                else if (s.cashNeedsTill) "Open the till first"
                 else if (s.method == PayMethod.CREDIT) "Put ${formatMUR(s.dueCents)} on account"
                 else if (s.isPartPayment) "Take ${formatMUR(s.payCents)} — ${formatMUR(s.balanceAfterCents)} left"
                 else "Record ${formatMUR(s.payCents)}",
@@ -1567,22 +1565,37 @@ private fun PaymentEntryFields(s: CounterUiState, vm: CounterViewModel) {
     val amountEditable = s.collect != null && s.method != PayMethod.CREDIT
     val onAmount = amountEditable && (s.padField == PadField.AMOUNT || s.method != PayMethod.CASH)
     DisplayCard(
-        if (s.method == PayMethod.CREDIT) "GOES ON ACCOUNT" else if (s.isPartPayment) "PAYING NOW" else "AMOUNT",
+        when {
+            s.method == PayMethod.CREDIT -> "GOES ON ACCOUNT"
+            // The instruction rides in the label, not a line of its own: an extra line pushed
+            // the keypad's bottom row (the 0 a deposit of 500 needs) out of the column.
+            s.depositEntry && s.payCents == 0L -> "DEPOSIT — TYPE THE AMOUNT"
+            s.depositEntry -> "DEPOSIT"
+            s.isPartPayment -> "PAYING NOW"
+            else -> "AMOUNT"
+        },
         formatMUR(if (s.method == PayMethod.CREDIT) s.dueCents else s.payCents),
         highlight = onAmount,
         onClick = if (amountEditable) ({ vm.focusPad(PadField.AMOUNT) }) else null,
     )
     if (amountEditable) {
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        // One line, scrolling sideways: wrapping to a second line (five chips with an agreed
+        // deposit) would push the keypad's bottom row out of the column.
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             QuickChip("Full") { vm.setPayCents(null) }
             // The client changed their mind at the till — one tap back to what was
             // agreed at signing, instead of retyping it (or misremembering it).
             // Shown only when the deposit is a genuine part of what is still owed:
             // nothing agreed, or less left than the deposit, and Full covers it.
             val agreed = s.collect?.sourceDocumentId?.let { s.quoteDeposits[it] } ?: 0L
-            if (s.collect != null && agreed > 0 && agreed < s.dueCents) {
+            val showAgreed = s.collect != null && agreed > 0 && agreed < s.dueCents
+            if (showAgreed) {
                 QuickChip("Deposit ${formatMUR(agreed).removePrefix("Rs ").substringBefore(".")}", accent = true) { vm.setPayCents(agreed) }
             }
+            // A deposit nobody agreed at signing (INV-0558): the pad opened on the whole
+            // balance and nothing on it said "deposit", so the cashier reached for Credit,
+            // which hands the car over. This clears the figure for them to type.
+            QuickChip(if (showAgreed) "Other deposit" else "Deposit", accent = !showAgreed) { vm.startDepositEntry() }
             s.depositChips.forEach { cents -> QuickChip(formatMUR(cents).removePrefix("Rs ").substringBefore(".")) { vm.setPayCents(cents) } }
         }
     }
