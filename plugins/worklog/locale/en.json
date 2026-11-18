@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Worklog",
+    "description": "A live Work panel beside the conversation: the step the agent is on, the tool calls behind it, the files it changed, and the commit it made."
+  }
+}
