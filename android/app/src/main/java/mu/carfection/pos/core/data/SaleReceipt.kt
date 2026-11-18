@@ -97,6 +97,9 @@ fun saleReceiptDoc(
     // Change is summed across EVERY tender, not just the latest — a split can hand back change
     // on any leg, and the old "latest payment's change" dropped it for every split with change.
     val totalChangeCents = nonReversal.sumOf { rupeesToCents(it.changeGiven ?: 0.0) }
+    val totalCents = rupeesToCents(h.totalIncl)
+    val appliedPaidCents = rupeesToCents(h.amountPaid)
+    val balanceDueCents = (totalCents - appliedPaidCents).coerceAtLeast(0)
 
     // Every payment, dated — so a deposit taken earlier and the balance taken later each
     // show with when they happened. Short date so it fits a 58mm slip.
@@ -143,17 +146,18 @@ fun saleReceiptDoc(
         // beside a Subtotal that did not match the TOTAL underneath it. This rule is
         // representation-agnostic and is the same one the web receipt and the at-sale slip use.
         discountCents = (positives.sumOf { receiptLineOf(it).grossInclCents } - rupeesToCents(h.totalIncl)).coerceAtLeast(0),
-        totalCents = rupeesToCents(h.totalIncl),
+        totalCents = totalCents,
         // With more than one tender the slip's single "paid in" label can't name them all — the
         // per-tender `payments` list below carries the breakdown; the label reads "Split".
         payLabel = if (nonReversal.size > 1) "Split" else pay?.let { p -> PayMethod.entries.firstOrNull { it.rpcValue == p.method }?.label ?: p.method },
         // What the customer handed over = money applied + all change given back.
-        paidCents = rupeesToCents(h.amountPaid) + totalChangeCents,
+        paidCents = appliedPaidCents + totalChangeCents,
         changeCents = totalChangeCents,
         onAccount = pay == null,
         // A deposit or a part payment leaves the bill open; the server's amount_paid is the
         // only honest source for what is still owed, so the slip quotes it rather than guessing.
-        balanceDueCents = (rupeesToCents(h.totalIncl) - rupeesToCents(h.amountPaid)).coerceAtLeast(0),
+        balanceDueCents = balanceDueCents,
+        depositReceivedCents = if (appliedPaidCents > 0 && appliedPaidCents < totalCents) appliedPaidCents else 0,
         depositAgreedCents = depositAgreedCents,
         payments = paymentRows,
         voided = h.status == "void",
@@ -220,6 +224,7 @@ fun consolidatedReceiptDoc(docs: List<ReceiptDoc>): ReceiptDoc {
         changeCents = docs.sumOf { it.changeCents },
         onAccount = false, // settlement only ever pays with a real tender, never on account
         balanceDueCents = docs.sumOf { it.balanceDueCents },
+        depositReceivedCents = 0,
         voided = false,
         // Points earned per invoice as it was settled; the balance after is whichever invoice
         // was processed LAST (docs is oldest-first, so that's the tail).

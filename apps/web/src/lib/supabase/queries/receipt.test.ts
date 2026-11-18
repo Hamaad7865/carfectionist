@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
-  receiptLineOf, receiptTotals, terminalNoOf, billReference, receiptTenders,
+  receiptLineOf, receiptTotals, receiptDepositReceivedCents, terminalNoOf, billReference, receiptTenders,
   type ReceiptLine, type ReceiptLineRow,
 } from "./receipt";
 import { grossCents, netFromGrossCents } from "@/lib/money";
@@ -74,6 +74,17 @@ describe("the reference sale's totals block", () => {
   it("prints no Discount row when nothing was discounted", () => {
     const none = [refLine({ unitInclCents: 71500, fullInclCents: 71500, totalInclCents: 71500 })];
     expect(receiptTotals(none, 71500).discountInclCents).toBe(0);
+  });
+});
+
+describe("deposit received on a still-open invoice", () => {
+  it("states money already received when there is a balance", () => {
+    expect(receiptDepositReceivedCents(2695000, 50000)).toBe(50000);
+  });
+
+  it("does not call a settled or unpaid invoice a deposit", () => {
+    expect(receiptDepositReceivedCents(2695000, 2695000)).toBe(0);
+    expect(receiptDepositReceivedCents(2695000, 0)).toBe(0);
   });
 });
 

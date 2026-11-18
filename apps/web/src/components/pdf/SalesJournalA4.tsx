@@ -35,8 +35,8 @@ export interface JournalTable {
   /** the leading label column header, then the right-aligned column headers */
   head: string[];
   rows: JournalTableRow[];
-  /** Italic pre-total lines, counted INSIDE the total — memo figures the drawer
-   *  really took, broken out so a total can be reconciled by eye. */
+  /** Italic pre-total lines, counted INSIDE the total — memo figures such as
+   *  deposits, broken out so the money received can be understood by eye. */
   notes?: JournalTableRow[];
   total: JournalTableRow;
   /** Lines printed BELOW the total and deliberately NOT part of it — e.g. money

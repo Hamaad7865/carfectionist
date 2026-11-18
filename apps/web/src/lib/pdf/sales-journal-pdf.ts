@@ -36,6 +36,12 @@ export function toJournalTables(j: SalesJournal): JournalTable[] {
       title: "Payments",
       head: ["Payment method", "Quantity", "Amount"],
       rows: j.payments.map((p) => ({ label: p.label, cells: [String(p.n), money(p.cents)] })),
+      notes: j.depositCents !== 0
+        ? [{
+            label: "Of which deposits / part payments",
+            cells: [null, money(j.depositCents)],
+          }]
+        : [],
       total: { label: "Total", cells: [null, money(j.paymentsSubtotalCents)] },
       afterTotal: j.onAccountCents !== 0
         ? [{

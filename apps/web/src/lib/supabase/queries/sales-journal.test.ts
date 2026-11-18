@@ -65,6 +65,7 @@ function expectFooting(j: ReturnType<typeof J>) {
   expect(sum(j.categories, (r) => r.inclCents)).toBe(j.totalInclCents);
   expect(sum(j.users, (r) => r.exclCents)).toBe(j.totalExclCents);
   expect(sum(j.users, (r) => r.inclCents)).toBe(j.totalInclCents);
+  expect(sum(j.deposits, (r) => r.cents)).toBe(j.depositCents);
   // And the reconciliation: what was invoiced is the money that settled bills of
   // this period (money in minus what settled OLDER bills) plus what is still owed.
   //     invoiced = (money in − settling earlier bills) + on account
@@ -344,6 +345,9 @@ describe("sales journal — payments vs credit sales", () => {
     expect(j.totalExclCents).toBe(547_452 + 85_217);
     expect(j.vatCents).toBe(94_901); // 980.00 at the bill's own VAT ratio
     expect(j.tickets).toBe(3); // a partly-settled bill still settled
+    expect(j.depositCents).toBe(98_000);
+    expect(j.deposits).toHaveLength(1);
+    expect(j.deposits[0]).toMatchObject({ id: "d3", cents: 98_000 });
     const fee = j.categories.find((c) => c.label === "SERVICES FEE")!;
     expect(fee.exclCents).toBe(66_818); // 1350.00 × 980/1980, largest-remainder
     expect(fee.inclCents).toBe(76_841);
@@ -405,6 +409,26 @@ describe("sales journal — money is dated by when it ARRIVED", () => {
     expect(card.invoices[0]).toMatchObject({ number: "INV-1", cents: 519_570, earlier: false });
     const cash = j.payments.find((p) => p.method === "cash")!;
     expect(cash.invoices.map((r) => r.number)).toEqual(["INV-3"]);
+  });
+
+  it("keeps a historical deposit labelled when the balance arrives later", () => {
+    const first = { id: "dep", document_id: "d3", method: "cash", amount: 980.00, received_at: "2026-07-29T13:50:00Z" };
+    const balance = { id: "bal", document_id: "d3", method: "cash", amount: 1000.00, received_at: "2026-07-30T10:00:00Z" };
+    const history = {
+      ...input(),
+      payments: [first],
+      paymentHistory: [first, balance],
+    };
+    const depositDay = buildSalesJournal("2026-07-29", "2026-07-29", history);
+    expect(depositDay.depositCents).toBe(98_000);
+
+    const balanceDay = buildSalesJournal("2026-07-30", "2026-07-30", {
+      ...history,
+      docs: [],
+      payments: [balance],
+      paymentDocs: history.docs.filter((d) => d.id === "d3").map((d) => ({ ...d, number: d.number ?? null })),
+    });
+    expect(balanceDay.depositCents).toBe(0);
   });
 
   it("names the car on a service bill in the method's dropdown, and not on a shelf sale", () => {

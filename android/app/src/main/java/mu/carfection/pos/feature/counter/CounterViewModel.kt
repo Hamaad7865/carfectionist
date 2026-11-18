@@ -1440,6 +1440,7 @@ class CounterViewModel @Inject constructor(
                     changeCents = s.changeCents,
                     onAccount = false, isPayment = true,
                     balanceDueCents = s.balanceAfterCents,
+                    depositReceivedCents = if (s.balanceAfterCents > 0) s.payCents else 0,
                     depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
                 )
                 launch {

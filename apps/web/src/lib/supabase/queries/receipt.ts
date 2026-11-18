@@ -95,6 +95,12 @@ export function receiptTotals(lines: ReceiptLine[], totalCents: number) {
   const subtotalInclCents = lines.reduce((s, l) => s + l.fullInclCents, 0);
   return { subtotalInclCents, discountInclCents: Math.max(0, subtotalInclCents - totalCents) };
 }
+
+/** A still-open invoice's money received is a deposit / part payment, never the full sale. */
+export function receiptDepositReceivedCents(totalCents: number, paidCents: number): number {
+  return paidCents > 0 && paidCents < totalCents ? paidCents : 0;
+}
+
 export interface ReceiptVatGroup { rate: number; baseCents: number; vatCents: number; inclCents: number; }
 /** One règlement row on the A4 ticket (reversals appear as negative rows). */
 export interface ReceiptPaymentDetail { at: string; method: string; amountCents: number; isReversal: boolean; }
@@ -146,6 +152,8 @@ export interface ReceiptData {
   vatCents: number;
   totalCents: number;
   paidCents: number;
+  /** Money already received while this invoice is still open — the deposit / part payment. */
+  depositReceivedCents: number;
   changeCents: number;
   balanceDueCents: number;
   methodLabel: string;
@@ -459,6 +467,8 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   const methodLabel = topMethod ? (METHOD_LABEL[topMethod] ?? topMethod) : "";
   const paid = d.status === "paid" || (totalCents > 0 && paidCents >= totalCents);
   const balanceDueCents = Math.max(0, totalCents - paidCents);
+  const depositReceivedCents =
+    d.doc_type === "invoice" ? receiptDepositReceivedCents(totalCents, paidCents) : 0;
 
   const dt = muDate(d.issued_at ?? (d.issue_date ? `${d.issue_date}T00:00:00Z` : null) ?? d.created_at);
   const dateTime = dt ? `${p2(dt.getUTCDate())}-${p2(dt.getUTCMonth() + 1)}-${dt.getUTCFullYear()} ${p2(dt.getUTCHours())}:${p2(dt.getUTCMinutes())}:${p2(dt.getUTCSeconds())}` : "";
@@ -515,6 +525,7 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     vatCents,
     totalCents,
     paidCents,
+    depositReceivedCents,
     changeCents,
     balanceDueCents,
     methodLabel,

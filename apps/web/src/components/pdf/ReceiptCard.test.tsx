@@ -53,6 +53,7 @@ const reference = (over: Partial<ReceiptData> = {}): ReceiptData => ({
   vatCents: 20223,
   totalCents: 155045,
   paidCents: 155045,
+  depositReceivedCents: 0,
   changeCents: 0,
   balanceDueCents: 0,
   methodLabel: "card",
@@ -207,6 +208,20 @@ describe("tender rows", () => {
 
   it("says ON ACCOUNT when nothing was tendered", () => {
     expect(render({ payments: [] })).toContain("ON ACCOUNT : ");
+  });
+
+  it("states a deposit separately from the balance still owed", () => {
+    const html = render({
+      totalCents: 2695000,
+      paidCents: 50000,
+      depositReceivedCents: 50000,
+      balanceDueCents: 2645000,
+      payments: [tender({ method: "CASH", amountCents: 50000 })],
+    });
+    expect(html).toContain("DEPOSIT RECEIVED :");
+    expect(html).toContain("500.00");
+    expect(html).toContain("BALANCE DUE :");
+    expect(html).toContain("26450.00");
   });
 
   it("never claims payment on a quote or a dead invoice", () => {
