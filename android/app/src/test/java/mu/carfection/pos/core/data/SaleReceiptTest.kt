@@ -122,6 +122,38 @@ class SaleReceiptTest {
         assertEquals(false, doc.voided)
     }
 
+    @Test
+    fun `a partial invoice names its paid amount as a deposit received`() {
+        val h = SaleHistoryDto(
+            id = "sale-1",
+            number = "INV-0558",
+            totalIncl = 26_950.0,
+            amountPaid = 500.0,
+            lines = listOf(SaleHistoryLineDto(title = "Interior valet", qty = 1.0, lineTotalExcl = 23_434.78, unitPrice = 23_434.78)),
+            payments = listOf(
+                SaleHistoryPaymentDto(method = "cash", amount = 500.0, tendered = 500.0, receivedAt = "2026-11-18T12:00:00Z"),
+            ),
+        )
+
+        val doc = saleReceiptDoc(h, biz, vatRatePct = 15)
+
+        assertEquals(50_000L, doc.depositReceivedCents)
+        assertEquals(2_645_000L, doc.balanceDueCents)
+    }
+
+    @Test
+    fun `a fully settled invoice does not label its payment as a deposit`() {
+        val h = SaleHistoryDto(
+            id = "sale-1",
+            number = "INV-0558",
+            totalIncl = 26_950.0,
+            amountPaid = 26_950.0,
+            payments = listOf(SaleHistoryPaymentDto(method = "cash", amount = 26_950.0, tendered = 26_950.0)),
+        )
+
+        assertEquals(0L, saleReceiptDoc(h, biz, vatRatePct = 15).depositReceivedCents)
+    }
+
     /**
      * The reported bug: a customer handing over Rs 7000 cash for a Rs 6159.99 settlement
      * across two invoices saw a "Change" line but never the Rs 7000 they actually gave — each

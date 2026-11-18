@@ -94,6 +94,24 @@ describe("sales journal PDF — the figures match the screen", () => {
     ]);
   });
 
+  it("names deposits and part payments as a memo inside money received", () => {
+    const deposit = buildSalesJournal(FROM, TO, {
+      ...input,
+      payments: [
+        ...input.payments.filter((p) => p.document_id !== "d3"),
+        { document_id: "d3", method: "cash", amount: 980.00, received_at: "2026-07-29T13:50:00Z" },
+      ],
+    });
+    const t = toJournalTables(deposit).find((x) => x.title === "Payments")!;
+    expect(t.total.cells).toEqual([null, "Rs 7,275.70"]);
+    expect(t.notes!.map((n) => [n.label, ...n.cells])).toEqual([
+      ["Of which deposits / part payments", null, "Rs 980.00"],
+    ]);
+    expect(t.afterTotal!.map((n) => [n.label, ...n.cells])).toEqual([
+      ["On account (not yet paid) — of Rs 8,275.70 invoiced", null, "Rs 1,000.00"],
+    ]);
+  });
+
   it("breaks money that settled earlier bills into its own table, out of Payments", () => {
     // A customer walks in and clears d0, billed last week. The screen shows it
     // in its own card below Payments — the PDF must print the same component,

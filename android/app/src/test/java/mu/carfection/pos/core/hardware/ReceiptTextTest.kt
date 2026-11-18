@@ -255,6 +255,21 @@ class ReceiptTextTest {
         assertFalse("no collapsed row", out.contains("2   CASH"))
     }
 
+    @Test
+    fun `an invoice still open after payment names the money received as a deposit`() {
+        val out = ReceiptText.render(
+            referenceDoc().copy(
+                totalCents = 2_695_000,
+                paidCents = 50_000,
+                depositReceivedCents = 50_000,
+                balanceDueCents = 2_645_000,
+            ),
+            48,
+        )
+        assertTrue(out.lines().any { it.contains("DEPOSIT RECEIVED :") && it.contains("500.00") })
+        assertTrue(out.lines().any { it.contains("BALANCE DUE :") && it.contains("26450.00") })
+    }
+
     /**
      * The shop's own shape: deposit and balance taken the SAME day. Without an
      * agreed deposit that would collapse — with one, every leg still stands with

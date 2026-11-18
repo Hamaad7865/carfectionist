@@ -256,6 +256,19 @@ export function SalesJournalView({
             <span className="num text-right text-brand">{money(j.paymentsSubtotalCents)}</span>
             {cmp && <PriorCell now={j.paymentsSubtotalCents} prev={prior!.paymentsSubtotalCents} />}
           </div>
+          {(j.depositCents !== 0 || (prior?.depositCents ?? 0) !== 0) && (
+            <Drawer
+              cols={grid("1fr 150px 180px")}
+              cmp={cmp}
+              label="Of which deposits / part payments"
+              note="Included in the total above — the bills were still open when the money arrived."
+              cents={j.depositCents}
+              invoices={j.deposits}
+              query={query}
+              tone="text-amber-ink"
+              prior={cmp ? <PriorCell now={j.depositCents} prev={prior!.depositCents} /> : null}
+            />
+          )}
           {/* Below the total on purpose: money still owed is not money taken. */}
           {j.onAccountCents !== 0 && (
             <Drawer

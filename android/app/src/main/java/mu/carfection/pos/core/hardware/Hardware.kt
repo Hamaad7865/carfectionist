@@ -133,6 +133,8 @@ data class ReceiptDoc(
     // What is still owed after this payment. A deposit or a part payment leaves a balance,
     // and the customer must walk away holding paper that says so.
     val balanceDueCents: Long = 0,
+    // Money already received while that balance remains: the deposit / part payment.
+    val depositReceivedCents: Long = 0,
     // Deposit AGREED at signing (Rs → cents), whether or not any of it has been paid.
     // Without it a part-payment slip never says what the customer originally promised —
     // the first thing a dispute asks. Zero when none was agreed: the slip prints
@@ -435,6 +437,9 @@ object ReceiptText {
             // owes the customer one clear "here's what you get back" line, not silence just
             // because it took more than one row to reach it.
             if (!d.onAccount && d.changeCents > 0) appendLine(kv("    Change :", plain(d.changeCents), w))
+            if (d.depositReceivedCents > 0) {
+                appendLine(kv("    DEPOSIT RECEIVED :", plain(d.depositReceivedCents), w))
+            }
             // What was promised, before what has been paid — the deposit is the
             // agreement, the tender rows above are the money.
             if (d.depositAgreedCents > 0) appendLine(kv("    DEPOSIT AGREED :", plain(d.depositAgreedCents), w))

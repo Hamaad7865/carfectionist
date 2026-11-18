@@ -2388,6 +2388,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         // Change applies to the payment as a whole, regardless of how many tender rows made
         // it up — mirrors ReceiptText.render, so the screen and the printed slip agree.
         if (!d.onAccount && d.changeCents > 0) SlipRow("    Change :", plainSlip(d.changeCents))
+        if (d.depositReceivedCents > 0) SlipRow("    DEPOSIT RECEIVED :", plainSlip(d.depositReceivedCents), strong = true)
         if (d.depositAgreedCents > 0) SlipRow("    DEPOSIT AGREED :", plainSlip(d.depositAgreedCents), strong = true)
         // A deposit is only half a story without the half still to pay.
         if (d.balanceDueCents > 0) SlipRow("    BALANCE DUE :", plainSlip(d.balanceDueCents), strong = true)

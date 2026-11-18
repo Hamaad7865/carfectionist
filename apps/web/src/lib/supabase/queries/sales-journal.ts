@@ -163,6 +163,11 @@ export interface SalesJournal {
   settlingEarlierCents: number;
   /** The bills behind that figure, for the "settling earlier bills" dropdown. */
   settlingEarlier: JournalInvoiceRef[];
+  /** Money received as a deposit / instalment before its bill was settled. A memo
+   *  inside Payments, already included in totalInclCents and never added again. */
+  depositCents: number;
+  /** Bills behind the deposit / part-payment memo. */
+  deposits: JournalInvoiceRef[];
   /** Invoiced in this period and still unsettled at the end of it. */
   onAccountCents: number;
   /** Which bills those are — who owes what, for the on-account dropdown. */
@@ -211,9 +216,12 @@ export interface RawDoc {
   job_id?: string | null;
 }
 export interface RawPayment {
+  id?: string;
   document_id: string;
   method: string;
   amount: number | string;
+  /** Set on a negative correction mirror; used to exclude the original from deposits. */
+  reverses_payment_id?: string | null;
   /** When the money actually arrived. The journal groups payments by THIS, never by
    *  the document's business_day — that conflation is what made 25 August read
    *  Rs 4,204.20 of cash when only Rs 1,564.20 was taken. */
@@ -262,6 +270,9 @@ export interface JournalInput {
   /** Lines of BOTH the period's documents and any stranger bills its payments
    *  settled — a stranger's money still has a VAT and category content. */
   lines: RawLine[];
+  /** Every standing payment on the relevant documents, including ones outside the
+   *  period. A historical deposit can then be distinguished from a final balance. */
+  paymentHistory?: RawPayment[];
   /** Parent bills of payments raised OUTSIDE the period. The in-period ones come
    *  from `docs`; on this cash-basis report the strangers' money counts in full,
    *  allocated through their own lines. */
@@ -421,6 +432,7 @@ const empty = (from: string, to: string): SalesJournal => ({
   clients: 0, clientInclCents: 0, clientAvgInclCents: 0,
   saleMethods: [], taxes: [], payments: [],
   paymentsSubtotalCents: 0, settlingEarlierCents: 0, settlingEarlier: [],
+  depositCents: 0, deposits: [],
   onAccountCents: 0, onAccount: [],
   paymentsTotalCents: 0,
   categories: [], users: [],
@@ -542,11 +554,48 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   const paid = new Map<string, PaymentRow>();
   const paidByDoc = new Map<string, number>();       // in-period bills, settled in-period
   const earlierRefs = new Map<string, JournalInvoiceRef>();
+  const depositRefs = new Map<string, JournalInvoiceRef>();
   const perMethodRefs = new Map<string, Map<string, JournalInvoiceRef>>();
 
   /** One payment that counts, with its cents and the user who took the money. */
   interface Counted { cents: number; user: string; }
   const countedByDoc = new Map<string, Counted[]>();
+  // Deposit identity is a property of the PAYMENT, not the day being viewed. Rebuild
+  // the standing running balance from all rows on the bill, then mark only the legs
+  // taken before it was settled. A reversal removes its original from the history.
+  const paymentRowsToClassify = input.paymentHistory ?? payments;
+  const reversedPaymentIds = new Set(
+    paymentRowsToClassify.flatMap((p) => p.reverses_payment_id ? [p.reverses_payment_id] : []),
+  );
+  const historyByDoc = new Map<string, RawPayment[]>();
+  for (const p of paymentRowsToClassify) {
+    const list = historyByDoc.get(p.document_id);
+    if (list) list.push(p);
+    else historyByDoc.set(p.document_id, [p]);
+  }
+  const depositIds = new Set<string>();
+  const depositObjects = new WeakSet<RawPayment>();
+  for (const [documentId, history] of historyByDoc) {
+    const doc = docOf(documentId);
+    if (!doc || doc.doc_type !== "invoice") continue;
+    const total = rupeesToCents(Number(doc.total_incl));
+    let running = 0;
+    for (const p of [...history].sort((a, b) => {
+      const x = String(a.received_at ?? ""), y = String(b.received_at ?? "");
+      if (x !== y) return x < y ? -1 : 1;
+      return String(a.id ?? "").localeCompare(String(b.id ?? ""));
+    })) {
+      if (p.reverses_payment_id || (p.id && reversedPaymentIds.has(p.id))) continue;
+      const cents = rupeesToCents(Number(p.amount));
+      if (cents <= 0) continue;
+      running += cents;
+      if (running < total) {
+        if (p.id) depositIds.add(p.id);
+        else depositObjects.add(p);
+      }
+    }
+  }
+  const isDeposit = (p: RawPayment) => p.id ? depositIds.has(p.id) : depositObjects.has(p);
 
   for (const p of payments) {
     if (!paymentPassesFilters(p.document_id)) continue;
@@ -564,6 +613,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
       perMethodRefs.set(p.method, per);
       if (ref.earlier) rollUp(earlierRefs, ref);
       else paidByDoc.set(p.document_id, (paidByDoc.get(p.document_id) ?? 0) + cents);
+      if (cents > 0 && isDeposit(p)) rollUp(depositRefs, ref);
     }
 
     const doc = docOf(p.document_id);
@@ -585,6 +635,8 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   const paymentsSubtotalCents = paymentRows.reduce((a, r) => a + r.cents, 0);
   const settlingEarlier = listOf(earlierRefs);
   const settlingEarlierCents = settlingEarlier.reduce((a, r) => a + r.cents, 0);
+  const deposits = listOf(depositRefs);
+  const depositCents = deposits.reduce((a, r) => a + r.cents, 0);
 
   // 3. Cash-basis sections. Each document is scaled to the share of its bill that
   //    the period's payments actually settled, then that share is split across the
@@ -733,6 +785,8 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     paymentsSubtotalCents,
     settlingEarlierCents,
     settlingEarlier,
+    depositCents,
+    deposits,
     onAccountCents,
     onAccount,
     paymentsTotalCents: invoicedIncl,
@@ -750,7 +804,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
 /** A fresh empty input each call — a shared one would hand every caller the same
  *  mutable Maps. */
 const emptyInput = (): JournalInput => ({
-  docs: [], payments: [], lines: [], paymentDocs: [],
+  docs: [], payments: [], lines: [], paymentDocs: [], paymentHistory: [],
   sessionDevice: new Map(), deviceName: new Map(), sellerName: new Map(), customerName: new Map(),
   vehiclePlate: new Map(), jobVehicle: new Map(),
 });
@@ -767,6 +821,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
   /* eslint-disable @typescript-eslint/no-explicit-any */
   const DOC_COLUMNS = "id, doc_type, business_day, total_incl, subtotal_excl, vat_total, customer_id, issued_by, cash_session_id, issued_at, number, vehicle_id, job_id";
   const LIVE = ["issued", "partly_paid", "paid"]; // drafts and VOIDs never count
+  const PAYMENT_COLUMNS = "id, document_id, method, amount, received_at, received_by, reverses_payment_id";
 
   // Two independent axes, deliberately fetched apart:
   //   • what was INVOICED here — documents by business_day. Drives revenue.
@@ -785,7 +840,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     fetchAllRows<any>(() =>
       sb
         .from("payments")
-        .select("id, document_id, method, amount, received_at, received_by")
+        .select(PAYMENT_COLUMNS)
         .gte("received_at", MU_DAY_START(from))
         .lte("received_at", MU_DAY_END(to)),
     ),
@@ -821,7 +876,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
   // VAT and category content has to come from somewhere. They can only ever reach
   // the totals THROUGH a payment — the aggregation never iterates docs alone.
   const lineDocIds = [...docIds, ...strangerIds];
-  const [lines, sessions, sellers, devices, customers, settings] = await Promise.all([
+  const [lines, sessions, sellers, devices, customers, settings, paymentHistory] = await Promise.all([
     fetchAllRows<any>(() =>
       sb
         .from("document_lines")
@@ -834,6 +889,13 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     customerIds.length ? fetchAllRows<any>(() => sb.from("customers").select("id, name").in("id", customerIds)) : Promise.resolve([] as any[]),
     // Rides along in the same round-trip — it names the single sale-method row.
     sb.from("business_settings").select("trading_name").limit(1).maybeSingle(),
+    // The journal may be a past period after the bill was finally settled. Reading
+    // the full ledger lets that period keep calling its first leg a deposit.
+    lineDocIds.length
+      ? fetchAllRows<any>(() =>
+          sb.from("payments").select(PAYMENT_COLUMNS).in("document_id", lineDocIds).order("received_at"),
+        )
+      : Promise.resolve([] as any[]),
   ]);
 
   // Plates for the dropdowns — a second hop, because the cars come off the lines
@@ -861,6 +923,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     docs: docs as RawDoc[],
     payments: payments as RawPayment[],
     paymentDocs: paymentDocs as RawPaymentDoc[],
+    paymentHistory: paymentHistory as RawPayment[],
     lines: lines as RawLine[],
     sessionDevice: new Map(sessions.map((s) => [s.id, s.device_id])),
     deviceName: new Map(devices.map((d) => [d.device_code, d.display_name || d.device_code])),
