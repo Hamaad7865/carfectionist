@@ -64,8 +64,8 @@ try {
   if (!pair) { console.log("⚠ no quote with customer+vehicle to borrow a pair from"); process.exit(1); }
 
   const nextQuoteNumber = async () =>
-    (await c.query(`select quote_next_number n from public.business_settings where id=$1`, [tenant])).rows[0].n;
-  const prefix = (await c.query(`select quote_prefix p from public.business_settings where id=$1`, [tenant])).rows[0].p;
+    (await c.query(`select quote_next_number n from public.legal_entities where tenant_id=$1 and is_default`, [tenant])).rows[0].n;
+  const prefix = (await c.query(`select quote_prefix p from public.legal_entities where tenant_id=$1 and is_default`, [tenant])).rows[0].p;
 
   // ── the counter sale ────────────────────────────────────────────────────────
   console.log("— billing a walk-in quote out of draft —");
