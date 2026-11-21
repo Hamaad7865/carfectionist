@@ -123,18 +123,72 @@ try {
   }
 
   await asAdmin();
-  console.log("\nCarfectionist (live shop), unchanged:");
+  // The live shop is proven READ-ONLY (counters above + its company below): issuing there, even
+  // rolled back, spends a bill number from the shared documents_bill_no_seq sequence.
+  console.log("\nCarfectionist (live shop), read-only:");
   const LIVE = "11111111-1111-4111-8111-000000000001";
-  const liveNext = (await c.query("select invoice_prefix||lpad(invoice_next_number::text, invoice_number_padding, '0') n from business_settings where id=$1", [LIVE])).rows[0].n;
-  const liveProduct = (await c.query("select id, name, selling_price from products where tenant_id=$1 and is_active and selling_price > 0 and not price_includes_vat order by name limit 1", [LIVE])).rows[0];
-  const liveCustomer = (await c.query("select id from customers where tenant_id=$1 order by created_at limit 1", [LIVE])).rows[0].id;
-  const liveId = (await c.query("select legal_name, vat_number from business_settings where id=$1", [LIVE])).rows[0];
-  await c.query("set local role authenticated");
-  await c.query("select set_config('request.jwt.claims', $1, true)", [JSON.stringify({ sub: "0eb870dc-ef5b-400a-8744-859c999a1b1b", role: "authenticated" })]);
-  const live = await issue(await draft(liveCustomer, [line(liveProduct.id, liveProduct.name, Number(liveProduct.selling_price))]));
-  check("next live invoice is exactly the number it would have been", live.number, liveNext);
-  check("  …with 15% VAT as today", live.vat_total, (Math.round(Number(liveProduct.selling_price) * 15) / 100).toFixed(2));
-  check("  …snapshot is the shop's own name and VAT number", `${live.issued_legal_name} / ${live.issued_vat_number}`, `${liveId.legal_name} / ${liveId.vat_number}`);
+  const liveCo = (await c.query("select legal_name, vat_registered, vat_number from legal_entities where tenant_id=$1 and is_default", [LIVE])).rows[0];
+  const liveBs = (await c.query("select legal_name, vat_number from business_settings where id=$1", [LIVE])).rows[0];
+  check("its company carries the shop's own name, VAT status and VAT number", JSON.stringify(liveCo), JSON.stringify({ legal_name: liveBs.legal_name, vat_registered: true, vat_number: liveBs.vat_number }));
+
+  console.log("\nDaily flows on the sandbox (quote → job → bill, and friends):");
+  const CAR = "c79909e8-5c15-46b6-95c1-217a00ee9715", CAR_OWNER = "3668d8c3-75cc-402e-8fa5-143460857959", TECH = "7bdad541-a060-486d-8fb7-40cd366a48a1";
+  const defaultQ = (await c.query("select quote_prefix||lpad(quote_next_number::text, quote_number_padding, '0') n from legal_entities where tenant_id=$1 and is_default", [SANDBOX])).rows[0].n;
+  await asOwner();
+  const quoteDraft = async (lines) => {
+    const doc = { id: null, doc_type: "quote", customer_id: CAR_OWNER, vehicle_id: CAR, template_id: null, template_overrides: {},
+      valid_until: null, due_date: null, origin: "standalone", discount_kind: null, discount_value: 0, discount_reason: null };
+    return (await c.query("select (public.save_draft($1::jsonb, $2::jsonb, null)).id", [JSON.stringify(doc), JSON.stringify(lines)])).rows[0].id;
+  };
+  const step = async (label, fn) => {
+    await c.query("savepoint flow");
+    try { const out = await fn(); console.log("  ✓ " + label + (out ? ": " + out : "")); }
+    catch (e) { failures++; console.log("  ✗ " + label + ": " + e.message); await c.query("rollback to savepoint flow"); }
+  };
+  let q1;
+  await step("a draft quote billed at the counter (convert_quote_to_invoice) numbers in its company's quote series", async () => {
+    q1 = await quoteDraft([line(TYRE_PRODUCT, "Tyre-side item", 1000)]);
+    const inv = (await c.query("select id, status from public.convert_quote_to_invoice($1)", [q1])).rows[0];
+    const qn = (await c.query("select number from documents where id=$1", [q1])).rows[0].number;
+    if (qn !== defaultQ) throw new Error("quote numbered " + qn + ", want " + defaultQ);
+    const issued = await issue(inv.id).catch(() => null);
+    return qn + " → invoice " + (issued?.number ?? inv.status);
+  });
+  let job;
+  await step("quote → job (convert_quote_to_job issues the quote)", async () => {
+    const q = await quoteDraft([line(TYRE_PRODUCT, "Tyre-side item", 1000)]);
+    job = (await c.query("select id from public.convert_quote_to_job($1, $2, null, null)", [q, TECH])).rows[0].id;
+    return (await c.query("select number from documents where id=$1", [q])).rows[0].number;
+  });
+  await step("job → bill (create_document_from_job) → issue", async () => {
+    const bill = (await c.query("select id from public.create_document_from_job($1, 'invoice')", [job])).rows[0].id;
+    return (await issue(bill)).number;
+  });
+  await step("accept_quote on an issued quote", async () => {
+    const q = await quoteDraft([line(TYRE_PRODUCT, "Tyre-side item", 1000)]);
+    const n = (await issue(q)).number;
+    await c.query("select public.accept_quote($1, null)", [q]);
+    return n;
+  });
+  await step("revise_quote", async () => {
+    const q = await quoteDraft([line(TYRE_PRODUCT, "Tyre-side item", 1000)]);
+    await issue(q);
+    return (await c.query("select (public.revise_quote($1)).status", [q])).rows[0].status;
+  });
+  await step("duplicate_document of a service invoice stays with the service company", async () => {
+    const src = (await c.query("select id from documents where number='TESTWS-0002' and tenant_id=$1", [SANDBOX])).rows[0].id;
+    const dup = (await c.query("select (public.duplicate_document($1)).id", [src])).rows[0].id;
+    const ent = (await c.query("select legal_entity_id from documents where id=$1", [dup])).rows[0].legal_entity_id;
+    if (ent !== svc) throw new Error("duplicate is with company " + ent);
+    return "draft in the service company";
+  });
+  await step("cancel_job", async () => {
+    const q = await quoteDraft([line(TYRE_PRODUCT, "Tyre-side item", 1000)]);
+    const j = (await c.query("select id from public.convert_quote_to_job($1, $2, null, null)", [q, TECH])).rows[0].id;
+    return (await c.query("select (public.cancel_job($1, 'verify', true, null)).status", [j])).rows[0].status;
+  });
+  await step("create_intake_quote", async () =>
+    (await c.query("select (public.create_intake_quote($1, null, null, $2, null, null, 'Alignment check', '[]'::jsonb, '[]'::jsonb)).id", [CAR_OWNER, CAR])).rows[0].id ? "draft quote" : "");
   await asAdmin();
   console.log("\nGuards:");
   await refuses(c, "the retired numbering seam refuses", "select app.next_document_number($1, 'invoice')", [SANDBOX], "retired");

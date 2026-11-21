@@ -28,7 +28,9 @@
 -- between copying the counters and the cut-over.
 -- ═══════════════════════════════════════════════════════════════════════════
 
-lock table public.business_settings in exclusive mode;
+-- Row-lock every tenant's settings: no till can draw a number between copying the counters and
+-- the cut-over (works inside the push's transaction, whatever form it takes).
+select id from public.business_settings for update;
 
 -- ── 1. the companies ─────────────────────────────────────────────────────────
 create table if not exists public.legal_entities (
