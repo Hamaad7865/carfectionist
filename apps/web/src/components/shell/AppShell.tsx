@@ -7,6 +7,7 @@ import type { SessionContext } from "@/lib/auth/session";
 import type { BrandInfo } from "@/lib/brand";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { TyreShell } from "@/components/tyrecentre/TyreShell";
 
 export function AppShell({
   ctx,
@@ -30,6 +31,14 @@ export function AppShell({
     restoreSavedTheme();
     return clearAppliedTheme;
   }, []);
+
+  if (brand.key === "tyrecentre") {
+    return (
+      <TyreShell ctx={ctx} brand={brand}>
+        {children}
+      </TyreShell>
+    );
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-app">

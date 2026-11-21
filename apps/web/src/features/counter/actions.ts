@@ -8,8 +8,9 @@ import { existsInTenant } from "@/lib/supabase/guards";
 import { resolveShopLocationId } from "@/lib/supabase/locations";
 import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
-import { computeTotals } from "@/lib/money";
+import { computeTotals, formatMUR, rupeesToCents } from "@/lib/money";
 import { isDeterministicRejection, type SettlePhase } from "./settle";
+import { planSplit } from "./split";
 
 const ROLES = ["owner", "manager", "cashier"] as const;
 
@@ -23,16 +24,18 @@ export type CounterResult =
   | { ok: true; invoiceId: string; number: string | null; totalCents: number; changeCents: number; onAccount: boolean }
   | { ok: false; error: string; settle?: SettlePhase; invoiceNo?: string | null };
 
+const lineSchema = z.object({
+  productId: z.string().min(1),
+  qty: z.number().positive(),
+  discountKind: z.enum(["percent", "amount"]).optional(),
+  discountPct: z.number().min(0).max(100).optional(),
+  discountAmountCents: z.number().int().min(0).optional(),
+});
+
 const schema = z.object({
   customerId: z.string().optional(),
   customerName: z.string().optional(),
-  lines: z.array(z.object({
-    productId: z.string().min(1),
-    qty: z.number().positive(),
-    discountKind: z.enum(["percent", "amount"]).optional(),
-    discountPct: z.number().min(0).max(100).optional(),
-    discountAmountCents: z.number().int().min(0).optional(),
-  })).min(1),
+  lines: z.array(lineSchema).min(1),
   orderDiscountKind: z.enum(["percent", "amount"]).nullable().optional(),
   orderDiscountValue: z.number().min(0).optional(), // percent: % ; amount: Cents (VAT-inclusive)
   // Why the discount was given. app.assert_discount_allowed reads it back and refuses a
@@ -41,7 +44,17 @@ const schema = z.object({
   // "credit" = on account: issue the invoice but collect nothing now; the total
   // stays as money owed (receivable). Not a real payment_method, so it never
   // reaches record_payment.
-  method: z.enum(["cash", "card", "juice", "bank_transfer", "cheque", "credit"]),
+  // "split" = several payments on the one invoice, listed in `split` (see split.ts).
+  method: z.enum(["cash", "card", "juice", "bank_transfer", "cheque", "credit", "split"]),
+  split: z.array(z.object({
+    method: z.enum(["cash", "card", "juice", "bank_transfer", "cheque"]),
+    amountCents: z.number().int().positive(),
+    tenderedCents: z.number().int().nonnegative().nullable().optional(),
+    externalRef: z.string().optional(),
+  })).optional(),
+  // The car the sale is for (tyre centre): stamped on the invoice so it shows in the car's
+  // history. Must belong to the chosen customer.
+  vehicleId: z.string().uuid().optional(),
   tenderedCents: z.number().int().nonnegative().nullable().optional(),
   externalRef: z.string().optional(),
   // One key per sale attempt (stable across retries) → a replayed submit returns
@@ -68,17 +81,15 @@ async function walkInCustomerId(sb: any, tenantId: string, name?: string): Promi
   return created.id;
 }
 
-export async function counterSaleAction(input: z.infer<typeof schema>): Promise<CounterResult> {
-  const ctx = await requireRole(...ROLES);
-  const p = schema.safeParse(input);
-  if (!p.success) return { ok: false, error: "Add at least one product to the sale." };
-  if (p.data.method === "credit" && !p.data.customerId) {
-    return { ok: false, error: "A credit (on-account) sale needs a selected customer — so you know who owes you." };
-  }
-  const sb = await createClient();
+type CartLineInput = z.infer<typeof lineSchema>;
 
-  // Authoritative product snapshot (never trust client prices).
-  const ids = [...new Set(p.data.lines.map((l) => l.productId))];
+/** The cart as draft lines, priced from the catalogue — never from the client. */
+async function catalogueLines(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sb: any,
+  lines: CartLineInput[],
+): Promise<{ ok: true; rpcLines: rpc.RpcDraftLine[] } | { ok: false; error: string }> {
+  const ids = [...new Set(lines.map((l) => l.productId))];
   const { data: prods, error: pe } = await sb
     .from("products")
     .select("id, name, selling_price, price_includes_vat, vat_rate")
@@ -89,13 +100,13 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
   const vatDefault = Number((bs as any)?.vat_rate ?? 15);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const byId = new Map((prods as any[]).map((x) => [x.id, x]));
+  if (ids.some((id) => !byId.has(id))) return { ok: false, error: "A product in the sale is no longer in the catalogue." };
 
-  const rpcLines = p.data.lines.map((l, i) => {
+  const rpcLines = lines.map((l, i): rpc.RpcDraftLine => {
     const prod = byId.get(l.productId);
-    if (!prod) throw new Error("product not found");
     return {
       product_id: l.productId,
-      vehicle_id: null, // a counter sale is not about a car
+      vehicle_id: null, // the document carries the car; a counter line is not about a second one
       title: prod.name as string,
       // A counter sale is a product off the shelf rung up at the till — there is no
       // authoring surface here and never will be, so both stay null deliberately.
@@ -128,6 +139,22 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       error: `${unpriced.slice(0, 3).join(", ")}${unpriced.length > 3 ? ` and ${unpriced.length - 3} more` : ""} ${unpriced.length === 1 ? "has" : "have"} no price. Set the price first — the sale takes its prices from the catalogue.`,
     };
   }
+  return { ok: true, rpcLines };
+}
+
+export async function counterSaleAction(input: z.infer<typeof schema>): Promise<CounterResult> {
+  const ctx = await requireRole(...ROLES);
+  const p = schema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Add at least one product to the sale." };
+  if (p.data.method === "credit" && !p.data.customerId) {
+    return { ok: false, error: "A credit (on-account) sale needs a selected customer — so you know who owes you." };
+  }
+  if (p.data.vehicleId && !p.data.customerId) return { ok: false, error: "Pick the car's owner as the customer." };
+  const sb = await createClient();
+
+  const built = await catalogueLines(sb, p.data.lines);
+  if (!built.ok) return built;
+  const { rpcLines } = built;
 
   const orderDiscount = p.data.orderDiscountKind ? { kind: p.data.orderDiscountKind, value: p.data.orderDiscountValue ?? 0 } : null;
   const totals = computeTotals(
@@ -152,6 +179,11 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     return { ok: false, error: "This sale comes to Rs 0.00 — check the prices or the discount before charging." };
   }
 
+  const key = p.data.idempotencyKey?.trim() || null;
+  // A split that cannot settle this total is refused before anything is drawn or moved.
+  const splitPlan = p.data.method === "split" ? planSplit(p.data.split ?? [], totals.totalCents, key) : null;
+  if (splitPlan && !splitPlan.ok) return { ok: false, error: splitPlan.error };
+
   try {
     // A selected customer id is used directly (validated); otherwise fall back to
     // the walk-in name lookup/create (never used for credit — see guard above).
@@ -162,6 +194,11 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     } else {
       customerId = await walkInCustomerId(sb, ctx.tenantId, p.data.customerName);
     }
+    if (p.data.vehicleId) {
+      const { data: car } = await sb.from("vehicles").select("customer_id").eq("id", p.data.vehicleId).maybeSingle();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if (!car || (car as any).customer_id !== customerId) return { ok: false, error: "That car doesn't belong to this customer." };
+    }
 
     const draft = await rpc.saveDraft(
       sb,
@@ -169,7 +206,7 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
         id: p.data.draftId ?? null,
         doc_type: "invoice",
         customer_id: customerId,
-        vehicle_id: null,
+        vehicle_id: p.data.vehicleId ?? null,
         template_id: null,
         template_overrides: {},
         valid_until: null,
@@ -186,7 +223,6 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       null,
     );
 
-    const key = p.data.idempotencyKey?.trim() || null;
     // Counter sales draw stock from the Shop (walk-in front), not the Warehouse
     // default; fall back to the tenant default if no Shop location exists.
     const shopLocationId = await resolveShopLocationId(sb);
@@ -217,7 +253,17 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       const totalRupees = Number(issued.total_incl);
 
       let changeCents = 0;
-      if (p.data.method !== "credit") {
+      if (splitPlan?.ok) {
+        // The parts were planned against the till's arithmetic; the issued invoice is the
+        // authority. Should they ever differ, record nothing — a retry would only repeat it.
+        if (rupeesToCents(totalRupees) !== totals.totalCents) {
+          throw new Error(`The invoice came to ${formatMUR(rupeesToCents(totalRupees))}, not the ${formatMUR(totals.totalCents)} the split covers. Abandon this sale and ring it again.`);
+        }
+        for (const pay of splitPlan.payments) {
+          await rpc.recordPayment(sb, { invoiceId: issued.id, ...pay, cashSessionId });
+        }
+        changeCents = splitPlan.changeCents;
+      } else if (p.data.method !== "credit" && p.data.method !== "split") {
         // Every payment is linked to the till it was taken on (resolved above, so the
         // ticket and the money land on the same service).
         const tenderedRupees =
@@ -253,5 +299,80 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
   } catch (e) {
     // Nothing past save_draft ran: no number drawn, no stock moved. Safe to edit and retry.
     return { ok: false, error: (e as Error).message };
+  }
+}
+
+const keepSchema = z.object({
+  as: z.enum(["quote", "job"]),
+  customerId: z.string().min(1),
+  vehicleId: z.string().uuid().optional(),
+  lines: z.array(lineSchema).min(1),
+  orderDiscountKind: z.enum(["percent", "amount"]).nullable().optional(),
+  orderDiscountValue: z.number().min(0).optional(), // percent: % ; amount: Cents (VAT-inclusive)
+  orderDiscountReason: z.string().optional(),
+});
+
+export type KeepCartResult = { ok: true; quoteId: string; jobId: string | null } | { ok: false; error: string; quoteId?: string };
+
+/**
+ * The till's cart kept for later instead of charged (tyre-centre New sale).
+ *
+ * "quote": a DRAFT quote with the cart's lines, opened in the document editor — no number is
+ * drawn; issuing it later goes through issue_document like any quote.
+ * "job": the same draft, then convert_quote_to_job — the customer at the counter has agreed
+ * the work, so the quote is issued (its gapless number drawn inside the RPC) and accepted,
+ * and the car goes on the board. Same path the tablet and the web quote page use.
+ */
+export async function keepCartAction(input: z.infer<typeof keepSchema>): Promise<KeepCartResult> {
+  await requireRole(...ROLES);
+  const p = keepSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Pick a customer and add at least one item first." };
+  if (p.data.as === "job" && !p.data.vehicleId) return { ok: false, error: "A job needs a car — pick one of the customer's cars." };
+  const sb = await createClient();
+
+  if (!(await existsInTenant(sb, "customers", p.data.customerId))) return { ok: false, error: "Unknown customer." };
+  if (p.data.vehicleId) {
+    const { data: car } = await sb.from("vehicles").select("customer_id").eq("id", p.data.vehicleId).maybeSingle();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (!car || (car as any).customer_id !== p.data.customerId) return { ok: false, error: "That car doesn't belong to this customer." };
+  }
+  const built = await catalogueLines(sb, p.data.lines);
+  if (!built.ok) return built;
+
+  let quoteId: string;
+  try {
+    const draft = await rpc.saveDraft(
+      sb,
+      {
+        id: null,
+        doc_type: "quote",
+        customer_id: p.data.customerId,
+        vehicle_id: p.data.vehicleId ?? null,
+        template_id: null,
+        template_overrides: {},
+        valid_until: null,
+        due_date: null,
+        origin: "standalone",
+        discount_kind: p.data.orderDiscountKind ?? null,
+        discount_value: p.data.orderDiscountKind === "amount" ? (p.data.orderDiscountValue ?? 0) / 100 : (p.data.orderDiscountValue ?? 0),
+        discount_reason: p.data.orderDiscountReason?.trim() || null,
+      },
+      built.rpcLines,
+      null,
+    );
+    quoteId = draft.id;
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+  revalidatePath("/sales");
+
+  if (p.data.as === "quote") return { ok: true, quoteId, jobId: null };
+  try {
+    const job = await rpc.convertQuoteToJob(sb, quoteId);
+    revalidatePath("/jobs");
+    return { ok: true, quoteId, jobId: job.id };
+  } catch (e) {
+    // The quote is saved either way; say so, so nobody rings the cart up twice.
+    return { ok: false, error: `Saved as a draft quote, but the job wasn't started: ${(e as Error).message}`, quoteId };
   }
 }

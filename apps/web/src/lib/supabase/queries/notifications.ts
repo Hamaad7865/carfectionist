@@ -55,8 +55,8 @@ export function applyDismissals(items: NotifItem[], dismissals: Dismissal[], tod
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SB = any;
 
-/** Outstanding invoices (money owed). */
-async function outstandingInvoices(sb: SB, today: string): Promise<NotifItem | null> {
+/** Outstanding invoices (money owed). Also counts the tyre-centre sidebar's "N unpaid". */
+export async function outstandingInvoices(sb: SB, today: string): Promise<NotifItem | null> {
   try {
     const inv = await fetchAllRows(() =>
       sb.from("documents").select("total_incl, amount_paid, due_date").eq("doc_type", "invoice").in("status", ["issued", "partly_paid"]),
@@ -128,8 +128,9 @@ async function maintenanceDue(sb: SB, today: string): Promise<NotifItem | null> 
   }
 }
 
-/** Low stock on the selling floor (only for items actually carried, to avoid noise). */
-async function lowStock(sb: SB): Promise<NotifItem | null> {
+/** Low stock on the selling floor (only for items actually carried, to avoid noise).
+ *  Also counts the tyre-centre sidebar's "N low". */
+export async function lowStock(sb: SB): Promise<NotifItem | null> {
   try {
     // The locations lookup gates the rest, but the two big reads run together.
     // Ask which floor the till sells from rather than guessing "the one that

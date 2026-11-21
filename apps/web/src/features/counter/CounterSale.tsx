@@ -723,7 +723,7 @@ export function CounterSale({
  * catalogue (that is where the sale reads prices from), so this both finishes the sale
  * and stops the next person hitting the same wall.
  */
-function PriceProductDialog({
+export function PriceProductDialog({
   product,
   onClose,
   onPriced,

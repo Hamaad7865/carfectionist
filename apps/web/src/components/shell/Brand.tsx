@@ -1,4 +1,5 @@
 import { CARFECTIONIST, type BrandInfo } from "@/lib/brand";
+import { TyreMark } from "@/components/tyrecentre/TyreMark";
 
 /** The brand mark — logo banner (or a text wordmark for brands with no logo file).
  *  Shared by the sidebar, login and enquiry pages so the brand is identical everywhere.
@@ -23,6 +24,11 @@ export function Brand({
           height={62}
           className="block h-auto w-[184px] rounded-[8px]"
         />
+      ) : brand.key === "tyrecentre" ? (
+        <span role="img" aria-label={brand.name} className="flex h-[46px] items-center gap-2.5">
+          <TyreMark size={40} radius={10} />
+          <span className="font-display text-[19px] font-semibold tracking-[-0.3px] text-[#111927]">{brand.name}</span>
+        </span>
       ) : (
         <span
           role="img"

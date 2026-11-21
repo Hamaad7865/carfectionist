@@ -1,4 +1,7 @@
 @import "tailwindcss";
+/* shadcn/ui + HextaUI (components/ui): enter/exit animations. Their colour tokens are
+   defined for the tyre-centre brand alone (end of file). */
+@import "tw-animate-css";
 
 /* dark: utilities follow the app's own switch (data-theme on <html>), not the OS. */
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -453,4 +456,166 @@
     height: 0;
     pointer-events: none;
   }
+}
+
+/* ── Tyre Centre — docs/redesign/DESIGN-SPEC.md ─────────────────────────────
+   Everything below only bites under <html data-brand="tyrecentre"> (layout.tsx), so
+   Carfectionist and HAZ keep their look pixel for pixel.
+
+   tc-* are the spec's §2 tokens, for the tyre-centre screens. The unprefixed names are
+   the shadcn/ui + HextaUI variables (components/ui) mapped onto those tokens. `muted` is
+   deliberately absent: it is Carfectionist's text grey, so generated components use
+   `bg-sub` where shadcn says `bg-muted`. */
+@theme {
+  --color-tc-app: #e8ecf1;
+  --color-tc-sidebar: #f7f8fa;
+  --color-tc-sidebar-border: rgba(15, 23, 32, 0.08);
+  --color-tc-sidebar-active: #ebeef2;
+  --color-tc-card: #ffffff;
+  --color-tc-sub: #f4f6f9;
+  --color-tc-track: #e2e8ef;
+  --color-tc-line: rgba(15, 23, 32, 0.07);
+  --color-tc-ink: #111927;
+  --color-tc-body: #2a3747;
+  --color-tc-muted: #68737f;
+  --color-tc-faint: #8c96a1;
+  --color-tc-fainter: #9aa3ad;
+  --color-tc-dot: #c4ccd6;
+  --color-tc-primary: #0f1720;
+  --color-tc-highlight: #ddf57a;
+  --color-tc-on-highlight: #3f4a00;
+  --color-tc-success: #0da77c;
+  --color-tc-warning: #b07c14;
+  --color-tc-danger: #d63b50;
+  --color-tc-danger-soft: #fdecee;
+  --color-tc-danger-ink: #b42339;
+
+  --shadow-tc-card: 0 1px 2px rgba(15, 23, 32, 0.04), 0 10px 30px rgba(15, 23, 32, 0.05);
+  --shadow-tc-cart: 0 16px 40px rgba(15, 23, 32, 0.08);
+
+  --ease-out-cubic: cubic-bezier(0.215, 0.61, 0.355, 1);
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-focus-ring: color-mix(in oklab, var(--foreground) 40%, transparent);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+[data-brand="tyrecentre"] {
+  --background: #e8ecf1;
+  --foreground: #111927;
+  --card-foreground: #111927;
+  --popover: #ffffff;
+  --popover-foreground: #111927;
+  --primary: #0f1720;
+  --primary-foreground: #ffffff;
+  --secondary: #f4f6f9;
+  --secondary-foreground: #111927;
+  --muted-foreground: #68737f;
+  --accent: #ebeef2;
+  --accent-foreground: #111927;
+  --destructive: #d63b50;
+  --destructive-foreground: #ffffff;
+  --border: rgba(15, 23, 32, 0.08);
+  --input: rgba(15, 23, 32, 0.12);
+  --ring: #0f1720;
+  --success: #0da77c;
+  --success-foreground: #ffffff;
+  --warning: #b07c14;
+  --warning-foreground: #ffffff;
+  --info: #2b8cff;
+  --info-foreground: #ffffff;
+  --sidebar: #f7f8fa;
+  --sidebar-foreground: #2a3747;
+  --sidebar-primary: #0f1720;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #ebeef2;
+  --sidebar-accent-foreground: #111927;
+  --sidebar-border: rgba(15, 23, 32, 0.08);
+  --sidebar-ring: #0f1720;
+  --radius: 0.625rem;
+  --hairline: 1px;
+
+  /* The shared back-office screens (jobs, settings…) keep their layout but sit on the
+     tyre-centre surfaces and inks. */
+  --color-app: #e8ecf1;
+  --color-sub: #f4f6f9;
+  --color-band: #e2e8ef;
+  --color-line: rgba(15, 23, 32, 0.07);
+  --color-ink: #111927;
+  --color-ink-strong: #111927;
+  --color-body: #2a3747;
+  --color-muted: #68737f;
+  --color-faint: #8c96a1;
+  --color-fainter: #9aa3ad;
+}
+[data-brand="tyrecentre"] body {
+  background: #e8ecf1;
+  color: #2a3747;
+}
+/* The shared screens' one primary action (btn("primary")) takes the brand's black pill colour. */
+[data-brand="tyrecentre"] .grad-brand {
+  background: #0f1720;
+}
+[data-brand="tyrecentre"] .shadow-brand {
+  box-shadow: none;
+}
+@layer base {
+  /* shadcn's own base rule, scoped: a bare `border` takes the token, not currentColor. */
+  [data-brand="tyrecentre"] *,
+  [data-brand="tyrecentre"] ::before,
+  [data-brand="tyrecentre"] ::after {
+    border-color: var(--color-border);
+  }
+}
+/* HextaUI's hairline borders (card, badge, kbd). */
+@utility border-hairline {
+  border-width: var(--hairline, 1px);
+}
+@media (min-resolution: 2dppx) {
+  [data-brand="tyrecentre"] {
+    --hairline: 0.5px;
+  }
+}
+
+/* Mono micro labels: breadcrumbs, column headers, tags (spec §3). */
+.tc-mono {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+.tc-num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }

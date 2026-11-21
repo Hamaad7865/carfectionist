@@ -76,4 +76,12 @@ Use `src/lib/money/` (format/totals/parse/number-to-words), `phone.ts`, `mu-date
 `lib/pdf/`, `components/pdf/` (DocumentA4) · path alias `@/*` → `src/*` ·
 tests colocated `src/**/*.test.{ts,tsx}`. Per-report CSV: `/api/reports/[slug]/csv`.
 
+**Brands** (`lib/brand.ts`, by request host): Carfectionist and HAZ share the classic look; the
+tyre-centre client (`tyrecentre.hazsoftware.com`) gets its own (`docs/redesign/DESIGN-SPEC.md`):
+`<html data-brand="tyrecentre">`, `TyreShell` (shadcn sidebar) instead of `AppShell`, and its own
+`/dashboard` + `/sales/counter` (`features/tyrecentre/`). shadcn/ui + HextaUI live in
+`components/ui/` (`components.json`); their tokens exist only under `[data-brand="tyrecentre"]`
+in `globals.css`, and `bg-muted` is mapped to `bg-sub` (Carfectionist's `muted` is a text grey).
+Carfectionist must stay pixel-identical — never add unscoped tokens or base rules for them.
+
 Note: `apps/web/AGENTS.md` holds a generic Next.js-version warning; this file is the repo source of truth.

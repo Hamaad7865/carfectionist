@@ -3,8 +3,11 @@ import { ArrowLeft } from "lucide-react";
 import { getCounterRef } from "@/lib/supabase/queries/counter";
 import { getSessionContext } from "@/lib/auth/session";
 import { CounterSale } from "@/features/counter/CounterSale";
+import { getBrand } from "@/lib/brand-server";
+import { TyreNewSalePage } from "@/features/tyrecentre/TyreNewSalePage";
 
 export default async function CounterSalePage() {
+  if ((await getBrand()).key === "tyrecentre") return <TyreNewSalePage />;
   const [{ products, customers, pricesInclVat, posRules }, ctx] = await Promise.all([getCounterRef(), getSessionContext()]);
   // Pricing the catalogue is an owner/manager decision — a cashier at the till may not
   // invent a price (the server action enforces this too; this only shapes the UI).

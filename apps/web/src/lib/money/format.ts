@@ -47,3 +47,24 @@ export function formatMUR(value: number): string {
   const grouped = String(rupees).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
   return `Rs ${negative ? '-' : ''}${grouped}.${String(cents).padStart(2, '0')}`;
 }
+
+/** Whole rupees, grouped, no "Rs" — for headline figures captioned "Rs, VAT incl."
+ *  (184,350). Rounds half away from zero, like the database. */
+export function formatRupeesWhole(cents: number): string {
+  const n = Math.trunc(cents);
+  const rupees = Math.floor((Math.abs(n) + 50) / 100);
+  const grouped = String(rupees).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  return `${n < 0 && rupees > 0 ? '-' : ''}${grouped}`;
+}
+
+/** A shelf price on a catalogue tile: "Rs 2,950" for whole rupees, "Rs 2,950.50" otherwise —
+ *  never a rounded figure, only a dropped ".00". */
+export function formatMURShelf(cents: number): string {
+  const full = formatMUR(cents);
+  return Math.trunc(cents) % 100 === 0 ? full.slice(0, -3) : full;
+}
+
+/** A money column inside a bill or receipt, where the heading already says Rs: "11,800.00". */
+export function formatAmount(cents: number): string {
+  return formatMUR(cents).replace(/^Rs /, '');
+}
