@@ -103,7 +103,7 @@ async function catalogueLines(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sb: any,
   lines: CartLineInput[],
-): Promise<{ ok: true; rpcLines: rpc.RpcDraftLine[] } | { ok: false; error: string }> {
+): Promise<{ ok: true; rpcLines: rpc.RpcDraftLine[]; lineCompanies: (string | null)[] } | { ok: false; error: string }> {
   const ids = [...new Set(lines.map((l) => l.productId))];
   const { data: prods, error: pe } = await sb
     .from("products")
@@ -165,7 +165,10 @@ async function catalogueLines(
       error: `${unpriced.slice(0, 3).join(", ")}${unpriced.length > 3 ? ` and ${unpriced.length - 3} more` : ""} ${unpriced.length === 1 ? "has" : "have"} no price. Set the price first — the sale takes its prices from the catalogue.`,
     };
   }
-  return { ok: true, rpcLines };
+  // Which company sells each line (a product with none is the default company's) — the till's
+  // per-company arithmetic follows the same rule the database stamps lines with.
+  const lineCompanies = lines.map((l) => (byId.get(l.productId).legal_entity_id as string | null) ?? defaultEnt?.id ?? null);
+  return { ok: true, rpcLines, lineCompanies };
 }
 
 export async function counterSaleAction(input: z.infer<typeof schema>): Promise<CounterResult> {
@@ -180,24 +183,39 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
 
   const built = await catalogueLines(sb, p.data.lines);
   if (!built.ok) return built;
-  const { rpcLines } = built;
+  const { rpcLines, lineCompanies } = built;
 
   const orderDiscount = p.data.orderDiscountKind ? { kind: p.data.orderDiscountKind, value: p.data.orderDiscountValue ?? 0 } : null;
-  const totals = computeTotals(
-    rpcLines.map((l) => ({
-      qty: l.qty,
-      unitCents: Math.round(l.unit_price * 100),
-      discountPct: l.discount_pct,
-      discountKind: l.discount_kind,
-      discountAmountCents: Math.round(l.discount_amount * 100),
-      vatRatePct: l.vat_rate,
-      // A flagged line's unit_price IS the gross — carry the flag so this recompute extracts VAT
-      // instead of adding it, or the change owed and the "Paid" figure shown/WhatsApp'd would be
-      // the VAT-inflated total while the issued invoice (DB) is correct.
-      priceInclusive: l.price_includes_vat,
-    })),
-    orderDiscount,
-  );
+  const asTotalsLine = (l: rpc.RpcDraftLine) => ({
+    qty: l.qty,
+    unitCents: Math.round(l.unit_price * 100),
+    discountPct: l.discount_pct,
+    discountKind: l.discount_kind,
+    discountAmountCents: Math.round(l.discount_amount * 100),
+    vatRatePct: l.vat_rate,
+    // A flagged line's unit_price IS the gross — carry the flag so this recompute extracts VAT
+    // instead of adding it, or the change owed and the "Paid" figure shown/WhatsApp'd would be
+    // the VAT-inflated total while the issued invoice (DB) is correct.
+    priceInclusive: l.price_includes_vat,
+  });
+  // Per-company discounts (two-company shop): each company's bill is its own total with its own
+  // discount, exactly as issue_checkout will issue it; the sale's total is their sum. Without
+  // them, today's single computation.
+  const companyDiscounts = p.data.companyDiscounts ?? [];
+  const totals = companyDiscounts.length
+    ? {
+        totalCents: [...new Set(lineCompanies)].reduce((sum, co) => {
+          const d = companyDiscounts.find((x) => x.legalEntityId === co);
+          return sum + computeTotals(
+            rpcLines.filter((_, i) => lineCompanies[i] === co).map(asTotalsLine),
+            d ? { kind: d.kind, value: d.value } : null,
+          ).totalCents;
+        }, 0),
+      }
+    : computeTotals(rpcLines.map(asTotalsLine), orderDiscount);
+  if (companyDiscounts.length && orderDiscount) {
+    return { ok: false, error: "Give each company's bill its own discount — a bill discount can't cover two companies." };
+  }
 
   // A receipt for nothing is never intentional, and a Rs 0.00 invoice jams the collect
   // screen (it can never be settled — there is nothing to pay).

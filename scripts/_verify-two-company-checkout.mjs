@@ -173,6 +173,25 @@ try {
   await refuses("a discount naming a company with nothing on the sale",
     "select * from public.issue_checkout($1, null, null, $2, $3::jsonb)",
     [await draft([line(TYRE_PRODUCT, "Tyre", 2000)]), till, JSON.stringify([{ legal_entity_id: svc, discount_kind: "percent", discount_value: 5 }])], "nothing on this sale");
+  await refuses("a company bill discounted to Rs 0 is refused before any number is drawn",
+    "select * from public.issue_checkout($1, null, null, $2, $3::jsonb)",
+    [await draft(mixedLines()), till, JSON.stringify([{ legal_entity_id: svc, discount_kind: "percent", discount_value: 100, discount_reason: "verify" }])], "Rs 0.00");
+  await step("an owner's approval naming the service bill's id (known before the split)", async () => {
+    await asAdmin();
+    await c.query("update products set discount_policy = 'none' where id = $1", [SERVICE_PRODUCT]); // services: no discount without the owner
+    const approver = (await one("select id from app_users where auth_user_id = $1 and tenant_id = $2", [SANDBOX_OWNER, SANDBOX])).id;
+    await asOwner();
+    const d = await draft(mixedLines());
+    const svcId = (await one("select document_id from public.checkout_document_ids($1) where legal_entity_id = $2", [d, svc])).document_id;
+    const tenOff = JSON.stringify([{ legal_entity_id: svc, discount_kind: "percent", discount_value: 10, discount_reason: "verify" }]);
+    await refuses("  10% off the service bill without approval", "select * from public.issue_checkout($1, null, null, $2, $3::jsonb)", [d, till, tenOff], "discount exceeds allowance");
+    await asAdmin();
+    await c.query(`insert into owner_overrides (tenant_id, kind, ref_type, ref_id, scope, reason, approved_by)
+                   values ($1, 'discount', 'document', $2, '{"max_discount_incl": 130}'::jsonb, 'verify', $3)`, [SANDBOX, svcId, approver]);
+    await asOwner();
+    const got = await checkout(d, null, till, JSON.parse(tenOff));
+    check("  …with the owner's approval on that id it issues: service bill Rs 1,170", `${got[1].id === svcId} ${got[1].total_incl}`, "true 1170.00");
+  });
 
   // ── 5. a job with both companies' work ─────────────────────────────────────────────────────
   console.log("\nA job billed by both companies:");
@@ -257,6 +276,64 @@ try {
     check("  …recorded under issue_document's own key (an old till's replay still works)", row?.rpc, "issue_document");
     const pg1 = await pay([k[0].id], "card", 2300, null, till, "proportional", null);
     check("  …and the checkout payment pays a single bill too", `${pg1.payment_ids.length} ${(await docs([k[0].id]))[0].status}`, "1 paid");
+  });
+
+  // ── 9b. one-company jobs through the spliced record_payment and cancel_job ────────────────
+  console.log("\nOne-company jobs (Carfectionist's shape) through the changed payment and cancel code:");
+  const tyreJob = async () => {
+    const qd = await draft([line(TYRE_PRODUCT, "Tyre", 2000)], { doc_type: "quote", vehicle_id: CAR });
+    return (await one("select id from public.convert_quote_to_job($1, $2, null, null)", [qd, TECH])).id;
+  };
+  const bill = async (j) => (await checkout((await one("select id from public.create_document_from_job($1, 'invoice')", [j])).id, null, till))[0];
+  const money = async (j) => (await one(
+    "select payload->>'money' m from audit_events where ref_type = 'job' and ref_id = $1 and event_type = 'job_cancelled'", [j])).m;
+  await step("a ready job's single bill paid in full hands the car back", async () => {
+    const j = await tyreJob();
+    const b = await bill(j);
+    check("  one bill, no group", `${b.checkout_group_id}`, "null");
+    await asAdmin(); await c.query("update jobs set status = 'ready' where id = $1", [j]); await asOwner();
+    await c.query("select public.record_payment($1, 'card', $2, null, 'VERIFY', $3, null, null)", [b.id, b.total_incl, till]);
+    check("  delivered", (await one("select status from jobs where id = $1", [j])).status, "delivered");
+  });
+  await step("cancel a job whose bill is paid → credit note", async () => {
+    const j = await tyreJob();
+    const b = await bill(j);
+    const cnNext = await next(SANDBOX, "credit_note");
+    await c.query("select public.record_payment($1, 'card', $2, null, 'VERIFY', $3, null, null)", [b.id, b.total_incl, till]);
+    await c.query("select public.cancel_job($1, 'verify', true, $2)", [j, till]);
+    check("  credit note in the shop's own series", (await one("select number from documents where doc_type = 'credit_note' and source_document_id = $1", [b.id])).number, cnNext);
+    check("  the job's record says what happened, as before", await money(j), `bill ${b.number} credit-noted, ${b.total_incl} refunded`);
+  });
+  await step("cancel a job whose bill is unpaid → bill voided", async () => {
+    const j = await tyreJob();
+    const b = await bill(j);
+    await c.query("select public.cancel_job($1, 'verify', true, $2)", [j, till]);
+    check("  voided", (await docs([b.id]))[0].status, "void");
+    check("  record", await money(j), `bill ${b.number} voided`);
+  });
+  await step("cancel a job whose bill is still a draft → draft deleted", async () => {
+    const j = await tyreJob();
+    const d = (await one("select id from public.create_document_from_job($1, 'invoice')", [j])).id;
+    await c.query("select public.cancel_job($1, 'verify', true, $2)", [j, till]);
+    check("  deleted", (await q("select 1 from documents where id = $1", [d])).length, 0);
+    check("  record", await money(j), "draft deleted");
+  });
+  await step("cancel a job with no bill", async () => {
+    const j = await tyreJob();
+    await c.query("select public.cancel_job($1, 'verify', true, $2)", [j, till]);
+    check("  record", await money(j), "no invoice");
+  });
+  await step("one bill for two cars, paid in full, hands both cars back", async () => {
+    const owner = "73682d6d-8adb-4e3f-acaf-90c3a1b9928f";
+    const cars = (await q("select id from vehicles where customer_id = $1 order by plate limit 2", [owner])).map((v) => v.id);
+    const qd = await draft(cars.map((v, i) => line(TYRE_PRODUCT, `Tyre car ${i + 1}`, 2000, { vehicle_id: v, sort_order: i })),
+      { doc_type: "quote", customer_id: owner });
+    await c.query("select * from public.convert_quote_to_jobs($1, null, null, null)", [qd]);
+    await asAdmin(); await c.query("update jobs set status = 'ready', ready_at = now() where source_quote_id = $1", [qd]); await asOwner();
+    const inv2 = (await one("select id from public.convert_quote_to_invoice($1)", [qd])).id;
+    const b = (await checkout(inv2, null, till))[0];
+    await c.query("select public.record_payment($1, 'card', $2, null, 'VERIFY', $3, null, null)", [b.id, b.total_incl, till]);
+    check("  both cars delivered", (await q("select status from jobs where source_quote_id = $1 order by id", [qd])).map((r) => r.status).join(" "), "delivered delivered");
   });
 
   // ── 10. the live shop, read-only ───────────────────────────────────────────────────────────

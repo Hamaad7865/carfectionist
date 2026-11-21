@@ -233,6 +233,12 @@ begin
     return;
   end if;
 
+  -- A company bill of nothing can never be settled (a payment of Rs 0 is refused), so it would
+  -- stand open forever beside its paid sibling. Refused before any number is drawn.
+  if exists (select 1 from public.documents where id = any (v_ids) and total_incl <= 0) then
+    raise exception 'one company''s bill comes to Rs 0.00 — check its prices or its discount before charging';
+  end if;
+
   foreach v_id in array v_ids loop
     perform public.issue_document(v_id, p_stock_location_id, null, p_session_id);
   end loop;
