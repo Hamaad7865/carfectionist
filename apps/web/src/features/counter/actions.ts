@@ -8,9 +8,9 @@ import { existsInTenant } from "@/lib/supabase/guards";
 import { resolveShopLocationId } from "@/lib/supabase/locations";
 import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
-import { computeTotals, formatMUR, rupeesToCents } from "@/lib/money";
+import { computeTotals, rupeesToCents } from "@/lib/money";
 import { isDeterministicRejection, type SettlePhase } from "./settle";
-import { planSplit } from "./split";
+import { fitSplitToTotal, planSplit } from "./split";
 
 const ROLES = ["owner", "manager", "cashier"] as const;
 
@@ -255,14 +255,14 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       let changeCents = 0;
       if (splitPlan?.ok) {
         // The parts were planned against the till's arithmetic; the issued invoice is the
-        // authority. Should they ever differ, record nothing — a retry would only repeat it.
-        if (rupeesToCents(totalRupees) !== totals.totalCents) {
-          throw new Error(`The invoice came to ${formatMUR(rupeesToCents(totalRupees))}, not the ${formatMUR(totals.totalCents)} the split covers. Abandon this sale and ring it again.`);
-        }
-        for (const pay of splitPlan.payments) {
+        // authority. Its number is already drawn, so a cent of rounding is absorbed by the
+        // last part (as on the tablet) instead of stranding an issued, unpaid invoice.
+        const fitted = fitSplitToTotal(splitPlan, rupeesToCents(totalRupees));
+        if (!fitted.ok) throw new Error(fitted.error);
+        for (const pay of fitted.payments) {
           await rpc.recordPayment(sb, { invoiceId: issued.id, ...pay, cashSessionId });
         }
-        changeCents = splitPlan.changeCents;
+        changeCents = fitted.changeCents;
       } else if (p.data.method !== "credit" && p.data.method !== "split") {
         // Every payment is linked to the till it was taken on (resolved above, so the
         // ticket and the money land on the same service).
@@ -292,7 +292,7 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
 
       revalidatePath("/sales");
       revalidatePath("/reports");
-      return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: totals.totalCents, changeCents, onAccount: p.data.method === "credit" };
+      return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: splitPlan?.ok ? rupeesToCents(totalRupees) : totals.totalCents, changeCents, onAccount: p.data.method === "credit" };
     } catch (e) {
       return { ok: false, error: (e as Error).message, settle: "issued", invoiceNo: issued.number };
     }

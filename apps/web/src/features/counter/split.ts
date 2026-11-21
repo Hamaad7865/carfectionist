@@ -65,3 +65,40 @@ export function planSplit(parts: SplitPart[], totalCents: number, saleKey: strin
   if (short) return { ok: false, error: "The cash handed over is less than the cash part of the split." };
   return { ok: true, payments, changeCents };
 }
+
+/**
+ * Fit a planned split to the ISSUED invoice's total. The database is the rounding authority:
+ * the parts were typed against the till's own arithmetic, and should the two ever differ by a
+ * cent or so, the last part absorbs it. That is the same rule as the tablet
+ * (SaleRepository.recordTenders). The result depends only on the plan and the issued total,
+ * so a retry under the same sale key records the same amounts.
+ *
+ * A difference the last part cannot absorb means the totals are badly out of step, which is a
+ * bug somewhere else. Nothing is recorded then: the invoice stays issued and unpaid, to be
+ * collected from its own page.
+ */
+export function fitSplitToTotal(
+  plan: { payments: PlannedPayment[] },
+  issuedTotalCents: number,
+): { ok: true; payments: PlannedPayment[]; changeCents: number } | { ok: false; error: string } {
+  const cents = (r: number) => Math.round(r * 100);
+  const sum = plan.payments.reduce((s, p) => s + cents(p.amount), 0);
+  const delta = issuedTotalCents - sum;
+  const payments = plan.payments.map((p) => ({ ...p }));
+  if (delta !== 0) {
+    const last = payments[payments.length - 1];
+    const lastCents = last ? cents(last.amount) + delta : 0;
+    if (!last || lastCents <= 0) {
+      return {
+        ok: false,
+        error: `The invoice came to ${formatMUR(issuedTotalCents)} but the split covers ${formatMUR(sum)}. Nothing was charged; collect the invoice from its page.`,
+      };
+    }
+    last.amount = lastCents / 100;
+    // The cash in hand does not change; it only has to cover the part.
+    if (last.tendered != null) last.tendered = Math.max(cents(last.tendered), lastCents) / 100;
+  }
+  const cash = payments.find((p) => p.method === "cash" && p.tendered != null);
+  const changeCents = cash ? Math.max(0, cents(cash.tendered!) - cents(cash.amount)) : 0;
+  return { ok: true, payments, changeCents };
+}
