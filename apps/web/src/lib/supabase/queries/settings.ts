@@ -30,10 +30,15 @@ export interface BusinessProfile {
 
 export async function getBusinessProfile(): Promise<BusinessProfile | null> {
   const sb = await createClient();
-  const { data } = await sb.from("business_settings").select("*").limit(1).maybeSingle();
+  const [{ data }, { data: ent }] = await Promise.all([
+    sb.from("business_settings").select("*").limit(1).maybeSingle(),
+    // The number series live on the default company since 20261122000010; the settings
+    // counters are frozen. Absent (older database) → fall back to the settings row.
+    sb.from("legal_entities").select("quote_prefix, quote_next_number, invoice_prefix, invoice_next_number").eq("is_default", true).limit(1).maybeSingle(),
+  ]);
   if (!data) return null;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d = data as any;
+  const d = { ...(data as any), ...((ent as any) ?? {}) };
   return {
     id: d.id,
     legalName: d.legal_name,

@@ -73,9 +73,13 @@ try {
   // Numbering starts over, so a fresh rehearsal reads TESTQ-1 again rather than
   // carrying the scars of the last one.
   await c.query(
-    `update public.business_settings
-        set quote_next_number = 1, invoice_next_number = 1, credit_note_next_number = 1, z_next_number = 1
-      where id = $1`, [SANDBOX_TENANT],
+    `update public.business_settings set z_next_number = 1 where id = $1`, [SANDBOX_TENANT],
+  );
+  // Document series live on each company since 20261122000010.
+  await c.query(
+    `update public.legal_entities
+        set quote_next_number = 1, invoice_next_number = 1, credit_note_next_number = 1
+      where tenant_id = $1`, [SANDBOX_TENANT],
   );
 
   await c.query("commit");

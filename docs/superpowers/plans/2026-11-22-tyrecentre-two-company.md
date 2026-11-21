@@ -150,16 +150,22 @@ from https://21st.dev/mcp before I can pull from it; until then I use the other 
 debug builds, before/after screenshots next to the mockups, `PROGRESS.md` entry listing any
 sandbox test rows. Then I ask you before any merge to `main` (which deploys).
 
-## Questions for you (I've put my suggestion first)
+## Decisions (owner, 2026-11-22)
 
-1. **A discount on the whole bill** when the cart has both companies: (a) split it across the two
-   invoices in proportion to each one's total, *or* (b) only allow discounts per company.
-2. **Which invoice a payment pays first** when the customer pays part now: (a) the tyre company
-   first, then services, *or* (b) both in proportion.
-3. **Quotes with tyres and services**: (a) one quote numbered under the tyre company, showing a
-   subtotal per company, then two invoices when accepted, *or* (b) two separate quotes.
-4. Company details (names, BRN, VAT number, prefixes, logos), the web address and the tablet app
-   name: I'll use placeholders until you send them. The client's accountant should confirm the split.
+1. **Discounts are per company only.** A bill-wide discount is not offered when the cart has more
+   than one company; each company's bill block has its own discount (with its own reason and the
+   same owner allowance rules). A one-company cart (Carfectionist) keeps today's bill discount.
+   The database refuses a bill discount on `issue_checkout` with lines from two companies.
+2. **Part payments: staff choose where the money goes.** The pay screen offers
+   **Tyres first** (fill the tyre invoice, the rest to services), **Services first**, or **Both**
+   (split in proportion to what each still owes, to the cent, remainder to the larger bill).
+   Paying in full needs no choice. The group payment call takes the chosen order
+   (`entity_first: <company> | proportional`), so web and tablet allocate identically.
+3. **Quotes: both ways.** When the cart has both companies, "Save as quote" offers
+   **One quote** (numbered in the default company's quote series, a subtotal block per company,
+   two invoices when accepted) or **Two quotes** (one per company, each in its own company's quote
+   series, linked by `checkout_group_id` so they can be accepted together).
+4. **Company details** come from the owner later; placeholders until then.
 
 ## Risks I'm watching
 - The database is shared with Carfectionist's live shop: phases B and C go live for Carfectionist

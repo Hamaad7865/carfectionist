@@ -13,9 +13,9 @@ const q = async (label, sql) => {
 
 try {
   await client.connect();
-  await q('business_settings (series state)',
-    `select legal_name, trading_name, quote_prefix, quote_next_number,
-            invoice_prefix, invoice_next_number from business_settings`);
+  await q('companies (series state)',
+    `select tenant_id, legal_name, trading_name, vat_registered, quote_prefix, quote_next_number,
+            invoice_prefix, invoice_next_number from legal_entities order by tenant_id, sort_order`);
   await q('app_users by role',
     `select role, count(*)::int as n from app_users group by role order by role`);
   await q('stock_on_hand — rows per location',

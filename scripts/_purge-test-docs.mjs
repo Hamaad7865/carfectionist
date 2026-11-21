@@ -126,7 +126,8 @@ try {
   if (invoices.length) {
     // Only reclaim when the removed numbers really were the tail of the series.
     const nextFromRemaining = topInvoice ? Number(String(topInvoice).replace(/\D/g, "")) + 1 : 1;
-    await c.query("update public.business_settings set invoice_next_number = $2 where id = $1", [REAL, nextFromRemaining]);
+    // The series lives on the company since 20261122000010 (business_settings counters are frozen).
+    await c.query("update public.legal_entities set invoice_next_number = $2 where tenant_id = $1 and is_default", [REAL, nextFromRemaining]);
     console.log(`\n  invoice numbering wound back to ${nextFromRemaining} — the series closes up, no gap`);
   }
   console.log("  quote numbering left alone — four of these were sent, so their numbers are spoken for");

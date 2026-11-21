@@ -300,7 +300,12 @@ try {
   for (const [tbl, trg] of deleteGuards) await c.query(`alter table ${tbl} enable trigger ${trg}`);
 
   await c.query(
-    `update business_settings set quote_next_number=1, invoice_next_number=1, credit_note_next_number=1, z_next_number=1 where id=$1`,
+    `update business_settings set z_next_number=1 where id=$1`,
+    [TENANT],
+  );
+  // Document series live on each company since 20261122000010.
+  await c.query(
+    `update legal_entities set quote_next_number=1, invoice_next_number=1, credit_note_next_number=1 where tenant_id=$1`,
     [TENANT],
   );
 

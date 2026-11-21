@@ -51,7 +51,10 @@ From `apps/web/`: `npx vitest run src/<path>/<name>.test.ts(x)` for a single tes
 
 - **Event-sourced stock**: INSERT-only into `stock_movements`. Never UPDATE/DELETE stock rows.
 - **Gapless numbering ONLY via the `issue_document` seam** (quotes `A…`, invoices `INV-…`, credit notes `CN-…`).
-  Never mint numbers client-side. After any reseed, set `business_settings.invoice_next_number` to max+1.
+  Never mint numbers client-side. Each issuing company (`legal_entities`) owns its quote, invoice and
+  credit-note series; numbers come only from `app.next_entity_number` (the old `app.next_document_number`
+  raises; `business_settings` counters are frozen). After any reseed, set the company's
+  `legal_entities.invoice_next_number` to max+1.
 - **Invoice fiscal lock**: issued invoices are immutable; legal fields are never hidden by template config.
 - **RLS on every query**; all writes are zod-validated server actions (`features/<domain>/actions.ts`).
 - **Rounding authority is the database** (generated columns, line-level `round(x,2)` half-away, then summed).
