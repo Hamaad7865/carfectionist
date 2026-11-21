@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isActiveHref, tyreCentreNav } from "./nav";
+import { breadcrumbTrail, isActiveHref, tyreCentreNav } from "./nav";
 
 const keys = (links: { key: string }[]) => links.map((l) => l.key);
 
@@ -25,6 +25,21 @@ describe("tyreCentreNav", () => {
     expect(keys(nav.shopFloor)).toEqual(["overview", "jobs"]);
     expect(nav.till).toEqual([]);
     expect(nav.more).toEqual([]);
+  });
+});
+
+describe("breadcrumbTrail", () => {
+  const nav = tyreCentreNav("owner", null);
+  it("walks shop → menu row → record, linking all but the page you are on", () => {
+    expect(breadcrumbTrail("/dashboard", nav, "Tyre Centre Ltd")).toEqual([{ label: "Tyre Centre Ltd", href: "/dashboard" }, { label: "Overview" }]);
+    expect(breadcrumbTrail("/sales/counter", nav, "TC")).toEqual([{ label: "TC", href: "/dashboard" }, { label: "New sale" }]);
+    expect(breadcrumbTrail("/sales/0b8f6a2e-1c1d-4e7f-9a1b-2c3d4e5f6a7b/edit", nav, "TC")).toEqual([
+      { label: "TC", href: "/dashboard" },
+      { label: "Documents", href: "/sales" },
+      { label: "Details" },
+      { label: "Edit" },
+    ]);
+    expect(breadcrumbTrail("/activity", nav, "TC").at(-1)).toEqual({ label: "Activity" });
   });
 });
 

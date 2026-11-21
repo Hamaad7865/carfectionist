@@ -10,14 +10,10 @@ import type { SearchHit } from "@/app/api/search/route";
 const ICON = { invoice: FileText, customer: UserRound, vehicle: CarFront } as const;
 const GROUP: Record<SearchHit["type"], string> = { invoice: "Documents", customer: "Customers", vehicle: "Cars" };
 
-/** ⌘K / Ctrl+K anywhere: documents, customers and cars, via the same /api/search the
- *  Carfectionist topbar uses (RLS-scoped). The server already filtered, so cmdk doesn't. */
-export function TyreCommandSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const router = useRouter();
-  const [q, setQ] = useState("");
+/** Live results from /api/search (RLS-scoped) for a typed query, debounced. */
+export function useSearchHits(q: string): { hits: SearchHit[]; loading: boolean } {
   const [hits, setHits] = useState<SearchHit[]>([]);
   const [loading, setLoading] = useState(false);
-
   useEffect(() => {
     const term = q.trim();
     if (term.length < 2) {
@@ -42,6 +38,18 @@ export function TyreCommandSearch({ open, onOpenChange }: { open: boolean; onOpe
       controller.abort();
     };
   }, [q]);
+  return { hits, loading };
+}
+
+export const SEARCH_ICON = ICON;
+export const SEARCH_GROUP = GROUP;
+
+/** ⌘K / Ctrl+K anywhere: documents, customers and cars, via the same /api/search the
+ *  Carfectionist topbar uses (RLS-scoped). The server already filtered, so cmdk doesn't. */
+export function TyreCommandSearch({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+  const router = useRouter();
+  const [q, setQ] = useState("");
+  const { hits, loading } = useSearchHits(q);
 
   const groups = (["invoice", "customer", "vehicle"] as const)
     .map((type) => ({ type, items: hits.filter((h) => h.type === type) }))

@@ -82,6 +82,9 @@ tyre-centre client (`tyrecentre.hazsoftware.com`) gets its own (`docs/redesign/D
 `/dashboard` + `/sales/counter` (`features/tyrecentre/`). shadcn/ui + HextaUI live in
 `components/ui/` (`components.json`); their tokens exist only under `[data-brand="tyrecentre"]`
 in `globals.css`, and `bg-muted` is mapped to `bg-sub` (Carfectionist's `muted` is a text grey).
+Easy UI pieces (easyui.site, MIT — `npx shadcn add Surajmaurya1/easyui/<name>`) sit there too,
+restyled light: stat-card, interactive-area-chart, donut-chart, notification-bell,
+expandable-search, product-tour, breadcrumb (the tyre-centre top bar and dashboard).
 Carfectionist must stay pixel-identical — never add unscoped tokens or base rules for them.
 
 Note: `apps/web/AGENTS.md` holds a generic Next.js-version warning; this file is the repo source of truth.

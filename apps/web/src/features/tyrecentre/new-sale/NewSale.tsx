@@ -304,12 +304,11 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
   const visible = filtered.slice(0, shown);
 
   return (
-    <div className="flex min-h-full flex-col gap-3.5 p-3.5 xl:h-dvh xl:flex-row xl:overflow-hidden">
+    <div className="flex min-h-full flex-col gap-3.5 p-3.5 xl:h-full xl:flex-row xl:overflow-hidden">
       {/* Catalogue — or, once paid, the printed receipt */}
       <div className="flex min-w-0 flex-1 flex-col gap-3.5 px-1.5 py-1.5 sm:px-2.5 xl:overflow-y-auto">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <div className={TC_MICRO}>{shopLabel} / New sale</div>
             <h1 className="mt-1 font-display text-[30px] font-semibold leading-tight tracking-[-0.6px] text-tc-ink">New sale</h1>
           </div>
           {!paid && (

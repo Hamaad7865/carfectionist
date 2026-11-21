@@ -100,4 +100,24 @@ export function isNewSalePath(pathname: string): boolean {
   return pathname === NEW_SALE_HREF || pathname.startsWith(`${NEW_SALE_HREF}/`);
 }
 
+const SEGMENT_LABEL: Record<string, string> = { edit: "Edit", intake: "Intake", new: "New", locations: "Locations", team: "Team", templates: "Templates", whatsapp: "WhatsApp", "pos-rules": "Till rules" };
+
+/** The top bar's breadcrumb for a pathname: the shop, the menu row it belongs to, then
+ *  whatever lies below it ("Details" for a record id, "Edit", …). */
+export function breadcrumbTrail(pathname: string, nav: TcNav, shop: string): { label: string; href?: string }[] {
+  const trail: { label: string; href?: string }[] = [{ label: shop || "Home", href: "/dashboard" }];
+  const rows = [...nav.shopFloor, ...nav.till.slice(0, 1), ...nav.more, ...(nav.settings ? [nav.settings] : [])];
+  const row = rows
+    .filter((r) => isActiveHref(pathname, r.href))
+    .sort((a, b) => b.href.split("?")[0].length - a.href.split("?")[0].length)[0];
+  if (!row) return trail;
+  const base = row.href.split("?")[0];
+  trail.push({ label: row.key === "overview" ? "Overview" : row.label, href: base });
+  const rest = pathname.slice(base.length).split("/").filter(Boolean);
+  for (const seg of rest) trail.push({ label: SEGMENT_LABEL[seg] ?? (seg.length > 12 ? "Details" : seg) });
+  // The last crumb is the page you are on, never a link.
+  delete trail[trail.length - 1].href;
+  return trail;
+}
+
 export { NEW_SALE_HREF };

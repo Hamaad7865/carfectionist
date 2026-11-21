@@ -168,7 +168,7 @@ export function Topbar({
  *  live in the app layout, which does NOT re-run on client navigation: that is
  *  why the badge froze at whatever it said on first load.
  */
-function useLiveNotifications(pathname: string) {
+export function useLiveNotifications(pathname: string) {
   const [items, setItems] = useState<NotifItem[]>([]);
 
   const reload = useCallback(async (signal?: AbortSignal) => {

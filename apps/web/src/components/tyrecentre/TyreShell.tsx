@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { Search } from "lucide-react";
-import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import type { SessionContext } from "@/lib/auth/session";
 import type { BrandInfo } from "@/lib/brand";
@@ -11,10 +10,10 @@ import { isNewSalePath, NEW_SALE_HREF, tyreCentreNav } from "@/lib/tyrecentre/na
 import { getShellStatusAction, type ShellStatus } from "@/features/tyrecentre/shell-actions";
 import { TyreSidebar } from "./TyreSidebar";
 import { TyreCommandSearch } from "./TyreCommandSearch";
-import { TyreMark } from "./TyreMark";
+import { TyreTopbar } from "./TyreTopbar";
 
-/** The tyre-centre back office frame: shadcn sidebar + content. No topbar — each screen
- *  carries its own header (DESIGN-SPEC §6). Carfectionist keeps AppShell. */
+/** The tyre-centre back office frame: shadcn sidebar, the Easy UI-styled top bar, then the
+ *  page. Carfectionist keeps AppShell. */
 export function TyreShell({ ctx, brand, children }: { ctx: SessionContext; brand: BrandInfo; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -66,21 +65,14 @@ export function TyreShell({ ctx, brand, children }: { ctx: SessionContext; brand
       style={{ "--sidebar-width": "16rem", "--sidebar-width-icon": "3.5rem" } as React.CSSProperties}
     >
       <TyreSidebar nav={nav} status={status} brandName={brand.name} displayName={ctx.displayName} role={ctx.role} />
-      <SidebarInset className="min-w-0 overflow-y-auto bg-tc-app">
-        <header className="flex h-14 shrink-0 items-center gap-2 border-b border-tc-line bg-tc-sidebar px-3 md:hidden">
-          <SidebarTrigger className="size-9" />
-          <TyreMark size={28} radius={7} />
-          <span className="flex-1 truncate text-[14px] font-bold text-tc-ink">{status?.companies[0]?.name ?? brand.name}</span>
-          <button
-            type="button"
-            onClick={() => setSearchOpen(true)}
-            aria-label="Search"
-            className="grid size-9 place-items-center rounded-full text-tc-body hover:bg-tc-sidebar-active"
-          >
-            <Search className="size-[18px]" />
-          </button>
-        </header>
-        {children}
+      <SidebarInset className="flex h-dvh min-w-0 flex-col overflow-hidden bg-tc-app">
+        <TyreTopbar
+          nav={nav}
+          shop={status?.companies[0]?.name ?? brand.name}
+          canSell={canSell}
+          onOpenSearch={() => setSearchOpen(true)}
+        />
+        <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </SidebarInset>
       <TyreCommandSearch open={searchOpen} onOpenChange={setSearchOpen} />
       <Toaster position="bottom-right" />

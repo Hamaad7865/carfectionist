@@ -76,35 +76,6 @@ import { SalesPeriodControls } from './SalesPeriodControls';
 
 type TooltipEntry = { payload?: SalesPoint };
 
-export type ChartTone = 'classic' | 'tyrecentre';
-
-interface ChartPalette {
-  figure: string;
-  counter: string;
-  workshop: string;
-  total: string;
-  cursor: string;
-}
-
-const PALETTES: Record<ChartTone, ChartPalette> = {
-  classic: {
-    figure: 'rounded-[15px] border border-line bg-card p-4 sm:p-5',
-    counter: '#2b8cff',
-    workshop: '#6a5cff',
-    total: '#1e6fe0',
-    cursor: 'rgba(43,140,255,0.05)',
-  },
-  // DESIGN-SPEC §2/§4: black primary, blue second, amber line; borderless shadowed card.
-  tyrecentre: {
-    figure:
-      'rounded-[22px] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,32,.04),0_10px_30px_rgba(15,23,32,.05)] sm:p-[22px]',
-    counter: '#0f1720',
-    workshop: '#2b8cff',
-    total: '#f5a623',
-    cursor: 'rgba(15,23,32,0.04)',
-  },
-};
-
 export function resolveSalesAxisDomain(
   dataMin: number,
   dataMax: number,
@@ -116,19 +87,17 @@ export function resolveSalesAxisDomain(
 function SalesTooltip({
   active,
   payload,
-  palette,
 }: {
   active?: boolean;
   payload?: readonly TooltipEntry[];
-  palette: ChartPalette;
 }) {
   const point = payload?.[0]?.payload;
   if (!active || !point) return null;
 
   const values = [
-    ['Counter / direct', point.counterCents, palette.counter],
-    ['Workshop jobs', point.workshopCents, palette.workshop],
-    ['Total incl. VAT', point.totalCents, palette.total],
+    ['Counter / direct', point.counterCents, '#2b8cff'],
+    ['Workshop jobs', point.workshopCents, '#6a5cff'],
+    ['Total incl. VAT', point.totalCents, '#1e6fe0'],
   ] as const;
 
   return (
@@ -156,19 +125,15 @@ function SalesTooltip({
 
 export function SalesPerformanceChart({
   data,
-  tone = 'classic',
 }: {
   data: SalesPerformanceData;
-  /** 'tyrecentre' = that brand's colours and card (DESIGN-SPEC §2, §4). */
-  tone?: ChartTone;
 }) {
-  const palette = PALETTES[tone];
   const minPlotWidth =
     data.status === 'ready' ? Math.max(720, data.points.length * 38) : 720;
 
   return (
     <figure
-      className={palette.figure}
+      className="rounded-[15px] border border-line bg-card p-4 sm:p-5"
       aria-labelledby="sales-performance-title"
     >
       <figcaption className="flex flex-col justify-between gap-3 lg:flex-row lg:items-start">
@@ -192,7 +157,7 @@ export function SalesPerformanceChart({
               {data.status === 'ready' ? formatMUR(data.totalCents) : '—'}
             </div>
           </div>
-          <SalesPeriodControls period={data.period} tone={tone} />
+          <SalesPeriodControls period={data.period} />
         </div>
       </figcaption>
 
@@ -253,8 +218,8 @@ export function SalesPerformanceChart({
                     tickLine={false}
                   />
                   <Tooltip
-                    content={<SalesTooltip palette={palette} />}
-                    cursor={{ fill: palette.cursor }}
+                    content={<SalesTooltip />}
+                    cursor={{ fill: 'rgba(43,140,255,0.05)' }}
                   />
                   <Legend
                     verticalAlign="bottom"
@@ -270,7 +235,7 @@ export function SalesPerformanceChart({
                     dataKey="counterCents"
                     name="Counter / direct"
                     stackId="sales"
-                    fill={palette.counter}
+                    fill="#2b8cff"
                     maxBarSize={28}
                     isAnimationActive={false}
                   />
@@ -278,7 +243,7 @@ export function SalesPerformanceChart({
                     dataKey="workshopCents"
                     name="Workshop jobs"
                     stackId="sales"
-                    fill={palette.workshop}
+                    fill="#6a5cff"
                     maxBarSize={28}
                     radius={[4, 4, 0, 0]}
                     isAnimationActive={false}
@@ -287,13 +252,13 @@ export function SalesPerformanceChart({
                     dataKey="totalCents"
                     name="Total incl. VAT"
                     type="monotone"
-                    stroke={palette.total}
+                    stroke="#1e6fe0"
                     strokeWidth={2.25}
                     dot={false}
                     activeDot={{
                       r: 4,
                       fill: '#fff',
-                      stroke: palette.total,
+                      stroke: '#1e6fe0',
                       strokeWidth: 2,
                     }}
                     isAnimationActive={false}

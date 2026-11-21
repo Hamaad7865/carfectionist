@@ -143,7 +143,7 @@ export function TyreSidebar({
   const companyName = companies[0]?.name ?? brandName;
 
   return (
-    <Sidebar collapsible="icon" className="border-r border-tc-sidebar-border [&_[data-slot=sidebar-inner]]:bg-tc-sidebar">
+    <Sidebar collapsible="icon" data-tour="sidebar" className="border-r border-tc-sidebar-border [&_[data-slot=sidebar-inner]]:bg-tc-sidebar">
       <SidebarHeader className="p-2">
         <SidebarMenu>
           <SidebarMenuItem>

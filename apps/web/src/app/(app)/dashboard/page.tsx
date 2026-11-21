@@ -35,7 +35,7 @@ function Kpi({ icon: Icon, value, label, tint }: { icon: typeof ReceiptText; val
 }
 
 export default async function DashboardPage({ searchParams }: { searchParams: Promise<SalesSearchParams> }) {
-  if ((await getBrand()).key === "tyrecentre") return <TyreDashboard searchParams={await searchParams} />;
+  if ((await getBrand()).key === "tyrecentre") return <TyreDashboard />;
   const params = normalizeSalesPeriodInput(await searchParams);
   const [d, session] = await Promise.all([getDashboard(params), getSessionContext()]);
   const name = (session?.displayName ?? "").replace(/\s*\(.*\)\s*$/, "").trim();

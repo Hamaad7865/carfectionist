@@ -83,7 +83,7 @@ export function buildCustomSalesRangeUpdate(
   return { ok: true, href: `${pathname}?${next.toString()}` };
 }
 
-export function SalesPeriodControls({ period, tone = 'classic' }: { period: SalesPeriod; tone?: 'classic' | 'tyrecentre' }) {
+export function SalesPeriodControls({ period }: { period: SalesPeriod }) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -147,17 +147,11 @@ export function SalesPeriodControls({ period, tone = 'classic' }: { period: Sale
             type="button"
             aria-pressed={selected}
             onClick={() => choosePreset(preset.key)}
-            className={
-              tone === 'tyrecentre'
-                ? `h-8 rounded-full px-3 text-[12.5px] font-semibold transition-colors ${
-                    selected ? 'bg-[#0f1720] text-white' : 'bg-[#f4f6f9] text-[#68737f] hover:text-[#111927]'
-                  }`
-                : `h-8 rounded-[9px] px-2.5 text-[12.5px] font-bold transition-colors ${
-                    selected
-                      ? 'border border-[rgba(30,111,224,0.22)] bg-[rgba(43,140,255,0.12)] text-link'
-                      : 'border border-line-2 bg-card text-muted hover:border-faint hover:text-body'
-                  }`
-            }
+            className={`h-8 rounded-[9px] px-2.5 text-[12.5px] font-bold transition-colors ${
+              selected
+                ? 'border border-[rgba(30,111,224,0.22)] bg-[rgba(43,140,255,0.12)] text-link'
+                : 'border border-line-2 bg-card text-muted hover:border-faint hover:text-body'
+            }`}
           >
             {preset.label}
           </button>
