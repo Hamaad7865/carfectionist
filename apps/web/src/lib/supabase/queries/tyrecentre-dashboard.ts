@@ -13,12 +13,13 @@ export interface TyreDashboardSeries {
   collectedCents: number[];
 }
 
-export const SERIES_DAYS = 90;
+/** 90 days shown, plus the 90 before them for the "vs the period before" comparison. */
+export const SERIES_DAYS = 180;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Row = any;
 
-/** The tyre-centre dashboard's daily figures for the last 90 days. RLS-scoped; the same
+/** The tyre-centre dashboard's daily figures for the last 180 days. RLS-scoped; the same
  *  document statuses the sales-performance chart counts as sales. */
 export async function getTyreDashboardSeries(nowMs = Date.now()): Promise<TyreDashboardSeries> {
   const sb = await createClient();

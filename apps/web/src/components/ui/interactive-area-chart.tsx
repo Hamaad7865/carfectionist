@@ -31,10 +31,14 @@ export interface InteractiveAreaChartProps {
   formatAxis?: (n: number) => string;
   /** 'sum': the headline is the range's total (sales); 'last': its latest point (a balance). */
   headline?: "last" | "sum";
+  /** Per range: % change against the period before (replaces the first-vs-last change). */
+  compare?: Record<string, number | null>;
+  /** Under the headline when not scrubbing, per range (e.g. "vs the 30 days before"). */
+  caption?: (range: string) => string;
 }
 
 const N = 72; // every dataset is resampled to N points so ranges can morph 1:1
-const PAD = { t: 48, r: 12, b: 28, l: 48 };
+const PAD = { t: 48, r: 12, b: 28, l: 64 };
 const TIP_W = 124;
 const EASE_OUT = [0.23, 1, 0.32, 1] as const;
 const EASE_IN_OUT = [0.77, 0, 0.175, 1] as const;
@@ -84,7 +88,9 @@ function spline(v: number[], pos: number) {
   const p1 = v[i];
   const p2 = v[i + 1];
   const p3 = v[Math.min(i + 2, n - 1)];
-  return p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
+  const y = p1 + 0.5 * t * (p2 - p0 + t * (2 * p0 - 5 * p1 + 4 * p2 - p3 + t * (3 * (p1 - p2) + p3 - p0)));
+  // Never overshoot the two real points around it: a curve must not show a value nobody had.
+  return clamp(y, Math.min(p1, p2), Math.max(p1, p2));
 }
 
 function niceScale(min: number, max: number, count = 4) {
@@ -119,17 +125,22 @@ function smoothPath(p: [number, number][]) {
     const p1 = p[i];
     const p2 = p[i + 1];
     const p3 = p[i + 2] ?? p2;
-    d += `C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(p1[1] + (p2[1] - p0[1]) / 6)} ${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(p2[1] - (p3[1] - p1[1]) / 6)} ${f(p2[0])} ${f(p2[1])}`;
+    // Control points held inside the segment's own height keep the curve from bulging past it.
+    const lo = Math.min(p1[1], p2[1]);
+    const hi = Math.max(p1[1], p2[1]);
+    const c1y = clamp(p1[1] + (p2[1] - p0[1]) / 6, lo, hi);
+    const c2y = clamp(p2[1] - (p3[1] - p1[1]) / 6, lo, hi);
+    d += `C${f(p1[0] + (p2[0] - p0[0]) / 6)} ${f(c1y)} ${f(p2[0] - (p3[0] - p1[0]) / 6)} ${f(c2y)} ${f(p2[0])} ${f(p2[1])}`;
   }
   return d;
 }
 
 const fmtFull = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const fmtCompact = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
-const fmtTip = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+const fmtTip = new Intl.DateTimeFormat("en-GB", { month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
 const axisFmt = (len: number, isNarrow = false) =>
   new Intl.DateTimeFormat(
-    "en-US",
+    "en-GB",
     len <= 10
       ? { weekday: "short", timeZone: "UTC" }
       : isNarrow
@@ -150,6 +161,8 @@ export function InteractiveAreaChart({
   formatValue = (n: number) => fmtFull.format(n),
   formatAxis = (n: number) => fmtCompact.format(n),
   headline = "last",
+  compare,
+  caption,
 }: InteractiveAreaChartProps) {
   const uid = useId().replace(/:/g, "");
   const reduce = useReducedMotion();
@@ -287,7 +300,11 @@ export function InteractiveAreaChart({
   const rangeTotal = m.pts.reduce((s, p) => s + p.value, 0);
   const headValue = hover === null && headline === "sum" ? rangeTotal : shown.value;
   // A first point of zero has no meaningful percentage (it would read "Infinity%").
-  const delta = m.pts[0].value !== 0 ? (shown.value - m.pts[0].value) / Math.abs(m.pts[0].value) : null;
+  const delta = compare
+    ? (compare[range] ?? null)
+    : m.pts[0].value !== 0
+      ? (shown.value - m.pts[0].value) / Math.abs(m.pts[0].value)
+      : null;
   const isNarrow = width > 0 && width < 380;
   const axis = axisFmt(len, isNarrow);
   const labelCount = isNarrow ? 3 : width < 520 ? 4 : 5;
@@ -309,14 +326,14 @@ export function InteractiveAreaChart({
               (delta ?? 0) >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-rose-600 dark:text-rose-400"
             }`}
           >
-            {headline === "last" && delta !== null && (
+            {(headline === "last" || compare) && delta !== null && (
               <>
                 {delta >= 0 ? "+" : ""}
                 {(delta * 100).toFixed(1)}%{" "}
               </>
             )}
             <span className="text-neutral-500">
-              {hover !== null ? fmtTip.format(shown.date) : headline === "sum" ? `total, last ${range}` : `last ${range}`}
+              {hover !== null ? fmtTip.format(shown.date) : caption ? caption(range) : headline === "sum" ? `total, last ${range}` : `last ${range}`}
             </span>
           </p>
         </div>
@@ -367,7 +384,7 @@ export function InteractiveAreaChart({
             >
               <defs>
                 <linearGradient id={`${uid}-fill`} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="currentColor" stopOpacity={0.18} />
+                  <stop offset="0%" stopColor="currentColor" stopOpacity={0.3} />
                   <stop offset="100%" stopColor="currentColor" stopOpacity={0} />
                 </linearGradient>
                 <clipPath id={`${uid}-clip`}>

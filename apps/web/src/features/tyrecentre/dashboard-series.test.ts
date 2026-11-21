@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bucketByDay, muDayKeys, shortDay, windowSums } from "./dashboard-series";
+import { bucketByDay, muDayKeys, periodChange, runningTotal, shortDay, windowSums } from "./dashboard-series";
 
 // 22 Nov 2026, 00:30 in Mauritius = 21 Nov 20:30Z.
 const NOW = Date.parse("2026-11-21T20:30:00Z");
@@ -20,6 +20,15 @@ describe("bucketByDay", () => {
       { at: "2026-11-01T08:00:00Z", value: 999 },
     ];
     expect(bucketByDay(keys, rows)).toEqual([100, 30]);
+  });
+});
+
+describe("runningTotal / periodChange", () => {
+  it("accumulates a period and compares it with the one before", () => {
+    expect(runningTotal([0, 5, 0, 10])).toEqual([0, 5, 5, 15]);
+    expect(periodChange([10, 10, 15, 15], 2)).toBeCloseTo(0.5);
+    expect(periodChange([0, 0, 15, 15], 2)).toBeNull();
+    expect(periodChange([10, 15, 15], 2)).toBeNull();
   });
 });
 

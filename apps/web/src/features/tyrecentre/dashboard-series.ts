@@ -25,6 +25,20 @@ export function windowSums(series: number[], n: number): { current: number; prev
   return { current: sum(series.slice(-n)), previous: sum(series.slice(-2 * n, -n)) };
 }
 
+/** Running total — "to date" across a period, so a lumpy day reads as a step, not a spike. */
+export function runningTotal(series: number[]): number[] {
+  let acc = 0;
+  return series.map((v) => (acc += v));
+}
+
+/** The last `n` days against the `n` before, as a fraction (0.124 = +12.4%); null when the
+ *  earlier period had nothing to compare with or the series doesn't reach back that far. */
+export function periodChange(series: number[], n: number): number | null {
+  if (series.length < 2 * n) return null;
+  const { current, previous } = windowSums(series, n);
+  return previous > 0 ? (current - previous) / previous : null;
+}
+
 /** A "yyyy-mm-dd" day as the UTC-midnight instant chart components label in UTC. */
 export const dayToUtcMs = (key: string) => Date.parse(`${key}T00:00:00Z`);
 

@@ -3,11 +3,10 @@
 import { StatCard, StatGrid } from "@/components/ui/stat-card";
 import { InteractiveAreaChart, type AreaChartData } from "@/components/ui/interactive-area-chart";
 import { DonutChart } from "@/components/ui/donut-chart";
-import { TcCard } from "@/components/tyrecentre/TcCard";
 import { formatMUR, formatMURShelf } from "@/lib/money";
 import { formatCompactMUR } from "@/features/dashboard/sales-performance";
 import type { TyreDashboardSeries } from "@/lib/supabase/queries/tyrecentre-dashboard";
-import { dayToUtcMs, shortDay, windowSums } from "./dashboard-series";
+import { dayToUtcMs, periodChange, runningTotal, shortDay, windowSums } from "./dashboard-series";
 
 // Easy UI's charts take plain numbers; ours are rupees here (cents / 100).
 const rupees = (cents: number) => cents / 100;
@@ -24,12 +23,13 @@ const METHOD: Record<string, { label: string; color: string }> = {
   cheque: { label: "Cheque", color: "#9AA3AD" },
 };
 
-/** The last 30 days against the 30 before, as Easy UI stat cards with a 30-day sparkline. */
+/** The last 30 days against the 30 before, as Easy UI stat cards. The sparkline is the running
+ *  total across those 30 days, so it ends on the headline figure and never spikes. */
 export function DashboardStats({ series, outstandingCents }: { series: TyreDashboardSeries; outstandingCents: number }) {
-  const labels = series.days.slice(-30).map(shortDay);
+  const labels = series.days.slice(-30).map((d) => `up to ${shortDay(d)}`);
   const card = (data: number[], toValue: (n: number) => number) => {
     const w = windowSums(data, 30);
-    return { value: toValue(w.current), previous: toValue(w.previous), trend: data.slice(-30).map(toValue) };
+    return { value: toValue(w.current), previous: toValue(w.previous), trend: runningTotal(data.slice(-30)).map(toValue) };
   };
   const sales = card(series.salesCents, rupees);
   const collected = card(series.collectedCents, rupees);
@@ -54,17 +54,44 @@ export function DashboardStats({ series, outstandingCents }: { series: TyreDashb
   );
 }
 
-/** Daily sales, incl. VAT, on Easy UI's interactive area chart (7 / 30 / 90 days). */
+const RANGES: [string, number][] = [["7D", 7], ["30D", 30], ["90D", 90]];
+
+/** Sales to date, incl. VAT, on Easy UI's interactive area chart — the dark hero card of the
+ *  dashboard (the chart's own dark styles, switched on for this card by data-theme). Each range
+ *  is a running total from its first day, compared with the same number of days before it. */
 export function SalesAreaChart({ series }: { series: TyreDashboardSeries }) {
-  const pts = series.days.map((d, i) => ({ date: dayToUtcMs(d), value: rupees(series.salesCents[i]) }));
-  const data: AreaChartData = { "7D": pts.slice(-7), "30D": pts.slice(-30), "90D": pts };
+  const data: AreaChartData = {};
+  const compare: Record<string, number | null> = {};
+  for (const [key, n] of RANGES) {
+    const days = series.days.slice(-n);
+    const totals = runningTotal(series.salesCents.slice(-n));
+    data[key] = days.map((d, i) => ({ date: dayToUtcMs(d), value: rupees(totals[i]) }));
+    compare[key] = periodChange(series.salesCents, n);
+  }
+  const days = Object.fromEntries(RANGES);
   return (
-    <TcCard className="p-5 sm:p-[22px]" aria-label="Sales">
-      <InteractiveAreaChart data={data} defaultRange="30D" title="Sales incl. VAT" headline="sum" formatValue={fmtExact} formatAxis={fmtAxis} height={260} />
-    </TcCard>
+    <section
+      data-theme="dark"
+      aria-label="Sales"
+      className="relative overflow-hidden rounded-[22px] bg-[#0B0D10] p-5 text-neutral-100 shadow-[0_30px_60px_-32px_rgba(15,23,32,0.6)] ring-1 ring-white/[0.06] sm:p-6"
+    >
+      {/* A faint top light, like the reference card's glass. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(70%_100%_at_50%_0%,rgba(255,255,255,0.07),transparent)]" />
+      <div className="relative">
+        <InteractiveAreaChart
+          data={data}
+          defaultRange="30D"
+          title="Sales to date · incl. VAT"
+          compare={compare}
+          caption={(r) => `vs the ${days[r]} days before`}
+          formatValue={fmtExact}
+          formatAxis={fmtAxis}
+          height={300}
+        />
+      </div>
+    </section>
   );
 }
-
 /** Payments by method on Easy UI's donut chart. */
 export function MethodsDonut({ byMethod }: { byMethod: { method: string; cents: number }[] }) {
   const data = byMethod
