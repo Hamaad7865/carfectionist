@@ -94,6 +94,27 @@ New numbered migrations, all additive:
   per company and in total, replay uses no numbers, credit note in the tyre series, one-company
   tenant still issues one invoice with its next number.
 
+**Phase C as built (2026-11-23, `20261123000010_two_company_checkout.sql`, proven by
+`scripts/_verify-two-company-checkout.mjs` — rolled back, ALL GOOD):**
+- `issue_checkout(draft, location, key, session, discounts)`; `split_document_by_company` ("two
+  quotes"); `checkout_document_ids` (the ids a split will use — the first company keeps the draft id,
+  the others `md5(draft:company)`, so an owner approval can name them in advance).
+- `record_checkout_payment(invoice_ids[], method, amount, tendered, ref, till, allocation, key)` +
+  `payment_groups` (append-only) + `reverse_checkout_payment`. Change rides on one part only. Points
+  pay one bill at a time.
+- One invoice per job / per quote is now one per company inside a checkout group; every invoice
+  without a group (all of Carfectionist's) is covered exactly as before.
+- `record_payment`: the car is handed back only when every company's bill is settled.
+  `cancel_job`: every bill of the job is resolved.
+- A quote spanning companies cannot carry a bill discount (line discounts are per company already).
+- Web: the counter and the document page's Issue use `issue_checkout` only when the shop has more
+  than one active company; Carfectionist keeps `issue_document`.
+- Left as is, on purpose: `deliver_on_account` hands the car over when ONE bill goes on account (the
+  customer leaves owing the visit either way); `save_draft`'s 15% fallback (the line trigger forces 0
+  for a non-VAT company); the discount allowance (`default_policy_service = none` refuses any discount
+  on a service unless the owner approves) — the tyre centre's own setting, chosen in phase E.
+- Z report per company is phase D; the Z total balances already (it sums invoices).
+
 ### D. Receipts, A4 invoices and reports (web)
 - Receipt and A4 read the issuing company: legal name, BRN and VAT number from the issue-time
   snapshot, address/phone/logo/footer from the company row — not the live business settings.

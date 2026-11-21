@@ -95,6 +95,88 @@ export const issueDocument = (
     p_session_id: sessionId,
   });
 
+/** One company's own bill discount at a two-company checkout (owner rule: discounts are per
+ *  company only). Amount is VAT-inclusive rupees, as save_draft takes it. */
+export interface CheckoutDiscount {
+  legal_entity_id: string;
+  discount_kind: "percent" | "amount" | null;
+  discount_value: number;
+  discount_reason: string | null;
+}
+
+/** Issue a draft as ONE invoice per issuing company (20261123000010). A one-company draft is
+ *  exactly issue_document under the same key; a two-company one returns the tyre bill (which
+ *  keeps the draft's id) then the others in company order, linked by checkout_group_id. */
+export const issueCheckout = (
+  sb: Client,
+  documentId: string,
+  stockLocationId: string | null = null,
+  idempotencyKey: string | null = null,
+  sessionId: string | null = null,
+  discounts: CheckoutDiscount[] | null = null,
+) =>
+  callRpc<CheckoutDocumentRow[]>(sb, "issue_checkout", {
+    p_document_id: documentId,
+    p_stock_location_id: stockLocationId,
+    p_idempotency_key: idempotencyKey,
+    p_session_id: sessionId,
+    p_discounts: discounts,
+  });
+
+export interface CheckoutDocumentRow extends DocumentRow {
+  legal_entity_id: string | null;
+  checkout_group_id: string | null;
+}
+
+/** "Two quotes": a draft spanning companies becomes one draft per company (nothing issued). */
+export const splitDocumentByCompany = (sb: Client, documentId: string) =>
+  callRpc<CheckoutDocumentRow[]>(sb, "split_document_by_company", { p_document_id: documentId });
+
+export interface PaymentGroupRow {
+  id: string;
+  invoice_ids: string[];
+  payment_ids: string[];
+  method: string;
+  amount: string;
+  tendered: string | null;
+  change_given: string | null;
+  allocation: string;
+}
+
+export interface RecordCheckoutPaymentArgs {
+  invoiceIds: string[];
+  method: "cash" | "card" | "juice" | "bank_transfer" | "cheque" | "points";
+  amount: number; // rupees
+  tendered?: number | null; // cash only: what was handed over, for the whole payment
+  externalRef?: string | null;
+  cashSessionId: string;
+  /** "proportional", or the id of the company whose bill is filled first. Paying everything
+   *  owed needs no choice. */
+  allocation?: string;
+  idempotencyKey?: string | null;
+}
+
+/** One payment across a customer's open invoices (one per company), in one transaction. */
+export const recordCheckoutPayment = (sb: Client, a: RecordCheckoutPaymentArgs) =>
+  callRpc<PaymentGroupRow>(sb, "record_checkout_payment", {
+    p_invoice_ids: a.invoiceIds,
+    p_method: a.method,
+    p_amount: a.amount,
+    p_tendered: a.tendered ?? null,
+    p_external_ref: a.externalRef ?? null,
+    p_cash_session_id: a.cashSessionId,
+    p_allocation: a.allocation ?? "proportional",
+    p_idempotency_key: a.idempotencyKey ?? null,
+  });
+
+/** Walk back every part of one checkout payment, all or nothing (owner/manager). */
+export const reverseCheckoutPayment = (sb: Client, paymentGroupId: string, reason: string, sessionId: string | null = null) =>
+  callRpc<PaymentRow[]>(sb, "reverse_checkout_payment", {
+    p_payment_group_id: paymentGroupId,
+    p_reason: reason,
+    p_session_id: sessionId,
+  });
+
 export const convertQuoteToInvoice = (sb: Client, quoteId: string) =>
   callRpc<DocumentRow>(sb, "convert_quote_to_invoice", { p_quote_id: quoteId });
 

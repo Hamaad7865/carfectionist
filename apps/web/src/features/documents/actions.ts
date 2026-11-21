@@ -52,7 +52,13 @@ export async function issueDocumentAction(input: z.infer<typeof issueSchema>): P
   try {
     // The desk's till: a ticket issued here belongs to the desk's service on the cash-up.
     const sessionId = await backOfficeTillId(sb);
-    const doc = await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId);
+    // A shop with two issuing companies (tyre centre) issues through issue_checkout: a bill from a
+    // quote or job that holds both tyres and services becomes one invoice per company (the first
+    // keeps this document's id). One-company shops keep issue_document exactly.
+    const { count: companies } = await sb.from("legal_entities").select("id", { count: "exact", head: true }).eq("is_active", true);
+    const doc = (companies ?? 0) > 1
+      ? (await rpc.issueCheckout(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId))[0]
+      : await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId);
     revalidatePath("/sales");
     revalidatePath(`/sales/${parsed.data.documentId}`);
     return { ok: true, data: doc };

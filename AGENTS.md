@@ -55,6 +55,13 @@ From `apps/web/`: `npx vitest run src/<path>/<name>.test.ts(x)` for a single tes
   credit-note series; numbers come only from `app.next_entity_number` (the old `app.next_document_number`
   raises; `business_settings` counters are frozen). After any reseed, set the company's
   `legal_entities.invoice_next_number` to max+1.
+- **Two-company checkout** (20261123000010): a shop with more than one active company issues through
+  `issue_checkout` (one invoice per company, linked by `checkout_group_id`; a one-company draft IS
+  `issue_document` under the same key) and takes money across those bills with
+  `record_checkout_payment` (allocation `proportional` or a company id). One-company shops keep
+  `issue_document`/`record_payment` exactly — the web decides by counting `legal_entities`. Invoices in
+  a checkout group are exempt from one-invoice-per-job/quote only per company; a car is handed back
+  only when every company's bill is settled.
 - **Invoice fiscal lock**: issued invoices are immutable; legal fields are never hidden by template config.
 - **RLS on every query**; all writes are zod-validated server actions (`features/<domain>/actions.ts`).
 - **Rounding authority is the database** (generated columns, line-level `round(x,2)` half-away, then summed).

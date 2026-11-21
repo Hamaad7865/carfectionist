@@ -21,7 +21,12 @@ const ROLES = ["owner", "manager", "cashier"] as const;
  * settle a new one. A failure without `settle` committed nothing that costs money.
  */
 export type CounterResult =
-  | { ok: true; invoiceId: string; number: string | null; totalCents: number; changeCents: number; onAccount: boolean }
+  | {
+      ok: true; invoiceId: string; number: string | null; totalCents: number; changeCents: number; onAccount: boolean;
+      /** Every invoice the sale produced, in company order — two on a tyre-centre sale with both
+       *  tyres and services (one per issuing company), one otherwise. */
+      invoices: { id: string; number: string | null; totalCents: number; legalEntityId: string | null }[];
+    }
   | { ok: false; error: string; settle?: SettlePhase; invoiceNo?: string | null };
 
 const lineSchema = z.object({
@@ -65,6 +70,16 @@ const schema = z.object({
   // pinned to it. save_draft upserts by id, so a retry re-locks the same row rather than
   // littering orphan drafts. Mirrors SaleRepository.draftIdFor on the tablet.
   draftId: z.string().uuid().optional(),
+  // A cart spanning two issuing companies (tyre centre) takes no bill discount — each company's
+  // bill block has its own (owner rule 2026-11-22). Amount in VAT-inclusive cents.
+  companyDiscounts: z.array(z.object({
+    legalEntityId: z.string().uuid(),
+    kind: z.enum(["percent", "amount"]),
+    value: z.number().min(0),
+    reason: z.string().optional(),
+  })).optional(),
+  // Part payment across two companies' bills: "proportional", or the company filled first.
+  allocation: z.string().optional(),
 }).superRefine((d, ctx) => {
   // A percent order discount can't exceed 100% (else totals go negative).
   if (d.orderDiscountKind === "percent" && (d.orderDiscountValue ?? 0) > 100) {
@@ -92,9 +107,20 @@ async function catalogueLines(
   const ids = [...new Set(lines.map((l) => l.productId))];
   const { data: prods, error: pe } = await sb
     .from("products")
-    .select("id, name, selling_price, price_includes_vat, vat_rate")
+    .select("id, name, selling_price, price_includes_vat, vat_rate, legal_entity_id")
     .in("id", ids);
   if (pe) return { ok: false, error: pe.message };
+  // A company that is not VAT-registered charges no VAT; the database forces 0 on its lines
+  // (20261122000010), and the till's own arithmetic has to agree with it. One-company shops have
+  // no such company, so nothing changes for them.
+  const { data: ents } = await sb.from("legal_entities").select("id, vat_registered, is_default");
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const entRows = (ents ?? []) as any[];
+  const defaultEnt = entRows.find((e) => e.is_default);
+  const noVat = (entityId: string | null) => {
+    const e = entityId ? entRows.find((x) => x.id === entityId) : defaultEnt;
+    return e ? e.vat_registered === false : false;
+  };
   const { data: bs } = await sb.from("business_settings").select("vat_rate").limit(1).maybeSingle();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const vatDefault = Number((bs as any)?.vat_rate ?? 15);
@@ -118,7 +144,7 @@ async function catalogueLines(
       discount_pct: l.discountPct ?? 0,
       discount_kind: l.discountKind ?? "percent",
       discount_amount: (l.discountAmountCents ?? 0) / 100,
-      vat_rate: prod.vat_rate == null ? vatDefault : Number(prod.vat_rate),
+      vat_rate: noVat(prod.legal_entity_id ?? null) ? 0 : prod.vat_rate == null ? vatDefault : Number(prod.vat_rate),
       sort_order: i,
       // A flagged product's selling_price IS the exact gross the owner typed, so its line
       // carries the flag and the ledger extracts VAT (20260812000030). An unflagged product
@@ -233,11 +259,28 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
     // Point of no return: this draws the gapless INV number and fires stock movements. If it
     // throws we cannot tell a lost request from a lost response, so the invoice may exist under
     // `${key}:issue` — and a replay would ignore any new draft we sent it.
-    let issued: Awaited<ReturnType<typeof rpc.issueDocument>>;
+    // A shop with ONE issuing company (Carfectionist) keeps today's path exactly. A shop with two
+    // (tyre centre: VAT tyres + non-VAT services) issues through issue_checkout — one invoice per
+    // company, same key, a one-company cart still a single invoice.
+    const { count: companies } = await sb.from("legal_entities").select("id", { count: "exact", head: true }).eq("is_active", true);
+    const severalCompanies = (companies ?? 0) > 1;
+    const discounts: rpc.CheckoutDiscount[] | null = p.data.companyDiscounts?.length
+      ? p.data.companyDiscounts.map((d) => ({
+          legal_entity_id: d.legalEntityId,
+          discount_kind: d.kind,
+          discount_value: d.kind === "amount" ? d.value / 100 : d.value,
+          discount_reason: d.reason?.trim() || null,
+        }))
+      : null;
+    if (discounts && !severalCompanies) return { ok: false, error: "Per-company discounts need a shop with more than one company." };
+
+    let bills: rpc.CheckoutDocumentRow[];
     try {
       // The ticket belongs to the desk's till — that is the service it will appear under
       // on the cash-up.
-      issued = await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null, cashSessionId);
+      bills = severalCompanies
+        ? await rpc.issueCheckout(sb, draft.id, shopLocationId, key ? `${key}:issue` : null, cashSessionId, discounts)
+        : [{ ...(await rpc.issueDocument(sb, draft.id, shopLocationId, key ? `${key}:issue` : null, cashSessionId)), legal_entity_id: null, checkout_group_id: null }];
     } catch (e) {
       // A definitive refusal (day closed, stale till, …) commits nothing costing money —
       // no `settle`, so the basket stays live instead of freezing behind a false
@@ -245,11 +288,51 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
       if (isDeterministicRejection((e as Error).message)) return { ok: false, error: (e as Error).message };
       return { ok: false, error: (e as Error).message, settle: "uncertain" };
     }
+    const issued = bills[0];
+    const invoices = bills.map((b) => ({ id: b.id, number: b.number, totalCents: rupeesToCents(Number(b.total_incl)), legalEntityId: b.legal_entity_id }));
 
     // Everything below runs against a real, issued invoice. Any failure here — including a
     // payment that committed but whose response was lost — leaves the sale unresolved, so it
     // must be retried as-is rather than re-settled with a different basket.
     try {
+      if (bills.length > 1) {
+        // Two companies' bills, ONE payment (or one per tender of a split): each call spreads its
+        // money across both bills in one transaction, so a failure never leaves one bill paid
+        // and the other not by accident. The issued totals are the authority.
+        const groupCents = invoices.reduce((sum, b) => sum + b.totalCents, 0);
+        const ids = invoices.map((b) => b.id);
+        let changeCents = 0;
+        if (splitPlan?.ok) {
+          const fitted = fitSplitToTotal(splitPlan, groupCents);
+          if (!fitted.ok) throw new Error(fitted.error);
+          for (const pay of fitted.payments) {
+            await rpc.recordCheckoutPayment(sb, { invoiceIds: ids, ...pay, cashSessionId, allocation: p.data.allocation });
+          }
+          changeCents = fitted.changeCents;
+        } else if (p.data.method !== "credit" && p.data.method !== "split") {
+          const tenderedRupees = p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null;
+          await rpc.recordCheckoutPayment(sb, {
+            invoiceIds: ids,
+            method: p.data.method,
+            amount: groupCents / 100,
+            tendered: tenderedRupees,
+            externalRef:
+              p.data.method === "cash"
+                ? null
+                : p.data.method === "cheque"
+                  ? p.data.externalRef?.trim() || null
+                  : p.data.externalRef?.trim() || "COUNTER",
+            cashSessionId,
+            allocation: p.data.allocation,
+            idempotencyKey: key ? `${key}:pay` : null,
+          });
+          changeCents = tenderedRupees != null ? Math.max(0, Math.round(tenderedRupees * 100) - groupCents) : 0;
+        }
+        revalidatePath("/sales");
+        revalidatePath("/reports");
+        return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: groupCents, changeCents, onAccount: p.data.method === "credit", invoices };
+      }
+
       const totalRupees = Number(issued.total_incl);
 
       let changeCents = 0;
@@ -292,9 +375,9 @@ export async function counterSaleAction(input: z.infer<typeof schema>): Promise<
 
       revalidatePath("/sales");
       revalidatePath("/reports");
-      return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: splitPlan?.ok ? rupeesToCents(totalRupees) : totals.totalCents, changeCents, onAccount: p.data.method === "credit" };
+      return { ok: true, invoiceId: issued.id, number: issued.number, totalCents: splitPlan?.ok ? rupeesToCents(totalRupees) : totals.totalCents, changeCents, onAccount: p.data.method === "credit", invoices };
     } catch (e) {
-      return { ok: false, error: (e as Error).message, settle: "issued", invoiceNo: issued.number };
+      return { ok: false, error: (e as Error).message, settle: "issued", invoiceNo: invoices.map((b) => b.number).filter(Boolean).join(" + ") || null };
     }
   } catch (e) {
     // Nothing past save_draft ran: no number drawn, no stock moved. Safe to edit and retry.
