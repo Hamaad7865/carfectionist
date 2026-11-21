@@ -10,7 +10,7 @@ import {
   type SalesSearchParams,
 } from "@/features/dashboard/sales-performance";
 import { getBrand } from "@/lib/brand-server";
-import { TyreOverviewPage } from "@/features/tyrecentre/TyreOverviewPage";
+import { TyreDashboard } from "@/features/tyrecentre/TyreDashboard";
 
 const card = "rounded-[15px] border border-line bg-card";
 const METHOD_COLOR: Record<string, string> = {
@@ -34,8 +34,8 @@ function Kpi({ icon: Icon, value, label, tint }: { icon: typeof ReceiptText; val
   );
 }
 
-export default async function DashboardPage({ searchParams }: { searchParams: Promise<SalesSearchParams & { range?: string }> }) {
-  if ((await getBrand()).key === "tyrecentre") return <TyreOverviewPage range={(await searchParams).range} />;
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<SalesSearchParams> }) {
+  if ((await getBrand()).key === "tyrecentre") return <TyreDashboard searchParams={await searchParams} />;
   const params = normalizeSalesPeriodInput(await searchParams);
   const [d, session] = await Promise.all([getDashboard(params), getSessionContext()]);
   const name = (session?.displayName ?? "").replace(/\s*\(.*\)\s*$/, "").trim();

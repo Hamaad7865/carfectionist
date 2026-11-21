@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { describe, it, expect } from 'vitest';
 import { computeTotals, type TotalsLineInput } from './totals';
-import { formatAmount, formatMUR, formatMURShelf, formatRupeesWhole } from './format';
+import { formatAmount, formatMUR, formatMURShelf } from './format';
 import { parseMoneyInput } from './parse';
 import { roundHalfAwayFromZero, rupeesToCents } from './cents';
 import { amountInWordsMUR } from '../number-to-words';
@@ -82,17 +82,6 @@ describe('formatMUR', () => {
     [0, 'Rs 0.00'],
     [-50000, 'Rs -500.00'],
   ])('%d → %s', (input, out) => expect(formatMUR(input)).toBe(out));
-});
-
-describe('formatRupeesWhole', () => {
-  it.each([
-    [18435000, '184,350'],
-    [18434950, '184,350'],
-    [18434949, '184,349'],
-    [0, '0'],
-    [-49, '0'],
-    [-150, '-2'],
-  ])('%d → %s', (input, out) => expect(formatRupeesWhole(input)).toBe(out));
 });
 
 describe('formatAmount', () => {

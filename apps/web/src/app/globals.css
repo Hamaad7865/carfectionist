@@ -608,14 +608,3 @@
     --hairline: 0.5px;
   }
 }
-
-/* Mono micro labels: breadcrumbs, column headers, tags (spec §3). */
-.tc-mono {
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.tc-num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
