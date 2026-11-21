@@ -99,10 +99,18 @@ describe("overlayIssuer — whose identity the paper prints", () => {
     expect(overlayIssuer(settings, null)).toEqual({ shop: settings, vatRegistered: true, isDefault: true });
     expect(overlayIssuer(settings, { is_default: true, vat_registered: true, trading_name: "Other" }).shop).toEqual(settings);
   });
-  it("another company lays its identity over the shop's, keeping shared blanks", () => {
-    const got = overlayIssuer(settings, { is_default: false, vat_registered: false, trading_name: "Wheel Services", brn: "C2", vat_number: null, phone: "", address: null });
+  it("another company lays its identity over the shop's, sharing only address and contact", () => {
+    const got = overlayIssuer(settings, { is_default: false, vat_registered: false, legal_name: "Wheel Services Ltd", trading_name: "Wheel Services", brn: "C2", vat_number: null, phone: "", address: null });
     expect(got.isDefault).toBe(false);
     expect(got.vatRegistered).toBe(false);
-    expect(got.shop).toMatchObject({ trading_name: "Wheel Services", brn: "C2", vat_number: null, phone: "5", address: "Moka", legal_name: "Diamondbrite Ltd" });
+    expect(got.shop).toMatchObject({ trading_name: "Wheel Services", legal_name: "Wheel Services Ltd", brn: "C2", vat_number: null, phone: "5", address: "Moka" });
+  });
+  it("never borrows the other company's BRN, VAT number, names or bank account", () => {
+    const shop = { ...settings, bank_account_number: "000111", bank_name: "MCB", bank_account_name: "Diamondbrite Ltd" };
+    const got = overlayIssuer(shop, { is_default: false, vat_registered: true, legal_name: "Wheel Services Ltd", trading_name: "", brn: "", vat_number: "", bank_account_number: null });
+    expect(got.shop).toMatchObject({
+      legal_name: "Wheel Services Ltd", trading_name: "Wheel Services Ltd", brn: null, vat_number: null,
+      bank_account_number: null, bank_name: null, bank_account_name: null, phone: "5", address: "Moka",
+    });
   });
 });

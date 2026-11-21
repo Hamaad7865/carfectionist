@@ -27,8 +27,15 @@ export interface Issuer {
   isDefault: boolean;
 }
 
-/** Pure: lay a non-default company's identity over the settings row. Blank company fields fall
- *  back to the shop's (a phone or address the two companies share). */
+/** What two companies of one shop may share — where they trade from and how the paper looks.
+ *  A company's LEGAL identity (names, BRN, VAT number) and its BANK account are never borrowed:
+ *  a blank there prints blank, so a service invoice can never carry the tyre company's BRN or
+ *  send a customer's money to the other company's account. */
+const SHARED_FIELDS = new Set<string>([
+  "address", "phone", "email", "receipt_logo_path", "receipt_header_text", "receipt_footer_text",
+]);
+
+/** Pure: lay a non-default company's identity over the settings row. */
 export function overlayIssuer(settings: Row | null, company: Row | null): Issuer {
   const shop: Row = { ...(settings ?? {}) };
   if (!company || company.is_default) {
@@ -36,14 +43,21 @@ export function overlayIssuer(settings: Row | null, company: Row | null): Issuer
   }
   for (const f of ISSUER_FIELDS) {
     const v = company[f];
-    if (v != null && String(v).trim() !== "") shop[f] = v;
+    const blank = v == null || String(v).trim() === "";
+    if (!blank) shop[f] = v;
+    else if (!SHARED_FIELDS.has(f)) shop[f] = null;
   }
+  // A company with no trading name trades under its legal name — never the other company's.
+  if (!shop.trading_name) shop.trading_name = company.legal_name ?? null;
   const vatRegistered = company.vat_registered !== false;
   if (!vatRegistered) shop.vat_number = null;
   return { shop, vatRegistered, isDefault: false };
 }
 
-/** The issuer of a document: its own company if it names one, else the shop's default. */
+/** The issuer of a document: its own company if it names one, else the shop's default.
+ *  A document that names a company we cannot read is an error, not the default company —
+ *  printing the tyre company's VAT identity on a service company's bill is a wrong legal
+ *  document, so it must fail loudly rather than look right. */
 export async function issuerOf(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   sb: any,
@@ -51,11 +65,14 @@ export async function issuerOf(
   settings: Row | null,
 ): Promise<Issuer> {
   if (!doc.legal_entity_id) return overlayIssuer(settings, null);
-  const { data } = await sb
+  const { data, error } = await sb
     .from("legal_entities")
     .select(`id, is_default, vat_registered, ${ISSUER_FIELDS.join(", ")}`)
     .eq("id", doc.legal_entity_id)
     .eq("tenant_id", doc.tenant_id)
     .maybeSingle();
-  return overlayIssuer(settings, (data as Row | null) ?? null);
+  if (error || !data) {
+    throw new Error(`issuing company ${doc.legal_entity_id} could not be read${error ? `: ${error.message}` : ""}`);
+  }
+  return overlayIssuer(settings, data as Row);
 }
