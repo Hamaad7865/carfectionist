@@ -350,8 +350,8 @@ select pg_temp.splice('public', 'issue_document', 'app.next_entity_number(v_tena
 
 -- Credit note: its own company (stamped on insert from the invoice it credits).
 select pg_temp.splice('public', 'create_and_issue_credit_note', 'app.next_entity_number(v_tenant, (select legal_entity_id from public.documents where id = v_new)', array[
-  E'v_number := app.next_document_number(v_tenant, \'credit_note\');',
-  E'v_number := app.next_entity_number(v_tenant, (select legal_entity_id from public.documents where id = v_new), \'credit_note\');',
+  $s$v_number := app.next_document_number(v_tenant, 'credit_note');$s$,
+  $s$v_number := app.next_entity_number(v_tenant, (select legal_entity_id from public.documents where id = v_new), 'credit_note');$s$,
   'issued_legal_name  = v_bs.legal_name,',
   'issued_legal_name  = (select e.legal_name from public.documents d, app.entity_or_default(v_tenant, d.legal_entity_id) e where d.id = v_new),',
   'issued_brn         = v_bs.brn,',
@@ -362,8 +362,8 @@ select pg_temp.splice('public', 'create_and_issue_credit_note', 'app.next_entity
 
 -- convert_quote_to_invoice: a quote numbered at acceptance takes its own company's quote series.
 select pg_temp.splice('public', 'convert_quote_to_invoice', 'app.next_entity_number(v_tenant, v_q.legal_entity_id', array[
-  E'number     = app.next_document_number(v_tenant, \'quote\'),',
-  E'number     = app.next_entity_number(v_tenant, v_q.legal_entity_id, \'quote\'),'
+  $s$number     = app.next_document_number(v_tenant, 'quote'),$s$,
+  $s$number     = app.next_entity_number(v_tenant, v_q.legal_entity_id, 'quote'),$s$
 ]);
 
 -- The old seam cannot know the company: from now on it refuses, so a caller this migration missed
