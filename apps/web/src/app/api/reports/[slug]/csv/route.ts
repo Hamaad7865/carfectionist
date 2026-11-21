@@ -42,6 +42,11 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
         ["Month", "Output VAT (Rs)", "Input VAT (Rs)", "Net VAT payable (Rs)"],
         ...d.vatMonthly.map((mo) => [mo.label, rs(mo.outputCents), rs(mo.inputCents), rs(mo.netCents)]),
         ["Total", rs(d.vat.outputCents), rs(d.vat.inputCents), rs(d.vat.netCents)],
+        // A two-company shop: each company's invoicing and output VAT, under the months.
+        ...(d.byCompany
+          ? [[], ["Company", "Invoiced (Rs)", "Output VAT (Rs)", "VAT registered"],
+             ...d.byCompany.map((c) => [c.name, rs(c.invoicedCents), rs(c.outputVatCents), c.vatRegistered ? "Yes" : "No"])]
+          : []),
       ];
       break;
     }
