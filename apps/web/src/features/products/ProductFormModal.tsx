@@ -20,12 +20,16 @@ type PForm = {
   discountPolicy: (typeof DISCOUNT_POLICIES)[number];
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
   isStocked: boolean; threshold: string; isActive: boolean; photoPath: string;
+  legalEntityId: string;
 };
+
+/** A company the shop bills under — offered as "Sold by" only when there are several. */
+export interface SoldByOption { id: string; name: string; isDefault: boolean; vatRegistered: boolean }
 // Via grossCents in CENTS — the old rupee-float formula gave a third, different shelf price for
 // the same product (the catalogue and the invoice each had their own), off on 20 of 305 products.
 const grossPrice = (p: InventoryRow, vatDefault: number) =>
   (grossCents(Math.round(p.sellingPrice * 100), p.vatRatePct ?? vatDefault) / 100).toFixed(2);
-const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number, defaultKind?: PForm["kind"]): PForm => ({
+const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number, defaultKind?: PForm["kind"], defaultCompany = ""): PForm => ({
   name: p?.name ?? "",
   sku: p?.sku ?? "",
   description: p?.description ?? "",
@@ -44,20 +48,24 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number,
   threshold: p?.threshold != null ? String(p.threshold) : "",
   isActive: p?.isActive ?? true,
   photoPath: p?.photoPath ?? "",
+  legalEntityId: p?.legalEntityId ?? defaultCompany,
 });
 
-export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], defaultKind, tenantId }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; defaultKind?: (typeof KINDS)[number]; tenantId: string }) {
+export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], defaultKind, tenantId, companies = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; defaultKind?: (typeof KINDS)[number]; tenantId: string; companies?: SoldByOption[] }) {
+  // "Sold by" exists only for a shop that bills under more than one company.
+  const multiCompany = companies.length > 1;
+  const mainCompany = companies.find((c) => c.isDefault)?.id ?? companies[0]?.id ?? "";
   const router = useRouter();
   const editing = !!product;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [priceInclVat, setPriceInclVat] = useState((product?.priceIncludesVat ?? false) || pricesInclVat);
-  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind));
+  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind, mainCompany));
 
   // Re-seed whenever the modal opens for a (different) product.
   const [seededFor, setSeededFor] = useState<string | null | undefined>(undefined);
   if (open && seededFor !== (product?.id ?? null)) {
-    setF(seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind));
+    setF(seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind, mainCompany));
     setSeededFor(product?.id ?? null);
     setPriceInclVat((product?.priceIncludesVat ?? false) || pricesInclVat);
     setError(null);
@@ -65,6 +73,14 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
   if (!open && seededFor !== undefined) setSeededFor(undefined);
 
   const set = <K extends keyof PForm>(k: K, v: PForm[K]) => setF((s) => ({ ...s, [k]: v }));
+  // A company that is not VAT-registered sells at 0% — the product carries 0 so the shelf price,
+  // the till and the sheet all agree (the database enforces the same on save).
+  const noVatCompany = multiCompany && companies.find((c) => c.id === f.legalEntityId)?.vatRegistered === false;
+  const pickCompany = (id: string) => setF((s) => {
+    const toNoVat = companies.find((c) => c.id === id)?.vatRegistered === false;
+    const fromNoVat = companies.find((c) => c.id === s.legalEntityId)?.vatRegistered === false;
+    return { ...s, legalEntityId: id, vatRate: toNoVat ? "0" : fromNoVat ? "" : s.vatRate };
+  });
   const isService = f.kind === "service";
   // Call the thing what it is — a service is not a "product" to the person
   // typing it in, even though they share one table.
@@ -112,6 +128,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
       threshold: f.threshold,
       isActive: f.isActive,
       photoPath: f.photoPath,
+      ...(multiCompany && f.legalEntityId ? { legalEntityId: f.legalEntityId } : {}),
     });
     setBusy(false);
     if (r.ok) {
@@ -171,6 +188,18 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
             </select>
           </Field>
         </div>
+        {multiCompany && (
+          <Field
+            label="Sold by"
+            hint={companies.find((c) => c.id === f.legalEntityId)?.vatRegistered === false
+              ? "Not VAT-registered — sold at 0% VAT, on that company's own invoice"
+              : "The company whose invoice carries it"}
+          >
+            <select className={inputCls} value={f.legalEntityId} onChange={(e) => pickCompany(e.target.value)}>
+              {companies.map((c) => <option key={c.id} value={c.id}>{c.name}{c.vatRegistered ? "" : " (no VAT)"}</option>)}
+            </select>
+          </Field>
+        )}
         <Field label="Discount">
           <select className={inputCls} value={f.discountPolicy} onChange={(e) => set("discountPolicy", e.target.value as PForm["discountPolicy"])}>
             <option value="inherit">Follow the kind — a service gives nothing away</option>
@@ -182,7 +211,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
         <div className="grid grid-cols-3 gap-3">
           <Field label={priceInclVat ? "Sell price (incl. VAT)" : "Sell price (excl. VAT)"} hint="Rupees"><input className={inputCls} value={f.sellingPrice} onChange={(e) => set("sellingPrice", e.target.value)} inputMode="decimal" placeholder="0.00" /></Field>
           <Field label="Cost price" hint="Rupees"><input className={inputCls} value={f.costPrice} onChange={(e) => set("costPrice", e.target.value)} inputMode="decimal" placeholder="0.0000" /></Field>
-          <Field label="VAT rate %" hint="Blank = default"><input className={inputCls} value={f.vatRate} onChange={(e) => set("vatRate", e.target.value)} inputMode="decimal" placeholder={String(vatDefault)} /></Field>
+          <Field label="VAT rate %" hint={noVatCompany ? "No VAT — company not registered" : "Blank = default"}><input className={inputCls} value={noVatCompany ? "0" : f.vatRate} disabled={noVatCompany} onChange={(e) => set("vatRate", e.target.value)} inputMode="decimal" placeholder={String(vatDefault)} /></Field>
         </div>
         <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-body">
           <input type="checkbox" checked={priceInclVat} onChange={(e) => toggleInclVat(e.target.checked)} className="size-4 accent-[#2b8cff]" />

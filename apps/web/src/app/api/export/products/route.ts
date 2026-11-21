@@ -11,12 +11,18 @@ export async function GET() {
   if (!ctx) return new Response("Unauthorized", { status: 401 });
 
   const sb = await createClient();
-  const [prodData, ohData, locRes, bsRes] = await Promise.all([
-    fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_active").order("name")),
+  const [prodData, ohData, locRes, bsRes, coRes] = await Promise.all([
+    fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_active, legal_entity_id").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     sb.from("stock_locations").select("id, name, is_default").order("is_default", { ascending: false }),
     sb.from("business_settings").select("vat_rate, prices_vat_exclusive").limit(1),
+    sb.from("legal_entities").select("id, legal_name, is_default").eq("is_active", true).order("sort_order"),
   ]);
+  // sold_by appears only for a shop with several companies; import_products reads it back by name.
+  const companies = (coRes.data ?? []) as { id: string; legal_name: string; is_default: boolean }[];
+  const multiCompany = companies.length > 1;
+  const mainName = companies.find((c) => c.is_default)?.legal_name ?? "";
+  const soldBy = (id: string | null) => (id ? companies.find((c) => c.id === id)?.legal_name : null) ?? mainName;
 
   // A gross-quoting shop reads and writes SHELF prices everywhere — the sheet included.
   // import_products divides the same figure back to net (migration 0040), so
@@ -60,6 +66,7 @@ export async function GET() {
     { key: "vat_rate", header: "vat_rate" },
     { key: "low_stock_threshold", header: "low_stock_threshold" },
     { key: "is_active", header: "is_active" },
+    ...(multiCompany ? [{ key: "sold_by", header: "sold_by" }] : []),
   ];
   const stockCols: CsvColumn[] = locs.map((l) => ({ key: l.col, header: l.col }));
 
@@ -78,6 +85,7 @@ export async function GET() {
       low_stock_threshold: p.low_stock_threshold ?? "",
       is_active: p.is_active ? "yes" : "no",
     };
+    if (multiCompany) row.sold_by = soldBy(p.legal_entity_id ?? null);
     for (const l of locs) row[l.col] = oh[l.col] ?? 0;
     return row;
   });

@@ -177,6 +177,37 @@ export const reverseCheckoutPayment = (sb: Client, paymentGroupId: string, reaso
     p_session_id: sessionId,
   });
 
+/** An issuing company's editable fields, named as the legal_entities columns (Settings → Companies). */
+export interface LegalEntityInput {
+  id?: string | null;
+  legal_name: string;
+  trading_name?: string | null;
+  brn?: string | null;
+  vat_registered: boolean;
+  vat_number?: string | null;
+  vat_rate?: number | null;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  bank_account_name?: string | null;
+  bank_account_number?: string | null;
+  bank_name?: string | null;
+  receipt_header_text?: string | null;
+  receipt_footer_text?: string | null;
+  quote_prefix: string;
+  invoice_prefix: string;
+  credit_note_prefix: string;
+  quote_next_number?: number | null;
+  invoice_next_number?: number | null;
+  credit_note_next_number?: number | null;
+  is_active?: boolean | null;
+}
+
+/** Add or edit a non-default company (owner). The database fixes numbering and VAT status once
+ *  the company has issued anything, and refuses the default company (Business profile edits it). */
+export const saveLegalEntity = (sb: Client, input: LegalEntityInput) =>
+  callRpc<{ id: string }>(sb, "save_legal_entity", { p: input });
+
 export const convertQuoteToInvoice = (sb: Client, quoteId: string) =>
   callRpc<DocumentRow>(sb, "convert_quote_to_invoice", { p_quote_id: quoteId });
 
