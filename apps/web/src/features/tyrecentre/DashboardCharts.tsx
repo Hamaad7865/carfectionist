@@ -56,8 +56,8 @@ export function DashboardStats({ series, outstandingCents }: { series: TyreDashb
 
 const RANGES: [string, number][] = [["7D", 7], ["30D", 30], ["90D", 90]];
 
-/** Sales to date, incl. VAT, on Easy UI's interactive area chart — the dark hero card of the
- *  dashboard (the chart's own dark styles, switched on for this card by data-theme). Each range
+/** Sales to date, incl. VAT, on Easy UI's interactive area chart — a white card in light mode and the
+ *  reference's dark glass card in dark mode (the app's data-theme switch drives both). Each range
  *  is a running total from its first day, compared with the same number of days before it. */
 export function SalesAreaChart({ series }: { series: TyreDashboardSeries }) {
   const data: AreaChartData = {};
@@ -71,12 +71,11 @@ export function SalesAreaChart({ series }: { series: TyreDashboardSeries }) {
   const days = Object.fromEntries(RANGES);
   return (
     <section
-      data-theme="dark"
       aria-label="Sales"
-      className="relative overflow-hidden rounded-[22px] bg-[#0B0D10] p-5 text-neutral-100 shadow-[0_30px_60px_-32px_rgba(15,23,32,0.6)] ring-1 ring-white/[0.06] sm:p-6"
+      className="relative overflow-hidden rounded-[22px] bg-[#fff] p-5 text-neutral-900 shadow-tc-card ring-1 ring-black/[0.04] sm:p-6 dark:bg-[#0B0D10] dark:text-neutral-100 dark:shadow-[0_30px_60px_-32px_rgba(0,0,0,0.6)] dark:ring-white/[0.06]"
     >
-      {/* A faint top light, like the reference card's glass. */}
-      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-40 bg-[radial-gradient(70%_100%_at_50%_0%,rgba(255,255,255,0.07),transparent)]" />
+      {/* Dark mode only: a faint top light, like the reference card's glass. */}
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 hidden h-40 bg-[radial-gradient(70%_100%_at_50%_0%,rgba(255,255,255,0.07),transparent)] dark:block" />
       <div className="relative">
         <InteractiveAreaChart
           data={data}
