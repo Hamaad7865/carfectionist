@@ -56,14 +56,14 @@ export const ExpandableSearch: React.FC<ExpandableSearchProps> = ({
       <motion.div
         animate={{
           width: isExpanded ? expandedWidth : collapsedWidth,
-          borderColor: isExpanded ? '#C4CCD6' : '#E4E8ED',
-          backgroundColor: isExpanded ? '#FFFFFF' : '#F4F6F9',
+          borderColor: isExpanded ? 'var(--color-tc-dot)' : 'var(--color-tc-line-2)',
+          backgroundColor: isExpanded ? 'var(--color-tc-card)' : 'var(--color-tc-sub)',
         }}
         transition={motionTransitions.springSnappy}
         className="flex items-center h-9 px-3 rounded-full border shadow-xs cursor-text transition-colors max-w-full"
         onClick={handleOpen}
       >
-        <Search className="w-3.5 h-3.5 text-[#8C96A1] shrink-0 mr-2" />
+        <Search className="w-3.5 h-3.5 text-tc-faint shrink-0 mr-2" />
         <input
           ref={inputRef}
           type="text"
@@ -73,7 +73,7 @@ export const ExpandableSearch: React.FC<ExpandableSearchProps> = ({
           onBlur={() => !value && setIsExpanded(false)}
           onKeyDown={onKeyDown}
           placeholder={isExpanded ? placeholder : 'Quick search...'}
-          className="w-full bg-transparent text-xs sm:text-sm text-[#111927] placeholder-[#8C96A1] focus:outline-none"
+          className="w-full bg-transparent text-xs sm:text-sm text-tc-ink placeholder:text-tc-faint focus:outline-none"
         />
         <AnimatePresence>
           {value ? (
@@ -82,7 +82,7 @@ export const ExpandableSearch: React.FC<ExpandableSearchProps> = ({
                 e.stopPropagation();
                 handleClose();
               }}
-              className="p-0.5 rounded text-[#8C96A1] hover:text-[#111927] transition-colors cursor-pointer"
+              className="p-0.5 rounded text-tc-faint hover:text-tc-ink transition-colors cursor-pointer"
               aria-label="Clear search"
             >
               <X className="w-3.5 h-3.5" />
@@ -92,7 +92,7 @@ export const ExpandableSearch: React.FC<ExpandableSearchProps> = ({
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-white border border-[#E4E8ED] text-[10px] text-[#8C96A1] font-mono shrink-0 select-none"
+              className="hidden sm:flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-tc-card border border-tc-line-2 text-[10px] text-tc-faint font-mono shrink-0 select-none"
             >
               <Command className="w-2.5 h-2.5" />
               <span>{shortcut}</span>

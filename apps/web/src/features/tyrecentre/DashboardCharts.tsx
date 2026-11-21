@@ -17,7 +17,7 @@ const fmtCount = (n: number) => String(Math.round(n));
 
 const METHOD: Record<string, { label: string; color: string }> = {
   cash: { label: "Cash", color: "#0DA77C" },
-  card: { label: "Card", color: "#0F1720" },
+  card: { label: "Card", color: "var(--color-tc-ink)" },
   juice: { label: "Juice", color: "#2B8CFF" },
   bank_transfer: { label: "Bank transfer", color: "#F5A623" },
   cheque: { label: "Cheque", color: "#9AA3AD" },
@@ -37,7 +37,7 @@ export function DashboardStats({ series, outstandingCents }: { series: TyreDashb
   return (
     <div data-tour="stats">
       <StatGrid className="!gap-3.5">
-      <StatCard label="Sales · last 30 days" {...sales} trendLabels={labels} period="vs the 30 days before" format={fmtWhole} color="#0F1720" className="!rounded-[22px]" />
+      <StatCard label="Sales · last 30 days" {...sales} trendLabels={labels} period="vs the 30 days before" format={fmtWhole} color="var(--color-tc-ink)" className="!rounded-[22px]" />
       <StatCard label="Collected · last 30 days" {...collected} trendLabels={labels} period="vs the 30 days before" format={fmtWhole} color="#0DA77C" className="!rounded-[22px]" />
       <StatCard label="Invoices · last 30 days" {...invoices} trendLabels={labels} period="vs the 30 days before" format={fmtCount} color="#2B8CFF" className="!rounded-[22px]" />
       <StatCard
@@ -72,7 +72,7 @@ export function SalesAreaChart({ series }: { series: TyreDashboardSeries }) {
   return (
     <section
       aria-label="Sales"
-      className="relative overflow-hidden rounded-[22px] bg-[#fff] p-5 text-neutral-900 shadow-tc-card ring-1 ring-black/[0.04] sm:p-6 dark:bg-[#0B0D10] dark:text-neutral-100 dark:shadow-[0_30px_60px_-32px_rgba(0,0,0,0.6)] dark:ring-white/[0.06]"
+      className="relative overflow-hidden rounded-[22px] bg-[#fff] p-5 text-neutral-900 shadow-tc-card ring-1 ring-black/[0.04] sm:p-6 dark:bg-[#111418] dark:text-neutral-100 dark:shadow-[0_30px_60px_-32px_rgba(0,0,0,0.6)] dark:ring-white/[0.06]"
     >
       {/* Dark mode only: a faint top light, like the reference card's glass. */}
       <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 hidden h-40 bg-[radial-gradient(70%_100%_at_50%_0%,rgba(255,255,255,0.07),transparent)] dark:block" />

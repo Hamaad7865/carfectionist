@@ -35,7 +35,7 @@ import { Kbd } from "@/components/ui/kbd";
 import { signOut } from "@/lib/auth/actions";
 import { ROLE_LABEL, type Role } from "@/lib/auth/roles";
 import { isActiveHref, type BadgeKind, type TcNav, type TcNavLink } from "@/lib/tyrecentre/nav";
-import { entityColours } from "@/lib/tyrecentre/entity-colours";
+import { ENTITY, entityColours, entityVars } from "@/lib/tyrecentre/entity-colours";
 import type { ShellStatus } from "@/features/tyrecentre/shell-actions";
 import { TyreMark } from "./TyreMark";
 
@@ -207,7 +207,7 @@ export function TyreSidebar({
                       <>
                         <span className="!size-4 shrink-0 rounded-[4px]" style={{ background: col.accent }} />
                         <span className="truncate">{c.name}</span>
-                        <span className="ml-auto font-mono text-[10.5px] font-semibold tracking-[0.06em]" style={{ color: col.ink }}>
+                        <span className={`ml-auto font-mono text-[10.5px] font-semibold tracking-[0.06em] ${ENTITY.ink}`} style={entityVars(i)}>
                           {c.vatRegistered ? "VAT" : "NO VAT"}
                         </span>
                       </>

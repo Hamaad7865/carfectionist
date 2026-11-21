@@ -1,6 +1,6 @@
 /** Black pill primary action (spec §4) — pair with <ArrowKnob/>. Web 52px, tablet 64px. */
 export function knobPill(height: 52 | 64 = 52): string {
-  return `relative inline-flex w-full items-center justify-center gap-2 rounded-full bg-tc-primary font-bold text-white transition-opacity hover:opacity-95 disabled:opacity-45 ${
+  return `relative inline-flex w-full items-center justify-center gap-2 rounded-full bg-tc-primary font-bold text-tc-on-primary transition-opacity hover:opacity-95 disabled:opacity-45 ${
     height === 64 ? "h-16 text-[17px]" : "h-[52px] text-[15px]"
   }`;
 }

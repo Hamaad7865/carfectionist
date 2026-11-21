@@ -23,6 +23,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { useLiveNotifications } from "@/components/shell/Topbar";
 import { breadcrumbTrail, NEW_SALE_HREF, type TcNav } from "@/lib/tyrecentre/nav";
 import { SEARCH_GROUP, SEARCH_ICON, useSearchHits } from "./TyreCommandSearch";
+import { TyreThemeMenu } from "./TyreThemeMenu";
 
 /** Inline search in the bar: Easy UI's expandable pill, with live results under it. */
 function BarSearch({ inputRef }: { inputRef: React.RefObject<HTMLInputElement | null> }) {
@@ -78,7 +79,7 @@ function BarSearch({ inputRef }: { inputRef: React.RefObject<HTMLInputElement | 
         <div
           role="listbox"
           aria-label="Search results"
-          className="absolute right-0 top-11 z-50 w-[360px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-tc-line bg-white p-1.5 shadow-[0_16px_40px_rgba(15,23,32,0.12)]"
+          className="absolute right-0 top-11 z-50 w-[360px] max-w-[calc(100vw-24px)] overflow-hidden rounded-2xl border border-tc-line bg-tc-card p-1.5 shadow-[0_16px_40px_rgba(15,23,32,0.12)]"
         >
           {hits.length === 0 ? (
             <p className="px-3 py-6 text-center text-[13px] text-tc-faint">{loading ? "Searching…" : `Nothing matches “${q.trim()}”.`}</p>
@@ -165,16 +166,16 @@ export function TyreTopbar({
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-tc-line bg-tc-app/85 px-3 backdrop-blur-md sm:px-5">
-      <SidebarTrigger className="size-9 rounded-full text-tc-body hover:bg-white" />
-      <Separator orientation="vertical" className="mx-1 !h-5 bg-tc-line" />
+      <SidebarTrigger className="size-8 rounded-full text-tc-body hover:bg-tc-card sm:size-9" />
+      <Separator orientation="vertical" className="mx-0.5 !h-5 bg-tc-line sm:mx-1" />
       <Breadcrumb items={trail} as={Link} separator="chevron" className="hidden min-w-0 text-[13px] sm:block" />
       <span className="truncate text-[14px] font-semibold text-tc-ink sm:hidden">{trail.at(-1)?.label}</span>
 
-      <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
+      <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
         <div className="hidden md:block">
           <BarSearch inputRef={searchRef} />
         </div>
-        <button type="button" onClick={onOpenSearch} aria-label="Search" className="grid size-9 place-items-center rounded-full text-tc-body hover:bg-white md:hidden">
+        <button type="button" onClick={onOpenSearch} aria-label="Search" className="grid size-8 place-items-center rounded-full text-tc-body hover:bg-tc-card md:hidden">
           <Search className="size-[18px]" />
         </button>
 
@@ -192,15 +193,17 @@ export function TyreTopbar({
             }))}
             onMarkAsRead={(id) => void dismiss(id)}
             onMarkAllAsRead={() => void dismissAll()}
-            className="[&>button]:rounded-full [&>button]:p-2"
+            className="[&>button]:rounded-full [&>button]:p-1.5 sm:[&>button]:p-2"
           />
         </span>
+
+        <TyreThemeMenu />
 
         <DropdownMenu>
           <DropdownMenuTrigger
             data-tour="help"
             aria-label="Help"
-            className="grid size-9 place-items-center rounded-full border border-[#E4E8ED] bg-white text-tc-body hover:border-[#C4CCD6] hover:text-tc-ink"
+            className="grid size-8 place-items-center rounded-full border border-tc-line-2 bg-tc-card text-tc-body hover:border-tc-dot hover:text-tc-ink sm:size-9"
           >
             <CircleHelp className="size-[18px]" />
           </DropdownMenuTrigger>
@@ -229,7 +232,7 @@ export function TyreTopbar({
           <Link
             href={NEW_SALE_HREF}
             data-tour="new-sale"
-            className="inline-flex h-9 items-center gap-1.5 whitespace-nowrap rounded-full bg-tc-primary px-3.5 text-[13px] font-semibold text-white hover:opacity-95"
+            className="inline-flex size-8 items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-tc-primary text-[13px] font-semibold text-tc-on-primary hover:opacity-95 sm:h-9 sm:w-auto sm:px-3.5"
           >
             <Plus className="size-4" strokeWidth={2.4} />
             <span className="hidden sm:inline">New sale</span>

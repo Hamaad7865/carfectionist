@@ -22,8 +22,8 @@ function ItemIcon({ name, service, part }: { name: string; service: boolean; par
 /** Tyre glyph: a 52px dark ring around a light hub (spec §6.3). */
 function TyreDisc() {
   return (
-    <span className="grid size-[52px] shrink-0 place-items-center rounded-full border-[9px] border-tc-primary bg-white" aria-hidden>
-      <span className="size-3.5 rounded-full bg-[#9AA3AD]" />
+    <span className="grid size-[52px] shrink-0 place-items-center rounded-full border-[9px] border-[#0f1720] bg-tc-card dark:border-black dark:ring-1 dark:ring-white/15" aria-hidden>
+      <span className="size-3.5 rounded-full bg-tc-fainter" />
     </span>
   );
 }
@@ -66,8 +66,8 @@ export function ProductTile({
       onClick={onAdd}
       title={unpriced && !canPrice ? "This item has no price — a manager has to set one before it can be sold." : undefined}
       aria-label={`${p.name}${inCart ? `, ${qty} in the sale` : ""}`}
-      className={`relative flex min-h-[118px] flex-col rounded-[20px] bg-white p-3.5 text-left shadow-tc-card transition-[box-shadow,transform] hover:-translate-y-px disabled:opacity-50 disabled:hover:translate-y-0 ${
-        inCart ? "ring-2 ring-tc-primary" : "ring-1 ring-transparent hover:ring-[rgba(15,23,32,0.12)]"
+      className={`relative flex min-h-[118px] flex-col rounded-[20px] bg-tc-card p-3.5 text-left shadow-tc-card transition-[box-shadow,transform] hover:-translate-y-px disabled:opacity-50 disabled:hover:translate-y-0 ${
+        inCart ? "ring-2 ring-tc-primary" : "ring-1 ring-transparent hover:ring-tc-line-2"
       }`}
     >
       <span className="flex items-start gap-3">
@@ -78,7 +78,7 @@ export function ProductTile({
           <img src={p.photoUrl} alt="" className="size-[52px] shrink-0 rounded-[14px] object-cover" />
         ) : (
           <span
-            className={`grid size-[52px] shrink-0 place-items-center rounded-[14px] ${isService ? "bg-[#E6F1FF] text-[#1E6FE0]" : "bg-[#FFF2DB] text-[#C98200]"}`}
+            className={`grid size-[52px] shrink-0 place-items-center rounded-[14px] ${isService ? "bg-tc-blue-soft text-tc-blue-ink" : "bg-tc-amber-soft text-tc-amber-icon"}`}
             aria-hidden
           >
             <ItemIcon name={p.name} service={isService} part={item.category === "parts"} />
@@ -101,11 +101,11 @@ export function ProductTile({
         {p.isStocked ? (
           <StockLine qty={p.shopQty} unit="in shop" />
         ) : !vatRegistered ? (
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-[#1E6FE0]">No VAT</span>
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-tc-blue-ink">No VAT</span>
         ) : null}
       </span>
       {inCart && (
-        <span className="absolute right-3 top-3 grid h-6 min-w-6 place-items-center rounded-full bg-tc-primary px-1.5 text-[11.5px] font-bold text-white">
+        <span className="absolute right-3 top-3 grid h-6 min-w-6 place-items-center rounded-full bg-tc-primary px-1.5 text-[11.5px] font-bold text-tc-on-primary">
           ×{qty % 1 === 0 ? qty : qty.toFixed(1)}
         </span>
       )}

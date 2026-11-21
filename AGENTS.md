@@ -86,5 +86,8 @@ Easy UI pieces (easyui.site, MIT — `npx shadcn add Surajmaurya1/easyui/<name>`
 restyled light: stat-card, interactive-area-chart, donut-chart, notification-bell,
 expandable-search, product-tour, breadcrumb (the tyre-centre top bar and dashboard).
 Carfectionist must stay pixel-identical — never add unscoped tokens or base rules for them.
+Tyre-centre dark mode follows the computer until a choice is saved (`THEME_INIT_SCRIPT_SYSTEM`,
+top-bar `TyreThemeMenu`); its palette is the `[data-brand="tyrecentre"][data-theme="dark"]` block —
+use `tc-*` tokens (and `entityVars`/`ENTITY` for company colours), not hex, so screens flip.
 
 Note: `apps/web/AGENTS.md` holds a generic Next.js-version warning; this file is the repo source of truth.

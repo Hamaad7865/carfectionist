@@ -28,7 +28,7 @@ import { knobPill } from "@/components/tyrecentre/tc";
 import { TyreGlyph } from "@/components/tyrecentre/TyreMark";
 import { initials } from "@/components/tyrecentre/TyreSidebar";
 import { computeLineTotals, formatAmount, formatMUR, parseMoneyInput, type Allowance, type DocumentTotals } from "@/lib/money";
-import { entityColours } from "@/lib/tyrecentre/entity-colours";
+import { ENTITY, entityVars } from "@/lib/tyrecentre/entity-colours";
 import type { PosRules } from "@/lib/supabase/queries/builder";
 import type { SaleCompany, SaleVehicle } from "@/lib/supabase/queries/tyrecentre-sale";
 import { lineDiscountLimits, settleMessage, type CartLine, type DiscountKind, type PendingSettle } from "@/features/counter/settle";
@@ -105,7 +105,7 @@ function LineRow({
         </span>
       </button>
       {open && (
-        <div className="mb-1.5 mt-1 flex flex-wrap items-center gap-2 rounded-[12px] bg-white/80 p-2">
+        <div className="mb-1.5 mt-1 flex flex-wrap items-center gap-2 rounded-[12px] bg-tc-card/80 p-2">
           <div className="flex items-center gap-1">
             <button type="button" aria-label="One less" disabled={frozen} onClick={() => onQty(line.qty - 1)} className="grid size-8 place-items-center rounded-full bg-tc-sub text-tc-body disabled:opacity-50">
               <Minus className="size-3.5" />
@@ -198,13 +198,16 @@ export function CartPanel(props: CartPanelProps) {
   const [discountOpen, setDiscountOpen] = useState(false);
   const company = companies[0] ?? { name: "", vatRegistered: true, vatRate: 15 };
   const bills = lines.length > 0 ? 1 : 0;
-  const col = entityColours(0);
+  const col = entityVars(0);
   const tenderCents = parseMoneyInput(props.tender);
   const changeCents = method === "cash" && tenderCents != null ? tenderCents - totals.totalCents : null;
   const splitSum = props.split.reduce((s, r) => s + (parseMoneyInput(r.amount) ?? 0), 0);
   const splitLeft = totals.totalCents - splitSum;
   const setRow = (i: number, patch: Partial<SplitRow>) => props.onSplit(props.split.map((r, j) => (j === i ? { ...r, ...patch } : r)));
   const discounted = totals.discountCents > 0;
+  // What the bill actually charges decides its VAT lines — a product can carry VAT even where the
+  // company has no VAT number on file, and hiding them would make the total look wrong.
+  const showVat = company.vatRegistered || totals.vatCents > 0;
 
   return (
     <aside className="flex min-h-0 flex-col overflow-hidden rounded-[26px] bg-white shadow-tc-cart xl:h-full" aria-label="Sale">
@@ -224,7 +227,7 @@ export function CartPanel(props: CartPanelProps) {
           onClick={props.onEditCustomer}
           disabled={frozen}
           aria-label="Change customer or car"
-          className="grid size-10 shrink-0 place-items-center rounded-full border border-[rgba(15,23,32,0.12)] text-tc-body hover:bg-tc-sub disabled:opacity-50"
+          className="grid size-10 shrink-0 place-items-center rounded-full border border-tc-line-2 text-tc-body hover:bg-tc-sub disabled:opacity-50"
         >
           <Pencil className="size-4" />
         </button>
@@ -237,15 +240,15 @@ export function CartPanel(props: CartPanelProps) {
             Tap a tile to start the sale.
           </div>
         ) : (
-          <section className="rounded-[18px] border p-3.5" style={{ background: col.tint, borderColor: col.border }} aria-label={`Bill — ${company.name}`}>
+          <section className={`rounded-[18px] border p-3.5 ${ENTITY.tint} ${ENTITY.border}`} style={col} aria-label={`Bill — ${company.name}`}>
             <header className="flex items-center gap-2.5">
-              <span className="grid size-8 place-items-center rounded-[9px]" style={{ background: col.soft, color: col.icon }}>
+              <span className={`grid size-8 place-items-center rounded-[9px] ${ENTITY.soft} ${ENTITY.icon}`}>
                 <TyreGlyph size={17} />
               </span>
               <div className="min-w-0">
                 <div className="truncate text-[13.5px] font-bold text-tc-ink">{company.name}</div>
-                <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em]" style={{ color: col.ink }}>
-                  Invoice 1 of {bills} · {company.vatRegistered ? `VAT ${company.vatRate}%` : "Not VAT-registered"}
+                <div className={`font-mono text-[10px] font-semibold uppercase tracking-[0.08em] ${ENTITY.ink}`}>
+                  Invoice 1 of {bills} · {showVat ? `VAT ${company.vatRate}%` : "Not VAT-registered"}
                 </div>
               </div>
             </header>
@@ -264,14 +267,14 @@ export function CartPanel(props: CartPanelProps) {
                 />
               ))}
             </ul>
-            <div className="mt-2 border-t border-dashed pt-2 text-[12.5px]" style={{ borderColor: col.dash }}>
+            <div className={`mt-2 border-t border-dashed pt-2 text-[12.5px] ${ENTITY.dash}`}>
               {discounted && (
                 <div className="flex justify-between py-0.5 text-tc-warning">
                   <span>Discount</span>
                   <span className="font-mono tabular-nums">−{formatAmount(totals.discountCents)}</span>
                 </div>
               )}
-              {company.vatRegistered && (
+              {showVat && (
                 <>
                   <div className="flex justify-between py-0.5 text-tc-muted">
                     <span>Subtotal excl. VAT</span>
@@ -380,7 +383,7 @@ export function CartPanel(props: CartPanelProps) {
           <DropdownMenu>
             <DropdownMenuTrigger
               disabled={frozen}
-              className={`inline-flex h-11 shrink-0 items-center gap-1 rounded-[14px] px-3 text-[13px] ${MORE.includes(method) ? "bg-tc-primary font-semibold text-white" : "bg-tc-sub text-tc-muted"}`}
+              className={`inline-flex h-11 shrink-0 items-center gap-1 rounded-[14px] px-3 text-[13px] ${MORE.includes(method) ? "bg-tc-primary font-semibold text-tc-on-primary" : "bg-tc-sub text-tc-muted"}`}
             >
               {MORE.includes(method) ? METHOD_LABEL[method] : "More"} <ChevronDown className="size-3.5" />
             </DropdownMenuTrigger>
@@ -419,7 +422,7 @@ export function CartPanel(props: CartPanelProps) {
           />
         )}
         {method === "credit" && (
-          <p className="mt-2 rounded-[12px] bg-[#FFF2DB] px-3 py-2 text-[12px] text-[#9A6200]">
+          <p className="mt-2 rounded-[12px] bg-tc-amber-soft px-3 py-2 text-[12px] text-tc-amber-ink">
             Nothing collected now — <b>{formatMUR(totals.totalCents)}</b> goes on this customer&apos;s account.
           </p>
         )}
@@ -494,9 +497,9 @@ export function CartPanel(props: CartPanelProps) {
         {props.blockReason && <p className="mt-2 text-[12px] font-semibold text-tc-danger-ink">{props.blockReason}</p>}
         {props.error && <p className="mt-2 rounded-[12px] bg-tc-danger-soft px-3 py-2 text-[12.5px] text-tc-danger-ink">{props.error}</p>}
         {pending && (
-          <div className="mt-2 rounded-[12px] bg-[#FFF2DB] px-3 py-2.5">
-            <p className="text-[12.5px] font-semibold text-[#9A6200]">{settleMessage(pending)}</p>
-            <button type="button" onClick={props.onAbandon} className="mt-2 h-8 rounded-full border border-[#F7E2B8] bg-white px-3 text-[12px] font-bold text-[#9A6200]">
+          <div className="mt-2 rounded-[12px] bg-tc-amber-soft px-3 py-2.5">
+            <p className="text-[12.5px] font-semibold text-tc-amber-ink">{settleMessage(pending)}</p>
+            <button type="button" onClick={props.onAbandon} className="mt-2 h-8 rounded-full border border-tc-amber-border bg-tc-card px-3 text-[12px] font-bold text-tc-amber-ink">
               Abandon sale
             </button>
           </div>
@@ -523,7 +526,7 @@ export function CartPanel(props: CartPanelProps) {
           {!props.busy && <ArrowKnob />}
         </button>
 
-        <div className="mt-2.5 flex items-center justify-center gap-5 text-[13px] text-tc-muted">
+        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-[13px] text-tc-muted">
           <button type="button" onClick={props.onSaveJob} disabled={frozen || lines.length === 0 || !!props.keeping} className="hover:text-tc-ink disabled:opacity-40">
             {props.keeping === "job" ? "Saving…" : "Save as job"}
           </button>

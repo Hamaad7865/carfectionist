@@ -26,7 +26,7 @@ export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () =
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
   };
   return (
-    <aside className="flex min-h-0 flex-col rounded-[26px] bg-white p-6 shadow-tc-cart xl:h-full" aria-label="Paid">
+    <aside className="flex min-h-0 flex-col rounded-[26px] bg-tc-card p-6 shadow-tc-cart xl:h-full" aria-label="Paid">
       <span className="grid size-16 place-items-center rounded-full bg-tc-highlight text-tc-primary">
         <Check className="size-7" strokeWidth={2.4} />
       </span>
@@ -37,7 +37,7 @@ export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () =
       <div className="text-[13px] text-tc-muted">{sale.customerName}</div>
 
       {sale.changeCents > 0 && (
-        <div className="mt-5 rounded-[20px] bg-tc-primary p-5">
+        <div className="mt-5 rounded-[20px] bg-[#0f1720] p-5 dark:ring-1 dark:ring-white/10">
           <div className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-white/60">Give change</div>
           <div className="mt-1 font-display text-[44px] font-semibold leading-none tracking-[-1.5px] text-tc-highlight">{formatMUR(sale.changeCents)}</div>
           {sale.tenderedCents != null && <div className="mt-2 text-[13px] text-white/70">Tendered {formatMUR(sale.tenderedCents)}</div>}

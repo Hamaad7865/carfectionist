@@ -13,7 +13,7 @@ export function TyreGlyph({ size = 18, className }: { size?: number; className?:
 export function TyreMark({ size = 32, radius = 8 }: { size?: number; radius?: number }) {
   return (
     <span
-      className="grid shrink-0 place-items-center bg-[#0f1720] text-white"
+      className="grid shrink-0 place-items-center bg-tc-primary text-tc-on-primary"
       style={{ width: size, height: size, borderRadius: radius }}
     >
       <TyreGlyph size={Math.round(size * 0.56)} />

@@ -482,6 +482,7 @@
   --color-tc-fainter: #9aa3ad;
   --color-tc-dot: #c4ccd6;
   --color-tc-primary: #0f1720;
+  --color-tc-on-primary: #ffffff;
   --color-tc-highlight: #ddf57a;
   --color-tc-on-highlight: #3f4a00;
   --color-tc-success: #0da77c;
@@ -489,6 +490,15 @@
   --color-tc-danger: #d63b50;
   --color-tc-danger-soft: #fdecee;
   --color-tc-danger-ink: #b42339;
+  /* hairline borders on cards and pills */
+  --color-tc-line-2: rgba(15, 23, 32, 0.12);
+  /* part / service icon squares and the amber notes */
+  --color-tc-amber-soft: #fff2db;
+  --color-tc-amber-border: #f7e2b8;
+  --color-tc-amber-ink: #9a6200;
+  --color-tc-amber-icon: #c98200;
+  --color-tc-blue-soft: #e6f1ff;
+  --color-tc-blue-ink: #1e6fe0;
 
   --shadow-tc-card: 0 1px 2px rgba(15, 23, 32, 0.04), 0 10px 30px rgba(15, 23, 32, 0.05);
   --shadow-tc-cart: 0 16px 40px rgba(15, 23, 32, 0.08);
@@ -581,8 +591,8 @@
   --color-fainter: #9aa3ad;
 }
 [data-brand="tyrecentre"] body {
-  background: #e8ecf1;
-  color: #2a3747;
+  background: var(--color-tc-app);
+  color: var(--color-tc-body);
 }
 /* The shared screens' one primary action (btn("primary")) takes the brand's black pill colour. */
 [data-brand="tyrecentre"] .grad-brand {
@@ -590,6 +600,91 @@
 }
 [data-brand="tyrecentre"] .shadow-brand {
   box-shadow: none;
+}
+
+/* ── Tyre Centre — dark ─────────────────────────────────────────────────────
+   Follows the computer until someone picks (TyreThemeMenu, lib/theme.ts). Every tc-*,
+   shadcn/HextaUI and shared token flips here; the utilities read them as variables.
+   Same specificity as Carfectionist's :root[data-theme="dark"] and later, so it wins. */
+[data-brand="tyrecentre"][data-theme="dark"] {
+  color-scheme: dark;
+  --color-tc-app: #0a0c0f;
+  --color-tc-sidebar: #0f1216;
+  --color-tc-sidebar-border: rgba(255, 255, 255, 0.07);
+  --color-tc-sidebar-active: #1b2027;
+  --color-tc-card: #13171c;
+  --color-tc-sub: #1b2027;
+  --color-tc-track: #262c35;
+  --color-tc-line: rgba(255, 255, 255, 0.07);
+  --color-tc-line-2: rgba(255, 255, 255, 0.12);
+  --color-tc-ink: #f3f5f8;
+  --color-tc-body: #c9d1da;
+  --color-tc-muted: #8d97a3;
+  --color-tc-faint: #737e8a;
+  --color-tc-fainter: #5e6874;
+  --color-tc-dot: #3a424d;
+  --color-tc-primary: #f3f5f8;
+  --color-tc-on-primary: #0f1720;
+  --color-tc-success: #2cc794;
+  --color-tc-warning: #e3b453;
+  --color-tc-danger: #f0687b;
+  --color-tc-danger-soft: rgba(240, 104, 123, 0.14);
+  --color-tc-danger-ink: #f59aa7;
+  --color-tc-amber-soft: rgba(245, 166, 35, 0.14);
+  --color-tc-amber-border: rgba(245, 166, 35, 0.3);
+  --color-tc-amber-ink: #f5c063;
+  --color-tc-amber-icon: #f5b544;
+  --color-tc-blue-soft: rgba(43, 140, 255, 0.16);
+  --color-tc-blue-ink: #79b8ff;
+  --shadow-tc-card: 0 1px 2px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.25);
+  --shadow-tc-cart: 0 16px 40px rgba(0, 0, 0, 0.4);
+
+  --background: #0a0c0f;
+  --foreground: #f3f5f8;
+  --card-foreground: #f3f5f8;
+  --popover: #13171c;
+  --popover-foreground: #f3f5f8;
+  --primary: #f3f5f8;
+  --primary-foreground: #0f1720;
+  --secondary: #1b2027;
+  --secondary-foreground: #f3f5f8;
+  --muted-foreground: #8d97a3;
+  --accent: #1b2027;
+  --accent-foreground: #f3f5f8;
+  --destructive: #f0687b;
+  --border: rgba(255, 255, 255, 0.08);
+  --input: rgba(255, 255, 255, 0.12);
+  --ring: #f3f5f8;
+  --success: #2cc794;
+  --warning: #e3b453;
+  --info: #5ea8ff;
+  --sidebar: #0f1216;
+  --sidebar-foreground: #c9d1da;
+  --sidebar-primary: #f3f5f8;
+  --sidebar-primary-foreground: #0f1720;
+  --sidebar-accent: #1b2027;
+  --sidebar-accent-foreground: #f3f5f8;
+  --sidebar-border: rgba(255, 255, 255, 0.07);
+  --sidebar-ring: #f3f5f8;
+
+  /* the shared back-office screens on the same dark surfaces */
+  --color-app: #0a0c0f;
+  --color-card: #13171c;
+  --color-sub: #1b2027;
+  --color-band: #262c35;
+  --color-line: rgba(255, 255, 255, 0.07);
+  --color-line-2: rgba(255, 255, 255, 0.12);
+  --color-ink: #f3f5f8;
+  --color-ink-strong: #f3f5f8;
+  --color-body: #c9d1da;
+  --color-muted: #8d97a3;
+  --color-faint: #737e8a;
+  --color-fainter: #5e6874;
+}
+/* On dark the primary pill is light, so the shared screens' primary turns light with dark text. */
+[data-brand="tyrecentre"][data-theme="dark"] .grad-brand {
+  background: #f3f5f8;
+  color: #0f1720;
 }
 @layer base {
   /* shadcn's own base rule, scoped: a bare `border` takes the token, not currentColor. */

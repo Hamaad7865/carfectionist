@@ -19,6 +19,42 @@ export function parseTheme(value: string | null | undefined): Theme {
  *  sees a white flash. Must stay dependency-free: it is shipped as a string. */
 export const THEME_INIT_SCRIPT = `try{if(localStorage.getItem(${JSON.stringify(THEME_KEY)})==="dark")document.documentElement.dataset.theme="dark"}catch(e){}`;
 
+/** The tyre-centre brand's startup script: an explicit choice wins, and with none the
+ *  computer's own light/dark setting decides. Dependency-free, shipped as a string. */
+export const THEME_INIT_SCRIPT_SYSTEM = `try{var t=localStorage.getItem(${JSON.stringify(THEME_KEY)});if(t==="dark"||(t!=="light"&&matchMedia("(prefers-color-scheme: dark)").matches))document.documentElement.dataset.theme="dark"}catch(e){}`;
+
+/** What the user picked: a theme, or "system" (no saved choice — follow the computer). */
+export type ThemeChoice = Theme | "system";
+
+export function savedChoice(): ThemeChoice {
+  try {
+    const v = localStorage.getItem(THEME_KEY);
+    return v === "dark" || v === "light" ? v : "system";
+  } catch {
+    return "system";
+  }
+}
+
+/** The theme a choice comes to, given the computer's setting. */
+export function resolveTheme(choice: ThemeChoice, prefersDark: boolean): Theme {
+  return choice === "system" ? (prefersDark ? "dark" : "light") : choice;
+}
+
+const prefersDark = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-color-scheme: dark)").matches === true;
+
+/** Tyre centre: apply a choice ("system" forgets the saved one and follows the computer). */
+export function applyThemeChoice(choice: ThemeChoice): void {
+  try {
+    if (choice === "system") localStorage.removeItem(THEME_KEY);
+    else localStorage.setItem(THEME_KEY, choice);
+  } catch {
+    /* storage blocked — the theme still applies for this visit */
+  }
+  if (resolveTheme(choice, prefersDark()) === "dark") document.documentElement.dataset.theme = "dark";
+  else delete document.documentElement.dataset.theme;
+  window.dispatchEvent(new Event(THEME_EVENT));
+}
+
 export function currentTheme(): Theme {
   return parseTheme(document.documentElement.dataset.theme);
 }
@@ -34,15 +70,17 @@ export function applyTheme(theme: Theme): void {
   window.dispatchEvent(new Event(THEME_EVENT));
 }
 
-/** Same as THEME_INIT_SCRIPT, for a client-side entry into the back office. */
-export function restoreSavedTheme(): void {
+/** Same as THEME_INIT_SCRIPT, for a client-side entry into the back office. With
+ *  `followSystem` (tyre centre) no saved choice means the computer's setting. */
+export function restoreSavedTheme(followSystem = false): void {
   let saved: string | null = null;
   try {
     saved = localStorage.getItem(THEME_KEY);
   } catch {
     /* storage blocked — light */
   }
-  if (parseTheme(saved) === "dark") document.documentElement.dataset.theme = "dark";
+  const dark = followSystem ? resolveTheme(saved === "dark" || saved === "light" ? saved : "system", prefersDark()) === "dark" : parseTheme(saved) === "dark";
+  if (dark) document.documentElement.dataset.theme = "dark";
   window.dispatchEvent(new Event(THEME_EVENT));
 }
 

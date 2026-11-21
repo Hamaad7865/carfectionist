@@ -36,7 +36,7 @@ export function Segmented<V extends string>({
   const box =
     tone === "card"
       ? "rounded-full bg-white p-1 shadow-tc-card [&>[data-slot=toggle-group-indicator]]:bg-tc-sub"
-      : "rounded-[14px] bg-tc-sub p-1 [&>[data-slot=toggle-group-indicator]]:bg-white [&>[data-slot=toggle-group-indicator]]:shadow-[0_1px_2px_rgba(15,23,32,.08)]";
+      : "rounded-[14px] bg-tc-sub p-1 [&>[data-slot=toggle-group-indicator]]:bg-tc-card [&>[data-slot=toggle-group-indicator]]:shadow-[0_1px_2px_rgba(15,23,32,.08)]";
   const item =
     tone === "card"
       ? "h-8 rounded-full px-3.5 text-[13px] font-medium text-tc-muted data-pressed:font-semibold data-pressed:text-tc-ink"

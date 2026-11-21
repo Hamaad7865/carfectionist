@@ -418,7 +418,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
                   setShown(PAGE);
                 }}
                 className="!bg-transparent !p-0 !shadow-none flex-wrap gap-2"
-                itemClassName="h-10 gap-2 bg-white px-4 shadow-tc-card data-pressed:!bg-tc-primary data-pressed:text-white"
+                itemClassName="h-10 gap-2 bg-white px-4 shadow-tc-card data-pressed:!bg-tc-primary data-pressed:text-tc-on-primary"
                 options={CHIPS.map((c) => ({
                   value: c.value,
                   label: (
@@ -508,7 +508,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
                             if (added === 0) toast.message("Nothing on that bill is still in the catalogue.");
                             else setBasket(next);
                           }}
-                          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-[rgba(15,23,32,0.14)] px-3 text-[12.5px] font-semibold text-tc-ink hover:bg-tc-sub disabled:opacity-40"
+                          className="inline-flex h-8 items-center gap-1.5 rounded-full border border-tc-line-2 px-3 text-[12.5px] font-semibold text-tc-ink hover:bg-tc-sub disabled:opacity-40"
                         >
                           <RotateCcw className="size-3.5" /> Add again
                         </button>
@@ -621,7 +621,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
         <DialogContent className="rounded-[22px] sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2.5 text-[16px]">
-              <span className="grid size-9 place-items-center rounded-full bg-[#FFF2DB] text-tc-warning">
+              <span className="grid size-9 place-items-center rounded-full bg-tc-amber-soft text-tc-warning">
                 <AlertTriangle className="size-[18px]" />
               </span>
               Shop stock will go below zero
@@ -651,7 +651,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
                 setConfirmNeg(null);
                 void charge(true);
               }}
-              className="h-11 flex-1 rounded-full bg-tc-primary text-[14px] font-semibold text-white"
+              className="h-11 flex-1 rounded-full bg-tc-primary text-[14px] font-semibold text-tc-on-primary"
             >
               Continue anyway
             </button>
