@@ -267,6 +267,25 @@ export default async function ReportsPage({
               </div>
               <p className="mt-4 text-[13.5px] font-medium text-muted">Output VAT (15% on issued invoices) minus input VAT (recorded on expenses) gives the net VAT payable to the MRA for the period.</p>
 
+              {/* ── By company — a two-company shop only (the VAT company files the return) ── */}
+              {data.byCompany && (
+                <div className="mt-4 overflow-hidden rounded-[15px] border border-line bg-card">
+                  <div className="grid grid-cols-[1fr_130px_130px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                    <span>Company</span><span className="text-right">Invoiced</span><span className="text-right">Output VAT</span>
+                  </div>
+                  {data.byCompany.map((c) => (
+                    <div key={c.name} className="grid grid-cols-[1fr_130px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium last:border-b-0">
+                      <span className="font-semibold text-body">
+                        {c.name}
+                        {!c.vatRegistered && <span className="ml-2 rounded-[5px] bg-shade/[0.06] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted">Not VAT-registered</span>}
+                      </span>
+                      <span className="num text-right text-muted">{formatMUR(c.invoicedCents)}</span>
+                      <span className="num text-right font-bold text-ink">{c.vatRegistered ? formatMUR(c.outputVatCents) : "—"}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* ── VAT by month — the figure each MRA return asks for ── */}
               <div className="mt-4 rounded-[15px] border border-line bg-card p-5">
                 <div className="flex flex-wrap items-center justify-between gap-2">

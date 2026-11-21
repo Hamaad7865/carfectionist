@@ -123,6 +123,23 @@ New numbered migrations, all additive:
 - Z report, sales journal, VAT report, period close, CSVs: per company + combined.
 - Tests: receipt fixtures for both company types; a one-company tenant renders byte-identical.
 
+**Phase D as built** (branch `tyrecentre-two-company`, migration `20261123000020`):
+- `lib/supabase/queries/issuer.ts`: the issuing company's identity laid over the shop's settings
+  (the default company = the settings row, untouched). Receipt slip, A4 ticket and A4 invoice print
+  it; a non-VAT company prints "INVOICE" (not "VAT INVOICE"), no VAT number, no VAT rows, and
+  "Not registered for VAT". Carfectionist's paper is byte-identical (tested).
+- `app.z_totals` + `close_period` gain a `companies` key only when the shop has more than one active
+  company (sales, excl, VAT, refunds and money by method per company; history with no company is the
+  default company's). The Z A4 prints a "By company" block from it. A one-company shop's Z and month
+  close are byte-identical JSON (proved on the live shop and the sandbox, rolled back).
+- Sales journal: one "SALES [COMPANY]" sale-method row per company, a Company filter in More filters
+  (two-company shops only); every section still foots. Reports → VAT: a "By company" table
+  (invoiced, output VAT) and the same rows in the VAT CSV.
+- Not yet: sending every invoice of a checkout in one email/WhatsApp (phase E, with the Paid panel);
+  expenses carry no company, so all input VAT counts against the shop (the service company cannot
+  reclaim VAT anyway — a "Paid by" on expenses if the accountant needs it); the tablet Z slip
+  (`ZSlip.kt`) and receipt non-VAT variant are phase G (receipt parity).
+
 ### E. Web screens
 - Settings → **Companies** (owner): list, add, edit; numbering and VAT status lock once the company
   has issued anything.

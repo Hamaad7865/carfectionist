@@ -53,6 +53,8 @@ export interface DocumentA4Props {
     vatNo: string;
   };
   billTo: { name: string; address?: string; country: string; brn?: string; vatNo?: string };
+  /** False: the issuing company is not VAT-registered — no VAT row, a plain note instead. */
+  vatRegistered?: boolean;
   lines: DocLineView[];
   subtotalCents: number;      // pre-order-discount ex-VAT sum (the Subtotal row)
   discountCents?: number;     // ex-VAT reduction from an order discount (> 0 shows a row)
@@ -305,7 +307,9 @@ export function DocumentA4(props: DocumentA4Props) {
               <BoxLine label="BRN:" value={from.brn} />
               <BoxLine label="Email:" value={from.email} />
               <BoxLine label="Phone:" value={from.phone} />
-              <BoxLine label="VAT NUMBER:" value={from.vatNo} />
+              {/* A company not registered for VAT has no number to print; a VAT-registered
+                  issuer always shows the line (a legal field, never hidden). */}
+              {props.vatRegistered === false ? null : <BoxLine label="VAT NUMBER:" value={from.vatNo} />}
             </div>
           )}
           <div style={s.box}>
@@ -396,7 +400,11 @@ export function DocumentA4(props: DocumentA4Props) {
             {props.discountCents ? (
               <div style={s.totalRow}><span style={{ color: MUTED }}>Discount{props.discountLabel ? ` (${props.discountLabel})` : ""}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>−{mur(props.discountCents)}</span></div>
             ) : null}
-            <div style={s.totalRow}><span style={{ color: MUTED }}>VAT</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.vatCents)}</span></div>
+            {props.vatRegistered === false ? (
+              <div style={s.totalRow}><span style={{ color: MUTED }}>Not registered for VAT</span><span style={{ color: MUTED }}>No VAT</span></div>
+            ) : (
+              <div style={s.totalRow}><span style={{ color: MUTED }}>VAT</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.vatCents)}</span></div>
+            )}
             <div style={s.grandRow}><span>Total (MUR)</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.totalCents)}</span></div>
           </div>
         </div>
