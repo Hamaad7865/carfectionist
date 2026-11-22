@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ReceiptText, Banknote, Clock, FileText, Package, Users, MapPin, Wrench } from "lucide-react";
 import { getDashboard } from "@/lib/supabase/queries/dashboard";
 import { getSessionContext } from "@/lib/auth/session";
+import { isTyreShop } from "@/lib/auth/roles";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 import { SalesPerformanceChart } from "@/features/dashboard/SalesPerformanceChart";
@@ -182,7 +183,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
 
         <div className={`${card} p-5`}>
-          <div className="mb-4 font-display text-[15px] font-bold text-ink">Best-selling services</div>
+          <div className="mb-4 font-display text-[15px] font-bold text-ink">{session && isTyreShop(session.tenantId) ? "Best sellers" : "Best-selling services"}</div>
           {d.bestServices.length === 0 ? (
             <div className="py-8 text-center text-[13.5px] font-medium text-faint">Sales analytics activate as invoices are paid.</div>
           ) : (

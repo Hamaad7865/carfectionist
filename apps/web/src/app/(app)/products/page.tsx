@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getInventory } from "@/lib/supabase/queries/inventory";
 import { getSessionContext } from "@/lib/auth/session";
+import { isTyreShop } from "@/lib/auth/roles";
 import { CataloguePanel } from "@/features/products/CataloguePanel";
 import { getTransfers } from "@/lib/supabase/queries/transfers";
 import { TransfersPanel } from "@/features/transfers/TransfersPanel";
@@ -19,14 +20,17 @@ const tabCls = (on: boolean) =>
 
 export default async function ProductsPage({ searchParams }: { searchParams: Promise<{ tab?: string; archived?: string; low?: string }> }) {
   const sp = await searchParams;
+  // A tyre shop fits stock straight off the shelf: no consumable recipes, so no tab.
+  const shop = await getSessionContext();
+  const recipesOn = !(shop && isTyreShop(shop.tenantId));
   const tab =
-    sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" ? "recipes" : sp.tab === "inventory" ? "inventory" : sp.tab === "categories" ? "categories" : "catalogue";
+    sp.tab === "transfers" ? "transfers" : sp.tab === "recipes" && recipesOn ? "recipes" : sp.tab === "inventory" ? "inventory" : sp.tab === "categories" ? "categories" : "catalogue";
   const showArchived = sp.archived === "1";
   const inventory = tab === "catalogue" ? await getInventory(showArchived) : null;
   // catalogue OR inventory: the Import/Export buttons render on both, and the import
   // dialog's price hint needs to know how this shop quotes.
   const profile = tab === "catalogue" || tab === "inventory" ? await getBusinessProfile() : null;
-  const session = tab === "catalogue" ? await getSessionContext() : null;
+  const session = tab === "catalogue" ? shop : null;
   const companies = tab === "catalogue" ? await getActiveCompanies() : [];
   const vatDefault = profile?.vatRate ?? 15;
   const pricesInclVat = profile?.pricesVatInclusive ?? false;
@@ -42,7 +46,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         <Link href="/products?tab=inventory" className={tabCls(tab === "inventory")}>Inventory</Link>
         <Link href="/products?tab=categories" className={tabCls(tab === "categories")}>Categories</Link>
         <Link href="/products?tab=transfers" className={tabCls(tab === "transfers")}>Transfers</Link>
-        <Link href="/products?tab=recipes" className={tabCls(tab === "recipes")}>Recipes</Link>
+        {recipesOn && <Link href="/products?tab=recipes" className={tabCls(tab === "recipes")}>Recipes</Link>}
         <div className="flex-1" />
         {(tab === "catalogue" || tab === "inventory") && <ImportExport kind="products" pricesInclVat={pricesInclVat} />}
       </div>

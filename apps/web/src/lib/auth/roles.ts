@@ -134,3 +134,8 @@ export const TYRE_HIDDEN_MODULES: readonly string[] = ["/messages", "/marketing"
 export function hiddenModulesFor(tenantId: string): readonly string[] {
   return TYRE_TENANTS.includes(tenantId) ? TYRE_HIDDEN_MODULES : [];
 }
+
+/** True for a tyre-centre tenant: its screens drop detailing wording and tools. */
+export function isTyreShop(tenantId: string): boolean {
+  return TYRE_TENANTS.includes(tenantId);
+}
