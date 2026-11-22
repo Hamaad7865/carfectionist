@@ -13,6 +13,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.Serializable
+import mu.carfection.pos.feature.counter.TYRE_TILL
 
 /**
  * The POS ↔ backend seam. Every write goes through the SAME security-definer
@@ -944,7 +946,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             if (service != null) put("p_service", service) else put("p_service", JsonNull)
             if (technicianId != null) put("p_technician_id", technicianId) else put("p_technician_id", JsonNull)
             put("p_department", JsonNull)
-            put("p_checklist", JsonArray(emptyList()))
+            put("p_checklist", if (TYRE_TILL) tyreChecklistJson() else JsonArray(emptyList()))
         }).decodeAs<JobRow>().id
 
     /**
@@ -998,7 +1000,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                     if (signedName != null) put("name", signedName)
                 })
             } else put("p_signature", JsonNull)
-        }).decodeAs<JobRow>().id
+        }).decodeAs<JobRow>().id.also { tyreChecklistOn(listOf(it)) }
 
     /**
      * Accept a quotation covering ANY number of cars → one job per car, in one transaction.
@@ -1028,7 +1030,22 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                     if (signedName != null) put("name", signedName)
                 })
             } else put("p_signature", JsonNull)
-        }).decodeList<JobRow>().map { it.id }
+        }).decodeList<JobRow>().map { it.id }.also { tyreChecklistOn(it) }
+
+    /**
+     * The quote→job RPCs seed the detailing checklist. A tyre till swaps it for the tyre list
+     * here, in app code (no business logic in PL/pgSQL). Best-effort: a failed swap leaves the
+     * default, which the operator can still edit on the job card.
+     */
+    private suspend fun tyreChecklistOn(jobIds: List<String>) {
+        if (!TYRE_TILL || jobIds.isEmpty()) return
+        runCatching {
+            client.postgrest.from("jobs").select(Columns.raw("id, checklist")) { filter { isIn("id", jobIds) } }
+                .decodeList<JobChecklistRow>()
+                .filter { shouldSwapForTyre(it.checklist) }
+                .forEach { setChecklist(it.id, tyreChecklistJson()) }
+        }
+    }
 
     // ── Writes — the shared RPCs (all invariants live server-side) ───────────
 
@@ -1784,3 +1801,5 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             client.postgrest.rpc("shop_till", buildJsonObject {}).decodeAs<CashSessionDto>()
         }.getOrNull()
 }
+
+@Serializable internal data class JobChecklistRow(val id: String, val checklist: List<ChecklistItemDto> = emptyList())
