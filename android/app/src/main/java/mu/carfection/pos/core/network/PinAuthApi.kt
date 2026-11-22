@@ -56,6 +56,8 @@ class PinLoginException(val reason: String, val lockedUntil: String? = null) : E
 class PinAuthApi @Inject constructor() {
     private val base = BuildConfig.SUPABASE_URL.trimEnd('/') + "/functions/v1/pos-auth"
     private val deviceKey = BuildConfig.POS_DEVICE_KEY
+    /** This app version's shop(s): the roster lists, and PIN login admits, only their staff. */
+    private val shopQuery = BuildConfig.POS_TENANTS.let { if (it.isBlank()) "" else "?tenants=$it" }
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /** False when this tablet hasn't been given the Supabase URL + device key yet. */
@@ -63,7 +65,7 @@ class PinAuthApi @Inject constructor() {
 
     /** Active staff who have a PIN set — the name tiles on the login screen. */
     suspend fun roster(): List<RosterEntry> = withContext(Dispatchers.IO) {
-        val (code, text) = request("$base/roster", "GET", null)
+        val (code, text) = request("$base/roster$shopQuery", "GET", null)
         if (code != 200) error("roster HTTP $code")
         json.decodeFromString<RosterResponse>(text).roster
     }
@@ -76,7 +78,7 @@ class PinAuthApi @Inject constructor() {
             put("pin", pin)
             if (deviceCode != null) put("deviceCode", deviceCode)
         })
-        val (code, text) = request("$base/pin-login", "POST", body)
+        val (code, text) = request("$base/pin-login$shopQuery", "POST", body)
         if (code == 200) return@withContext json.decodeFromString<PinSessionDto>(text)
         val err = runCatching { json.decodeFromString<PinErrorDto>(text) }.getOrNull()
         throw PinLoginException(err?.error ?: "error", err?.lockedUntil)

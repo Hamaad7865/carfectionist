@@ -74,6 +74,8 @@ android {
         // when you are actually developing against one.
         buildConfigField("String", "POS_WEB_URL", "\"${prop("pos.webUrl").ifBlank { "https://app-carfectionist.com" }}\"")
         buildConfigField("String", "POS_DEVICE_KEY", "\"${prop("pos.deviceKey")}\"")
+        // The shop(s) whose staff this app signs in by PIN — Carfectionist and its TEST Sandbox.
+        buildConfigField("String", "POS_TENANTS", "\"11111111-1111-4111-8111-000000000001,22222222-2222-4222-8222-000000000002\"")
     }
 
     // One code base, one APK per client. Carfectionist keeps its applicationId, name and
@@ -99,6 +101,8 @@ android {
             buildConfigField("String", "BRAND", "\"tyrecentre\"")
             buildConfigField("String", "UPDATE_MANIFEST", "\"tyrecentre/latest.json\"")
             buildConfigField("String", "APK_PREFIX", "\"tyrecentre\"")
+            // Garage De L'Est (tyres + Service): only its staff appear on this app's PIN screen.
+            buildConfigField("String", "POS_TENANTS", "\"1f060b86-ad63-4dc7-93fb-a1fdfae18b27\"")
             prop("tyrecentre.pos.webUrl").takeIf { it.isNotBlank() }?.let {
                 buildConfigField("String", "POS_WEB_URL", "\"$it\"")
             }
