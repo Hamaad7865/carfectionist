@@ -26,6 +26,9 @@ class ReceiptLogoStore @Inject constructor(
     /** The cached logo image, or null when the business has none. */
     fun file(): File? = img.takeIf { it.exists() && it.length() > 0 }
 
+    /** The storage path the cached image was downloaded from, or null. */
+    fun path(): String? = runCatching { marker.takeIf { it.exists() }?.readText() }.getOrNull()
+
     /**
      * Bring the cache in line with the configured path. Cheap when nothing
      * changed (a string compare); a failed download keeps the previous logo —

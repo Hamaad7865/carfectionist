@@ -264,9 +264,11 @@ data class SaleResult(
     // only on this tablet.
     val offlineRef: String? = null,
     // A two-company sale (tyre centre): one invoice per company, in company order, paid by one
-    // payment across them. Empty for a one-company sale - [invoiceId]/[number] are the whole
-    // story there, exactly as before. When set, [invoiceId]/[number] are the FIRST bill's and
-    // [totalCents] is the sale's total, every bill together.
+    // payment across them. Empty on a one-company SHOP (Carfectionist) - [invoiceId]/[number]
+    // are the whole story there, exactly as before. On a shop with several companies it holds
+    // every bill, even a lone one (a services-only cart is one bill of the non-VAT company), so
+    // the slip knows who issued it; the money paths only branch on size > 1. [invoiceId]/[number]
+    // are the FIRST bill's and [totalCents] is the sale's total, every bill together.
     val bills: List<SaleBill> = emptyList(),
 )
 
@@ -640,7 +642,9 @@ class SaleRepository @Inject constructor(
                 val bills = api.issueCheckout(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
                     .map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }
                 val first = bills.first()
-                IssuedInvoice(first.id, first.number, bills.sumOf { it.totalCents }, if (bills.size > 1) bills else emptyList())
+                // Every bill, even a lone one: a services-only cart is ONE bill of the non-VAT
+                // company, and its slip must know that. Money paths only branch on size > 1.
+                IssuedInvoice(first.id, first.number, bills.sumOf { it.totalCents }, bills)
             } else {
                 val issued = api.issueDocument(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
                 IssuedInvoice(issued.id, issued.number, rupeesToCents(issued.totalIncl)) // server total is authoritative

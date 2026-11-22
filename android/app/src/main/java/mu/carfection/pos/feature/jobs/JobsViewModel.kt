@@ -544,7 +544,7 @@ class JobsViewModel @Inject constructor(
             runCatching { api.fetchInvoice(inv.id) ?: error("not found") }
                 .onSuccess { h ->
                     val doc = saleReceiptDoc(
-                        h, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                        h, catalog.receiptBizFor(h.legalEntityId), catalog.vatDefault().toInt(),
                         depositAgreedCents = job.sourceQuote?.depositDue
                             ?.let { runCatching { rupeesToCents(it) }.getOrDefault(0) } ?: 0,
                     )

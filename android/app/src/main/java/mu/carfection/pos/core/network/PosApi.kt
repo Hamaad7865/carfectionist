@@ -1074,6 +1074,23 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      * tyre centre (VAT tyres, non-VAT services). The sale path decides by this count, as the web
      * does — never by the app's brand.
      */
+    /** Every issuing company's paper identity — inactive ones too: an old bill of a company
+     *  since switched off still reprints under its own name. */
+    suspend fun fetchIssuerCompanies(): List<IssuerCompanyDto> =
+        client.postgrest.from("legal_entities")
+            .select(Columns.raw(ISSUER_COLS))
+            .decodeList<IssuerCompanyDto>()
+
+    suspend fun fetchIssuerCompany(id: String): IssuerCompanyDto? =
+        client.postgrest.from("legal_entities")
+            .select(Columns.raw(ISSUER_COLS)) { filter { eq("id", id) } }
+            .decodeList<IssuerCompanyDto>()
+            .firstOrNull()
+
+    private val ISSUER_COLS =
+        "id, legal_name, trading_name, is_default, vat_registered, brn, vat_number, address, phone, " +
+            "receipt_logo_path, receipt_footer_text"
+
     suspend fun fetchActiveCompanies(): List<CompanyDto> =
         client.postgrest.from("legal_entities")
             .select(Columns.raw("id, legal_name, trading_name, is_default, vat_registered, sort_order")) {
@@ -1306,7 +1323,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     private val SALE_COLS =
         "id, number, doc_type, status, issued_at, total_incl, vat_total, amount_paid, " +
             "customers(name, phone, email, points_balance), creator:app_users!documents_created_by_fkey(display_name), " +
-            "bill_no, bill_to_brn, bill_to_vat_number, " +
+            "bill_no, bill_to_brn, bill_to_vat_number, legal_entity_id, " +
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat, vehicles(plate, make, model)), " +
             "payments(id, method, amount, tendered, change_given, reverses_payment_id, received_at)"
 

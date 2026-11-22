@@ -19,6 +19,7 @@ import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.money.CARWASH_MAX_PCT
 import mu.carfection.pos.core.money.PolicyDefaults
 import mu.carfection.pos.core.money.DEFAULT_POLICIES
+import mu.carfection.pos.core.network.IssuerCompanyDto
 import mu.carfection.pos.core.network.PosApi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -143,9 +144,39 @@ class CatalogRepository @Inject constructor(
         )
     }
 
+    /** Issuing companies by id, as last read (refresh() re-reads them all). */
+    private val issuers = java.util.concurrent.ConcurrentHashMap<String, IssuerCompanyDto>()
+
+    /**
+     * The slip identity of the company that issued a bill: the shop's own settings for the
+     * default company (or a bill that names none) — Carfectionist prints exactly what it always
+     * printed — and the company's own identity laid over them for any other (overlayIssuer).
+     *
+     * A bill naming a company that cannot be read THROWS rather than falling back to the
+     * default: printing the tyre company's VAT identity on a service company's bill is a wrong
+     * legal document, so no slip beats that slip (same rule as the web's issuerOf).
+     */
+    /** Does this shop issue under more than one company, as far as the last read knows? */
+    fun severalIssuers(): Boolean = issuers.size > 1
+
+    suspend fun receiptBizFor(legalEntityId: String?): ReceiptBiz {
+        val shop = receiptBiz()
+        if (legalEntityId == null) return shop
+        val company = issuers[legalEntityId]
+            ?: api.fetchIssuerCompany(legalEntityId)?.also { issuers[legalEntityId] = it }
+            ?: error("The company that issued this bill couldn't be read — no receipt printed. Reprint it from Sales.")
+        return overlayIssuer(shop, company, logoStore.path())
+    }
+
     /** Pull settings + catalogue. Call after login and on pull-to-refresh. */
     suspend fun refresh() {
         val settings = api.fetchSettings()
+        // Best-effort: the companies' paper identities, so a slip never waits on them. A failed
+        // read leaves the cache as it was; receiptBizFor fetches on a miss.
+        runCatching { api.fetchIssuerCompanies() }.getOrNull()?.let { list ->
+            issuers.clear()
+            list.forEach { issuers[it.id] = it }
+        }
         prefs.edit {
             it[tenantKey] = settings.id
             it[vatKey] = settings.vatRate

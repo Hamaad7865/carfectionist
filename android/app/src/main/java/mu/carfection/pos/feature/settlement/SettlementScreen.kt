@@ -312,12 +312,16 @@ private fun SettleInvoicesPanel(
 @Composable
 private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewModel) {
     val doc = state.completedReceipts.firstOrNull()
+    // A shop with several companies settles into one receipt PER COMPANY (each company's
+    // invoices consolidated under its own identity); one company, one receipt, as before.
+    val docs = state.completedReceipts
     // A multi-invoice settlement is ONE consolidated ReceiptDoc (consolidatedSections
     // non-empty); a single-invoice settlement is the ordinary per-invoice doc. Either way
     // there's exactly one ReceiptDoc to show — this just names what's inside it.
-    val invoiceNumbers = doc?.consolidatedSections?.mapNotNull { it.invoiceNo }
-        ?.takeIf { it.isNotEmpty() } ?: listOfNotNull(doc?.invoiceNo)
-    val totalCents = doc?.totalCents ?: 0L
+    val invoiceNumbers = docs.flatMap { d ->
+        d.consolidatedSections.mapNotNull { it.invoiceNo }.takeIf { it.isNotEmpty() } ?: listOfNotNull(d.invoiceNo)
+    }
+    val totalCents = docs.sumOf { it.totalCents }
     val customerName = doc?.customer ?: ""
     Dialog(onDismissRequest = {}, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Row(
@@ -383,7 +387,11 @@ private fun SettlementCompleteDialog(state: SettlementState, vm: SettlementViewM
             // as its size and let a long consolidated receipt overflow past it uncut, instead
             // of scrolling inside the space actually allotted to it.
             Box(Modifier.weight(0.9f), contentAlignment = Alignment.TopCenter) {
-                doc?.let { ReceiptPaper(it, Modifier.width(300.dp).heightIn(max = 700.dp).verticalScroll(rememberScrollState())) }
+                if (docs.size <= 1) doc?.let { ReceiptPaper(it, Modifier.width(300.dp).heightIn(max = 700.dp).verticalScroll(rememberScrollState())) }
+                else Column(
+                    Modifier.width(300.dp).heightIn(max = 700.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) { docs.forEach { ReceiptPaper(it, Modifier.fillMaxWidth()) } }
             }
         }
     }

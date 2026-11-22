@@ -217,7 +217,7 @@ class SettlementViewModel @Inject constructor(
                     api.fetchInvoice(invoiceId)?.let { h ->
                         val pointsEarned = runCatching { api.pointsEarnedForDocument(invoiceId) }.getOrNull()
                         saleReceiptDoc(
-                            h, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                            h, catalog.receiptBizFor(h.legalEntityId), catalog.vatDefault().toInt(),
                             pointsEarned = pointsEarned, pointsBalanceAfter = h.customers?.pointsBalance,
                         ).copy(isPayment = true)
                     }
@@ -227,15 +227,19 @@ class SettlementViewModel @Inject constructor(
             // Several are folded into ONE consolidated receipt — every invoice's own lines and
             // tax under its own number, one combined tax breakdown, grand total and tender
             // list — rather than several separate slips.
-            val receipt = if (perInvoice.size > 1) consolidatedReceiptDoc(perInvoice) else perInvoice.firstOrNull()
-            printReceipt(receipt)
+            // …one per issuing company: a tyre bill and a service bill never share a receipt (or
+            // a VAT breakdown) — each company's paper carries only its own invoices. A one-company
+            // shop has one group, so this is exactly the single receipt it always printed.
+            val receipts = perInvoice.groupBy { it.biz }.values
+                .map { g -> if (g.size > 1) consolidatedReceiptDoc(g) else g.first() }
+            receipts.forEach { printReceipt(it) }
 
             val plural = if (settledCount == 1) "" else "s"
             _s.update {
                 it.copy(
                     busy = false, submitSuccess = "Settled $settledCount invoice$plural for ${formatMUR(settledCents)}.",
                     checked = emptySet(), pointsApplied = false, pointsText = "", tenderedText = "", ref = "",
-                    completedReceipts = listOfNotNull(receipt),
+                    completedReceipts = receipts,
                 )
             }
             refresh()
@@ -248,7 +252,7 @@ class SettlementViewModel @Inject constructor(
     }
 
     /** "Print again" on the just-settled screen — re-sends the same slip already shown. */
-    fun reprint() = printReceipt(_s.value.completedReceipts.firstOrNull())
+    fun reprint() = _s.value.completedReceipts.forEach { printReceipt(it) }
 
     /** Back from the just-settled screen to the customer-balance list. */
     fun dismissReceipts() = _s.update {

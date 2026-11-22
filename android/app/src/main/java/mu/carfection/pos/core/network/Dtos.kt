@@ -435,6 +435,9 @@ data class SaleHistoryDto(
     // their name for a business customer. Null for a walk-in or an individual.
     @SerialName("bill_to_brn") val billToBrn: String? = null,
     @SerialName("bill_to_vat_number") val billToVatNumber: String? = null,
+    // The company that issued it (legal_entities) — whose identity its slip prints. Null on
+    // older bills, which print the shop's own settings exactly as before.
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
     val customers: JobCustomerDto? = null,
     val creator: JobTechDto? = null,
     @SerialName("document_lines") val lines: List<SaleHistoryLineDto> = emptyList(),
@@ -760,6 +763,22 @@ data class CompanyDto(
     @SerialName("is_default") val isDefault: Boolean = false,
     @SerialName("vat_registered") val vatRegistered: Boolean = true,
     @SerialName("sort_order") val sortOrder: Int = 0,
+)
+
+/** An issuing company's identity, as its paper prints it (web: queries/issuer.ts ISSUER_FIELDS). */
+@Serializable
+data class IssuerCompanyDto(
+    val id: String,
+    @SerialName("legal_name") val legalName: String? = null,
+    @SerialName("trading_name") val tradingName: String? = null,
+    @SerialName("is_default") val isDefault: Boolean = false,
+    @SerialName("vat_registered") val vatRegistered: Boolean = true,
+    val brn: String? = null,
+    @SerialName("vat_number") val vatNumber: String? = null,
+    val address: String? = null,
+    val phone: String? = null,
+    @SerialName("receipt_logo_path") val receiptLogoPath: String? = null,
+    @SerialName("receipt_footer_text") val receiptFooterText: String? = null,
 )
 
 /** One payment spread across a checkout's invoices (record_checkout_payment). */

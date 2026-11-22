@@ -251,11 +251,20 @@ copy at `docs/redesign/phase-f/dashboard-mockup.png`):
   and payment replay — never by settling only the first bill. Offline sales replay the same way.
   The done panel's undo voids / credit-notes every bill. New refusals (bill discount across two
   companies, Rs 0 bill, points across two bills, …) leave the basket live.
-- *Still to do:* each company's slip (ReceiptText/ReceiptPaper, VAT and non-VAT, matching the
-  web ReceiptCard); per-company discounts and the pay order on the till; the Tyre Centre Till
-  and Paid screens (`docs/redesign/screens/tablet-till.png`, `tablet-paid-receipts.png`); ZSlip
-  per company. Until the slips land, a two-company sale prints one slip with the first bill's
-  number and the sale's total — not for use in the shop.
+- *Part 3a — each company's slip.* On a shop with several companies every sale prints one slip
+  PER BILL, rebuilt from the server and printed under the company that issued it (tablet
+  `overlayIssuer`, the twin of the web's `issuer.ts`; a services-only cart is one bill of the
+  non-VAT company and prints as such). The non-VAT company's slip reads "NUM INVOICE", has no
+  "excl. VAT", no TAUX block, no VAT number, and says "Not registered for VAT — no VAT charged".
+  Reprints, collects, Jobs and Settlement (one consolidated receipt per company) use the bill's
+  own company. A bill whose company cannot be read prints no slip rather than the wrong one.
+  Carfectionist's slip is byte-identical (existing receipt tests unchanged); 568/568 tests each.
+  Known: the tablet caches one logo — a company with its own logo prints its name instead; a
+  company borrowing the shop logo shows no name line (as on the web).
+- *Still to do:* per-company discounts and the pay order on the till (needs each product's
+  company on the tablet); the Tyre Centre Till and Paid screens (`docs/redesign/screens/
+  tablet-till.png`, `tablet-paid-receipts.png`); ZSlip per company. The offline provisional slip
+  stays one slip (it is not a fiscal document).
 
 ### H. Final checks
 `npm run test --workspace web`, typecheck, lint on touched files, `cf-build`, both Android

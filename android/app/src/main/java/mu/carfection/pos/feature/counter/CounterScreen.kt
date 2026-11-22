@@ -488,7 +488,7 @@ fun CounterScreen(
     }
     s.done?.let {
         SaleDone(
-            result = it, receipt = s.receipt,
+            result = it, receipt = s.receipt, moreReceipts = s.moreReceipts,
             // The slip already knows how it was settled — "Split" for an allocation across
             // methods, where s.method only holds whichever row the numpad last touched.
             methodLabel = s.receipt?.payLabel ?: s.method.label,
@@ -2083,6 +2083,8 @@ private fun ViewReceiptDialog(doc: mu.carfection.pos.core.hardware.ReceiptDoc, o
 private fun SaleDone(
     result: mu.carfection.pos.core.data.SaleResult,
     receipt: mu.carfection.pos.core.hardware.ReceiptDoc?,
+    /** A two-company sale's other bills' slips, after [receipt]'s. Empty for a one-company sale. */
+    moreReceipts: List<mu.carfection.pos.core.hardware.ReceiptDoc> = emptyList(),
     methodLabel: String,
     customerLabel: String,
     canVoid: Boolean,
@@ -2107,6 +2109,7 @@ private fun SaleDone(
                             // straight that the invoice does not exist yet.
                             if (result.offlineRef != null)
                                 "${result.offlineRef} · paid in ${methodLabel.lowercase()} · invoice follows when back online"
+                            else if (result.bills.size > 1) "Invoices ${result.bills.joinToString(" + ") { it.number ?: "—" }} · ${if (result.onAccount) "on account" else "paid in ${methodLabel.lowercase()}"}"
                             else "Invoice ${result.number ?: "—"} · ${if (result.onAccount) "on account" else "paid in ${methodLabel.lowercase()}"}",
                             color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
                         )
@@ -2215,10 +2218,16 @@ private fun SaleDone(
             }
             // ── right: the slip exactly as it printed (styled paper, no stamps) ─
             Box(Modifier.weight(0.9f), contentAlignment = Alignment.TopCenter) {
-                if (receipt != null) ReceiptPaper(
+                if (receipt != null && moreReceipts.isEmpty()) ReceiptPaper(
                     receipt,
                     Modifier.width(300.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
-                )
+                ) else if (receipt != null) {
+                    // One slip per company, in the order they printed.
+                    Column(
+                        Modifier.width(300.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) { (listOf(receipt) + moreReceipts).forEach { ReceiptPaper(it, Modifier.fillMaxWidth()) } }
+                }
             }
         }
     }
@@ -2284,7 +2293,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             Text("Not a VAT invoice.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
             Text("Your VAT invoice is issued when this till is back online.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center)
         } else if (d.invoiceNo != null) {
-            Text("NUM VAT INVOICE ${d.invoiceNo}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+            Text((if (d.biz.vatRegistered) "NUM VAT INVOICE " else "NUM INVOICE ") + d.invoiceNo, color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
         }
         d.billNo?.let { Text("Bill $it", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center) }
         Text(d.saleModeLabel, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
@@ -2365,7 +2374,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             "${if (d.consolidatedSections.isNotEmpty()) "Grand total" else "Total"}: ${plainSlip(d.totalCents)}Rs",
             color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 5.dp),
         )
-        if (hasItems) {
+        if (hasItems && d.biz.vatRegistered) {
             Text("excl. VAT : ${plainSlip(d.totalCents - d.vatCents)}Rs", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = TextAlign.Center)
         }
         DashRule()
@@ -2401,7 +2410,11 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         DashRule()
         // ── tax breakdown ───────────────────────────────────────────────────────
-        if (hasItems) {
+        // Mirrors ReceiptText.render: a company that is not VAT-registered says so instead.
+        if (hasItems && !d.biz.vatRegistered) {
+            Text("Not registered for VAT — no VAT charged", color = PaperInk, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            DashRule()
+        } else if (hasItems) {
             val groups = d.vatGroups.ifEmpty {
                 listOf(mu.carfection.pos.core.hardware.ReceiptVatGroup(d.vatRatePct.toDouble(), d.totalCents - d.vatCents, d.vatCents))
             }
@@ -2418,7 +2431,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         d.terminalNo?.let { Text("Appareil $it", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
         d.biz.brn?.takeIf { it.isNotBlank() }?.let { Text("BRN : $it", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
-        d.biz.vatNo?.takeIf { it.isNotBlank() }?.let { Text("VAT number : ${it.removePrefix("VAT").trim()}", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
+        d.biz.vatNo?.takeIf { it.isNotBlank() && d.biz.vatRegistered }?.let { Text("VAT number : ${it.removePrefix("VAT").trim()}", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
         Text(d.cashier, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 10.dp))
         // barcode of the invoice number, captioned like the web card ("INV-0004 · 18072026")
         d.invoiceNo?.let { no ->
