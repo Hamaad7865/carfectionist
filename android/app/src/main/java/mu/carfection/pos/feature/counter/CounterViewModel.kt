@@ -1368,7 +1368,7 @@ class CounterViewModel @Inject constructor(
                     busy = false, padOpen = false, collect = null, pendingSettle = null,
                     splitMode = false, splitText = emptyMap(),
                     done = result.copy(fromCollect = bill != null, debtor = bill?.customers?.name),
-                    receipt = receipt,
+                    receipt = receipt, moreReceipts = emptyList(),
                 )
                 loadLists()
             } catch (e: Exception) {
@@ -1425,7 +1425,7 @@ class CounterViewModel @Inject constructor(
                         busy = false, padOpen = false, collect = null, pendingSettle = null,
                         done = SaleResult(bill.id, bill.number, s.dueCents, 0L, onAccount = true,
                             fromCollect = true, debtor = bill.customers?.name),
-                        receipt = creditSlip,
+                        receipt = creditSlip, moreReceipts = emptyList(),
                     )
                     loadLists()
                     return@launch
@@ -1486,7 +1486,7 @@ class CounterViewModel @Inject constructor(
                 }
                 local.value = local.value.copy(
                     busy = false, padOpen = false, collect = null, pendingSettle = null,
-                    done = result.copy(fromCollect = true, debtor = bill.customers?.name), receipt = receipt,
+                    done = result.copy(fromCollect = true, debtor = bill.customers?.name), receipt = receipt, moreReceipts = emptyList(),
                 )
                 loadLists()
             } catch (e: Exception) {
@@ -2120,7 +2120,7 @@ class CounterViewModel @Inject constructor(
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
                     logReceiptOutcome(result.number, printed, result.invoiceId)
                 }
-                local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt, pendingSettle = null)
+                local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt, moreReceipts = emptyList(), pendingSettle = null)
             } catch (e: Exception) {
                 local.value = local.value.withSettleFailure(e)
             }
@@ -2196,7 +2196,7 @@ class CounterViewModel @Inject constructor(
                 }
                 local.value = local.value.copy(
                     busy = false, padOpen = false, splitMode = false, splitText = emptyMap(),
-                    done = result, receipt = receipt, pendingSettle = null,
+                    done = result, receipt = receipt, moreReceipts = emptyList(), pendingSettle = null,
                 )
             } catch (e: Exception) {
                 local.value = local.value.copy(busy = false, error = e.uiMessage("Couldn't save the sale on this tablet — don't take the money."))
