@@ -149,11 +149,14 @@ project; don't reach for `supabase db push`. If you ever do need the CLI, it wan
 
 ```bash
 cd android
-./gradlew assembleDebug
+./gradlew :app:assembleCarfectionistDebug
 ```
 
-The APK lands at `android/app/build/outputs/apk/debug/app-debug.apk`. Copy it over the
-one on the Desktop (`Carfectionist-POS.apk`) and install it on the tablet.
+The APK lands at `android/app/build/outputs/apk/carfectionist/debug/app-carfectionist-debug.apk`.
+Copy it over the one on the Desktop (`Carfectionist-POS.apk`) and install it on the tablet.
+The tyre centre's app is a separate build (`:app:assembleTyrecentreDebug`, under
+`apk/tyrecentre/`); it installs beside Carfectionist's, never over it. Publishing either:
+`node scripts/publish-apk.mjs [--brand tyrecentre] "notes"` — each brand has its own update channel.
 
 ---
 

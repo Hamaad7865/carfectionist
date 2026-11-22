@@ -1,5 +1,6 @@
 package mu.carfection.pos.ui
 
+import mu.carfection.pos.ui.theme.Brand
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
@@ -102,8 +103,8 @@ fun SplashOverlay(onDone: () -> Unit) {
                         ),
                 )
                 Image(
-                    painterResource(R.drawable.logo_carfectionist),
-                    contentDescription = "Carfectionist",
+                    painterResource(Brand.logo),
+                    contentDescription = Brand.NAME,
                     modifier = Modifier
                         .size(190.dp)
                         .graphicsLayer {
@@ -114,7 +115,7 @@ fun SplashOverlay(onDone: () -> Unit) {
             }
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 androidx.compose.material3.Text(
-                    "CARFECTIONIST",
+                    Brand.WORDMARK,
                     fontFamily = Condensed,
                     fontWeight = FontWeight.Bold,
                     fontSize = 34.sp,

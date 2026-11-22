@@ -1,5 +1,6 @@
 package mu.carfection.pos.feature.counter
 
+import mu.carfection.pos.ui.theme.Brand
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -1001,7 +1002,7 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         // Studio identity + emblem (Cashmag prints the shop's name/address/logo atop the bill).
                         Row(verticalAlignment = Alignment.Top) {
                             Column(Modifier.weight(1f).padding(end = 10.dp)) {
-                                Text(s.bizName.ifBlank { "CARFECTIONIST" }.uppercase(), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 25.sp, letterSpacing = 0.5.sp, lineHeight = 27.sp)
+                                Text(s.bizName.ifBlank { Brand.WORDMARK }.uppercase(), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 25.sp, letterSpacing = 0.5.sp, lineHeight = 27.sp)
                                 s.bizAddress?.takeIf { it.isNotBlank() }?.let {
                                     Text(it, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                                 }
@@ -1013,7 +1014,7 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Image(
-                                    painterResource(R.drawable.logo_carfectionist),
+                                    painterResource(Brand.logo),
                                     contentDescription = null,
                                     modifier = Modifier.size(52.dp),
                                 )

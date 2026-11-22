@@ -1,5 +1,6 @@
 package mu.carfection.pos.feature.settings
 
+import mu.carfection.pos.ui.theme.Brand
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -166,7 +167,7 @@ class SettingsViewModel @Inject constructor(
         val w = if (c.paperWidthMm == 58) 32 else 48
         fun center(s: String) = " ".repeat(((w - s.length) / 2).coerceAtLeast(0)) + s
         return buildString {
-            appendLine(center("CARFECTIONIST"))
+            appendLine(center(Brand.WORDMARK))
             appendLine(center("printer test"))
             appendLine("-".repeat(w))
             appendLine("Link: ${c.printerLink.name.lowercase()}  Paper: ${c.paperWidthMm}mm")

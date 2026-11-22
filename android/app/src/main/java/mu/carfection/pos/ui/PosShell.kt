@@ -1,5 +1,6 @@
 package mu.carfection.pos.ui
 
+import mu.carfection.pos.ui.theme.Brand
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -139,7 +140,7 @@ private fun Header(
     ) {
         // brand logo — gold line-art on its black tile, as the brand asset is designed
         Box(Modifier.size(34.dp).background(Color(0xFF0B0D0F), RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
-            Image(painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist", modifier = Modifier.size(32.dp))
+            Image(painterResource(Brand.logo), contentDescription = Brand.NAME, modifier = Modifier.size(32.dp))
         }
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(studioName.uppercase(), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 16.sp, letterSpacing = Tracked2, color = TextPrimary)

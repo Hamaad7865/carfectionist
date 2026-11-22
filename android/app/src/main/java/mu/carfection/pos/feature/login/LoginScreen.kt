@@ -1,5 +1,6 @@
 package mu.carfection.pos.feature.login
 
+import mu.carfection.pos.ui.theme.Brand
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -261,7 +262,7 @@ private fun RosterPanel(modifier: Modifier, s: LoginUiState, vm: LoginViewModel)
     Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.padding(top = 4.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             Box(Modifier.size(28.dp).background(Color(0xFF0B0D0F), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                Image(painterResource(R.drawable.logo_carfectionist), contentDescription = "Carfectionist", modifier = Modifier.size(26.dp))
+                Image(painterResource(Brand.logo), contentDescription = Brand.NAME, modifier = Modifier.size(26.dp))
             }
             Text("SIGN IN", color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 18.sp, letterSpacing = 1.5.sp)
         }
@@ -384,7 +385,7 @@ private fun NotConfiguredCard() {
         Modifier.width(460.dp).background(CardBg, RoundedCornerShape(20.dp)).border(1.dp, Hairline, RoundedCornerShape(20.dp)).padding(30.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text("CARFECTIONIST", color = Accent, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 2.sp)
+        Text(Brand.WORDMARK, color = Accent, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, letterSpacing = 2.sp)
         Text("PIN login isn't set up on this tablet yet", color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         Text(
             "Add the Supabase URL and the shared device key to local.properties (supabase.url / pos.deviceKey), then rebuild.",
