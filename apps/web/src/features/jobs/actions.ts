@@ -8,6 +8,7 @@ import { existsInTenant } from "@/lib/supabase/guards";
 import { logAudit } from "@/lib/supabase/audit";
 import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
+import { isTyreShop } from "@/lib/auth/roles";
 
 const ROLES = ["owner", "manager", "cashier", "technician"] as const;
 type Ok<T = undefined> = { ok: true; data?: T };
@@ -23,6 +24,13 @@ async function appUserId(sb: any, authUserId: string): Promise<string | null> {
 async function jobAudit(sb: any, ctx: SessionContext, eventType: string, jobId: string, payload: Record<string, unknown> = {}) {
   await logAudit(sb, { tenantId: ctx.tenantId, actorId: await appUserId(sb, ctx.userId), eventType, refType: "job", refId: jobId, payload });
 }
+
+const TYRE_CHECKLIST = [
+  { label: "Tyres & wheels checked", done: false },
+  { label: "Fitting / repair work", done: false },
+  { label: "Wheel nuts torqued & pressures set", done: false },
+  { label: "Final check & test", done: false },
+];
 
 const DEFAULT_CHECKLIST = [
   { label: "Intake photos & damage check", done: false },
@@ -57,7 +65,7 @@ const createSchema = z.object({
 });
 
 export async function createJobAction(input: z.input<typeof createSchema>): Promise<Result<{ id: string }>> {
-  await requireRole(...ROLES);
+  const ctx = await requireRole(...ROLES);
   const p = createSchema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid job details." };
   const sb = await createClient();
@@ -75,7 +83,7 @@ export async function createJobAction(input: z.input<typeof createSchema>): Prom
       service: p.data.service ?? null,
       technicianId: p.data.technicianId || null,
       department: p.data.department || null,
-      checklist: DEFAULT_CHECKLIST,
+      checklist: isTyreShop(ctx.tenantId) ? TYRE_CHECKLIST : DEFAULT_CHECKLIST,
     });
     revalidatePath("/jobs");
     return { ok: true, data: { id: job.id } };

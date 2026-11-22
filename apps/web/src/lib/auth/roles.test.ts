@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { effectiveModules, hasModule, navForUser, defaultModulesForRole, TOGGLEABLE_MODULES, groupNav, NAV, NAV_GROUPS } from "./roles";
+import { effectiveModules, hasModule, navForUser, defaultModulesForRole, TOGGLEABLE_MODULES, groupNav, NAV, NAV_GROUPS, hiddenModulesFor } from "./roles";
 
 describe("per-user module access", () => {
   it("owner is always full-access, regardless of override", () => {
@@ -82,5 +82,14 @@ describe("sidebar groups", () => {
     const flat = navForUser("owner", null);
     const grouped = groupNav(flat).flatMap((s) => s.items);
     expect(grouped).toHaveLength(flat.length);
+  });
+});
+
+describe("hiddenModulesFor", () => {
+  it("a tyre centre has no messages, marketing, certificates or enquiries", () => {
+    expect(hiddenModulesFor("1f060b86-ad63-4dc7-93fb-a1fdfae18b27")).toEqual(["/messages", "/marketing", "/certificates", "/enquiries"]);
+  });
+  it("Carfectionist keeps every module", () => {
+    expect(hiddenModulesFor("11111111-1111-4111-8111-000000000001")).toEqual([]);
   });
 });
