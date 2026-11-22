@@ -49,7 +49,7 @@ class TwoCompanySlipTest {
         assertTrue(out.contains("TAUX NORMAL 15.0%"))
         assertTrue(out.contains("excl. VAT"))
         assertTrue(out.contains("VAT number : 20000001"))
-        assertFalse(out.contains("Not registered for VAT"))
+        assertFalse(out.contains("VAT exempt"))
     }
 
     @Test
@@ -65,7 +65,7 @@ class TwoCompanySlipTest {
             assertTrue(out.contains("Sale - SALES [WHEEL SERVICES]"))
             // On 32 columns the sentence wraps; every word of it is still printed.
             val flat = out.lines().joinToString(" ") { it.trim() }
-            assertTrue(flat, flat.contains("Not registered for VAT — no VAT charged"))
+            assertTrue(flat, flat.contains("VAT exempt"))
             out.lines().forEach { assertTrue("line overflows $w columns: '$it'", it.replace(ESC_BOLD_ON.toString(), "").replace(ESC_BOLD_OFF.toString(), "").length <= w) }
         }
     }

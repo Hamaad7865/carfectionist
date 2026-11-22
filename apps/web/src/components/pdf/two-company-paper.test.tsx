@@ -56,7 +56,7 @@ describe("receipt — VAT and non-VAT company", () => {
     expect(html).not.toContain("TAUX NORMAL");
     expect(html).not.toContain("excl. VAT");
     expect(html).not.toContain("VAT number");
-    expect(html).toContain("Not registered for VAT");
+    expect(html).toContain("VAT exempt");
     expect(html).toContain("BRN : C22222222");
   });
 
@@ -64,7 +64,7 @@ describe("receipt — VAT and non-VAT company", () => {
     expect(renderToStaticMarkup(<TicketA4 r={slip()} />)).toContain("VAT (15.00%)");
     const html = renderToStaticMarkup(<TicketA4 r={serviceSlip()} />);
     expect(html).not.toContain("VAT (0.00%)");
-    expect(html).toContain("Not registered for VAT");
+    expect(html).toContain("VAT exempt");
   });
 });
 
@@ -84,7 +84,7 @@ describe("A4 invoice — VAT and non-VAT company", () => {
   });
   it("the non-VAT company's A4 states no VAT row", () => {
     const html = renderToStaticMarkup(<DocumentA4 {...a4} vatRegistered={false} />);
-    expect(html).toContain("Not registered for VAT");
+    expect(html).toContain("VAT exempt");
     expect(html).not.toMatch(/>VAT</);
     expect(html).not.toContain("VAT NUMBER");
   });

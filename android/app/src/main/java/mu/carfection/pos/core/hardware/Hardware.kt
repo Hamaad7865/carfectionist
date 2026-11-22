@@ -466,7 +466,7 @@ object ReceiptText {
         // ── tax breakdown ─────────────────────────────────────────────────────────
         // A company that is not VAT-registered charges none and says so, in the tax block's place.
         if (hasItems && !d.biz.vatRegistered) {
-            wrap("Not registered for VAT — no VAT charged", w).forEach { appendLine(center(it, w)) }
+            wrap("VAT exempt", w).forEach { appendLine(center(it, w)) }
             appendLine(rule(w))
         } else if (hasItems) {
             val groups = d.vatGroups.ifEmpty {

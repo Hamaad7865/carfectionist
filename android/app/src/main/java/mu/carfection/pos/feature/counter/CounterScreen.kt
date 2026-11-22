@@ -2498,7 +2498,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         // ── tax breakdown ───────────────────────────────────────────────────────
         // Mirrors ReceiptText.render: a company that is not VAT-registered says so instead.
         if (hasItems && !d.biz.vatRegistered) {
-            Text("Not registered for VAT — no VAT charged", color = PaperInk, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            Text("VAT exempt", color = PaperInk, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
             DashRule()
         } else if (hasItems) {
             val groups = d.vatGroups.ifEmpty {
