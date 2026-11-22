@@ -8,6 +8,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -384,19 +386,24 @@ fun CounterScreen(
                     // rows listed above, so the two can't drift — and VAT below reads "of which" so
                     // it isn't mistaken for a second charge.
                     TotalRow("Subtotal", formatMUR(if (s.pricesInclVat) s.grossSubtotalCents else s.preBasketSubtotalCents), TextSecondary)
+                    // A shop with several companies discounts each company's bill on its own (owner
+                    // rule): pick the bill, and the row below edits that bill's discount.
+                    if (s.several && s.tillBills.isNotEmpty()) {
+                        CompanyBillChips(s, onPick = viewModel::setDiscFocus)
+                    }
                     // basket discount — % or Rs off the whole sale, saved as explicit discount lines
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp)
-                        ModeToggle(s.basketMode, h = 30.dp) { viewModel.setBasketMode(it) }
+                        ModeToggle(s.discMode, h = 30.dp) { viewModel.setBasketMode(it) }
                         FilledInput(
-                            value = s.basketText, onValueChange = viewModel::setBasketText,
-                            placeholder = if (s.basketMode == DiscountMode.PCT) "0" else "0.00",
+                            value = s.discText, onValueChange = viewModel::setBasketText,
+                            placeholder = if (s.discMode == DiscountMode.PCT) "0" else "0.00",
                             modifier = Modifier.width(96.dp), height = 30.dp, radius = 8.dp, bg = Inset, fontSize = 13.sp,
                         )
                         Spacer(Modifier.weight(1f))
                         // On a gross screen, show what actually came off the bill (Subtotal − TOTAL),
                         // not the net discount line — otherwise the three rows don't add up.
-                        val shownDisc = if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
+                        val shownDisc = if (s.pricesInclVat) s.discAppliedGrossCents else s.discAppliedCents
                         if (shownDisc > 0) Text("−" + formatMUR(shownDisc), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                     }
                     // The database is the authority (app.assert_discount_allowed) — this mirrors
@@ -410,7 +417,7 @@ fun CounterScreen(
                     }
                     if (s.allowance.reasonRequired) {
                         FilledInput(
-                            value = s.discountReason, onValueChange = viewModel::setDiscountReason,
+                            value = s.discReason, onValueChange = viewModel::setDiscountReason,
                             placeholder = "Why — e.g. regular customer, repeat wash",
                             modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = Inset, fontSize = 12.5.sp,
                         )
@@ -655,7 +662,7 @@ private fun AdhocDialog(vm: CounterViewModel, inclVat: Boolean) {
  */
 @Composable
 private fun DiscountReasonDialog(s: CounterUiState, vm: CounterViewModel) {
-    val ok = s.discountReason.isNotBlank()
+    val ok = s.discReason.isNotBlank()
     Dialog(onDismissRequest = vm::closeReasonDialog) {
         Column(
             Modifier.widthIn(max = 460.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(16.dp))
@@ -669,7 +676,7 @@ private fun DiscountReasonDialog(s: CounterUiState, vm: CounterViewModel) {
             )
             Text("REASON", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             FilledInput(
-                value = s.discountReason, onValueChange = vm::setDiscountReason,
+                value = s.discReason, onValueChange = vm::setDiscountReason,
                 placeholder = "e.g. regular customer, repeat wash",
                 modifier = Modifier.fillMaxWidth(), bg = Inset,
             )
@@ -1384,6 +1391,7 @@ private fun PointsBar(s: CounterUiState, vm: CounterViewModel) {
 
 /** Split bill: an allocation table — an amount per method — plus a numpad and Record. */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
     // ── middle: one row per method, with its allocated amount ──
     Column(
@@ -1417,6 +1425,22 @@ private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
                     if (cents > 0) formatMUR(cents) else "—",
                     color = if (cents > 0) TextPrimary else TextMuted, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp,
                 )
+            }
+        }
+        // Two companies' bills: each part of the split is a part payment across them, and the
+        // cashier picks which bill it fills first (record_checkout_payment's allocation).
+        if (s.several && s.tillBills.size > 1) {
+            Text("EACH PART PAYS", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                (s.tillBills.map { it.company.id to "${it.name} first" } + ("proportional" to "Both, shared")).forEach { (value, label) ->
+                    val on = s.allocation == value
+                    Box(
+                        Modifier.height(36.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(18.dp))
+                            .border(1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(18.dp))
+                            .clickable { vm.setAllocation(value) }.padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { Text(label, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
+                }
             }
         }
         Spacer(Modifier.weight(1f))
@@ -2072,6 +2096,37 @@ private fun ViewReceiptDialog(doc: mu.carfection.pos.core.hardware.ReceiptDoc, o
                     Modifier.weight(1.4f).height(48.dp).background(Accent, RoundedCornerShape(12.dp)).clickable(onClick = onPrint),
                     contentAlignment = Alignment.Center,
                 ) { Text("Print again", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = AccentInk) }
+            }
+        }
+    }
+}
+
+/**
+ * A several-company till's bills, one chip each — the company and what its bill comes to. The
+ * lit chip is the bill the Discount row edits; a bill that can't be charged yet shows in red.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CompanyBillChips(s: CounterUiState, onPick: (String) -> Unit) {
+    val focus = s.focusBill?.company?.id
+    Text(
+        if (s.tillBills.size > 1) "DISCOUNT ON" else "BILLED BY",
+        color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp,
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        s.tillBills.forEach { b ->
+            val on = b.company.id == focus
+            val bad = b.blockReason != null
+            Row(
+                Modifier.height(34.dp)
+                    .background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(17.dp))
+                    .border(1.dp, if (bad) Danger else if (on) AccentLine else Hairline, RoundedCornerShape(17.dp))
+                    .clickable { onPick(b.company.id) }.padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(b.name, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, maxLines = 1)
+                Text(formatMUR(b.totals.totalCents), color = TextMuted, fontFamily = Mono, fontSize = 11.5.sp, maxLines = 1)
+                if (!b.company.vatRegistered) Text("NO VAT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp)
             }
         }
     }

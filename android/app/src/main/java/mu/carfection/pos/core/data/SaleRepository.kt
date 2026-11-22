@@ -153,6 +153,18 @@ data class SaleDraft(
     val orderDiscountKind: String?,
     val orderDiscountValue: Double,
     val discountReason: String? = null,
+    /** A shop with several companies: each company's own bill discount, sent to issue_checkout.
+     *  The document then carries NO whole-sale discount (one cannot cover two companies). */
+    val companyDiscounts: List<CompanyDiscountSpec> = emptyList(),
+)
+
+/** One company's bill discount for issue_checkout. [value] is a percentage for "percent" and
+ *  RUPEES for "amount" — the same units as the document's own discount_value. */
+data class CompanyDiscountSpec(
+    val legalEntityId: String,
+    val kind: String,
+    val value: Double,
+    val reason: String?,
 )
 
 /**
@@ -175,7 +187,12 @@ fun expandSaleLines(
     basketPct: Int = 0,
     basketAmtCents: Long = 0,
     discountReason: String? = null,
+    companyDiscounts: List<CompanyDiscountSpec> = emptyList(),
 ): SaleDraft {
+    // Per-company discounts replace the whole-sale one; never both (the server refuses both).
+    require(companyDiscounts.isEmpty() || (basketPct == 0 && basketAmtCents == 0L)) {
+        "Give each company's bill its own discount — a bill discount can't cover two companies."
+    }
     val specs = cart.map { l ->
         SaleLineSpec(
             productId = if (l.isAdhoc) null else l.product.id,
@@ -203,7 +220,7 @@ fun expandSaleLines(
         "amount" -> centsToRupees(basketAmtCents)
         else -> 0.0
     }
-    return SaleDraft(specs, kind, value, discountReason?.trim()?.takeUnless { it.isEmpty() })
+    return SaleDraft(specs, kind, value, discountReason?.trim()?.takeUnless { it.isEmpty() }, companyDiscounts)
 }
 
 enum class PayMethod(val rpcValue: String?, val label: String) {
@@ -423,6 +440,8 @@ class SaleRepository @Inject constructor(
         // (each retry minted a new draft, and the idempotency guard rightly refused it,
         // trapping the cashier in a frozen basket) — and settle THAT invoice directly.
         knownInvoiceId: String? = null,
+        // A shop with several companies: each company's own bill discount.
+        companyDiscounts: List<CompanyDiscountSpec> = emptyList(),
     ): SaleResult {
         // A two-company sale's retry re-runs the whole road instead: the draft save refuses
         // ("cannot edit an issued document"), issue_checkout replays every bill under
@@ -435,7 +454,7 @@ class SaleRepository @Inject constructor(
         if (method == PayMethod.POINTS && knownInvoiceId == null) refusePointsAcrossCompanies()
 
         val issued = issueWalkInInvoice(
-            expandSaleLines(cart, basketMode, basketPct, basketAmtCents, discountReason),
+            expandSaleLines(cart, basketMode, basketPct, basketAmtCents, discountReason, companyDiscounts),
             customerId, null, walkInName, cashSessionId, saleKey, comment,
         )
         val totalCents = issued.totalCents
@@ -639,13 +658,16 @@ class SaleRepository @Inject constructor(
             // The till that rang it — this is what puts the sale under its service on the
             // cash-up. Same session the payment is booked to, so money and ticket agree.
             if (several) {
-                val bills = api.issueCheckout(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
+                val bills = api.issueCheckout(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId, draftSale.companyDiscounts)
                     .map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }
                 val first = bills.first()
                 // Every bill, even a lone one: a services-only cart is ONE bill of the non-VAT
                 // company, and its slip must know that. Money paths only branch on size > 1.
                 IssuedInvoice(first.id, first.number, bills.sumOf { it.totalCents }, bills)
             } else {
+                // Per-company discounts mean nothing to a one-company shop; refused before the
+                // point of no return rather than silently dropped.
+                require(draftSale.companyDiscounts.isEmpty()) { "Per-company discounts need a shop with more than one company." }
                 val issued = api.issueDocument(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
                 IssuedInvoice(issued.id, issued.number, rupeesToCents(issued.totalIncl)) // server total is authoritative
             }
@@ -678,6 +700,9 @@ class SaleRepository @Inject constructor(
         comment: String? = null,
         discountReason: String? = null,
         knownInvoiceId: String? = null,
+        companyDiscounts: List<CompanyDiscountSpec> = emptyList(),
+        /** Which bill each part fills first on a two-company sale: "proportional" or a company id. */
+        allocation: String = "proportional",
     ): SaleResult {
         if (knownInvoiceId == null && tenders.any { it.method == PayMethod.POINTS }) refusePointsAcrossCompanies()
         val issued = if (knownInvoiceId != null && !severalCompaniesOnRetry(knownInvoiceId)) {
@@ -686,11 +711,11 @@ class SaleRepository @Inject constructor(
             IssuedInvoice(inv.id, inv.number, rupeesToCents(inv.totalIncl))
         } else {
             issueWalkInInvoice(
-                expandSaleLines(cart, basketMode, basketPct, basketAmtCents, discountReason),
+                expandSaleLines(cart, basketMode, basketPct, basketAmtCents, discountReason, companyDiscounts),
                 customerId, null, walkInName, cashSessionId, saleKey, comment,
             )
         }
-        return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey, issued.bills)
+        return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey, issued.bills, allocation)
     }
 
     /**
@@ -774,6 +799,8 @@ class SaleRepository @Inject constructor(
         saleKey: String,
         /** A two-company sale's bills: each tender is ONE payment spread across all of them. */
         bills: List<SaleBill> = emptyList(),
+        /** …filling the bills in proportion, or one company's bill first (record_checkout_payment). */
+        allocation: String = "proportional",
     ): SaleResult {
         require(tenders.isNotEmpty()) { "No payment entered." }
         // Close to the penny against the SERVER total (walk-in only): adjust the last tender.
@@ -803,7 +830,7 @@ class SaleRepository @Inject constructor(
                         tenderedRupees = t.tenderedCents?.let { centsToRupees(it) },
                         externalRef = t.method.externalRefToSend(t.ref),
                         cashSessionId = cashSessionId,
-                        allocation = "proportional",
+                        allocation = allocation,
                         idempotencyKey = "$saleKey:pay:$i",
                     ).paymentIds
                 } else {

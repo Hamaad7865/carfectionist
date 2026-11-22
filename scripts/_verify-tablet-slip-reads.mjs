@@ -1,4 +1,4 @@
-// Phase G part 3a: the tablet's slip now reads which company issued a bill
+// Phase G part 3a/3b: the tablet's slip and till now read which company issued a bill
 // (documents.legal_entity_id) and that company's paper identity (legal_entities). Proves a
 // signed-in (authenticated) user can run the tablet's EXACT selects — a hidden column would
 // quietly drop the slip. READ-ONLY, inside a transaction that rolls back. TEST Sandbox only.
@@ -36,6 +36,12 @@ try {
     if (!hit) { check(`${d.number}'s company is readable`, false); }
   }
   check("every named company is readable (no slip would be dropped)", named.every((d) => cos.some((co) => co.id === d.legal_entity_id)));
+  // Part 3b: the till groups the cart by each product's company.
+  const PRODUCT_COLS = "id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy, legal_entity_id";
+  const prods = (await c.query(`select ${PRODUCT_COLS} from products where is_active`)).rows;
+  check("the tablet's product columns read, legal_entity_id included", prods.length > 0, `${prods.length} products`);
+  const active = (await c.query("select id from legal_entities where is_active")).rows;
+  check("the till's company list reads", active.length > 0, `${active.length} active`);
   const byId = named[0]?.legal_entity_id ?? cos[0]?.id;
   const one = (await c.query(`select ${ISSUER_COLS} from legal_entities where id = $1`, [byId])).rows;
   check("fetch-by-id returns the company", one.length === 1, one[0]?.trading_name ?? one[0]?.legal_name);

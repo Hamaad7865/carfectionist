@@ -29,6 +29,8 @@ data class ProductDto(
     @SerialName("discount_policy") val discountPolicy: String = "inherit",
     // True: selling_price IS the VAT-inclusive shelf price exactly as typed (20260812000030).
     @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
+    // The company that sells it, on a shop with several (null = the main company).
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
 )
 
 @Serializable

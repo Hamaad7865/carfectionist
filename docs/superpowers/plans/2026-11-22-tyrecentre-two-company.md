@@ -261,10 +261,18 @@ copy at `docs/redesign/phase-f/dashboard-mockup.png`):
   Carfectionist's slip is byte-identical (existing receipt tests unchanged); 568/568 tests each.
   Known: the tablet caches one logo — a company with its own logo prints its name instead; a
   company borrowing the shop logo shows no name line (as on the web).
-- *Still to do:* per-company discounts and the pay order on the till (needs each product's
-  company on the tablet); the Tyre Centre Till and Paid screens (`docs/redesign/screens/
-  tablet-till.png`, `tablet-paid-receipts.png`); ZSlip per company. The offline provisional slip
-  stays one slip (it is not a fiscal document).
+- *Part 3b — per-company discounts and the pay order.* The tablet now knows each product's
+  company (PosDatabase v9) and the shop's companies (kept on disk, so a till started offline
+  still bills per company). On a several-company shop the ticket shows one chip per company's
+  bill; the Discount row edits the picked bill's own discount, reason and owner approval (pinned
+  to that bill's future id, `checkout_document_ids`), and there is no whole-sale discount. The
+  split pad asks "Each part pays": a company's bill first, or both shared. Sent as
+  `issue_checkout`'s `p_discounts` and `record_checkout_payment`'s allocation. A sale with a
+  company discount or a chosen pay order is never captured offline (the held record carries
+  neither). Carfectionist's till is unchanged; 578/578 tests each.
+- *Still to do:* the Tyre Centre Till and Paid screens (`docs/redesign/screens/tablet-till.png`,
+  `tablet-paid-receipts.png`), including a custom line that picks its company; ZSlip per company.
+  The offline provisional slip stays one slip (it is not a fiscal document).
 
 ### H. Final checks
 `npm run test --workspace web`, typecheck, lint on touched files, `cf-build`, both Android

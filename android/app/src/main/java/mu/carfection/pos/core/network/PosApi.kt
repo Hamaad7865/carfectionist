@@ -25,7 +25,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Reads (catalogue sync; RLS scopes everything to the tenant) ──────────
     suspend fun fetchProducts(): List<ProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy")) {
+            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy, legal_entity_id")) {
                 filter { eq("is_active", true) }
             }
             .decodeList()
@@ -1110,13 +1110,25 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         idempotencyKey: String,
         stockLocationId: String? = null,
         sessionId: String? = null,
+        /** Each company's own bill discount (owner rule: discounts are per company). Empty = none. */
+        discounts: List<mu.carfection.pos.core.data.CompanyDiscountSpec> = emptyList(),
     ): List<CheckoutBillDto> =
         client.postgrest.rpc("issue_checkout", buildJsonObject {
             put("p_document_id", documentId)
             if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
             put("p_idempotency_key", idempotencyKey)
             if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
-            put("p_discounts", JsonNull)
+            if (discounts.isEmpty()) put("p_discounts", JsonNull)
+            else put("p_discounts", kotlinx.serialization.json.buildJsonArray {
+                discounts.forEach { d ->
+                    add(buildJsonObject {
+                        put("legal_entity_id", d.legalEntityId)
+                        put("discount_kind", d.kind)
+                        put("discount_value", d.value) // percent, or RUPEES for an amount
+                        if (d.reason != null) put("discount_reason", d.reason) else put("discount_reason", JsonNull)
+                    })
+                }
+            })
         }).decodeList()
 
     /**
