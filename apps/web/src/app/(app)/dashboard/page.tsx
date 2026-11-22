@@ -71,6 +71,43 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         <Kpi icon={FileText} value={String(d.docCount)} label="Invoices" tint="#6a5cff" />
       </div>
 
+      {/* Two-company shop (the tyre centre): the same four figures for each company. */}
+      {d.companies && (
+        <div className={`${card} p-5`}>
+          <div className="font-display text-[15px] font-bold text-ink">By company</div>
+          <div className="mt-0.5 text-[12.5px] font-medium text-muted">
+            Each company&apos;s own bills and payments — together they make the totals above
+          </div>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full min-w-[560px] text-[13.5px]">
+              <thead>
+                <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-muted">
+                  <th className="py-2 pr-3">Company</th>
+                  <th className="py-2 pr-3 text-right">Invoiced</th>
+                  <th className="py-2 pr-3 text-right">Collected</th>
+                  <th className="py-2 pr-3 text-right">Outstanding</th>
+                  <th className="py-2 text-right">Invoices</th>
+                </tr>
+              </thead>
+              <tbody>
+                {d.companies.map((c) => (
+                  <tr key={c.id} className="border-t border-line">
+                    <td className="py-2.5 pr-3 font-semibold text-ink-strong">
+                      {c.name}
+                      <span className="ml-2 text-[11px] font-medium text-muted">{c.vatRegistered ? "VAT 15%" : "VAT exempt"}</span>
+                    </td>
+                    <td className="num py-2.5 pr-3 text-right">{formatMUR(c.invoicedCents)}</td>
+                    <td className="num py-2.5 pr-3 text-right">{formatMUR(c.collectedCents)}</td>
+                    <td className="num py-2.5 pr-3 text-right">{formatMUR(c.outstandingCents)}</td>
+                    <td className="num py-2.5 text-right">{c.invoiceCount}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       <SalesPerformanceChart data={d.salesPerformance} />
 
       {/* Collected by method + catalogue */}
