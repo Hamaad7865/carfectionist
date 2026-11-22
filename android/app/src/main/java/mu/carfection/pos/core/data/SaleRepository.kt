@@ -138,9 +138,6 @@ data class SaleLineSpec(
     val discountAmountInclCents: Long = 0, // VAT-INCLUSIVE, exactly as the cashier typed it
     /** price_includes_vat: the unit IS the typed gross; the DB extracts the VAT. */
     val priceInclusive: Boolean = false,
-    /** The company a CUSTOM line bills under (save_draft keeps it, 20261125000010). A catalogue
-     *  line never sends one: its company is its product's. Null on a one-company shop. */
-    val legalEntityId: String? = null,
 )
 
 /**
@@ -209,7 +206,6 @@ fun expandSaleLines(
             // clamps the line at zero, so there is no client-side conversion left to round wrong.
             discountAmountInclCents = if (l.discountMode == DiscountMode.AMT) l.discountAmtCents else 0L,
             priceInclusive = l.priceInclusive,
-            legalEntityId = if (l.isAdhoc) l.product.legalEntityId else null,
         )
     }
     // The basket discount is a DOCUMENT-level figure. The DB clamps it to the bill (least(v, gross)),
@@ -637,7 +633,6 @@ class SaleRepository @Inject constructor(
                     put("vat_rate", sp.vatRatePct)
                     put("sort_order", i)
                     put("price_includes_vat", sp.priceInclusive)
-                    if (sp.legalEntityId != null) put("legal_entity_id", sp.legalEntityId)
                 })
             }
         }

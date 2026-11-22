@@ -531,42 +531,31 @@ private fun FooterKey(t: String, icon: androidx.compose.ui.graphics.vector.Image
     Text(t, color = if (enabled) TextPrimary else TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp)
 }
 
-/** A hand-typed line. On a shop with several companies the cashier says which company sells it. */
+/** A hand-typed line. It bills under the shop's main company (the database files a line with no
+ *  product there), so the dialog says so; a non-VAT service is sold from the catalogue instead. */
 @Composable
 internal fun TyreCustomLineDialog(s: CounterUiState, vm: CounterViewModel) {
     var name by remember { mutableStateOf("") }
     var price by remember { mutableStateOf("") }
-    var company by remember { mutableStateOf<String?>(null) }
     val cents = parseMoneyToCents(price)
-    val ok = name.isNotBlank() && cents != null && cents > 0 && (!s.several || company != null)
+    val ok = name.isNotBlank() && cents != null && cents > 0
+    val main = s.companies.firstOrNull { it.isDefault } ?: s.companies.firstOrNull()
     Dialog(onDismissRequest = vm::closeAdhoc) {
         Column(
             Modifier.widthIn(max = 460.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(24.dp)).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text("Custom line", color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 22.sp)
-            if (s.several) {
-                Text("WHICH COMPANY SELLS IT", color = TextMuted, fontFamily = Mono, fontSize = MonoLabel, letterSpacing = 1.2.sp)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    s.companies.forEachIndexed { i, co ->
-                        val on = company == co.id
-                        val ec = entityColours(i)
-                        Column(
-                            Modifier.weight(1f).background(if (on) ec.soft else Inset, RoundedCornerShape(14.dp))
-                                .border(if (on) 2.dp else 1.dp, if (on) ringColour(i) else Hairline, RoundedCornerShape(14.dp))
-                                .clickable { company = co.id }.padding(12.dp),
-                        ) {
-                            Text(companyName(co), color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(if (co.vatRegistered) "VAT 15%" else "NO VAT", color = ec.ink, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                        }
-                    }
-                }
+            if (s.several && main != null) {
+                Text(
+                    "Billed by ${companyName(main)}${if (main.vatRegistered) " with VAT" else ""}. Services sold by another company are picked from the catalogue.",
+                    color = TextSecondary, fontFamily = Barlow, fontSize = 13.5.sp,
+                )
             }
             Text("DESCRIPTION", color = TextMuted, fontFamily = Mono, fontSize = MonoLabel, letterSpacing = 1.2.sp)
             FilledInput(value = name, onValueChange = { name = it }, placeholder = "e.g. Rim straightening", modifier = Modifier.fillMaxWidth(), radius = 14.dp, bg = Inset)
-            val coVat = s.companies.firstOrNull { it.id == company }?.vatRegistered ?: true
             Text(
-                when { !coVat -> "PRICE (Rs, no VAT)"; s.pricesInclVat -> "PRICE (Rs, incl. VAT)"; else -> "PRICE (Rs, excl. VAT)" },
+                if (s.pricesInclVat) "PRICE (Rs, incl. VAT)" else "PRICE (Rs, excl. VAT)",
                 color = TextMuted, fontFamily = Mono, fontSize = MonoLabel, letterSpacing = 1.2.sp,
             )
             FilledInput(value = price, onValueChange = { p -> price = p.filter { it.isDigit() || it == '.' } }, placeholder = "0.00", modifier = Modifier.fillMaxWidth(), radius = 14.dp, bg = Inset)
@@ -577,7 +566,7 @@ internal fun TyreCustomLineDialog(s: CounterUiState, vm: CounterViewModel) {
                 ) { Text("Cancel", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp) }
                 Box(
                     Modifier.weight(1.4f).height(54.dp).background(if (ok) Accent else InsetAlt, RoundedCornerShape(27.dp))
-                        .clickable(enabled = ok) { vm.addAdhoc(name, cents ?: 0, company) },
+                        .clickable(enabled = ok) { vm.addAdhoc(name, cents ?: 0) },
                     contentAlignment = Alignment.Center,
                 ) { Text("Add line", color = if (ok) AccentInk else TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp) }
             }

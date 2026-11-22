@@ -169,15 +169,12 @@ class TillBillsTest {
     }
 
     @Test
-    fun `a custom line bills under the company the cashier picked, and says so to save_draft`() {
-        val custom = CartLine(product(CartLine.ADHOC_PREFIX + "x", 800_00, "co-svc", vat = 0.0, kind = "adhoc"), 1.0)
+    fun `a custom line bills under the main company, as the database files it`() {
+        val custom = CartLine(product(CartLine.ADHOC_PREFIX + "x", 800_00, null, vat = 15.0, kind = "adhoc"), 1.0)
         assertTrue(custom.isAdhoc)
         val bills = tillBills(listOf(tyre, custom), companies, emptyMap(), 5.0)
-        assertEquals(listOf(1), bills.single { it.company.id == "co-svc" }.lineIndexes)
-        val specs = expandSaleLines(listOf(tyre, custom)).specs
-        assertNull("a catalogue line never names a company", specs[0].legalEntityId)
-        assertEquals("co-svc", specs[1].legalEntityId)
-        assertNull(specs[1].productId)
+        assertEquals(listOf(0, 1), bills.single { it.company.id == "co-tyre" }.lineIndexes)
+        assertNull(expandSaleLines(listOf(tyre, custom)).specs[1].productId)
     }
 
     @Test

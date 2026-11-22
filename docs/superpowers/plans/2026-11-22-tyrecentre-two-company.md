@@ -298,6 +298,7 @@ copy at `docs/redesign/phase-f/dashboard-mockup.png`):
 debug builds, before/after screenshots next to the mockups, `PROGRESS.md` entry listing any
 sandbox test rows. Then I ask you before any merge to `main` (which deploys).
 
+> **Superseded 2026-11-22:** the custom-line migration was dropped; custom lines bill under the main company, so there is no release-order rule left. The paragraph below is history.
 **Release order (hard rule):** migration `20261125000010_custom_line_company.sql` goes to the live
 database BEFORE (or with) the first tyre-centre tablet release — never after. Without it, a custom
 line the cashier gives to the non-VAT service company is filed on the VAT tyre invoice at 0% VAT

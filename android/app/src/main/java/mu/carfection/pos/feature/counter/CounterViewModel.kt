@@ -945,13 +945,13 @@ class CounterViewModel @Inject constructor(
     fun openAdhoc() { local.value = local.value.copy(adhocOpen = true) }
     fun closeAdhoc() { local.value = local.value.copy(adhocOpen = false) }
 
-    /** A hand-typed line. On a shop with several companies the cashier picks the one that sells it
-     *  ([companyId]); a non-VAT company's line carries no VAT. One-company shops pass nothing. */
-    fun addAdhoc(name: String, priceCents: Long, companyId: String? = null) {
+    /** A hand-typed line. It always bills under the shop's MAIN company — save_draft stores no
+     *  company for a line without a product, so the database files it there; a non-VAT service
+     *  is sold from the catalogue (a product "Sold by" that company), never typed in. */
+    fun addAdhoc(name: String, priceCents: Long) {
         if (name.isBlank() || priceCents <= 0) { closeAdhoc(); return }
-        val company = local.value.companies.firstOrNull { it.id == companyId }?.takeIf { local.value.several }
         viewModelScope.launch {
-            val vat = if (company != null && !company.vatRegistered) 0.0 else catalog.vatDefault()
+            val vat = catalog.vatDefault()
             // When the shop quotes gross, staff type what the customer pays — and that EXACT
             // figure is the price. It used to be squashed to a 2dp net (1000 → 869.57) and
             // re-grossed a cent off (→ 1000.01, reported from the shop floor); now the line
@@ -962,7 +962,6 @@ class CounterViewModel @Inject constructor(
                 id = CartLine.ADHOC_PREFIX + UUID.randomUUID(),
                 name = name.trim(), kind = "adhoc", sellingPriceCents = priceCents,
                 vatRatePct = vat, barcode = null, isStocked = false, category = null, lowStockThreshold = null,
-                legalEntityId = company?.id,
             )
             local.value = local.value.copy(adhocOpen = false)
             mutateCart { cart -> cart + cartLineOf(p, 1.0, priceInclusive = inclusive) }
