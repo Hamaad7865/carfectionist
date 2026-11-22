@@ -161,7 +161,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
     >
       <div className="flex flex-col gap-3">
         <FormError error={error} />
-        <Field label="Name"><input className={inputCls} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder="e.g. Ceramic Coating 9H" autoFocus /></Field>
+        <Field label="Name"><input className={inputCls} value={f.name} onChange={(e) => set("name", e.target.value)} placeholder={multiCompany ? "e.g. Michelin Primacy 4 205/55 R16" : "e.g. Ceramic Coating 9H"} autoFocus /></Field>
         <Field label="Photo">
           <ProductPhotoField
             tenantId={tenantId}
@@ -171,7 +171,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
           />
         </Field>
         <Field label="Category" hint="Groups it in the catalogue">
-          <input className={inputCls} value={f.category} onChange={(e) => set("category", e.target.value)} placeholder="e.g. Car Accessories" list="product-categories" />
+          <input className={inputCls} value={f.category} onChange={(e) => set("category", e.target.value)} placeholder={multiCompany ? "e.g. Tyres" : "e.g. Car Accessories"} list="product-categories" />
           <datalist id="product-categories">
             {categories.map((c) => <option key={c} value={c} />)}
           </datalist>
@@ -203,7 +203,8 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
         <Field label="Discount">
           <select className={inputCls} value={f.discountPolicy} onChange={(e) => set("discountPolicy", e.target.value as PForm["discountPolicy"])}>
             <option value="inherit">Follow the kind — a service gives nothing away</option>
-            <option value="carwash">Carwash — up to 5%, with a reason</option>
+            {/* the carwash rule is the detailing studio's; the tyre centre (several companies) has none */}
+            {(!multiCompany || f.discountPolicy === "carwash") && <option value="carwash">Carwash — up to 5%, with a reason</option>}
             <option value="none">Never discounted</option>
             <option value="free">No limit</option>
           </select>

@@ -122,3 +122,15 @@ export function titleForPath(pathname: string): string {
   )[0];
   return match?.label ?? "Carfectionist";
 }
+
+/** Shops that are tyre centres, not detailing studios (Garage De L'Est: tyres + Service). */
+export const TYRE_TENANTS: readonly string[] = ["1f060b86-ad63-4dc7-93fb-a1fdfae18b27"];
+
+/** Detailing-studio modules a tyre centre never uses: WhatsApp messages, marketing campaigns,
+ *  coating certificates and the detailing enquiry form. Hidden from its menu and refused by URL. */
+export const TYRE_HIDDEN_MODULES: readonly string[] = ["/messages", "/marketing", "/certificates", "/enquiries"];
+
+/** The modules this shop does not offer at all, whatever the user's role. */
+export function hiddenModulesFor(tenantId: string): readonly string[] {
+  return TYRE_TENANTS.includes(tenantId) ? TYRE_HIDDEN_MODULES : [];
+}

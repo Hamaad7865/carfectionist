@@ -7,6 +7,7 @@ import type { SessionContext } from "@/lib/auth/session";
 import type { BrandInfo } from "@/lib/brand";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { hiddenModulesFor } from "@/lib/auth/roles";
 
 export function AppShell({
   ctx,
@@ -38,7 +39,7 @@ export function AppShell({
     <div className="fixed inset-0 flex overflow-hidden bg-app">
       {/* Desktop sidebar (fixed) */}
       <div className="hidden md:flex md:w-[256px] md:shrink-0">
-        <Sidebar brand={brand} role={ctx.role} displayName={ctx.displayName} modules={ctx.modules} />
+        <Sidebar brand={brand} role={ctx.role} displayName={ctx.displayName} modules={ctx.modules} hidden={hiddenModulesFor(ctx.tenantId)} />
       </div>
 
       {/* Mobile drawer */}
@@ -46,7 +47,7 @@ export function AppShell({
         <div className="fixed inset-0 z-[60] md:hidden">
           <div className="absolute inset-0 bg-[rgba(15,23,32,0.45)] backdrop-blur-[1px]" onClick={() => setNavOpen(false)} />
           <div className="absolute inset-y-0 left-0 w-[264px] max-w-[84%] shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
-            <Sidebar brand={brand} role={ctx.role} displayName={ctx.displayName} modules={ctx.modules} />
+            <Sidebar brand={brand} role={ctx.role} displayName={ctx.displayName} modules={ctx.modules} hidden={hiddenModulesFor(ctx.tenantId)} />
           </div>
         </div>
       )}

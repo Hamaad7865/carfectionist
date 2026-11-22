@@ -1,7 +1,7 @@
 import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { hasModule, type Role } from "./roles";
+import { hasModule, hiddenModulesFor, type Role } from "./roles";
 
 export interface SessionContext {
   userId: string;
@@ -65,5 +65,14 @@ export async function requireRole(...roles: Role[]): Promise<SessionContext> {
 export async function requireModule(href: string): Promise<SessionContext> {
   const ctx = await requireSession();
   if (!hasModule(ctx.role, ctx.modules, href)) redirect("/dashboard");
+  if (hiddenModulesFor(ctx.tenantId).includes(href)) redirect("/dashboard");
+  return ctx;
+}
+
+/** Refuse a module this SHOP doesn't offer (a tyre centre has no Messages or Marketing),
+ *  leaving every per-user rule exactly as it was. */
+export async function requireShopModule(href: string): Promise<SessionContext> {
+  const ctx = await requireSession();
+  if (hiddenModulesFor(ctx.tenantId).includes(href)) redirect("/dashboard");
   return ctx;
 }
