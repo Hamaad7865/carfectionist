@@ -109,6 +109,8 @@ data class OfflineSaleLine(
     // Defaults false so rows captured before this field existed replay exactly as
     // they always did (net + VAT) rather than failing to decode.
     val priceInclusive: Boolean = false,
+    // The company a custom line bills under; null on rows captured before it existed.
+    val legalEntityId: String? = null,
 )
 
 /** One tender against the sale — the split table, or a single method. */

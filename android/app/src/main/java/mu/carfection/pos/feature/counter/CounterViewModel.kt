@@ -54,6 +54,7 @@ import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.pointsValueCents
 import mu.carfection.pos.core.money.rupeesToCents
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.network.CashSessionDto
@@ -732,6 +733,7 @@ class CounterViewModel @Inject constructor(
     private val overrideApi: OverrideApi,
     private val openJobBus: mu.carfection.pos.core.data.OpenJobBus,
     private val openQuoteBus: mu.carfection.pos.core.data.OpenQuoteBus,
+    private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(CounterUiState())
@@ -943,10 +945,13 @@ class CounterViewModel @Inject constructor(
     fun openAdhoc() { local.value = local.value.copy(adhocOpen = true) }
     fun closeAdhoc() { local.value = local.value.copy(adhocOpen = false) }
 
-    fun addAdhoc(name: String, priceCents: Long) {
+    /** A hand-typed line. On a shop with several companies the cashier picks the one that sells it
+     *  ([companyId]); a non-VAT company's line carries no VAT. One-company shops pass nothing. */
+    fun addAdhoc(name: String, priceCents: Long, companyId: String? = null) {
         if (name.isBlank() || priceCents <= 0) { closeAdhoc(); return }
+        val company = local.value.companies.firstOrNull { it.id == companyId }?.takeIf { local.value.several }
         viewModelScope.launch {
-            val vat = catalog.vatDefault()
+            val vat = if (company != null && !company.vatRegistered) 0.0 else catalog.vatDefault()
             // When the shop quotes gross, staff type what the customer pays — and that EXACT
             // figure is the price. It used to be squashed to a 2dp net (1000 → 869.57) and
             // re-grossed a cent off (→ 1000.01, reported from the shop floor); now the line
@@ -957,6 +962,7 @@ class CounterViewModel @Inject constructor(
                 id = CartLine.ADHOC_PREFIX + UUID.randomUUID(),
                 name = name.trim(), kind = "adhoc", sellingPriceCents = priceCents,
                 vatRatePct = vat, barcode = null, isStocked = false, category = null, lowStockThreshold = null,
+                legalEntityId = company?.id,
             )
             local.value = local.value.copy(adhocOpen = false)
             mutateCart { cart -> cart + cartLineOf(p, 1.0, priceInclusive = inclusive) }
@@ -1147,6 +1153,42 @@ class CounterViewModel @Inject constructor(
         newSale()
         local.value = local.value.copy(mode = CheckoutMode.WALKIN)
         refreshStock()
+    }
+
+    /** This tablet's device code (TAB-…), for the tyre till's header. Blank until known. */
+    suspend fun deviceCode(): String = runCatching { session.deviceId() }.getOrDefault("")
+
+    /** The phone the finished sale's receipts would go to: the picked customer's, else the
+     *  collected bill's customer's (matched by name). Blank when the book has none. */
+    suspend fun receiptPhone(): String {
+        val s = local.value
+        val all = runCatching { catalog.customers.first() }.getOrDefault(emptyList())
+        val c = s.customerId?.let { id -> all.firstOrNull { it.id == id } }
+            ?: s.done?.debtor?.let { n -> all.firstOrNull { it.name.equals(n, ignoreCase = true) } }
+        return c?.phone.orEmpty()
+    }
+
+    /**
+     * Send every bill of the finished sale on WhatsApp — one PDF per company, as printed. The
+     * server renders and delivers each AS the cashier (/api/documents/{id}/send). An offline
+     * sale has no invoice yet, so there is nothing to send.
+     */
+    fun sendDoneReceipts(to: String) {
+        val done = local.value.done ?: return
+        if (to.isBlank() || done.offlineRef != null || local.value.busy) return
+        val ids = done.bills.map { it.id }.ifEmpty { listOf(done.invoiceId) }
+        local.value = local.value.copy(busy = true)
+        viewModelScope.launch {
+            val device = runCatching { session.deviceId() }.getOrNull()
+            val errors = ids.mapNotNull { id ->
+                runCatching { sendApi.send(id, "whatsapp", to.trim(), null, device).error }.getOrElse { it.message ?: "Network error" }
+            }
+            local.value = local.value.copy(
+                busy = false,
+                notice = if (errors.isEmpty()) (if (ids.size > 1) "${ids.size} receipts sent on WhatsApp ✓" else "Receipt sent on WhatsApp ✓")
+                else "WhatsApp didn't go: ${errors.first()}",
+            )
+        }
     }
 
     /** Reprint the slip shown in the post-sale panel. */

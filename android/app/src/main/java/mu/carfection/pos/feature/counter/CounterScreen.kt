@@ -139,7 +139,11 @@ fun CounterScreen(
     val compactScreen = LocalConfiguration.current.screenWidthDp < COMPACT_BREAKPOINT_DP
     LaunchedEffect(Unit) { if (compactScreen && viewModel.state.value.railOpen) viewModel.toggleRail() }
 
-    Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
+    // The tyre centre's flavor draws its own Till and Paid screens (TyreTill.kt); Carfectionist's
+    // TYRE_TILL is false, so everything below is its checkout exactly as before.
+    if (TYRE_TILL && s.done != null) TyrePaid(s, viewModel)
+    else if (TYRE_TILL && s.mode == CheckoutMode.WALKIN) TyreTill(s, viewModel, onOpenTill)
+    else Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
         // ── top bar (handoff: constant CHECKOUT title, caption swaps by mode) ─
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("CHECKOUT", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
@@ -462,7 +466,7 @@ fun CounterScreen(
     // stay here too for the ticket-panel route, which reaches them with no pad open.
     if (!s.padOpen && s.reasonDialogOpen) DiscountReasonDialog(s, viewModel)
     if (!s.padOpen && s.pointsPickerOpen) PointsPickerDialog(s, viewModel)
-    if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
+    if (s.adhocOpen) { if (TYRE_TILL) TyreCustomLineDialog(s, viewModel) else AdhocDialog(viewModel, s.pricesInclVat) }
     s.oversell?.let { o ->
         val oh = s.onHand[o.product.id] ?: 0
         Dialog(onDismissRequest = viewModel::dismissOversell) {
@@ -493,7 +497,7 @@ fun CounterScreen(
             }
         }
     }
-    s.done?.let {
+    s.done?.takeUnless { TYRE_TILL }?.let {
         SaleDone(
             result = it, receipt = s.receipt, moreReceipts = s.moreReceipts,
             // The slip already knows how it was settled — "Split" for an allocation across

@@ -169,6 +169,18 @@ class TillBillsTest {
     }
 
     @Test
+    fun `a custom line bills under the company the cashier picked, and says so to save_draft`() {
+        val custom = CartLine(product(CartLine.ADHOC_PREFIX + "x", 800_00, "co-svc", vat = 0.0, kind = "adhoc"), 1.0)
+        assertTrue(custom.isAdhoc)
+        val bills = tillBills(listOf(tyre, custom), companies, emptyMap(), 5.0)
+        assertEquals(listOf(1), bills.single { it.company.id == "co-svc" }.lineIndexes)
+        val specs = expandSaleLines(listOf(tyre, custom)).specs
+        assertNull("a catalogue line never names a company", specs[0].legalEntityId)
+        assertEquals("co-svc", specs[1].legalEntityId)
+        assertNull(specs[1].productId)
+    }
+
+    @Test
     fun `a quote with tyres and services spans both companies, in company order`() {
         assertEquals(listOf("co-tyre", "co-svc"), quoteCompanies(listOf("co-svc", null, "co-tyre"), companies).map { it.id })
         // An ad-hoc line, or a product of a company switched off since, bills under the main one.
