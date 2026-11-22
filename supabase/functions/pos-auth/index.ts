@@ -76,13 +76,24 @@ async function verifierMatches(pin: string, stored: string | null): Promise<bool
   }
 }
 
-async function roster(): Promise<Response> {
-  const { data, error } = await admin()
+/** The shops this tablet serves (?tenants=a,b — each app version sends its own). Null = the old,
+ *  unscoped behaviour, kept only so tablets installed before this change still sign in. */
+function tenantsOf(req: Request): string[] | null {
+  const raw = new URL(req.url).searchParams.get("tenants");
+  if (!raw) return null;
+  const ids = raw.split(",").map((s) => s.trim()).filter((s) => /^[0-9a-f-]{36}$/i.test(s));
+  return ids.length ? ids : null;
+}
+
+async function roster(tenants: string[] | null): Promise<Response> {
+  let q = admin()
     .from("app_users")
     .select("id, display_name, role, pin_device_verifier")
     .eq("is_active", true)
-    .not("pin_hash", "is", null)
-    .order("display_name");
+    .not("pin_hash", "is", null);
+  // Each shop's tablet lists only its own staff — never another shop's names.
+  if (tenants) q = q.in("tenant_id", tenants);
+  const { data, error } = await q.order("display_name");
   if (error) return json({ error: "server_error" }, 500);
   const out = (data ?? []).map((u) => ({
     appUserId: u.id,
@@ -95,7 +106,7 @@ async function roster(): Promise<Response> {
   return json({ roster: out });
 }
 
-async function pinLogin(req: Request): Promise<Response> {
+async function pinLogin(req: Request, tenants: string[] | null): Promise<Response> {
   let body: { appUserId?: unknown; pin?: unknown; deviceCode?: unknown };
   try {
     body = await req.json();
@@ -109,6 +120,13 @@ async function pinLogin(req: Request): Promise<Response> {
   if (!/^[0-9a-f-]{36}$/i.test(appUserId) || !/^[0-9]{4}$/.test(pin)) return json({ error: "bad_request" }, 400);
 
   const svc = admin();
+
+  // 0) a tablet signs in only its own shop's staff (checked before the PIN, so a wrong shop
+  //    never counts towards anyone's lockout).
+  if (tenants) {
+    const { data: who } = await svc.from("app_users").select("tenant_id").eq("id", appUserId).maybeSingle();
+    if (!tenants.includes((who as { tenant_id?: string } | null)?.tenant_id ?? "")) return json({ error: "invalid" }, 401);
+  }
 
   // 1) verify the PIN (server-side, with per-user lockout)
   const { data: v, error: vErr } = await svc.rpc("verify_staff_pin", { p_app_user_id: appUserId, p_pin: pin });
@@ -167,7 +185,8 @@ async function pinLogin(req: Request): Promise<Response> {
 Deno.serve(async (req) => {
   if (!deviceOk(req)) return json({ error: "unauthorized" }, 401);
   const path = new URL(req.url).pathname;
-  if (req.method === "GET" && path.endsWith("/roster")) return await roster();
-  if (req.method === "POST" && path.endsWith("/pin-login")) return await pinLogin(req);
+  const tenants = tenantsOf(req);
+  if (req.method === "GET" && path.endsWith("/roster")) return await roster(tenants);
+  if (req.method === "POST" && path.endsWith("/pin-login")) return await pinLogin(req, tenants);
   return json({ error: "not_found" }, 404);
 });
