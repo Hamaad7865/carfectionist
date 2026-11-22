@@ -1205,6 +1205,23 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = InsetAlt, fontFamily = Barlow, fontSize = 12.5.sp,
                     )
                 }
+                // A quote spanning the shop's companies: ONE quote (no bill discount) or TWO, one
+                // per company, each with its own discount (owner rule).
+                val spanned = vm.quoteCompanies(s)
+                if (spanned.size > 1 && vm.editable(s)) {
+                    Text(
+                        "Covers ${spanned.joinToString(" and ") { mu.carfection.pos.feature.counter.companyName(it) }} — one quote with no bill discount, or two quotes, one per company.",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
+                    )
+                    if (vm.canSplitQuote(s)) {
+                        Text(
+                            if (s.busy) "Splitting…" else "Make it two quotes →",
+                            fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Accent,
+                            modifier = Modifier.clickable(enabled = !s.busy) { vm.splitIntoTwoQuotes() },
+                        )
+                    }
+                }
+                s.splitNote?.let { Text(it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Success) }
                 if (vm.editable(s) && discountBlockReason != null) {
                     Text(discountBlockReason, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = Danger)
                     // The disabled Sign/Accept button below explains the ceiling; this is the

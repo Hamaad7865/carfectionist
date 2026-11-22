@@ -1416,7 +1416,10 @@ class CounterViewModel @Inject constructor(
                     )
                 }
                 if (result.bills.isNotEmpty()) {
-                    finishCompanySale(result, anyCash)
+                    finishCompanySale(
+                        if (bill != null) result.copy(fromCollect = true, debtor = bill.customers?.name) else result,
+                        anyCash, isPayment = bill != null,
+                    )
                     return@launch
                 }
                 // Rebuild the slip from the server invoice — it now carries every tender row.
@@ -1466,39 +1469,48 @@ class CounterViewModel @Inject constructor(
                     // account. If the server refuses, the collect fails loudly — printing paper
                     // for a handover the server never saw is how a car leaves while its job
                     // sits at READY forever (the original bug).
-                    try {
+                    // A shop with several companies issues the draft as one invoice per company;
+                    // every one of them goes on the account and gets its own slip.
+                    val onAccountIds: List<String> = try {
                         // On account is still the bill leaving the counter, so it is still the
                         // moment it becomes a real invoice. deliver_on_account refuses a draft
                         // outright — and rightly: you cannot owe money on a document that was
                         // never issued.
-                        if (bill.status == "draft") api.issueDocument(bill.id, "$saleKey:issue", sessionId = s.till?.id)
+                        val ids = if (bill.status == "draft") api.issueBill(bill.id, "$saleKey:issue", sessionId = s.till?.id).map { it.id }
+                        else listOf(bill.id)
                         api.deliverOnAccount(bill.id)
+                        ids
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         local.value = local.value.copy(busy = false, error = "Couldn't record the handover — ${e.message ?: "try again"}")
                         return@launch
                     }
-                    val creditSlip = runCatching {
-                        api.fetchInvoice(bill.id)?.let {
-                            saleReceiptDoc(
-                                it, catalog.receiptBizFor(it.legalEntityId), catalog.vatDefault().toInt(),
-                                depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
-                            )
-                                // A deposit on the bill makes the builder read it as a payment
-                                // slip — this slip records credit, whatever came before.
-                                .copy(isPayment = true, onAccount = true)
-                        }
-                    }.getOrNull()
+                    val creditSlips = onAccountIds.map { id ->
+                        id to runCatching {
+                            api.fetchInvoice(id)?.let {
+                                saleReceiptDoc(
+                                    it, catalog.receiptBizFor(it.legalEntityId), catalog.vatDefault().toInt(),
+                                    depositAgreedCents = if (id == bill.id) bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0 else 0,
+                                )
+                                    // A deposit on the bill makes the builder read it as a payment
+                                    // slip — this slip records credit, whatever came before.
+                                    .copy(isPayment = true, onAccount = true)
+                            }
+                        }.getOrNull()
+                    }
+                    val creditSlip = creditSlips.firstOrNull()?.second
                     launch {
-                        val printed = creditSlip != null && runCatching { printer.printDoc(creditSlip) }.isSuccess
-                        logReceiptOutcome(bill.number, printed, bill.id)
+                        creditSlips.forEach { (id, slip) ->
+                            val printed = slip != null && runCatching { printer.printDoc(slip) }.isSuccess
+                            logReceiptOutcome(slip?.invoiceNo ?: bill.number, printed, id)
+                        }
                     }
                     local.value = local.value.copy(
                         busy = false, padOpen = false, collect = null, pendingSettle = null,
                         done = SaleResult(bill.id, bill.number, s.dueCents, 0L, onAccount = true,
                             fromCollect = true, debtor = bill.customers?.name),
-                        receipt = creditSlip, moreReceipts = emptyList(),
+                        receipt = creditSlip, moreReceipts = creditSlips.drop(1).mapNotNull { it.second },
                     )
                     loadLists()
                     return@launch
@@ -1514,6 +1526,12 @@ class CounterViewModel @Inject constructor(
                     payKey = saleKey,
                     needsIssue = bill.status == "draft",
                 )
+                // A draft that a shop with several companies issued as one invoice per company:
+                // one slip per bill, each under the company that issued it.
+                if (result.bills.size > 1) {
+                    finishCompanySale(result.copy(fromCollect = true, debtor = bill.customers?.name), s.method == PayMethod.CASH, isPayment = true)
+                    return@launch
+                }
                 // The bill's items live on the server — the counter never held them, so this
                 // slip carried a total and nothing else: the customer paid Rs 38,000 and the
                 // paper never said what for. Rebuild it from the invoice that was just paid,
@@ -2330,7 +2348,7 @@ class CounterViewModel @Inject constructor(
      * bill). A slip that cannot be built is not printed at all, rather than printed under the
      * wrong company; the sale itself is committed whatever happens here.
      */
-    private suspend fun finishCompanySale(result: SaleResult, openDrawer: Boolean) {
+    private suspend fun finishCompanySale(result: SaleResult, openDrawer: Boolean, isPayment: Boolean = false) {
         val till = local.value.till?.id
         val terminal = runCatching { api.terminalNo(session.deviceId()) }.getOrNull()
         val built: List<Pair<SaleBill, ReceiptDoc?>> = result.bills.map { b ->
@@ -2342,7 +2360,7 @@ class CounterViewModel @Inject constructor(
                     ticketNo = till?.let { runCatching { api.sessionTicketNo(it, b.id) }.getOrNull() },
                     terminalNo = terminal,
                     pointsEarned = pointsEarned, pointsBalanceAfter = h.customers?.pointsBalance,
-                )
+                ).let { if (isPayment) it.copy(isPayment = true) else it }
             }.getOrNull()
         }
         val slips = built.mapNotNull { it.second }

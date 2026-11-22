@@ -273,13 +273,23 @@ copy at `docs/redesign/phase-f/dashboard-mockup.png`):
 - *Still to do:* the Tyre Centre Till and Paid screens (`docs/redesign/screens/tablet-till.png`,
   `tablet-paid-receipts.png`), including a custom line that picks its company; ZSlip per company.
   The offline provisional slip stays one slip (it is not a fiscal document).
-  Also before H: the tablet's quote, job-bill and collect paths still call `issue_document`, which
-  refuses a draft sold by both companies ("sold by another company") — they need
-  `issue_checkout`, and the owner's "Quotes: One or Two" has no tablet side yet. The ticket's
+  The ticket's
   Discount row shows only the picked bill's discount (Subtotal − Discount ≠ TOTAL when both are
   discounted) — the Till screen's per-company bill blocks replace it. Shared with the web: an
   owner's approval is pinned to a bill id that changes if a new FIRST company enters the cart
   (services-only cart approved, then a tyre added) — the server then refuses it as unapproved.
+
+- *Part 3c — quotes and job bills (2026-11-22):* every tablet issue of a job's bill, a quote's
+  bill, a deposit bill and a draft collected at the till goes through `PosApi.issueBill`:
+  `issue_document` exactly as before on a one-company shop, `issue_checkout` (one invoice per
+  company) on the tyre centre. A draft collected at the till that splits is paid by ONE
+  `record_checkout_payment` across its bills (in proportion — a deposit lands on both) and prints
+  a slip per bill; on account issues and slips each. The quote screen says when a quote covers both
+  companies and offers "Make it two quotes" (`split_document_by_company`, after saving it without a
+  bill discount); one quote over both cannot be sent or signed with a bill discount (the server
+  refuses it at issue too). Checked by `scripts/_verify-tablet-bills-per-company.mjs` (rolled back).
+  Known limits: a bill issued earlier (not a draft) is still collected one company at a time; the
+  pad opened from a quote's bill opens the first company's; points can't pay across two bills.
 
 ### H. Final checks
 `npm run test --workspace web`, typecheck, lint on touched files, `cf-build`, both Android

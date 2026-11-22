@@ -774,15 +774,13 @@ class SaleRepository @Inject constructor(
     ): SaleResult {
         // Same key the single-method collect issues under, so the two paths replay each
         // other's issue rather than racing for a second fiscal number.
-        val issuedNumber = if (!needsIssue) number else try {
-            api.issueDocument(invoiceId, "$saleKey:issue", sessionId = cashSessionId).number ?: number
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            // Nothing charged yet: the bill is still a draft and no drawer has opened.
-            throw e
-        }
-        return recordTenders(invoiceId, issuedNumber, targetCents = null, tenders, cashSessionId, saleKey)
+        // A shop with several companies issues the draft as one invoice per company: each part
+        // is then ONE payment across them, filled in proportion (recordTenders' group road).
+        val issued = if (!needsIssue) null else api.issueBill(invoiceId, "$saleKey:issue", sessionId = cashSessionId)
+        val issuedNumber = issued?.firstOrNull()?.number ?: number
+        val group = issued.orEmpty().takeIf { it.size > 1 }
+            ?.map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }.orEmpty()
+        return recordTenders(invoiceId, issuedNumber, targetCents = null, tenders, cashSessionId, saleKey, group)
     }
 
     /**
@@ -936,17 +934,33 @@ class SaleRepository @Inject constructor(
 
         // Keyed off the same saleKey as the payment, so a retry after a lost response
         // replays the issue rather than minting a second number.
-        var issuedNumber = number
-        if (needsIssue) {
-            issuedNumber = try {
-                api.issueDocument(invoiceId, "$payKey:issue", sessionId = cashSessionId).number ?: number
+        // A refused issue charged nothing (the bill is still a draft, the drawer has not
+        // opened), so it propagates as a clean refusal rather than an uncertain payment.
+        val issued = if (needsIssue) api.issueBill(invoiceId, "$payKey:issue", sessionId = cashSessionId) else null
+        val issuedNumber = issued?.firstOrNull()?.number ?: number
+        if (issued != null && issued.size > 1) {
+            // A shop with several companies issued the draft as one invoice per company. The pad's
+            // figure was the draft's whole total: ONE payment across every bill, in proportion to
+            // what each owes (a deposit lands on both), in one transaction.
+            val bills = issued.map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }
+            val group = try {
+                api.recordCheckoutPayment(
+                    invoiceIds = bills.map { it.id },
+                    method = requireNotNull(method.rpcValue),
+                    amountRupees = centsToRupees(amountCents),
+                    tenderedRupees = tendered?.let { centsToRupees(it) },
+                    externalRef = method.externalRefToSend(externalRef),
+                    cashSessionId = cashSessionId,
+                    allocation = "proportional",
+                    idempotencyKey = "$payKey:collect",
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                // Nothing has been charged yet: the bill is still a draft and the drawer has
-                // not opened, so this is a clean refusal rather than an uncertain payment.
-                throw e
+                throw SalePaymentUncertain(invoiceId, issuedNumber, e)
             }
+            val change = if (method == PayMethod.CASH && tendered != null) (tendered - amountCents).coerceAtLeast(0) else 0
+            return SaleResult(invoiceId, issuedNumber, amountCents, change, onAccount = false, paymentIds = group.paymentIds, bills = bills)
         }
         // The invoice already exists; a lost response after record_payment lands is
         // indistinguishable from a lost request. Surface it as SalePaymentUncertain (like

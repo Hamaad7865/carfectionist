@@ -571,6 +571,11 @@ data class QuoteState(
     val busy: Boolean = false,
     val adhocOpen: Boolean = false,
     val savedRef: String? = null,
+    // The shop's active companies (the tyre centre has two). A quote whose lines span them is
+    // either ONE quote with no bill discount, or split into TWO — one per company (owner rule).
+    val companies: List<mu.carfection.pos.core.network.CompanyDto> = emptyList(),
+    // Said once after a split, under the totals: where the other company's quote went.
+    val splitNote: String? = null,
     val createdJobId: String? = null,
     val createdInvoiceRef: String? = null,
     val error: String? = null,
@@ -765,6 +770,11 @@ class QuoteViewModel @Inject constructor(
         // grid even when the on-device cache predates them — stale-while-revalidate, the
         // observed flow above updates the grid the moment the fetch lands.
         viewModelScope.launch { runCatching { catalog.refresh() } }
+        viewModelScope.launch {
+            _s.update { it.copy(companies = catalog.tillCompanies()) }
+            val fresh = catalog.refreshTillCompanies()
+            _s.update { it.copy(companies = fresh) }
+        }
         viewModelScope.launch {
             catalog.pricesInclVatFlow.collect { incl -> _s.update { it.copy(pricesInclVat = incl) } }
         }
@@ -1144,7 +1154,7 @@ class QuoteViewModel @Inject constructor(
                 discountReason = q.discountReason.orEmpty(),
                 // Opening a DIFFERENT quote — any override dialog/approval belonged to whatever
                 // was open before and must not follow across to this one's discount.
-                overrideTarget = null, approvedMaxCents = null, askOwnerBusy = false,
+                overrideTarget = null, approvedMaxCents = null, askOwnerBusy = false, splitNote = null,
                 // Clear any latched reception handoff — it belongs to a different, freshly-started
                 // quote, not this existing one; otherwise its markers/photos land on the wrong job.
                 // jobId carries the linked job (set once converted) so the builder shows "View job".
@@ -1264,6 +1274,7 @@ class QuoteViewModel @Inject constructor(
                 // Cleared here rather than in each caller, so no future one can strand it.
                 busy = false,
                 error = null,
+                splitNote = null,
             )
         }
         loadQuotes()
@@ -1453,7 +1464,48 @@ class QuoteViewModel @Inject constructor(
         computeAllowance(s.lines.map { it.toAllowanceInput() }, allowanceDocDiscount(s), s.approvedMaxCents, s.carwashPct)
 
     /** Why the accept/issue action is dead, when the reason is the discount and not something else. */
+    /** The companies this quote's lines bill under — two when it spans the tyre centre's both. */
+    fun quoteCompanies(s: QuoteState): List<mu.carfection.pos.core.network.CompanyDto> =
+        mu.carfection.pos.feature.counter.quoteCompanies(
+            s.lines.map { l -> s.products.firstOrNull { it.id == l.productId }?.legalEntityId }, s.companies,
+        )
+
+    /** "Two quotes" is on offer: an editable DRAFT whose lines span companies (split_by_company
+     *  splits drafts only; an issued quote is revised first). */
+    fun canSplitQuote(s: QuoteState): Boolean =
+        s.status == "draft" && !s.amending && s.customerId != null && quoteCompanies(s).size > 1
+
+    /**
+     * "Two quotes": save what is on screen WITHOUT a bill discount (one quote covering both
+     * companies can't carry one), split it into one draft quote per company, and reopen the first
+     * company's. Each is then discounted, sent and signed on its own; the other waits in the list.
+     */
+    fun splitIntoTwoQuotes() {
+        val s = _s.value
+        if (s.busy || !canSplitQuote(s)) return
+        val cid = s.customerId ?: return
+        _s.update { it.copy(busy = true, error = null) }
+        viewModelScope.launch {
+            runCatching {
+                val id = api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), null, 0.0, null, intakeJson(s)).id
+                val parts = api.splitDocumentByCompany(id)
+                val row = api.fetchQuotes().firstOrNull { it.id == parts.first().id }
+                parts to row
+            }.onSuccess { (parts, row) ->
+                _s.update { it.copy(busy = false) }
+                loadQuotes()
+                if (row != null) openQuote(row)
+                val names = parts.mapNotNull { p -> s.companies.firstOrNull { it.id == p.legalEntityId } }
+                    .map { mu.carfection.pos.feature.counter.companyName(it) }
+                _s.update {
+                    it.copy(splitNote = "Split into ${parts.size} quotes (${names.joinToString(" and ")}) — the other one is in the list. Give each its own discount.")
+                }
+            }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage("Couldn't split the quote")) } }
+        }
+    }
+
     fun discountBlockReason(s: QuoteState): String? {
+        if (docDiscountKind(s) != null && quoteCompanies(s).size > 1) return mu.carfection.pos.feature.counter.SPANNING_QUOTE_DISCOUNT
         val a = allowance(s)
         return when {
             a.overCeiling -> "This discount is over the ${formatMUR(a.ceilingCents)} allowed on this quote — ask the owner."
@@ -1758,7 +1810,7 @@ class QuoteViewModel @Inject constructor(
                 val depositInvoice = if (deposit != null) {
                     runCatching {
                         val inv = api.convertQuoteToInvoice(id)
-                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                        if (inv.status == null || inv.status == "draft") api.issueBill(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                         inv.id
                     }.getOrNull()
                 } else null
@@ -2282,7 +2334,7 @@ class QuoteViewModel @Inject constructor(
                 val depositInvoice = if (s.depositCents > 0) {
                     runCatching {
                         val inv = api.convertQuoteToInvoice(quoteId)
-                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                        if (inv.status == null || inv.status == "draft") api.issueBill(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                         inv.id
                     }.getOrNull()
                 } else null
@@ -2568,7 +2620,18 @@ class QuoteViewModel @Inject constructor(
                 val saved = api.saveDraft(doc, billLinesJson(s))
                 // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
                 // key spent on the void one would refuse its replacement for ever.
-                if (issue) api.issueDocument(saved.id, "inv:${saved.id}", sessionId = till.current.value?.id) else saved
+                if (!issue) saved
+                else {
+                    // One invoice per company on a shop with several: the screen shows the visit's
+                    // bill as one entry ("INV-12 + WS-3", their sum); the pad opens on the first.
+                    val bills = api.issueBill(saved.id, "inv:${saved.id}", sessionId = till.current.value?.id)
+                    val first = bills.first()
+                    saved.copy(
+                        id = first.id, status = first.status,
+                        number = bills.mapNotNull { it.number }.joinToString(" + ").ifEmpty { null },
+                        totalIncl = bills.sumOf { it.totalIncl },
+                    )
+                }
             }.onSuccess { doc ->
                 _s.update {
                     it.copy(

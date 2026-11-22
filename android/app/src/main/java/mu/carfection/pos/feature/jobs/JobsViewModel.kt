@@ -385,7 +385,9 @@ class JobsViewModel @Inject constructor(
                 // The till that rang it — this is what puts the sale under its service
                 // on the cash-up. Null when nothing is open (workshop billing): the
                 // sale still lands in the day, just not in a service.
-                if (draft.status == null || draft.status == "draft") api.issueDocument(draft.id, "inv:${draft.id}", sessionId = till.current.value?.id).number
+                // A shop with several companies issues one invoice per company ("INV-12 + WS-3").
+                if (draft.status == null || draft.status == "draft") api.issueBill(draft.id, "inv:${draft.id}", sessionId = till.current.value?.id)
+                    .mapNotNull { it.number }.joinToString(" + ").ifEmpty { null }
                 else draft.number
             }.onSuccess { n -> _s.update { it.copy(invoiceBusy = false, invoiceOpen = false, toast = "${n ?: "Invoice"} created — collect it in Checkout") } }
                 .onFailure { e ->
@@ -420,7 +422,7 @@ class JobsViewModel @Inject constructor(
             runCatching {
                 val inv = api.convertQuoteToInvoice(quoteId)
                 if (inv.status == null || inv.status == "draft")
-                    api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                    api.issueBill(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                 inv.id
             }.onSuccess { invoiceId ->
                 // On a till this walks straight to Checkout with the pad dialled in; on a
@@ -461,7 +463,7 @@ class JobsViewModel @Inject constructor(
                     runCatching {
                         val inv = api.convertQuoteToInvoice(quoteId)
                         if (inv.status == null || inv.status == "draft")
-                            api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                            api.issueBill(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                         inv.id
                     }.onSuccess { invoiceId ->
                         _s.update { it.copy(depositBusy = false) }

@@ -152,6 +152,16 @@ class TillBillsTest {
     }
 
     @Test
+    fun `a quote with tyres and services spans both companies, in company order`() {
+        assertEquals(listOf("co-tyre", "co-svc"), quoteCompanies(listOf("co-svc", null, "co-tyre"), companies).map { it.id })
+        // An ad-hoc line, or a product of a company switched off since, bills under the main one.
+        assertEquals(listOf("co-tyre"), quoteCompanies(listOf(null, "co-gone"), companies).map { it.id })
+        assertEquals(listOf("co-svc"), quoteCompanies(listOf("co-svc"), companies).map { it.id })
+        // A one-company shop never asks One or Two.
+        assertTrue(quoteCompanies(listOf("co-svc", null), listOf(tyres)).isEmpty())
+    }
+
+    @Test
     fun `a one-company shop keeps the whole-sale discount and builds no bills`() {
         val s = CounterUiState(companies = listOf(tyres), basketMode = DiscountMode.PCT, basketText = "10").withCart(cart)
         assertTrue(s.tillBills.isEmpty())

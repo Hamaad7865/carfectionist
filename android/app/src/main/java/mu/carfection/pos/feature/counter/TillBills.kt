@@ -59,11 +59,29 @@ fun companyName(c: CompanyDto): String = c.tradingName?.trim()?.takeIf { it.isNo
 
 /** Which company sells a line: the product's own, else the shop's main company — the rule the
  *  database stamps lines with (app.lines_stamp_entity). An ad-hoc line has no product: main. */
-fun companyIdOf(line: CartLine, companies: List<CompanyDto>): String? {
+fun companyIdOf(line: CartLine, companies: List<CompanyDto>): String? =
+    companyIdOfProduct(line.product.legalEntityId, companies)
+
+/** The same rule from a product's own company (null: an ad-hoc line or a product of the main one). */
+fun companyIdOfProduct(productCompanyId: String?, companies: List<CompanyDto>): String? {
     val main = companies.firstOrNull { it.isDefault } ?: companies.firstOrNull()
-    val own = line.product.legalEntityId
-    return if (own != null && companies.any { it.id == own }) own else main?.id
+    return if (productCompanyId != null && companies.any { it.id == productCompanyId }) productCompanyId else main?.id
 }
+
+/**
+ * The companies a quote's lines bill under, in company order — two on a tyre-centre quote with
+ * both tyres and services. Empty on a one-company shop. [productCompanyIds] holds each line's
+ * product company (null for an ad-hoc line or an unknown product).
+ */
+fun quoteCompanies(productCompanyIds: List<String?>, companies: List<CompanyDto>): List<CompanyDto> {
+    if (companies.size < 2) return emptyList()
+    val ids = productCompanyIds.mapNotNull { companyIdOfProduct(it, companies) }.toSet()
+    return companies.filter { it.id in ids }
+}
+
+/** Owner rule (same words as the web): one quote covering both companies carries no bill discount. */
+const val SPANNING_QUOTE_DISCOUNT =
+    "One quote covering both companies can't carry a discount — choose Two quotes, or remove the discount."
 
 /** Why a bill can't be charged yet — the same two refusals as the whole-sale discount. */
 fun discountBlockOf(a: Allowance, reason: String): String? = when {

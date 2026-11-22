@@ -1132,6 +1132,36 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }).decodeList()
 
     /**
+     * Issue a draft bill (a job's invoice, a quote's bill) the way the shop bills: a shop with
+     * ONE company (Carfectionist) calls issue_document exactly as it always has; a shop with
+     * several (the tyre centre) calls issue_checkout, which splits the draft into one invoice per
+     * company and issues each — the first company's keeps the draft's id. Same key either way.
+     * Returns every issued document, first company first (one, on a one-company shop).
+     */
+    suspend fun issueBill(
+        documentId: String,
+        idempotencyKey: String,
+        stockLocationId: String? = null,
+        sessionId: String? = null,
+    ): List<CheckoutBillDto> =
+        if (fetchActiveCompanies().size > 1) {
+            issueCheckout(documentId, idempotencyKey, stockLocationId, sessionId)
+        } else {
+            val d = issueDocument(documentId, idempotencyKey, stockLocationId, sessionId)
+            listOf(CheckoutBillDto(d.id, d.number, d.status, d.docType, d.totalIncl, d.amountPaid, null))
+        }
+
+    /**
+     * "Two quotes": split a DRAFT quote that spans companies into one draft quote per company,
+     * nothing issued (split_document_by_company). The first company's keeps the quote's id; each
+     * then carries its own discount and is sent and signed on its own. Idempotent.
+     */
+    suspend fun splitDocumentByCompany(documentId: String): List<CheckoutBillDto> =
+        client.postgrest.rpc("split_document_by_company", buildJsonObject {
+            put("p_document_id", documentId)
+        }).decodeList()
+
+    /**
      * ONE payment across several invoices of one sale, in one transaction — so a failure never
      * leaves one company's bill paid and the other not. [allocation] is "proportional" or the id
      * of the company whose bill is filled first. Idempotent on [idempotencyKey].
