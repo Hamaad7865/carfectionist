@@ -213,7 +213,8 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
           <Field label="Cost price" hint="Rupees"><input className={inputCls} value={f.costPrice} onChange={(e) => set("costPrice", e.target.value)} inputMode="decimal" placeholder="0.0000" /></Field>
           <Field label="VAT rate %" hint={noVatCompany ? "No VAT — company not registered" : "Blank = default"}><input className={inputCls} value={noVatCompany ? "0" : f.vatRate} disabled={noVatCompany} onChange={(e) => set("vatRate", e.target.value)} inputMode="decimal" placeholder={String(vatDefault)} /></Field>
         </div>
-        <label className="flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-body">
+        {/* A company without VAT has nothing to include: its price is the price. */}
+        <label className={`flex cursor-pointer items-center gap-2 text-[12.5px] font-semibold text-body ${noVatCompany ? "hidden" : ""}`}>
           <input type="checkbox" checked={priceInclVat} onChange={(e) => toggleInclVat(e.target.checked)} className="size-4 accent-[#2b8cff]" />
           The sell price I entered includes {vatValid ? `${effVat}%` : ""} VAT
           {vatExtracted != null && (

@@ -149,6 +149,36 @@ New numbered migrations, all additive:
   before the charge succeeds.
 - Carfectionist counter: unchanged (one company → one bill, no new UI).
 
+**Phase E as built** (branch `tyrecentre-two-company`, migration `20261124000010`):
+- Settings → Companies (owner only): list, add, edit; prefixes, numbering and VAT status lock once a
+  company has issued anything. Changing a company's VAT status before it has issued moves its
+  products' VAT rate with it.
+- Products: a **Sold by** select on the product form (two-company shops only). A product sold by a
+  non-VAT company is held at 0% VAT by the database (trigger), so the till and the bills cannot
+  disagree; the "price includes VAT" box is hidden for it. Export adds a `sold_by` column and import
+  reads it (legal name, trading name or invoice prefix; an unknown company refuses the row) — both
+  only when the shop has more than one company. `import_products` keeps one overload, no anon grant.
+- Tyre Centre New sale: one bill block per company (its own lines, subtotal, VAT or "No VAT", and
+  its own discount with its own owner-approval), one grand total, one Charge. Split payment asks
+  which bill fills first: Tyres first / Services first / Both (proportional). The Paid panel lists
+  every invoice number and prints all receipts in one go (`/print/receipt/{id}?also=…`, one per page).
+- Make a quote on a two-company cart asks **One quote or two?** Two quotes = one per company, each
+  numbered in its own series with its own discount; one quote cannot carry a discount (refused with
+  a message, the dialog greys that option out). A job covering both companies cannot carry a
+  discount yet (refused with a message).
+- Invoice page: a **This sale** panel when the invoice is one of a checkout's bills — the sibling
+  bills with their totals and balances, **Collect for the whole sale** (one payment across the open
+  bills, with the pay-order choice, on the back-office till) and **Send all**.
+- Reports → payments CSV: a Company column (two-company shops only).
+- Carfectionist: one company → no new UI anywhere; its numbers and product VAT rates were checked
+  untouched by both proofs.
+- Proofs (TEST Sandbox, rolled back): `scripts/_verify-companies-admin.mjs`,
+  `scripts/_verify-two-quotes-and-collect.mjs`. Screenshots: `docs/redesign/phase-e/`.
+- Not yet: the tablet's non-VAT receipt and Z slip (phase G); the document builder's own Issue
+  button still returns the first bill only (the This sale panel shows the others); expenses carry no
+  company; refunds across both companies' bills are untested; the tablet calling `issue_document`
+  directly on a mixed invoice stays a risk until phase G routes it through `issue_checkout`.
+
 ### F. The new dashboard (tyre centre only)
 Replaces Copilot's version. Balanced: one glance answers "how are we doing today, what needs me".
 I'll draw it in the design file first for your OK, then build it. Proposed layout:

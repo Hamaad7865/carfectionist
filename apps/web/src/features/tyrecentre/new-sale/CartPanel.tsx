@@ -567,19 +567,25 @@ export function CartPanel(props: CartPanelProps) {
               // company's bill it fills first (record_checkout_payment's allocation).
               <div className="mt-1 rounded-[14px] bg-tc-sub p-2.5">
                 <div className="mb-1.5 text-[11.5px] font-semibold text-tc-muted">Each part pays</div>
-                <Segmented
-                  label="Which bill each part pays first"
-                  tone="sub"
-                  className="w-full"
-                  itemClassName="min-w-0 flex-1 truncate text-[12px]"
-                  disabled={frozen}
-                  value={props.allocation}
-                  onChange={props.onAllocation}
-                  options={[
-                    ...bills.map((b) => ({ value: b.company.id, label: <>{b.company.name} first</> })),
-                    { value: "proportional", label: <>Both, shared</> },
-                  ]}
-                />
+                {/* Pills that wrap, not a segmented bar: company names are long and must read whole. */}
+                <div role="radiogroup" aria-label="Which bill each part pays first" className="flex flex-wrap gap-1.5">
+                  {[
+                    ...bills.map((b) => ({ value: b.company.id, label: `${b.company.name} first` })),
+                    { value: "proportional", label: "Both, shared" },
+                  ].map((o) => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      role="radio"
+                      aria-checked={props.allocation === o.value}
+                      disabled={frozen}
+                      onClick={() => props.onAllocation(o.value)}
+                      className={`max-w-full truncate rounded-full px-3 py-1.5 text-[12px] font-semibold ${props.allocation === o.value ? "bg-tc-primary text-tc-on-primary" : "bg-tc-card text-tc-body hover:text-tc-ink"}`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </div>
