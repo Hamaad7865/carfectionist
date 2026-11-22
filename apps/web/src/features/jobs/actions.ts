@@ -9,6 +9,7 @@ import { logAudit } from "@/lib/supabase/audit";
 import { backOfficeTillId } from "@/lib/supabase/till";
 import * as rpc from "@/lib/supabase/rpc";
 import { isTyreShop } from "@/lib/auth/roles";
+import { TYRE_CHECKLIST, DETAILING_CHECKLIST as DEFAULT_CHECKLIST } from "./checklist";
 
 const ROLES = ["owner", "manager", "cashier", "technician"] as const;
 type Ok<T = undefined> = { ok: true; data?: T };
@@ -24,20 +25,6 @@ async function appUserId(sb: any, authUserId: string): Promise<string | null> {
 async function jobAudit(sb: any, ctx: SessionContext, eventType: string, jobId: string, payload: Record<string, unknown> = {}) {
   await logAudit(sb, { tenantId: ctx.tenantId, actorId: await appUserId(sb, ctx.userId), eventType, refType: "job", refId: jobId, payload });
 }
-
-const TYRE_CHECKLIST = [
-  { label: "Tyres & wheels checked", done: false },
-  { label: "Fitting / repair work", done: false },
-  { label: "Wheel nuts torqued & pressures set", done: false },
-  { label: "Final check & test", done: false },
-];
-
-const DEFAULT_CHECKLIST = [
-  { label: "Intake photos & damage check", done: false },
-  { label: "Wash & prep", done: false },
-  { label: "Service work", done: false },
-  { label: "Final inspection", done: false },
-];
 
 const createSchema = z.object({
   customerId: z.string().optional(),
