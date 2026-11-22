@@ -216,9 +216,11 @@ private fun CategoryChips(s: CounterUiState, vm: CounterViewModel) {
                 }
             }
         }
-        Spacer(Modifier.width(10.dp))
         // Back to the TO COLLECT list (job bills and held sales) — the mockup's till has no list.
-        Box(
+        // Leaving ends the sale (backToList starts a fresh one), so it only shows on an empty
+        // cart; with lines in it, "Cancel sale" in the footer is the honest way out.
+        if (s.cart.isEmpty()) Spacer(Modifier.width(10.dp))
+        if (s.cart.isEmpty()) Box(
             Modifier.height(46.dp).background(CardBg, RoundedCornerShape(23.dp)).border(1.dp, Hairline, RoundedCornerShape(23.dp))
                 .clickable { vm.backToList() }.padding(horizontal = 18.dp),
             contentAlignment = Alignment.Center,
@@ -498,7 +500,8 @@ private fun CartFooter(s: CounterUiState, vm: CounterViewModel, receipts: Int) {
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FooterKey("Split", Icons.Outlined.CallSplit, Modifier.weight(1f), enabled = ready) { vm.openPad(); vm.toggleSplit() }
-            FooterKey("Clear", Icons.Outlined.DeleteOutline, Modifier.weight(1f), enabled = true) { vm.backToList() }
+            // Ends this sale and goes back to the TO COLLECT list (the classic "Cancel counter sale").
+            FooterKey("Cancel sale", Icons.Outlined.DeleteOutline, Modifier.weight(1f), enabled = true) { vm.backToList() }
         }
         Spacer(Modifier.height(10.dp))
         Row(
