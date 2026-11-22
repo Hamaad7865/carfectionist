@@ -6,9 +6,21 @@ import { knobPill } from "@/components/tyrecentre/tc";
 import { formatAmount, formatMUR } from "@/lib/money";
 import { entityColours } from "@/lib/tyrecentre/entity-colours";
 
+/** One company's invoice of the sale, as issued. */
+export interface PaidBill {
+  id: string;
+  number: string | null;
+  totalCents: number;
+  companyName: string;
+  /** The company's place in the shop's sort order — its colour. */
+  index: number;
+}
+
 export interface PaidSale {
   invoiceId: string;
   number: string | null;
+  /** Every invoice the charge issued — one per company (tyre centre), one for anyone else. */
+  bills: PaidBill[];
   totalCents: number;
   changeCents: number;
   tenderedCents: number | null;
@@ -21,8 +33,14 @@ export interface PaidSale {
 /** After the charge (DESIGN-SPEC §6.5, web): what was paid, the change to give, and the
  *  invoice numbers issue_document drew — shown only now, never before charging. */
 export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () => void }) {
+  const bills = sale.bills.length ? sale.bills : [{ id: sale.invoiceId, number: sale.number, totalCents: sale.totalCents, companyName: sale.companyName, index: 0 }];
+  const many = bills.length > 1;
   const shareWhatsApp = () => {
-    const text = [`${sale.companyName} — Receipt ${sale.number ?? ""}`.trim(), `Total: ${formatMUR(sale.totalCents)}`, "Thank you · drive safe"].join("\n");
+    const text = [
+      ...bills.map((b) => `${b.companyName} — Receipt ${b.number ?? ""}${many ? ` · ${formatMUR(b.totalCents)}` : ""}`.trim()),
+      `Total: ${formatMUR(sale.totalCents)}`,
+      "Thank you · drive safe",
+    ].join("\n");
     window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, "_blank", "noopener");
   };
   return (
@@ -31,7 +49,7 @@ export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () =
         <Check className="size-7" strokeWidth={2.4} />
       </span>
       <div className="mt-5 font-mono text-[10.5px] uppercase tracking-[0.08em] text-tc-faint" role="status">
-        {sale.onAccount ? "On account" : `Paid · ${sale.methodLabel}`} · 1 receipt
+        {sale.onAccount ? "On account" : `Paid · ${sale.methodLabel}`} · {bills.length} receipt{many ? "s" : ""}
       </div>
       <div className="mt-0.5 font-display text-[36px] font-medium tracking-[-1px] text-tc-ink">{formatMUR(sale.totalCents)}</div>
       <div className="text-[13px] text-tc-muted">{sale.customerName}</div>
@@ -45,25 +63,33 @@ export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () =
       )}
 
       <ul className="mt-5 flex flex-col gap-2">
-        <li className="flex items-center gap-2.5 text-[13.5px]">
-          <span className="size-3 rounded-[3px]" style={{ background: entityColours(0).accent }} />
-          <span className="min-w-0 flex-1 truncate text-tc-body">
-            {sale.companyName} · <b className="font-mono font-bold text-tc-ink">{sale.number ?? "—"}</b>
-          </span>
-          <span className="font-mono text-[13px] font-semibold tabular-nums text-tc-ink">{formatAmount(sale.totalCents)}</span>
-        </li>
+        {bills.map((b) => (
+          <li key={b.id} className="flex items-center gap-2.5 text-[13.5px]">
+            <span className="size-3 rounded-[3px]" style={{ background: entityColours(b.index).accent }} />
+            <Link href={`/sales/${b.id}`} className="min-w-0 flex-1 truncate text-tc-body hover:underline">
+              {b.companyName} · <b className="font-mono font-bold text-tc-ink">{b.number ?? "—"}</b>
+            </Link>
+            <span className="font-mono text-[13px] font-semibold tabular-nums text-tc-ink">{formatAmount(b.totalCents)}</span>
+          </li>
+        ))}
       </ul>
-      <Link href={`/sales/${sale.invoiceId}`} className="mt-2 text-[12.5px] font-medium text-tc-muted hover:text-tc-ink hover:underline">
-        View invoice →
-      </Link>
+      {!many && (
+        <Link href={`/sales/${sale.invoiceId}`} className="mt-2 text-[12.5px] font-medium text-tc-muted hover:text-tc-ink hover:underline">
+          View invoice →
+        </Link>
+      )}
 
       <div className="mt-auto grid grid-cols-2 gap-2 pt-6">
         <button
           type="button"
-          onClick={() => window.open(`/print/receipt/${sale.invoiceId}`, "_blank")}
+          // One receipt per company — each prints its own name, BRN and VAT status.
+          onClick={() => {
+            const [first, ...rest] = bills;
+            window.open(`/print/receipt/${first.id}${rest.length ? `?also=${rest.map((b) => b.id).join(",")}` : ""}`, "_blank");
+          }}
           className="inline-flex h-[54px] items-center justify-center gap-2 rounded-[16px] bg-tc-sub text-[14px] font-semibold text-tc-ink hover:bg-tc-track"
         >
-          <Printer className="size-[18px]" /> Print
+          <Printer className="size-[18px]" /> {many ? `Print ${bills.length}` : "Print"}
         </button>
         <button
           type="button"

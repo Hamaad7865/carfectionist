@@ -13,7 +13,7 @@ import { Segmented } from "@/components/tyrecentre/primitives";
 import { TC_MICRO, TC_ROUND } from "@/components/tyrecentre/tc";
 import { TcCard } from "@/components/tyrecentre/TcCard";
 import { ReceiptCard } from "@/components/pdf/ReceiptCard";
-import { computeTotals, parseMoneyInput } from "@/lib/money";
+import { parseMoneyInput } from "@/lib/money";
 import { formatTyreSize, type SaleCategory } from "@/lib/tyrecentre/tyre-size";
 import type { TyreSaleRef, SaleVehicle } from "@/lib/supabase/queries/tyrecentre-sale";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
@@ -24,8 +24,6 @@ import { getReceiptDataAction } from "@/features/counter/receipt-action";
 import {
   EMPTY_BASKET,
   addProduct,
-  basketAllowance,
-  discountBlockReason,
   patchLine as patchLineIn,
   pickCustomer,
   setApprovedMax,
@@ -37,8 +35,10 @@ import {
   withSettleFailure,
   type Basket,
   type CartLine,
+  type DiscountKind,
 } from "@/features/counter/settle";
-import { getCarHistoryAction, type CarVisit } from "../sale-actions";
+import { checkoutBillIdAction, getCarHistoryAction, type CarVisit } from "../sale-actions";
+import { NO_DISCOUNT, billsBlockReason, billsOf, companyDiscountsPayload, grandTotalCents, type CompanyDiscount } from "./bills";
 import {
   ANY_SIZE,
   SORT_LABEL,
@@ -76,7 +76,11 @@ const fmtQty = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(2));
 export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canPrice: boolean; shopLabel: string }) {
   const router = useRouter();
   const searchRef = useRef<HTMLInputElement>(null);
-  const company = data.companies[0] ?? { name: shopLabel, vatRegistered: true, vatRate: 15 };
+  // The shop's companies. Two or more (tyre centre: VAT tyres + non-VAT services) → one bill per
+  // company, each with its own discount, one payment; one → the single-invoice sale as before.
+  const several = data.companies.length > 1;
+  const mainCompany = data.companies.find((c) => c.isDefault) ?? data.companies[0] ?? { id: "", name: shopLabel, vatRegistered: true, vatRate: 15, isDefault: true };
+  const companyOf = (p: TyreSaleRef["products"][number]) => data.companies.find((c) => c.id === p.legalEntityId) ?? mainCompany;
 
   // ── catalogue ─────────────────────────────────────────────────────────────
   const catalogue = useMemo(() => buildCatalogue(data.products, data.soldQty), [data.products, data.soldQty]);
@@ -102,9 +106,12 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
   const [error, setError] = useState<string | null>(null);
   const [confirmNeg, setConfirmNeg] = useState<{ name: string; shop: number; warehouse: number; selling: number }[] | null>(null);
   const [paid, setPaid] = useState<PaidSale | null>(null);
-  const [receipt, setReceipt] = useState<ReceiptData | null | "error">(null);
+  const [receipts, setReceipts] = useState<(ReceiptData | "error")[] | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [overrideOpen, setOverrideOpen] = useState(false);
+  // The bill an owner's approval is being asked for: its company and the id it will carry.
+  const [overrideFor, setOverrideFor] = useState<{ companyId: string; billId: string } | null>(null);
+  const [coDisc, setCoDisc] = useState<Record<string, CompanyDiscount>>({});
+  const [allocation, setAllocation] = useState("proportional");
   const [pricing, setPricing] = useState<TyreSaleRef["products"][number] | null>(null);
   const [history, setHistory] = useState<CarVisit[]>([]);
   // This sale's identity — the idempotency key and the id its invoice is drafted under.
@@ -112,24 +119,25 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
   const [saleIds, setSaleIds] = useState(() => ({ key: crypto.randomUUID(), draft: crypto.randomUUID() }));
   const rotateSaleIds = () => setSaleIds({ key: crypto.randomUUID(), draft: crypto.randomUUID() });
 
-  const totals = useMemo(
-    () =>
-      computeTotals(
-        basket.lines.map((l) => ({
-          qty: l.qty,
-          unitCents: l.product.priceCents,
-          discountPct: l.discountPct,
-          discountKind: l.discountKind,
-          discountAmountCents: l.discountAmountCents,
-          vatRatePct: l.product.vatRate,
-          priceInclusive: l.product.priceIncludesVat,
-        })),
-        basket.orderDiscKind ? { kind: basket.orderDiscKind, value: basket.orderDiscValue } : null,
-      ),
-    [basket.lines, basket.orderDiscKind, basket.orderDiscValue],
-  );
-  const allowance = useMemo(() => basketAllowance(basket, data.posRules.carwashPct), [basket, data.posRules.carwashPct]);
-  const blockReason = useMemo(() => discountBlockReason(basket, data.posRules.carwashPct), [basket, data.posRules.carwashPct]);
+  const bills = useMemo(() => billsOf(basket, data.companies, coDisc, data.posRules.carwashPct), [basket, data.companies, coDisc, data.posRules.carwashPct]);
+  const grandCents = grandTotalCents(bills);
+  const blockReason = billsBlockReason(bills);
+
+  // A bill's discount: its company's own when the shop has several, the whole sale's when one.
+  const patchCo = (companyId: string, patch: Partial<CompanyDiscount>) => {
+    if (frozen) return;
+    setCoDisc((m) => ({ ...m, [companyId]: { ...(m[companyId] ?? NO_DISCOUNT), ...patch } }));
+  };
+  const onBillDiscount = (companyId: string, kind: DiscountKind | null, value: number) =>
+    several ? patchCo(companyId, { kind, value }) : setBasket((b) => setOrderDiscount(b, kind, value));
+  const onBillDiscountReason = (companyId: string, reason: string) =>
+    several ? patchCo(companyId, { reason }) : setBasket((b) => setOrderDiscountReason(b, reason));
+  async function askOwner(companyId: string) {
+    const at = bills.findIndex((b) => b.company.id === companyId);
+    const billId = several ? await checkoutBillIdAction(saleIds.draft, companyId, at === 0) : saleIds.draft;
+    setOverrideFor({ companyId, billId });
+  }
+  const overrideBill = overrideFor ? bills.find((b) => b.company.id === overrideFor.companyId) : undefined;
   const qtyById = useMemo(() => new Map(basket.lines.map((l) => [l.product.id, l.qty])), [basket.lines]);
 
   // The car's last bills — and from them, its tyre size.
@@ -149,13 +157,13 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
   }, [vehicle]);
   const carSize = useMemo(() => lastTyreSize(history), [history]);
 
-  // The receipt that printed — the same ReceiptCard the print route renders.
+  // The receipts that printed — the same ReceiptCard the print route renders, one per company.
   useEffect(() => {
     if (!paid) return;
     let live = true;
-    getReceiptDataAction(paid.invoiceId)
-      .then((r) => live && setReceipt(r ?? "error"))
-      .catch(() => live && setReceipt("error"));
+    const ids = paid.bills.length ? paid.bills.map((b) => b.id) : [paid.invoiceId];
+    Promise.all(ids.map((id) => getReceiptDataAction(id).then((r) => r ?? ("error" as const)).catch(() => "error" as const)))
+      .then((rs) => live && setReceipts(rs));
     return () => {
       live = false;
     };
@@ -186,7 +194,10 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
   );
   const setQty = (id: string, qty: number) => {
     const next = setQtyIn(basket, id, qty);
-    if (next.generation !== basket.generation) rotateSaleIds();
+    if (next.generation !== basket.generation) {
+      rotateSaleIds();
+      setCoDisc({}); // an emptied ticket drops its discounts, every company's
+    }
     setBasket(next);
   };
   const patchLine = (id: string, patch: Partial<CartLine>) => setBasket((b) => patchLineIn(b, id, patch));
@@ -198,9 +209,11 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
     setTender("");
     setPayRef("");
     setSplit(EMPTY_SPLIT);
+    setCoDisc({});
+    setAllocation("proportional");
     setError(null);
     setPaid(null);
-    setReceipt(null);
+    setReceipts(null);
     setQ("");
     rotateSaleIds();
     router.refresh();
@@ -212,7 +225,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
     if (lines.length === 0) return setError("Add at least one item.");
     if (method === "credit" && !basket.customerId) return setError("Pick a customer on file — the amount owed is tracked against them.");
     const tenderCents = parseMoneyInput(tender);
-    if (method === "cash" && tenderCents != null && tenderCents < totals.totalCents) return setError("The cash handed over is less than the total.");
+    if (method === "cash" && tenderCents != null && tenderCents < grandCents) return setError("The cash handed over is less than the total.");
     if (blockReason) return setError(blockReason);
     // Sales are never hard-blocked on stock; going below zero on the shop floor is confirmed.
     if (!force && !frozen) {
@@ -227,9 +240,10 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
       customerName: basket.customer.trim() || undefined,
       vehicleId: basket.customerId && vehicle ? vehicle.id : undefined,
       lines: lines.map((l) => ({ productId: l.product.id, qty: l.qty, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents })),
-      orderDiscountKind: basket.orderDiscKind,
-      orderDiscountValue: basket.orderDiscValue,
-      orderDiscountReason: basket.orderDiscReason,
+      // Several companies: no whole-sale discount, each company's bill its own (owner rule).
+      ...(several
+        ? { companyDiscounts: companyDiscountsPayload(bills), allocation: method === "split" ? allocation : undefined }
+        : { orderDiscountKind: basket.orderDiscKind, orderDiscountValue: basket.orderDiscValue, orderDiscountReason: basket.orderDiscReason }),
       method,
       tenderedCents: method === "cash" ? tenderCents : null,
       externalRef: method === "cash" || method === "split" ? undefined : payRef,
@@ -255,12 +269,17 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
     setPaid({
       invoiceId: r.invoiceId,
       number: r.number,
+      bills: r.invoices.map((inv) => {
+        const at = data.companies.findIndex((c) => c.id === inv.legalEntityId);
+        const co = at >= 0 ? data.companies[at] : mainCompany;
+        return { id: inv.id, number: inv.number, totalCents: inv.totalCents, companyName: co.name, index: Math.max(0, at) };
+      }),
       totalCents: r.totalCents,
       changeCents: r.changeCents,
       tenderedCents: method === "cash" ? tenderCents : method === "split" && splitCash ? parseMoneyInput(splitCash.tendered) : null,
       onAccount: r.onAccount,
       methodLabel: METHOD_LABEL[method],
-      companyName: company.name,
+      companyName: mainCompany.name,
       customerName: basket.customer.trim() || "Walk-in customer",
     });
   }
@@ -351,10 +370,18 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
               <h2 className="text-[15px] font-bold text-tc-ink">Printed receipt</h2>
               <span className={TC_MICRO}>One per company</span>
             </div>
-            {receipt && receipt !== "error" ? (
-              <ReceiptCard r={receipt} />
+            {receipts ? (
+              <div className="flex w-full flex-wrap items-start justify-center gap-4">
+                {receipts.map((r, i) =>
+                  r === "error" ? (
+                    <p key={i} className="py-20 text-[13px] text-tc-faint">Receipt preview unavailable — Print still works.</p>
+                  ) : (
+                    <ReceiptCard key={i} r={r} />
+                  ),
+                )}
+              </div>
             ) : (
-              <p className="py-20 text-[13px] text-tc-faint">{receipt === "error" ? "Receipt preview unavailable — Print still works." : "Preparing the receipt…"}</p>
+              <p className="py-20 text-[13px] text-tc-faint">{paid.bills.length > 1 ? "Preparing the receipts…" : "Preparing the receipt…"}</p>
             )}
           </TcCard>
         ) : (
@@ -456,7 +483,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
                       item={item}
                       qty={qtyById.get(item.product.id) ?? 0}
                       pricesInclVat={data.pricesInclVat}
-                      vatRegistered={company.vatRegistered}
+                      vatRegistered={companyOf(item.product).vatRegistered}
                       disabled={frozen}
                       canPrice={canPrice}
                       onAdd={() => add(item.product)}
@@ -532,19 +559,17 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
             customerKnown={!!basket.customerId}
             vehicle={vehicle}
             onEditCustomer={() => setPickerOpen(true)}
-            companies={data.companies.length ? data.companies : [company]}
+            bills={bills}
+            grandCents={grandCents}
             lines={basket.lines}
             pricesInclVat={data.pricesInclVat}
             posRules={data.posRules}
-            totals={totals}
-            allowance={allowance}
             blockReason={blockReason}
-            orderDiscKind={basket.orderDiscKind}
-            orderDiscValue={basket.orderDiscValue}
-            orderDiscReason={basket.orderDiscReason}
-            onOrderDiscount={(k, v) => setBasket((b) => setOrderDiscount(b, k, v))}
-            onOrderDiscountReason={(r) => setBasket((b) => setOrderDiscountReason(b, r))}
-            onAskOwner={() => setOverrideOpen(true)}
+            onBillDiscount={onBillDiscount}
+            onBillDiscountReason={onBillDiscountReason}
+            onAskOwner={(id) => void askOwner(id)}
+            allocation={allocation}
+            onAllocation={setAllocation}
             onQty={setQty}
             onPatchLine={patchLine}
             method={method}
@@ -568,7 +593,10 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
               // Emptying ends the ticket: the reducers drop the discount and bump the generation.
               let next = basket;
               for (const l of basket.lines) next = setQtyIn(next, l.product.id, 0);
-              if (next.generation !== basket.generation) rotateSaleIds();
+              if (next.generation !== basket.generation) {
+                rotateSaleIds();
+                setCoDisc({});
+              }
               setBasket(next);
               setError(null);
             }}
@@ -592,15 +620,16 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
         }}
       />
 
-      {overrideOpen && (
+      {overrideFor && overrideBill && (
         <OwnerOverrideDialog
-          documentId={saleIds.draft}
+          documentId={overrideFor.billId}
           docType="invoice"
-          requestedCents={allowance.actualCents}
-          onClose={() => setOverrideOpen(false)}
+          requestedCents={overrideBill.allowance.actualCents}
+          onClose={() => setOverrideFor(null)}
           onApproved={(cents) => {
-            setBasket((b) => setApprovedMax(b, cents));
-            setOverrideOpen(false);
+            if (several) patchCo(overrideFor.companyId, { approvedMaxCents: cents });
+            else setBasket((b) => setApprovedMax(b, cents));
+            setOverrideFor(null);
           }}
         />
       )}
