@@ -105,7 +105,7 @@ describe("ZReportA4 by company", () => {
     expect(html).toContain("Rs 900.00");
     expect(html).toContain("Wheel Services");
     expect(html).toContain("Rs 2,600.00");
-    expect(html).toContain("Not registered for VAT — no VAT");
+    expect(html).toContain("VAT exempt");
     // Sale modes name each company, as the sales journal does.
     expect(html).toContain("SALES [TYRE CENTRE]");
     expect(html).toContain("SALES [WHEEL SERVICES]");

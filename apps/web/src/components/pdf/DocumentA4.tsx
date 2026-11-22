@@ -401,7 +401,7 @@ export function DocumentA4(props: DocumentA4Props) {
               <div style={s.totalRow}><span style={{ color: MUTED }}>Discount{props.discountLabel ? ` (${props.discountLabel})` : ""}</span><span style={{ fontVariantNumeric: "tabular-nums" }}>−{mur(props.discountCents)}</span></div>
             ) : null}
             {props.vatRegistered === false ? (
-              <div style={s.totalRow}><span style={{ color: MUTED }}>Not registered for VAT</span><span style={{ color: MUTED }}>No VAT</span></div>
+              <div style={s.totalRow}><span style={{ color: MUTED }}>VAT exempt</span><span style={{ color: MUTED }}>—</span></div>
             ) : (
               <div style={s.totalRow}><span style={{ color: MUTED }}>VAT</span><span style={{ fontVariantNumeric: "tabular-nums" }}>{mur(props.vatCents)}</span></div>
             )}

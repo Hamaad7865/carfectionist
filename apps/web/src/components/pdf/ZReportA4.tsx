@@ -119,7 +119,7 @@ export function ZReportA4({ from, number, scope, closedAt, closedByName, note, t
                 <Kv l={String(c.name ?? "—")} r={money(c.total_incl)} />
                 <Kv l={`${int(c.tickets)} ticket${int(c.tickets) === 1 ? "" : "s"}`} indent />
                 {c.vat_registered === false
-                  ? <Kv l="Not registered for VAT — no VAT" indent />
+                  ? <Kv l="VAT exempt" indent />
                   : <Kv l={`excl. ${money(c.excl)} · VAT`} r={money(c.vat)} indent />}
                 {Number(c.refunds) > 0 && <Kv l="Refunds" r={`-${money(c.refunds)}`} indent />}
                 {pays.map((m, j) => (
