@@ -93,8 +93,9 @@ tyre-centre client (`tyrecentre.hazsoftware.com`) gets its own (`docs/redesign/D
 `components/ui/` (`components.json`); their tokens exist only under `[data-brand="tyrecentre"]`
 in `globals.css`, and `bg-muted` is mapped to `bg-sub` (Carfectionist's `muted` is a text grey).
 Easy UI pieces (easyui.site, MIT — `npx shadcn add Surajmaurya1/easyui/<name>`) sit there too,
-restyled light: stat-card, interactive-area-chart, donut-chart, notification-bell,
-expandable-search, product-tour, breadcrumb (the tyre-centre top bar and dashboard).
+restyled light: notification-bell, expandable-search, product-tour, breadcrumb (the tyre-centre
+top bar). The tyre-centre Overview (`features/tyrecentre/overview/`) is hand-built on `tc-*` tokens;
+its arithmetic lives in `overview-model.ts` (tested), its reads in `queries/tyrecentre-overview.ts`.
 Carfectionist must stay pixel-identical — never add unscoped tokens or base rules for them.
 Tyre-centre dark mode follows the computer until a choice is saved (`THEME_INIT_SCRIPT_SYSTEM`,
 top-bar `TyreThemeMenu`); its palette is the `[data-brand="tyrecentre"][data-theme="dark"]` block —

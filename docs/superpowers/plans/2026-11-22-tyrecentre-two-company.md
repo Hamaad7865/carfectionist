@@ -195,6 +195,29 @@ Components from shadcn, HextaUI (`npx shadcn@latest add https://hextaui.com/r/<n
 Easy UI (`npx shadcn@latest add Surajmaurya1/easyui/<name>`). 21st.dev's connector needs a new key
 from https://21st.dev/mcp before I can pull from it; until then I use the other three.
 
+**Phase F as built** (branch `tyrecentre-two-company`, no migration; mock-up approved in Kite,
+copy at `docs/redesign/phase-f/dashboard-mockup.png`):
+- `/dashboard` on the tyre-centre host is now "Overview"; Carfectionist's dashboard is untouched.
+- Today strip: one card per company (sales today against the same weekday last week **up to the
+  same time**, number of sales), money collected today by method, cars on site (and how many are
+  ready to pay), money owed (count, oldest in days). Money owed uses the same count as the bell and
+  the sidebar (`outstandingTotals` in `notifications.ts`), so the three never disagree.
+- Sales: 7 / 30 / 90 days, period total and change against the period before, each company's share,
+  VAT collected (a non-VAT company adds none), one stacked bar per Mauritius day in the companies'
+  colours, today ringed in lime. Credit notes count against their day. Rows with no company count
+  to the default company (the Z report's rule).
+- In the bays: On site / Booked today / Handed back today, with technician, the four stages (red
+  when paused), which companies bill the job, status ("Ready to pay" only while a bill is owed) and
+  time on site (days once past a day).
+- Top sellers this month: tyres grouped by size whatever the brand, services by name.
+- Needs you: money owed, low stock (the bell's own count), a till left open from an earlier day,
+  new enquiries — each with one action; "Nothing needs you right now" when clear.
+- Every source loads on its own: one failing read shows "Couldn't load…" in its card, never a
+  broken page. Skeleton while loading; Refresh re-reads everything.
+- Removed: the earlier Copilot dashboard (`DashboardCharts.tsx`, `tyrecentre-dashboard.ts`) and
+  the three Easy UI chart pieces only it used.
+- Not shown yet, because the system doesn't record them: discount approvals waiting.
+
 ### G. Tablet app (Android)
 - Build flavors: `carfectionist` (keeps `mu.carfection.pos`) and `tyrecentre` (placeholder
   `mu.haz.tyrecentre.pos`, own name/icon). Colours and fonts become a `BrandTokens` set chosen by
