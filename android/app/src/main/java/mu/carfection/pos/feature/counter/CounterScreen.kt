@@ -427,7 +427,7 @@ fun CounterScreen(
                         // The disabled Record payment button below explains the ceiling; this is
                         // the way out of it — an owner's PIN, checked server-side, without
                         // signing the cashier out or anyone becoming an owner.
-                        if (s.allowance.overCeiling) {
+                        if (s.blockAllowance.overCeiling) {
                             Text(
                                 "Ask the owner →", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp,
                                 modifier = Modifier.clickable { viewModel.askOwner() },
@@ -1285,11 +1285,11 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
                     .clip(RoundedCornerShape(11.dp))
                     .background(AccentSoft)
                     .border(1.5.dp, AccentLine, RoundedCornerShape(11.dp))
-                    .clickable { if (s.allowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
+                    .clickable { if (s.blockAllowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (s.allowance.overCeiling) "Ask the owner" else "Add the reason",
+                    if (s.blockAllowance.overCeiling) "Ask the owner" else "Add the reason",
                     color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                 )
             }
@@ -1475,11 +1475,11 @@ private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
                     .clip(RoundedCornerShape(11.dp))
                     .background(AccentSoft)
                     .border(1.5.dp, AccentLine, RoundedCornerShape(11.dp))
-                    .clickable { if (s.allowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
+                    .clickable { if (s.blockAllowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (s.allowance.overCeiling) "Ask the owner" else "Add the reason",
+                    if (s.blockAllowance.overCeiling) "Ask the owner" else "Add the reason",
                     color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                 )
             }

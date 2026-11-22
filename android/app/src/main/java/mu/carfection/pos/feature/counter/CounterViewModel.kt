@@ -437,6 +437,12 @@ data class CounterUiState(
             carwashPct = carwashPct,
         )
 
+    /** The allowance of the bill that is BLOCKING the sale — what "Ask the owner" vs "Add the
+     *  reason" must be decided on. On a several-company till that is the first blocked bill,
+     *  not whichever chip happens to be lit; otherwise the sale's own allowance. */
+    val blockAllowance: Allowance
+        get() = if (several) tillBills.firstOrNull { it.blockReason != null }?.allowance ?: allowance else allowance
+
     /** Why Record payment is dead, when the reason is the discount and not the till/basket. */
     val discountBlockReason: String?
         get() = when {
@@ -675,7 +681,7 @@ internal fun canCaptureOffline(s: CounterUiState, online: Boolean): Boolean =
         s.cart.isNotEmpty() &&
         // A held sale replays with no per-company discount and shares every part across the
         // bills — so a sale that has either choice waits for the network instead.
-        !(s.several && (s.tillBills.any { it.disc.kind != null } || s.allocation != "proportional"))
+        !(s.several && (s.tillBills.any { it.disc.kind != null } || (s.splitMode && s.allocation != "proportional")))
 
 /** Split counterpart: every tender in the allocation must be money actually taken. */
 internal fun tendersCapturableOffline(tenders: List<mu.carfection.pos.core.data.Tender>): Boolean =

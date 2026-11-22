@@ -131,6 +131,16 @@ class TillBillsTest {
     }
 
     @Test
+    fun `the pad offers the fix for the bill that is blocking, not the lit chip`() {
+        val svc = CartLine(product("fit", 400_00, "co-svc", vat = 0.0, kind = "service"), 1.0)
+        val s = CounterUiState(companies = companies).withCart(listOf(tyre, svc))
+            .withCompanyDisc("co-svc") { it.copy(mode = DiscountMode.AMT, text = "50") }
+            .copy(discFocus = "co-tyre") // the cashier moved on to the tyre bill
+        assertNotNull(s.discountBlockReason)
+        assertTrue("the service bill needs the owner", s.blockAllowance.overCeiling)
+    }
+
+    @Test
     fun `emptying the cart ends every company's discount with the ticket`() {
         val s = CounterUiState(companies = companies).withCart(cart)
             .withCompanyDisc("co-tyre") { it.copy(text = "10", reason = "regular", approvedMaxCents = 1) }

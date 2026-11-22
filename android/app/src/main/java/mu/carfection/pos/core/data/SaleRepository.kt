@@ -654,6 +654,10 @@ class SaleRepository @Inject constructor(
         // (tyre centre) issue through issue_checkout - one invoice per company, the same key,
         // and a one-company cart still a single invoice. Decided before the point of no return.
         val several = severalCompanies()
+        // Per-company discounts mean nothing to a one-company shop: refused HERE, before the point
+        // of no return, as a plain error that leaves the basket live (inside the try below it
+        // would read as an uncertain issue and freeze the basket on every retry).
+        require(several || draftSale.companyDiscounts.isEmpty()) { "Per-company discounts need a shop with more than one company." }
         return try {
             // The till that rang it — this is what puts the sale under its service on the
             // cash-up. Same session the payment is booked to, so money and ticket agree.
@@ -665,9 +669,6 @@ class SaleRepository @Inject constructor(
                 // company, and its slip must know that. Money paths only branch on size > 1.
                 IssuedInvoice(first.id, first.number, bills.sumOf { it.totalCents }, bills)
             } else {
-                // Per-company discounts mean nothing to a one-company shop; refused before the
-                // point of no return rather than silently dropped.
-                require(draftSale.companyDiscounts.isEmpty()) { "Per-company discounts need a shop with more than one company." }
                 val issued = api.issueDocument(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
                 IssuedInvoice(issued.id, issued.number, rupeesToCents(issued.totalIncl)) // server total is authoritative
             }
