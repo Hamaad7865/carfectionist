@@ -6,6 +6,7 @@ import {
 } from "@/lib/supabase/paginate";
 import { rupeesToCents } from "@/lib/money";
 import { muDate } from "@/lib/mu-date";
+import { splitByCompany, type CompanyFigures } from "@/features/dashboard/company-split";
 import {
   resolveSalesPeriod,
   salesQuerySpec,
@@ -20,6 +21,8 @@ export interface DashboardData {
   collectedCents: number;
   outstandingCents: number;
   docCount: number;
+  /** Per issuing company — only for a shop with several (the tyre centre); null otherwise. */
+  companies: CompanyFigures[] | null;
   salesPerformance: SalesPerformanceData;
   counts: { services: number; stocked: number; locations: number; team: number };
   byMethod: { method: string; cents: number }[];
@@ -80,11 +83,11 @@ export async function getDashboard(input: SalesPeriodInput = {}): Promise<Dashbo
       compareSalesDocumentCursors,
     ),
   );
-  const [invoices, payments, services, stocked, locations, team, recent, lines, salesPerformance] = await Promise.all([
+  const [invoices, payments, services, stocked, locations, team, recent, lines, salesPerformance, entities] = await Promise.all([
     // fetchAllRows: these are aggregated in JS - PostgREST's 1000-row cap would
     // silently understate every headline KPI past 1000 lifetime rows.
-    fetchAllRows(() => sb.from("documents").select("id, doc_type, status, total_incl, amount_paid, source_document_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"])),
-    fetchAllRows(() => sb.from("payments").select("id, method, amount")),
+    fetchAllRows(() => sb.from("documents").select("id, doc_type, status, total_incl, amount_paid, source_document_id, legal_entity_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"])),
+    fetchAllRows(() => sb.from("payments").select("id, method, amount, documents(legal_entity_id)")),
     sb.from("products").select("id", { count: "exact", head: true }).eq("kind", "service"),
     sb.from("products").select("id", { count: "exact", head: true }).eq("is_stocked", true),
     sb.from("stock_locations").select("id", { count: "exact", head: true }),
@@ -92,6 +95,7 @@ export async function getDashboard(input: SalesPeriodInput = {}): Promise<Dashbo
     sb.from("documents").select("id, doc_type, number, status, total_incl, created_at, customers(name)").order("created_at", { ascending: false }).limit(6),
     fetchAllRows(() => sb.from("document_lines").select("id, title, line_total_excl, qty, documents!inner(status)").eq("documents.status", "paid")),
     salesPerformancePromise,
+    sb.from("legal_entities").select("id, legal_name, trading_name, is_default, vat_registered").eq("is_active", true).order("sort_order"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -139,6 +143,17 @@ export async function getDashboard(input: SalesPeriodInput = {}): Promise<Dashbo
     collectedCents,
     outstandingCents,
     docCount: inv.length,
+    companies: splitByCompany(
+      docs,
+      pays,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ((entities.data ?? []) as any[]).map((e) => ({
+        id: e.id,
+        name: e.trading_name || e.legal_name,
+        isDefault: !!e.is_default,
+        vatRegistered: !!e.vat_registered,
+      })),
+    ),
     salesPerformance,
     counts: {
       services: services.count ?? 0,
