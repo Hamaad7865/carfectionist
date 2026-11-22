@@ -1088,11 +1088,20 @@ class CounterViewModel @Inject constructor(
             // A two-company sale is one invoice per company: undo every one of them, never just
             // the first — that would leave the other company's bill standing (and paid).
             r.bills.size > 1 && r.onAccount -> correction("Voided — ${r.bills.joinToString(" + ") { it.number ?: "bill" }}") {
-                r.bills.forEach { api.voidDocument(it.id, why ?: "Voided at POS") }
+                r.bills.forEach { b ->
+                    runCatching { api.voidDocument(b.id, why ?: "Voided at POS") }
+                        .onFailure { throw IllegalStateException("${b.number ?: "A bill"} wasn't voided — void it from Sales. (${it.message})", it) }
+                }
             }
             r.bills.size > 1 -> correction("Refunded — a credit note for ${r.bills.joinToString(" and ") { it.number ?: "each bill" }}") {
                 val shop = api.fetchShopLocationId()
-                r.bills.forEach { api.issueCreditNote(it.id, restock = true, stockLocationId = shop, sessionId = local.value.till?.id) }
+                r.bills.forEach { b ->
+                    // A bill already credited (a first attempt that stopped half-way) is skipped,
+                    // never credited twice.
+                    if (api.fetchCreditNoteFor(b.id) != null) return@forEach
+                    runCatching { api.issueCreditNote(b.id, restock = true, stockLocationId = shop, sessionId = local.value.till?.id) }
+                        .onFailure { throw IllegalStateException("${b.number ?: "A bill"} wasn't refunded — refund it from Sales. (${it.message})", it) }
+                }
             }
             r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, why ?: "Voided at POS") }
             else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") {

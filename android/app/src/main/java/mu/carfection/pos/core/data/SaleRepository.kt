@@ -426,10 +426,11 @@ class SaleRepository @Inject constructor(
         // ("cannot edit an issued document"), issue_checkout replays every bill under
         // "$saleKey:issue" and the group payment replays under "$saleKey:pay". Settling only
         // [knownInvoiceId] would leave the other company's bill unpaid.
-        if (knownInvoiceId != null && !severalCompanies()) {
+        if (knownInvoiceId != null && !severalCompaniesOnRetry(knownInvoiceId)) {
             return settleIssued(knownInvoiceId, method, tenderCents, externalRef, cashSessionId, saleKey)
         }
         if (method == PayMethod.CREDIT) requireNotNull(customerId) { "Pick a customer for a credit sale." }
+        if (method == PayMethod.POINTS && knownInvoiceId == null) refusePointsAcrossCompanies()
 
         val issued = issueWalkInInvoice(
             expandSaleLines(cart, basketMode, basketPct, basketAmtCents, discountReason),
@@ -459,7 +460,8 @@ class SaleRepository @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (isDeterministicRejection(e)) throw e
+                // Both bills are issued by now, whatever the refusal says: the basket must stay
+                // frozen behind them (a live basket would re-charge the OLD bills on its next try).
                 throw SalePaymentUncertain(issued.id, issued.number, e)
             }
             val change = if (method == PayMethod.CASH && tendered != null) (tendered - totalCents).coerceAtLeast(0) else 0
@@ -498,6 +500,25 @@ class SaleRepository @Inject constructor(
      *  the server each time, as the web does - a lookup that fails is an ordinary, retryable
      *  error raised before anything costing money. */
     private suspend fun severalCompanies(): Boolean = api.fetchActiveCompanies().size > 1
+
+    /** The same question on a RETRY, where an invoice is already issued: a failed lookup must
+     *  keep the basket frozen behind that invoice, exactly like a failed payment. */
+    private suspend fun severalCompaniesOnRetry(knownInvoiceId: String): Boolean = try {
+        severalCompanies()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        throw SalePaymentUncertain(knownInvoiceId, null, e)
+    }
+
+    /** Points pay one bill at a time (record_checkout_payment refuses them across bills), so on a
+     *  shop with several companies they are refused HERE, before any bill is issued — refused
+     *  after, they would leave the sale's bills standing unpaid. */
+    private suspend fun refusePointsAcrossCompanies() {
+        if (severalCompanies()) {
+            throw IllegalStateException("Points can't pay a sale here — this shop bills each company separately. Choose another method.")
+        }
+    }
 
     /**
      * A customer the cashier typed while the tablet was offline, so the cache could not be
@@ -654,7 +675,8 @@ class SaleRepository @Inject constructor(
         discountReason: String? = null,
         knownInvoiceId: String? = null,
     ): SaleResult {
-        val issued = if (knownInvoiceId != null && !severalCompanies()) {
+        if (knownInvoiceId == null && tenders.any { it.method == PayMethod.POINTS }) refusePointsAcrossCompanies()
+        val issued = if (knownInvoiceId != null && !severalCompaniesOnRetry(knownInvoiceId)) {
             val inv = try { api.fetchInvoice(knownInvoiceId) } catch (e: CancellationException) { throw e } catch (e: Exception) { throw SalePaymentUncertain(knownInvoiceId, null, e) }
                 ?: throw SalePaymentUncertain(knownInvoiceId, null, IllegalStateException("invoice not found"))
             IssuedInvoice(inv.id, inv.number, rupeesToCents(inv.totalIncl))
@@ -797,7 +819,9 @@ class SaleRepository @Inject constructor(
             } catch (e: Exception) {
                 // A definitive refusal (stale till, day closed, …) committed nothing —
                 // surface it plainly; only a LOST response earns the uncertain-retry flow.
-                if (isDeterministicRejection(e)) throw e
+                // Not on a two-company sale: its bills are already issued, so the basket stays
+                // frozen behind them whatever the refusal says.
+                if (bills.size <= 1 && isDeterministicRejection(e)) throw e
                 throw SalePaymentUncertain(invoiceId, number, e)
             }
             if (t.method == PayMethod.CASH && t.tenderedCents != null) change += (t.tenderedCents - t.amountCents).coerceAtLeast(0)
