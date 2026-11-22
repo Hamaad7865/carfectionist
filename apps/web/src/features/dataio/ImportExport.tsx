@@ -106,6 +106,9 @@ export function ImportExport({ kind, pricesInclVat = false }: { kind: Kind; pric
                     {pricesInclVat && (
                       <> Sell prices in your file are read as <span className="font-semibold">VAT-inclusive</span> (what the customer pays) and stored net — the shelf price stays exactly what the sheet says.</>
                     )}
+                    {rows?.some((r) => (r.sold_by ?? "").trim() !== "") && (
+                      <> A <span className="num">sold_by</span> column moves each product to that company (its name or invoice prefix); a company without VAT sells at 0%, at the price as typed.</>
+                    )}
                   </p>
                 )}
                 <div className="mt-5 flex gap-2">

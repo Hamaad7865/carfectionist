@@ -58,6 +58,8 @@ const schema = z.object({
   threshold: numOpt,
   isActive: z.boolean().optional().default(true),
   photoPath: strOpt,
+  // Sold by — sent only by a shop with several companies; absent = leave it as it is.
+  legalEntityId: z.string().uuid().nullable().optional(),
 });
 
 export async function saveProductAction(input: z.input<typeof schema>): Promise<Result<{ id: string }>> {
@@ -86,6 +88,7 @@ export async function saveProductAction(input: z.input<typeof schema>): Promise<
     low_stock_threshold: isStocked && p.data.threshold != null ? Math.min(Math.max(p.data.threshold, 0), 20) : null,
     is_active: p.data.isActive,
     photo_path: p.data.photoPath,
+    ...(p.data.legalEntityId !== undefined ? { legal_entity_id: p.data.legalEntityId } : {}),
   };
 
   if (p.data.id) {
