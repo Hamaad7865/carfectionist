@@ -76,7 +76,7 @@ export function TicketA4({ r }: { r: ReceiptData }) {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 40, marginTop: 26 }}>
         {r.vatRegistered === false ? (
           // A company that is not VAT-registered states no tax table at all.
-          <div style={{ alignSelf: "flex-start", fontSize: 12 }}>Not registered for VAT — no VAT charged</div>
+          <div style={{ alignSelf: "flex-start", fontSize: 12 }}>VAT exempt</div>
         ) : (
         <table style={{ borderCollapse: "collapse", alignSelf: "flex-start" }}>
           <thead>

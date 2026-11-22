@@ -243,7 +243,7 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
       {/* ── tax breakdown ────────────────────────────────────────────────────── */}
       {hasLines && r.vatRegistered === false && (
         <>
-          <div style={centred}>Not registered for VAT — no VAT charged</div>
+          <div style={centred}>VAT exempt</div>
           {dash}
         </>
       )}
