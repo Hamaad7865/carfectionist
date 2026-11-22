@@ -13,6 +13,8 @@ import * as rpc from "@/lib/supabase/rpc";
 import { btn } from "@/components/ui/button";
 import { RichContent } from "@/lib/rich/render";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
+import { CheckoutBillsPanel } from "@/features/documents/CheckoutBillsPanel";
+import { getCheckoutBills } from "@/lib/supabase/queries/checkout";
 import { paymentControls } from "@/features/documents/payment-controls";
 import { ConvertButton } from "@/features/documents/ConvertButton";
 import { ReviseButton } from "@/features/documents/ReviseButton";
@@ -100,12 +102,15 @@ export default async function DocumentDetailPage({
   searchParams: Promise<{ reverseError?: string; changeError?: string }>;
 }) {
   const { id } = await params;
-  const [doc, session, sp, scheduledSends, supersededBills] = await Promise.all([
+  const [doc, session, sp, scheduledSends, supersededBills, checkoutBills] = await Promise.all([
     getDocumentDetail(id), getSessionContext(), searchParams, getScheduledSends(id),
     // A bill raised from a quotation this one replaced, that no job owns. Not
     // reachable from anywhere else on this page: it hangs off the SUPERSEDED
     // quote, so neither the flow stepper nor "Go to invoice" has ever mentioned it.
     getSupersededBills(id),
+    // A two-company sale (tyre centre): the other company's bill of the same sale. [] for any
+    // document without a checkout group — every Carfectionist document.
+    getCheckoutBills(id),
   ]);
   if (!doc) notFound();
   if (doc.status === "draft") redirect(`/sales/${id}/edit`);
@@ -485,6 +490,9 @@ export default async function DocumentDetailPage({
 
           {/* Payments */}
           <div className="space-y-4">
+            {checkoutBills.length > 1 && (
+              <CheckoutBillsPanel currentId={doc.id} bills={checkoutBills} customerEmail={doc.customerEmail} customerPhone={doc.customerPhone} />
+            )}
             {/* A voided invoice owes nothing — its total_incl stays but paid is 0,
                 so an unguarded "Outstanding = total − paid" would read as money due.
                 The VOID banner above already tells the story; no payment summary. */}

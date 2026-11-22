@@ -12,6 +12,7 @@ import { getCategoryStats } from "@/lib/supabase/queries/categories";
 import { CategoriesPanel } from "@/features/products/CategoriesPanel";
 import { getBusinessProfile } from "@/lib/supabase/queries/settings";
 import { ImportExport } from "@/features/dataio/ImportExport";
+import { getActiveCompanies } from "@/lib/supabase/queries/companies";
 
 const tabCls = (on: boolean) =>
   `inline-flex h-[38px] items-center justify-center rounded-[10px] px-4 text-[13px] font-bold ${on ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body"}`;
@@ -26,6 +27,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   // dialog's price hint needs to know how this shop quotes.
   const profile = tab === "catalogue" || tab === "inventory" ? await getBusinessProfile() : null;
   const session = tab === "catalogue" ? await getSessionContext() : null;
+  const companies = tab === "catalogue" ? await getActiveCompanies() : [];
   const vatDefault = profile?.vatRate ?? 15;
   const pricesInclVat = profile?.pricesVatInclusive ?? false;
   const transferData = tab === "transfers" ? await getTransfers() : null;
@@ -54,6 +56,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           pricesInclVat={pricesInclVat}
           lowOnly={sp.low === "1"}
           tenantId={session.tenantId}
+          companies={companies}
         />
       )}
       {tab === "inventory" && invOps && <InventoryPanel data={invOps} />}

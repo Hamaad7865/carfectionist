@@ -52,7 +52,13 @@ export async function issueDocumentAction(input: z.infer<typeof issueSchema>): P
   try {
     // The desk's till: a ticket issued here belongs to the desk's service on the cash-up.
     const sessionId = await backOfficeTillId(sb);
-    const doc = await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId);
+    // A shop with two issuing companies (tyre centre) issues through issue_checkout: a bill from a
+    // quote or job that holds both tyres and services becomes one invoice per company (the first
+    // keeps this document's id). One-company shops keep issue_document exactly.
+    const { count: companies } = await sb.from("legal_entities").select("id", { count: "exact", head: true }).eq("is_active", true);
+    const doc = (companies ?? 0) > 1
+      ? (await rpc.issueCheckout(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId))[0]
+      : await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId);
     revalidatePath("/sales");
     revalidatePath(`/sales/${parsed.data.documentId}`);
     return { ok: true, data: doc };
@@ -675,4 +681,64 @@ export async function settleAccountAction(
   revalidatePath("/reports");
   for (const inv of selected) revalidatePath(`/sales/${inv.id}`);
   return { ok: true, settledCount, settledCents };
+}
+
+// ── A two-company sale (tyre centre): one payment across its bills ────────────────────────────
+const checkoutPaymentSchema = z.object({
+  invoiceIds: z.array(z.string().uuid()).min(2).max(6),
+  method: z.enum(["cash", "card", "juice", "bank_transfer", "cheque"]),
+  amountCents: z.number().int().positive(),
+  tenderedCents: z.number().int().nullable().optional(),
+  externalRef: z.string().max(120).nullable().optional(),
+  // "proportional", or the company whose bill is filled first (owner's rule for part payments).
+  allocation: z.union([z.literal("proportional"), z.string().uuid()]),
+  idempotencyKey: z.string().max(80).nullable().optional(),
+});
+
+/** Collect for the whole sale: record_checkout_payment spreads one payment across every
+ *  company's open bill in one transaction, on the desk's till (never "any open till"). */
+export async function recordCheckoutPaymentAction(
+  input: z.infer<typeof checkoutPaymentSchema>,
+): Promise<ActionResult<rpc.PaymentGroupRow>> {
+  await requireRole(...WRITE_ROLES);
+  const p = checkoutPaymentSchema.safeParse(input);
+  if (!p.success) return { ok: false, error: "Invalid payment" };
+  const sb = await createClient();
+  const cashSessionId: string = await backOfficeTillId(sb);
+  try {
+    const group = await rpc.recordCheckoutPayment(sb, {
+      invoiceIds: p.data.invoiceIds,
+      method: p.data.method,
+      amount: p.data.amountCents / 100,
+      tendered: p.data.method === "cash" && p.data.tenderedCents != null ? p.data.tenderedCents / 100 : null,
+      externalRef: p.data.externalRef?.trim() || null,
+      cashSessionId,
+      allocation: p.data.allocation,
+      idempotencyKey: p.data.idempotencyKey ?? null,
+    });
+    for (const id of p.data.invoiceIds) revalidatePath(`/sales/${id}`);
+    revalidatePath("/sales");
+    return { ok: true, data: group };
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
+}
+
+/** Send every bill of a two-company sale to the customer, one after the other (each company's
+ *  own PDF). Stops at the first failure and says which bill it was. */
+export async function sendCheckoutBillsAction(input: {
+  documentIds: string[];
+  channel: "email" | "whatsapp";
+  to: string;
+}): Promise<{ ok: true; sent: number } | { ok: false; error: string; sent: number }> {
+  await requireRole(...WRITE_ROLES);
+  const ids = z.array(z.string().uuid()).min(1).max(6).safeParse(input.documentIds);
+  if (!ids.success) return { ok: false, error: "Invalid input", sent: 0 };
+  let sent = 0;
+  for (const documentId of ids.data) {
+    const r = await sendDocumentAction({ documentId, channel: input.channel, to: input.to });
+    if (!r.ok) return { ok: false, error: r.error, sent };
+    sent += 1;
+  }
+  return { ok: true, sent };
 }
