@@ -146,6 +146,13 @@ data class CounterUiState(
     val paidToday: List<TodayPaymentDto> = emptyList(),
     val listBusy: Boolean = false,
     val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
+    // The visit's open bills when [collect] has a sister bill — the tyre centre issues one invoice
+    // per company and the customer pays them as ONE payment. In company order, [collect]
+    // included; empty when the bill stands alone.
+    val collectGroup: List<OutstandingInvoiceDto> = emptyList(),
+    // Still asking the server for [collectGroup]: nothing records until it is known, or a payment
+    // would land on one company's bill alone.
+    val collectGroupPending: Boolean = false,
     val paymentAction: TodayPaymentDto? = null, // a tapped PAID TODAY row → reverse / refund
     // Changing HOW a recorded payment was taken (card declined at the terminal after it
     // was rung). methodChangeFor is the row being changed; pick/ref are the new tender.
@@ -252,7 +259,29 @@ data class CounterUiState(
     val heldTotalCents: Long get() = heldSales.sumOf { it.totalCents }
 
     /** The whole balance the pad COULD settle: an invoice's outstanding, or the cart total. */
-    val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
+    /** The bills the pad is collecting: the sister-bill group, else the one bill. */
+    val collectBills: List<OutstandingInvoiceDto> get() = collectGroup.ifEmpty { listOfNotNull(collect) }
+    val dueCents: Long get() = if (collect != null) collectBills.sumOf { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } else totals.totalCents
+
+    /** The company a collected bill was issued by (a bill with none is the main company's). */
+    fun billCompanyId(b: OutstandingInvoiceDto): String? = companyIdOfProduct(b.legalEntityId, companies)
+
+    /**
+     * Where a part payment goes on a several-company visit — "<company> first" per bill, or both
+     * in proportion (record_checkout_payment's allocation). Empty when there is only one bill.
+     */
+    val allocationChoices: List<Pair<String, String>>
+        get() {
+            val named: List<Pair<String, String>> = when {
+                collect != null && collectGroup.size > 1 -> collectGroup.mapNotNull { b ->
+                    val id = billCompanyId(b) ?: return@mapNotNull null
+                    id to "${companies.firstOrNull { it.id == id }?.let(::companyName) ?: b.number ?: "Bill"} first"
+                }
+                collect == null && several && tillBills.size > 1 -> tillBills.map { it.company.id to "${it.name} first" }
+                else -> emptyList()
+            }
+            return if (named.size > 1) named + ("proportional" to "Both, shared") else emptyList()
+        }
 
     /**
      * The most this method can take in one go. Every method can cover the whole balance
@@ -310,7 +339,7 @@ data class CounterUiState(
     // is left after points: a bill the points cover outright leaves dueAfterPointsCents at
     // zero, and requiring that to be positive made Take permanently dead with nothing
     // saying why.
-    val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueAfterPointsCents
+    val splitCanRecord: Boolean get() = !busy && !collectGroupPending && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueAfterPointsCents
 
     /**
      * Does this sale name a REAL customer — one the cashier picked or the bill was already
@@ -369,7 +398,7 @@ data class CounterUiState(
         }
 
     val canRecord: Boolean
-        get() = !busy && discountBlockReason == null && (collect != null || cart.isNotEmpty()) && when (method) {
+        get() = !busy && !collectGroupPending && discountBlockReason == null && (collect != null || cart.isNotEmpty()) && when (method) {
             PayMethod.CREDIT -> dueCents > 0 && entryValid
             // A COLLECT may take a partial (a deposit); a WALK-IN must be settled in full —
             // and "in full" now means the rest, since points have already covered their part.
@@ -1212,6 +1241,10 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(
             collect = bill, padOpen = true, method = PayMethod.CASH,
             collectLines = emptyList(), collectJob = null, collectDetailFailed = false, collectSourceNumber = null,
+            // An issued bill of a checkout group may have a sister bill (the other company's):
+            // the detail load below finds it, and nothing records until it has.
+            collectGroup = emptyList(), collectGroupPending = bill.status != "draft" && bill.checkoutGroupId != null,
+            allocation = "proportional",
             // Every bill opens at its full balance — unless a deposit was agreed at signing,
             // which dials the pad in for the cashier, or the job card asked for a deposit
             // nobody agreed, which opens on an empty figure to type. A part payment typed
@@ -1240,7 +1273,19 @@ class CounterViewModel @Inject constructor(
      */
     private fun loadCollectDetail(bill: OutstandingInvoiceDto) {
         viewModelScope.launch {
-            val fetched = runCatching { api.fetchInvoice(bill.id)?.lines.orEmpty().sortedBy { it.sortOrder } }
+            // The visit's other company's bill, when there is one: the customer pays them together.
+            val groupId = bill.checkoutGroupId?.takeIf { bill.status != "draft" }
+            val groupRead = if (groupId == null) Result.success(emptyList())
+            else runCatching {
+                val order = local.value.companies.map { it.id }
+                api.fetchCheckoutGroupBills(groupId)
+                    .sortedBy { b -> order.indexOf(companyIdOfProduct(b.legalEntityId, local.value.companies)).let { if (it < 0) Int.MAX_VALUE else it } }
+            }
+            val group = groupRead.getOrNull()?.takeIf { g -> g.size > 1 && g.any { it.id == bill.id } }.orEmpty()
+            val billIds = group.map { it.id }.ifEmpty { listOf(bill.id) }
+            val fetched = runCatching {
+                billIds.flatMap { id -> api.fetchInvoice(id)?.lines.orEmpty().sortedBy { it.sortOrder } }
+            }
             val job = bill.jobId?.let { jid -> runCatching { api.fetchJobDetail(jid) }.getOrNull() }
             // Name the source quote, so the header can say where this bill's prices came from.
             val srcNumber = bill.sourceDocumentId?.let { sid -> runCatching { api.fetchDocNumber(sid) }.getOrNull() }
@@ -1249,8 +1294,12 @@ class CounterViewModel @Inject constructor(
             local.value = st.copy(
                 collectLines = fetched.getOrDefault(emptyList()),
                 collectJob = job,
-                collectDetailFailed = fetched.isFailure,
+                collectDetailFailed = fetched.isFailure || groupRead.isFailure,
                 collectSourceNumber = srcNumber,
+                collectGroup = group,
+                // A failed read keeps the pad shut (retry re-reads it): never charge one company's
+                // bill alone when the visit may have two.
+                collectGroupPending = groupRead.isFailure,
             )
         }
     }
@@ -1258,7 +1307,7 @@ class CounterViewModel @Inject constructor(
     /** The item fetch failed (bad connection) — try again for the bill still on the pad. */
     fun retryCollectDetail() {
         val bill = local.value.collect ?: return
-        local.value = local.value.copy(collectDetailFailed = false)
+        local.value = local.value.copy(collectDetailFailed = false, collectGroupPending = bill.status != "draft" && bill.checkoutGroupId != null)
         loadCollectDetail(bill)
     }
 
@@ -1404,7 +1453,10 @@ class CounterViewModel @Inject constructor(
                 val result = if (bill != null) {
                     // A bill raised when the car was marked ready is still a DRAFT, and a
                     // draft takes no money — the same rule the single-method collect obeys.
-                    sales.collectSplit(bill.id, bill.number, allTenders, s.till?.id, saleKey, needsIssue = bill.status == "draft")
+                    sales.collectSplit(
+                        bill.id, bill.number, allTenders, s.till?.id, saleKey, needsIssue = bill.status == "draft",
+                        group = s.collectGroup.map { it.toSaleBill() }, allocation = s.allocation,
+                    )
                 } else {
                     sales.completeSaleSplit(
                         cart = s.cart, tenders = allTenders, customerId = s.customerId, walkInName = s.customerText,
@@ -1477,7 +1529,7 @@ class CounterViewModel @Inject constructor(
                         // outright — and rightly: you cannot owe money on a document that was
                         // never issued.
                         val ids = if (bill.status == "draft") api.issueBill(bill.id, "$saleKey:issue", sessionId = s.till?.id).map { it.id }
-                        else listOf(bill.id)
+                        else s.collectBills.map { it.id }
                         api.deliverOnAccount(bill.id)
                         ids
                     } catch (e: CancellationException) {
@@ -1525,6 +1577,8 @@ class CounterViewModel @Inject constructor(
                     cashSessionId = s.till?.id,
                     payKey = saleKey,
                     needsIssue = bill.status == "draft",
+                    group = s.collectGroup.map { it.toSaleBill() },
+                    allocation = s.allocation,
                 )
                 // A draft that a shop with several companies issued as one invoice per company:
                 // one slip per bill, each under the company that issued it.
@@ -2511,3 +2565,7 @@ class CounterViewModel @Inject constructor(
         }
     }
 }
+
+/** A collected bill as the sale paths name it (its company and what it comes to). */
+internal fun OutstandingInvoiceDto.toSaleBill(): mu.carfection.pos.core.data.SaleBill =
+    mu.carfection.pos.core.data.SaleBill(id, number, rupeesToCents(totalIncl), legalEntityId)

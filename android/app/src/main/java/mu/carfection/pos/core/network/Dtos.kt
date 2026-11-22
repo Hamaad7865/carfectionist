@@ -341,6 +341,10 @@ data class OutstandingInvoiceDto(
     @SerialName("issued_at") val issuedAt: String? = null, // for the payment screen's bill header
     val customers: JobCustomerDto? = null,
     val vehicles: JobVehicleDto? = null,
+    /** The company that issued it, and the visit it belongs to: on the tyre centre one visit is
+     *  one invoice per company, all sharing a checkout group — collected together, as one payment. */
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
+    @SerialName("checkout_group_id") val checkoutGroupId: String? = null,
 )
 
 /** One invoice or credit note, for account settlement's shop-wide read: every open invoice

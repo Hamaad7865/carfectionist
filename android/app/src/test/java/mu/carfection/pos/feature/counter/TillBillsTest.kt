@@ -152,6 +152,23 @@ class TillBillsTest {
     }
 
     @Test
+    fun `collecting a bill with a sister bill collects the visit, and offers the pay order`() {
+        val tyreBill = mu.carfection.pos.core.network.OutstandingInvoiceDto(
+            id = "b1", number = "INV-1", totalIncl = 4600.0, amountPaid = 0.0, status = "issued", legalEntityId = "co-tyre", checkoutGroupId = "b1",
+        )
+        val svcBill = tyreBill.copy(id = "b2", number = "WS-1", totalIncl = 1300.0, amountPaid = 260.0, legalEntityId = "co-svc")
+        val alone = CounterUiState(companies = companies, collect = tyreBill)
+        assertEquals(4_600_00L, alone.dueCents)
+        assertTrue("one bill: no pay order to choose", alone.allocationChoices.isEmpty())
+        val visit = alone.copy(collectGroup = listOf(tyreBill, svcBill))
+        assertEquals(5_640_00L, visit.dueCents) // 4,600 + (1,300 − 260 already paid)
+        assertEquals(listOf("co-tyre", "co-svc", "proportional"), visit.allocationChoices.map { it.first })
+        assertEquals("Tyre Centre first", visit.allocationChoices.first().second)
+        // Nothing records while the sister bill is still being looked up.
+        assertTrue(!alone.copy(collectGroupPending = true, payText = "100").canRecord)
+    }
+
+    @Test
     fun `a quote with tyres and services spans both companies, in company order`() {
         assertEquals(listOf("co-tyre", "co-svc"), quoteCompanies(listOf("co-svc", null, "co-tyre"), companies).map { it.id })
         // An ad-hoc line, or a product of a company switched off since, bills under the main one.

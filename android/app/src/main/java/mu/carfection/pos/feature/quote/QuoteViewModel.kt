@@ -1494,7 +1494,10 @@ class QuoteViewModel @Inject constructor(
             }.onSuccess { (parts, row) ->
                 _s.update { it.copy(busy = false) }
                 loadQuotes()
-                if (row != null) openQuote(row)
+                // Reopen the first company's quote. If it can't be read back, leave for the list:
+                // the builder still holds BOTH companies' lines, and its next Save would put the
+                // other company's back on this quote (or, unsaved, start a third).
+                if (row != null) openQuote(row) else { back(); return@onSuccess }
                 val names = parts.mapNotNull { p -> s.companies.firstOrNull { it.id == p.legalEntityId } }
                     .map { mu.carfection.pos.feature.counter.companyName(it) }
                 _s.update {

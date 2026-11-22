@@ -290,6 +290,9 @@ data class SaleResult(
 )
 
 /** One company's invoice of a sale. */
+/** Why points are refused on a several-company sale (record_checkout_payment refuses them across bills). */
+const val POINTS_ACROSS_COMPANIES = "Points can't pay a sale here — this shop bills each company separately. Choose another method."
+
 data class SaleBill(
     val id: String,
     val number: String?,
@@ -537,7 +540,7 @@ class SaleRepository @Inject constructor(
      *  after, they would leave the sale's bills standing unpaid. */
     private suspend fun refusePointsAcrossCompanies() {
         if (severalCompanies()) {
-            throw IllegalStateException("Points can't pay a sale here — this shop bills each company separately. Choose another method.")
+            throw IllegalStateException(POINTS_ACROSS_COMPANIES)
         }
     }
 
@@ -771,16 +774,27 @@ class SaleRepository @Inject constructor(
          *  so a split — or ANY collect carrying points, which takes this same road —
          *  died on a bill the single-method path settles without complaint. */
         needsIssue: Boolean = false,
+        /** The bill's ISSUED sister bills on a shop with several companies (the visit's other
+         *  company's invoice), the bill itself included: each part is one payment across them. */
+        group: List<SaleBill> = emptyList(),
+        /** …filling them in proportion, or one company's bill first (record_checkout_payment). */
+        allocation: String = "proportional",
     ): SaleResult {
+        // Points pay one bill at a time: refused before a split draft is issued or a sister-bill
+        // group is charged — refused after, they would freeze the pad behind open bills.
+        if (tenders.any { it.method == PayMethod.POINTS } &&
+            (group.size > 1 || (needsIssue && api.checkoutDocumentCount(invoiceId) > 1))
+        ) throw IllegalStateException(POINTS_ACROSS_COMPANIES)
         // Same key the single-method collect issues under, so the two paths replay each
         // other's issue rather than racing for a second fiscal number.
         // A shop with several companies issues the draft as one invoice per company: each part
         // is then ONE payment across them, filled in proportion (recordTenders' group road).
         val issued = if (!needsIssue) null else api.issueBill(invoiceId, "$saleKey:issue", sessionId = cashSessionId)
         val issuedNumber = issued?.firstOrNull()?.number ?: number
-        val group = issued.orEmpty().takeIf { it.size > 1 }
-            ?.map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }.orEmpty()
-        return recordTenders(invoiceId, issuedNumber, targetCents = null, tenders, cashSessionId, saleKey, group)
+        val bills = issued.orEmpty().takeIf { it.size > 1 }
+            ?.map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }
+            ?: group.takeIf { it.size > 1 }.orEmpty()
+        return recordTenders(invoiceId, issuedNumber, targetCents = null, tenders, cashSessionId, saleKey, bills, allocation)
     }
 
     /**
@@ -928,6 +942,9 @@ class SaleRepository @Inject constructor(
          *  thing that happens before the money: it takes the fiscal number, moves the stock,
          *  and stamps THIS till and trading day, which is where the sale actually happened. */
         needsIssue: Boolean = false,
+        /** The bill's ISSUED sister bills (see [collectSplit]), the bill itself included. */
+        group: List<SaleBill> = emptyList(),
+        allocation: String = "proportional",
     ): SaleResult {
         require(method != PayMethod.CREDIT) { "Choose a payment method." }
         val tendered = if (method == PayMethod.CASH) (tenderCents ?: amountCents) else null
@@ -938,11 +955,13 @@ class SaleRepository @Inject constructor(
         // opened), so it propagates as a clean refusal rather than an uncertain payment.
         val issued = if (needsIssue) api.issueBill(invoiceId, "$payKey:issue", sessionId = cashSessionId) else null
         val issuedNumber = issued?.firstOrNull()?.number ?: number
-        if (issued != null && issued.size > 1) {
-            // A shop with several companies issued the draft as one invoice per company. The pad's
-            // figure was the draft's whole total: ONE payment across every bill, in proportion to
-            // what each owes (a deposit lands on both), in one transaction.
-            val bills = issued.map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }
+        val bills = issued?.takeIf { it.size > 1 }?.map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }
+            ?: group.takeIf { it.size > 1 }
+        if (bills != null) {
+            // A shop with several companies: the visit is one invoice per company (just issued
+            // from the draft, or issued earlier and found as sister bills). ONE payment across
+            // them in one transaction — in proportion to what each owes, or the company the
+            // cashier picked first.
             val group = try {
                 api.recordCheckoutPayment(
                     invoiceIds = bills.map { it.id },
@@ -951,7 +970,7 @@ class SaleRepository @Inject constructor(
                     tenderedRupees = tendered?.let { centsToRupees(it) },
                     externalRef = method.externalRefToSend(externalRef),
                     cashSessionId = cashSessionId,
-                    allocation = "proportional",
+                    allocation = allocation,
                     idempotencyKey = "$payKey:collect",
                 )
             } catch (e: CancellationException) {

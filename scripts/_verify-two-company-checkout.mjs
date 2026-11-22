@@ -80,11 +80,16 @@ try {
     `select quote_prefix||quote_next_number q, invoice_prefix||invoice_next_number i, credit_note_prefix||credit_note_next_number cn
        from legal_entities where tenant_id = $1 and is_default`, [LIVE]);
 
-  await c.query(sql);
-  console.log("✓ migration applied");
+  // Written before the migration was pushed; since then it is live, so it is only re-applied
+  // where it is missing (re-creating its indexes would fail).
+  if ((await one("select count(*) n from supabase_migrations.schema_migrations where version = '20261123000010'")).n === "0") {
+    await c.query(sql);
+    console.log("✓ migration applied");
+  } else console.log("✓ migration already live — checking it as deployed");
 
   // ── the sandbox becomes a two-company shop for this run ────────────────────────────────────
-  const svc = (await one(
+  const existingSvc = (await one("select id from legal_entities where tenant_id = $1 and not is_default and is_active", [SANDBOX]))?.id;
+  const svc = existingSvc ?? (await one(
     `insert into legal_entities (tenant_id, legal_name, brn, vat_registered, vat_number, vat_rate, quote_prefix, invoice_prefix, credit_note_prefix, sort_order)
      values ($1, 'TEST Wheel Services Ltd', 'C99999999', false, null, 0, 'TESTWQ-', 'TESTWS-', 'TESTWCN-', 1) returning id`, [SANDBOX])).id;
   const tyreCo = (await one("select id from legal_entities where tenant_id = $1 and is_default", [SANDBOX])).id;

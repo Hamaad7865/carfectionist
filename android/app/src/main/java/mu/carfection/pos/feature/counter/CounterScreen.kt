@@ -1168,8 +1168,21 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         Spacer(Modifier.height(12.dp))
                         // The invoice total is what the lines sum to. A collect may already carry a
                         // deposit, so show what's been paid and the balance actually being settled now.
-                        val invoiceTotalCents = s.collect?.let { rupeesToCents(it.totalIncl) } ?: s.dueCents
-                        val paidAlreadyCents = s.collect?.let { rupeesToCents(it.amountPaid) } ?: 0L
+                        val invoiceTotalCents = if (s.collect != null) s.collectBills.sumOf { rupeesToCents(it.totalIncl) } else s.dueCents
+                        val paidAlreadyCents = s.collectBills.sumOf { rupeesToCents(it.amountPaid) }
+                        // One visit, one bill per company: name each, so the customer sees what
+                        // the one payment covers.
+                        if (s.collectGroup.size > 1) {
+                            s.collectGroup.forEach { b ->
+                                val co = s.billCompanyId(b)?.let { id -> s.companies.firstOrNull { it.id == id } }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${co?.let(::companyName) ?: "Bill"} · ${b.number ?: "—"}", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Spacer(Modifier.weight(1f))
+                                    Text(formatMUR(rupeesToCents(b.totalIncl)), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                }
+                                Spacer(Modifier.height(6.dp))
+                            }
+                        }
                         // A BASKET discount belongs on the bill the customer is reading.
                         //
                         // The lines above show rowGrossCents, which carries each line's OWN discount
@@ -1249,6 +1262,12 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
         // them back off. One-tap-and-done was the alternative and was rejected: reversals
         // are owner-only since rule 3, so a stray finger would mean fetching the owner.
         PointsBar(s, vm)
+        // A part payment (a deposit) on a visit billed by two companies: which bill it fills
+        // first. Paying in full needs no choice.
+        if (s.isPartPayment && s.allocationChoices.isNotEmpty()) {
+            AllocationChips(s, vm, "THIS PAYMENT GOES TO")
+            Spacer(Modifier.height(12.dp))
+        }
         Text("MEANS OF PAYMENT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1429,20 +1448,7 @@ private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
         }
         // Two companies' bills: each part of the split is a part payment across them, and the
         // cashier picks which bill it fills first (record_checkout_payment's allocation).
-        if (s.several && s.tillBills.size > 1) {
-            Text("EACH PART PAYS", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                (s.tillBills.map { it.company.id to "${it.name} first" } + ("proportional" to "Both, shared")).forEach { (value, label) ->
-                    val on = s.allocation == value
-                    Box(
-                        Modifier.height(36.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(18.dp))
-                            .border(1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(18.dp))
-                            .clickable { vm.setAllocation(value) }.padding(horizontal = 14.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { Text(label, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
-                }
-            }
-        }
+        AllocationChips(s, vm, "EACH PART PAYS")
         Spacer(Modifier.weight(1f))
         Text("Credit can't be split — it's a receivable, not a tender.", color = TextMuted, fontFamily = Barlow, fontSize = 11.5.sp)
     }
@@ -2097,6 +2103,27 @@ private fun ViewReceiptDialog(doc: mu.carfection.pos.core.hardware.ReceiptDoc, o
                     contentAlignment = Alignment.Center,
                 ) { Text("Print again", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp, color = AccentInk) }
             }
+        }
+    }
+}
+
+/** Where a part payment goes on a two-company visit: one chip per company, or both shared. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AllocationChips(s: CounterUiState, vm: CounterViewModel, title: String) {
+    val choices = s.allocationChoices
+    if (choices.isEmpty()) return
+    Text(title, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
+    Spacer(Modifier.height(6.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        choices.forEach { (value, label) ->
+            val on = s.allocation == value
+            Box(
+                Modifier.height(36.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(18.dp))
+                    .border(1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(18.dp))
+                    .clickable { vm.setAllocation(value) }.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
         }
     }
 }

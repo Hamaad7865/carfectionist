@@ -288,8 +288,10 @@ copy at `docs/redesign/phase-f/dashboard-mockup.png`):
   companies and offers "Make it two quotes" (`split_document_by_company`, after saving it without a
   bill discount); one quote over both cannot be sent or signed with a bill discount (the server
   refuses it at issue too). Checked by `scripts/_verify-tablet-bills-per-company.mjs` (rolled back).
-  Known limits: a bill issued earlier (not a draft) is still collected one company at a time; the
-  pad opened from a quote's bill opens the first company's; points can't pay across two bills.
+  Follow-up: the pad also collects a bill issued EARLIER together with its sister bill (same
+  checkout group) — both shown, one payment, "<company> first / Both" on a part payment — so a
+  deposit bill or a quote's bill opens the whole visit. Points are refused before a split draft is
+  issued or a group is charged (they pay one bill at a time). TO COLLECT still lists each bill.
 
 ### H. Final checks
 `npm run test --workspace web`, typecheck, lint on touched files, `cf-build`, both Android

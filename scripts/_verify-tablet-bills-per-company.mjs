@@ -10,6 +10,8 @@ const SANDBOX_OWNER = "b729191b-1159-4d46-88c7-3c9aceb5e664";
 const LIVE = "11111111-1111-4111-8111-000000000001";
 const TYRE_PRODUCT = "87530748-1b27-459a-9f20-ec7cf3e28e7f"; // the main (VAT) company
 const CAR_OWNER = "3668d8c3-75cc-402e-8fa5-143460857959";
+const CAR = "c79909e8-5c15-46b6-95c1-217a00ee9715";
+const TECH = "7bdad541-a060-486d-8fb7-40cd366a48a1";
 
 let failures = 0;
 const check = (label, got, want) => {
@@ -125,11 +127,41 @@ try {
   check("the balance settles both bills", afterAll.map((d) => d.status).join(" "), "paid paid");
   check("  …each collect returns its payment ids (for the undo)", `${dep.payment_ids.length} ${rest.payment_ids.length}`, "2 2");
 
-  // ── On account: a draft issued per company, then delivered on account ───────────────────────
+  // ── A bill issued BEFORE the pad: the till finds its sister bill and collects the visit ─────
+  console.log("\nA bill issued earlier, collected with its sister bill:");
+  const early = await draft("invoice", mixed());
+  const earlyBills = await q("select id, number from public.issue_checkout($1, null, $2, $3, null)", [early, `inv:${early}`, till]);
+  // The tablet's TO COLLECT read (with its two new columns) and its sister-bill read, as the owner.
+  const row = await one("select legal_entity_id, checkout_group_id from documents where id = $1 and doc_type = 'invoice' and status = any('{draft,issued,partly_paid}')", [earlyBills[0].id]);
+  check("TO COLLECT reads the bill's company and its visit", `${row.legal_entity_id === tyreCo} ${row.checkout_group_id === early}`, "true true");
+  const sisters = await q("select id from documents where checkout_group_id = $1 and doc_type = 'invoice' and status = any('{issued,partly_paid}')", [row.checkout_group_id]);
+  check("  …the sister-bill read finds both open bills", sisters.length, 2);
+  await refuses("the OLD road — a Rs 5,000 deposit on the Rs 4,600 tyre bill alone — is refused",
+    "select * from public.record_payment($1, 'cash'::payment_method, 5000, 5000, null, $2, null, $3)", [earlyBills[0].id, till, "vtb:old"], "");
+  await c.query("savepoint dep");
+  await c.query("select * from public.record_checkout_payment($1::uuid[], 'cash'::payment_method, 5000, 5000, null, $2, $3, $4)", [earlyBills.map((b) => b.id), till, tyreCo, "vtb:tyrefirst:collect"]);
+  const tf = await q("select amount_paid from documents where id = any($1::uuid[]) order by total_incl desc", [earlyBills.map((b) => b.id)]);
+  check("  …across the visit, Tyres first: 4,600 + 400", tf.map((d) => d.amount_paid).join(" + "), "4600.00 + 400.00");
+  await c.query("rollback to savepoint dep");
+
+  // ── Points on a draft that will split: refused BEFORE issue (checkout_document_ids) ─────────
+  console.log("\nPoints:");
+  const willSplit = await draft("invoice", mixed());
+  check("checkout_document_ids sees two bills coming → the tablet refuses points first", (await q("select * from public.checkout_document_ids($1)", [willSplit])).length, 2);
+  const oneCo = await draft("invoice", [line(TYRE_PRODUCT, "Tyre", 2000)]);
+  check("  …a tyres-only draft stays one bill → points allowed", (await q("select * from public.checkout_document_ids($1)", [oneCo])).length, 1);
+
+  // ── On account: a ready job's split draft is issued per company and handed over ────────────
   console.log("\nOn account:");
-  const credit = await draft("invoice", mixed());
-  const creditBills = await q("select id from public.issue_checkout($1, null, $2, $3, null)", [credit, `vtb:credit:issue`, till]);
-  check("the draft becomes two open invoices", (await q("select status from documents where id = any($1::uuid[])", [creditBills.map((b) => b.id)])).map((d) => d.status).join(" "), "issued issued");
+  const qd = await draft("quote", mixed(), { vehicle_id: CAR });
+  const job = (await one("select id from public.convert_quote_to_job($1, $2, null, null)", [qd, TECH])).id;
+  const jobDraft = (await one("select id from public.create_document_from_job($1, 'invoice')", [job])).id;
+  await asAdmin(); await c.query("update jobs set status = 'ready', ready_at = now() where id = $1", [job]); await asOwner();
+  const creditBills = await q("select id from public.issue_checkout($1, null, $2, $3, null)", [jobDraft, `vtb:credit:issue`, till]);
+  check("the job's draft becomes two open invoices", (await q("select status from documents where id = any($1::uuid[])", [creditBills.map((b) => b.id)])).map((d) => d.status).join(" "), "issued issued");
+  const delivered = await one("select public.deliver_on_account($1) ok", [creditBills[0].id]);
+  check("deliver_on_account on the first bill hands the car over", `${delivered.ok} ${(await one("select status from jobs where id = $1", [job])).status}`, "true delivered");
+  check("  …both bills stay open on the account", (await q("select status from documents where id = any($1::uuid[])", [creditBills.map((b) => b.id)])).map((d) => d.status).join(" "), "issued issued");
 } catch (e) {
   failures++;
   console.error("✗ stopped:", e.message);

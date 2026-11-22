@@ -1152,6 +1152,28 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }
 
     /**
+     * The visit's OPEN invoices — every company's bill of one checkout group (the tyre centre
+     * bills one per company). The till collects them together, as one payment. Unordered: the
+     * caller orders them by company.
+     */
+    suspend fun fetchCheckoutGroupBills(groupId: String): List<OutstandingInvoiceDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, legal_entity_id, checkout_group_id, jobs!documents_job_id_fkey(status), customers(name, points_balance), vehicles(plate, make, model)")) {
+                filter {
+                    eq("checkout_group_id", groupId); eq("doc_type", "invoice")
+                    isIn("status", listOf("issued", "partly_paid"))
+                }
+            }
+            .decodeList()
+
+    /** How many documents a draft will become when issued per company (checkout_document_ids):
+     *  1 on a one-company draft, 2 when it carries both companies' lines. Nothing is written. */
+    suspend fun checkoutDocumentCount(documentId: String): Int =
+        client.postgrest.rpc("checkout_document_ids", buildJsonObject {
+            put("p_document_id", documentId)
+        }).decodeList<kotlinx.serialization.json.JsonObject>().size
+
+    /**
      * "Two quotes": split a DRAFT quote that spans companies into one draft quote per company,
      * nothing issued (split_document_by_company). The first company's keeps the quote's id; each
      * then carries its own discount and is sent and signed on its own. Idempotent.
@@ -1265,7 +1287,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      */
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, jobs!documents_job_id_fkey(status), customers(name, points_balance), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, legal_entity_id, checkout_group_id, jobs!documents_job_id_fkey(status), customers(name, points_balance), vehicles(plate, make, model)")) {
                 // 'draft' belongs here now: a quoted job's bill is raised when the car is
                 // marked ready and left OPEN, so the counter can add whatever the customer
                 // picked up on their way out. It is issued as they pay. Callers drop the
