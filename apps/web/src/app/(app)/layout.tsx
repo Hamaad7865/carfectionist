@@ -1,13 +1,23 @@
-import { requireSession } from "@/lib/auth/session";
 import { AppShell } from "@/components/shell/AppShell";
 import { AuthKeepalive } from "@/components/shell/AuthKeepalive";
 import { fiscalYears } from "@/lib/supabase/queries/notifications";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
-import { getBrand } from "@/lib/brand-server";
+import type { Metadata } from "next";
+import { getSessionContext, requireSession } from "@/lib/auth/session";
+import { getShopBrand } from "@/lib/brand-server";
+
+/** Another shop's tab says its own name, never "Carfection". */
+export async function generateMetadata(): Promise<Metadata> {
+  const ctx = await getSessionContext();
+  if (!ctx) return {};
+  const brand = await getShopBrand(ctx.tenantId);
+  return brand.key === "shop" ? { title: brand.name, description: brand.pageDescription } : {};
+}
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const ctx = await requireSession();
-  const brand = await getBrand();
+  // Carfectionist's own tenants wear the host's brand; any other shop sees only its own name.
+  const brand = await getShopBrand(ctx.tenantId);
 
   // The bell fetches its own alerts from /api/notifications (see Topbar). It used
   // to be computed here, which cost every page ~1s AND froze the badge — a layout

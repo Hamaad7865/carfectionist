@@ -32,7 +32,10 @@ export function AppShell({
   }, []);
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-app">
+    // Pinned to the window (not h-dvh): anything that makes the document taller — a popover, a
+    // zoomed browser — then scrolls an empty body behind the shell instead of sliding the whole
+    // shell up and leaving a blank strip under it.
+    <div className="fixed inset-0 flex overflow-hidden bg-app">
       {/* Desktop sidebar (fixed) */}
       <div className="hidden md:flex md:w-[256px] md:shrink-0">
         <Sidebar brand={brand} role={ctx.role} displayName={ctx.displayName} modules={ctx.modules} />
