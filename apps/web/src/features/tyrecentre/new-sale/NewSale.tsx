@@ -112,6 +112,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
   const [overrideFor, setOverrideFor] = useState<{ companyId: string; billId: string } | null>(null);
   const [coDisc, setCoDisc] = useState<Record<string, CompanyDiscount>>({});
   const [allocation, setAllocation] = useState("proportional");
+  const [quoteChoice, setQuoteChoice] = useState(false);
   const [pricing, setPricing] = useState<TyreSaleRef["products"][number] | null>(null);
   const [history, setHistory] = useState<CarVisit[]>([]);
   // This sale's identity — the idempotency key and the id its invoice is drafted under.
@@ -284,7 +285,7 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
     });
   }
 
-  async function keep(as: "quote" | "job") {
+  async function keep(as: "quote" | "job", quotes?: "one" | "two") {
     setError(null);
     if (!basket.customerId) {
       setError(as === "job" ? "Pick the customer and their car first." : "Pick the customer first — a quote is addressed to someone.");
@@ -296,15 +297,21 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
       setPickerOpen(true);
       return;
     }
+    // A cart with two companies' items: one quote or two? (owner's choice, asked every time)
+    if (as === "quote" && bills.length > 1 && !quotes) {
+      setQuoteChoice(true);
+      return;
+    }
+    setQuoteChoice(false);
     setKeeping(as);
     const r = await keepCartAction({
       as,
       customerId: basket.customerId,
       vehicleId: vehicle?.id,
       lines: basket.lines.map((l) => ({ productId: l.product.id, qty: l.qty, discountKind: l.discountKind, discountPct: l.discountPct, discountAmountCents: l.discountAmountCents })),
-      orderDiscountKind: basket.orderDiscKind,
-      orderDiscountValue: basket.orderDiscValue,
-      orderDiscountReason: basket.orderDiscReason,
+      ...(several
+        ? { companyDiscounts: companyDiscountsPayload(bills), quotes }
+        : { orderDiscountKind: basket.orderDiscKind, orderDiscountValue: basket.orderDiscValue, orderDiscountReason: basket.orderDiscReason }),
     });
     setKeeping(null);
     if (!r.ok) {
@@ -316,6 +323,10 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
     if (r.jobId) {
       toast.success("Job saved — the car is on the board.", { action: { label: "Open job", onClick: () => router.push(`/jobs/${r.jobId}`) } });
     } else {
+      if (r.quoteIds.length > 1) {
+        const [, second] = r.quoteIds;
+        toast.success(`${r.quoteIds.length} quotes saved — one per company.`, { action: { label: "Open the other", onClick: () => router.push(`/sales/${second}/edit`) } });
+      }
       router.push(`/sales/${r.quoteId}/edit`);
     }
   }
@@ -645,6 +656,38 @@ export function NewSale({ data, canPrice, shopLabel }: { data: TyreSaleRef; canP
           }}
         />
       )}
+
+      <Dialog open={quoteChoice} onOpenChange={setQuoteChoice}>
+        <DialogContent className="rounded-[22px] sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle className="text-[16px]">One quote or two?</DialogTitle>
+            <DialogDescription>This cart has items from {bills.map((b) => b.company.name).join(" and ")}.</DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2">
+            <button
+              type="button"
+              onClick={() => void keep("quote", "two")}
+              className="rounded-[16px] bg-tc-sub px-4 py-3 text-left hover:bg-tc-track"
+            >
+              <div className="text-[14px] font-semibold text-tc-ink">Two quotes</div>
+              <div className="text-[12.5px] text-tc-muted">One per company, each in its own number series, each with its own discount.</div>
+            </button>
+            <button
+              type="button"
+              onClick={() => void keep("quote", "one")}
+              disabled={companyDiscountsPayload(bills).length > 0}
+              className="rounded-[16px] bg-tc-sub px-4 py-3 text-left hover:bg-tc-track disabled:opacity-50"
+            >
+              <div className="text-[14px] font-semibold text-tc-ink">One quote</div>
+              <div className="text-[12.5px] text-tc-muted">
+                {companyDiscountsPayload(bills).length > 0
+                  ? "Not with a discount — one quote covering both companies can't carry one."
+                  : `Everything on one quote, numbered by ${mainCompany.name}. Charging it later still gives one invoice per company.`}
+              </div>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!confirmNeg} onOpenChange={(o) => !o && setConfirmNeg(null)}>
         <DialogContent className="rounded-[22px] sm:max-w-[400px]">

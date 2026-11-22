@@ -32,7 +32,21 @@ export async function GET(req: Request, { params }: { params: Promise<{ slug: st
   switch (slug) {
     case "collected": {
       const pays = await getCollectedPayments(from, to, m); // uncapped, unlike the display list
-      rows = [["Date", "Document", "Customer", "Method", "Amount (Rs)"], ...pays.map((p) => [p.date, p.number ?? "", p.customer ?? "", p.method, rs(p.amountCents)])];
+      // A shop with several companies (tyre centre): which company each payment was taken for.
+      const sb = await createClient();
+      const { data: ents } = await sb.from("legal_entities").select("id, legal_name, trading_name, is_default").eq("is_active", true);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cos = (ents ?? []) as any[];
+      if (cos.length > 1) {
+        const main = cos.find((c) => c.is_default);
+        const nameOf = (id: string | null | undefined) => {
+          const c = cos.find((x) => x.id === id) ?? main;
+          return c ? c.trading_name || c.legal_name : "";
+        };
+        rows = [["Date", "Document", "Company", "Customer", "Method", "Amount (Rs)"], ...pays.map((p) => [p.date, p.number ?? "", nameOf(p.legalEntityId), p.customer ?? "", p.method, rs(p.amountCents)])];
+      } else {
+        rows = [["Date", "Document", "Customer", "Method", "Amount (Rs)"], ...pays.map((p) => [p.date, p.number ?? "", p.customer ?? "", p.method, rs(p.amountCents)])];
+      }
       name = "payments";
       break;
     }

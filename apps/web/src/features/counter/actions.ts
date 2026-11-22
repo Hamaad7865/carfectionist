@@ -411,9 +411,20 @@ const keepSchema = z.object({
   orderDiscountKind: z.enum(["percent", "amount"]).nullable().optional(),
   orderDiscountValue: z.number().min(0).optional(), // percent: % ; amount: Cents (VAT-inclusive)
   orderDiscountReason: z.string().optional(),
+  // A cart spanning two companies (tyre centre): "one" quote covering both (numbered in the main
+  // company's series), or "two" — one quote per company, each with its own discount.
+  quotes: z.enum(["one", "two"]).optional(),
+  companyDiscounts: z.array(z.object({
+    legalEntityId: z.string().uuid(),
+    kind: z.enum(["percent", "amount"]),
+    value: z.number().min(0),
+    reason: z.string().optional(),
+  })).optional(),
 });
 
-export type KeepCartResult = { ok: true; quoteId: string; jobId: string | null } | { ok: false; error: string; quoteId?: string };
+export type KeepCartResult =
+  | { ok: true; quoteId: string; jobId: string | null; quoteIds: string[] }
+  | { ok: false; error: string; quoteId?: string };
 
 /**
  * The till's cart kept for later instead of charged (tyre-centre New sale).
@@ -440,7 +451,27 @@ export async function keepCartAction(input: z.infer<typeof keepSchema>): Promise
   const built = await catalogueLines(sb, p.data.lines);
   if (!built.ok) return built;
 
+  // Two companies in the cart: a bill discount belongs to one company's quote. One company only
+  // (or a one-company shop): its discount is simply the quote's discount, as before.
+  const cartCompanies = [...new Set(built.lineCompanies)];
+  const mixed = cartCompanies.length > 1;
+  const coDiscounts = (p.data.companyDiscounts ?? []).filter((d) => d.value > 0);
+  const splitQuotes = mixed && p.data.as === "quote" && p.data.quotes === "two";
+  if (mixed && coDiscounts.length && !splitQuotes) {
+    return {
+      ok: false,
+      error: p.data.as === "job"
+        ? "A job covering both companies can't carry a discount yet — give each company's discount when you charge."
+        : "One quote covering both companies can't carry a discount — choose Two quotes, or remove the discount.",
+    };
+  }
+  const single = !mixed && coDiscounts.length ? coDiscounts.find((d) => d.legalEntityId === cartCompanies[0]) ?? null : null;
+  const orderKind = single ? single.kind : mixed ? null : (p.data.orderDiscountKind ?? null);
+  const orderValue = single ? single.value : mixed ? 0 : (p.data.orderDiscountValue ?? 0);
+  const orderReason = single ? single.reason : mixed ? undefined : p.data.orderDiscountReason;
+
   let quoteId: string;
+  let quoteIds: string[];
   try {
     const draft = await rpc.saveDraft(
       sb,
@@ -454,24 +485,58 @@ export async function keepCartAction(input: z.infer<typeof keepSchema>): Promise
         valid_until: null,
         due_date: null,
         origin: "standalone",
-        discount_kind: p.data.orderDiscountKind ?? null,
-        discount_value: p.data.orderDiscountKind === "amount" ? (p.data.orderDiscountValue ?? 0) / 100 : (p.data.orderDiscountValue ?? 0),
-        discount_reason: p.data.orderDiscountReason?.trim() || null,
+        discount_kind: orderKind,
+        discount_value: orderKind === "amount" ? orderValue / 100 : orderValue,
+        discount_reason: orderReason?.trim() || null,
       },
       built.rpcLines,
       null,
     );
     quoteId = draft.id;
+    quoteIds = [draft.id];
+    if (splitQuotes) {
+      // "Two quotes": the draft becomes one draft per company, linked as one sale, nothing issued
+      // (split_document_by_company, the same path the document builder uses). Each company's
+      // discount then goes on its own quote — save_draft keeps its company and its link.
+      const parts = await rpc.splitDocumentByCompany(sb, draft.id);
+      quoteIds = parts.map((d) => d.id);
+      for (const part of parts) {
+        const d = coDiscounts.find((x) => x.legalEntityId === part.legal_entity_id);
+        if (!d) continue;
+        const lines = built.rpcLines
+          .filter((_, i) => built.lineCompanies[i] === part.legal_entity_id)
+          .map((l, i) => ({ ...l, sort_order: i }));
+        await rpc.saveDraft(
+          sb,
+          {
+            id: part.id,
+            doc_type: "quote",
+            customer_id: p.data.customerId,
+            vehicle_id: p.data.vehicleId ?? null,
+            template_id: null,
+            template_overrides: {},
+            valid_until: null,
+            due_date: null,
+            origin: "standalone",
+            discount_kind: d.kind,
+            discount_value: d.kind === "amount" ? d.value / 100 : d.value,
+            discount_reason: d.reason?.trim() || null,
+          },
+          lines,
+          null,
+        );
+      }
+    }
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
   revalidatePath("/sales");
 
-  if (p.data.as === "quote") return { ok: true, quoteId, jobId: null };
+  if (p.data.as === "quote") return { ok: true, quoteId, jobId: null, quoteIds };
   try {
     const job = await rpc.convertQuoteToJob(sb, quoteId);
     revalidatePath("/jobs");
-    return { ok: true, quoteId, jobId: job.id };
+    return { ok: true, quoteId, jobId: job.id, quoteIds };
   } catch (e) {
     // The quote is saved either way; say so, so nobody rings the cart up twice.
     return { ok: false, error: `Saved as a draft quote, but the job wasn't started: ${(e as Error).message}`, quoteId };

@@ -12,6 +12,8 @@ export interface PaymentReportRow {
   customer: string | null;
   method: string;
   amountCents: number;
+  /** The issuing company of the paid document (null on history = the shop's main company). */
+  legalEntityId?: string | null;
 }
 
 export interface VatMonthRow {
@@ -236,7 +238,7 @@ export async function getReportsData(from?: string, to?: string, method?: string
 export async function getCollectedPayments(from?: string, to?: string, method?: string): Promise<PaymentReportRow[]> {
   const sb = await createClient();
   const make = () => {
-    let q = sb.from("payments").select("id, method, amount, received_at, documents(number, customers(name))");
+    let q = sb.from("payments").select("id, method, amount, received_at, documents(number, legal_entity_id, customers(name))");
     if (from) q = q.gte("received_at", dayStart(from));
     if (to) q = q.lte("received_at", dayEnd(to));
     if (method && PAYMENT_METHODS.includes(method)) q = q.eq("method", method);
@@ -245,7 +247,7 @@ export async function getCollectedPayments(from?: string, to?: string, method?: 
   const all = await fetchAllRows(make);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (all as any[])
-    .map((p) => ({ id: p.id, date: muDateTime(p.received_at), number: p.documents?.number ?? null, customer: p.documents?.customers?.name ?? null, method: p.method, amountCents: rupeesToCents(Number(p.amount)) }))
+    .map((p) => ({ id: p.id, date: muDateTime(p.received_at), number: p.documents?.number ?? null, customer: p.documents?.customers?.name ?? null, method: p.method, amountCents: rupeesToCents(Number(p.amount)), legalEntityId: p.documents?.legal_entity_id ?? null }))
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
