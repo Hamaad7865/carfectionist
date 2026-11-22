@@ -30,15 +30,23 @@ export interface BusinessProfile {
 
 export async function getBusinessProfile(): Promise<BusinessProfile | null> {
   const sb = await createClient();
-  const [{ data }, { data: ent }] = await Promise.all([
+  const [{ data, error }, { data: entity, error: entityError }] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).maybeSingle(),
-    // The number series live on the default company since 20261122000010; the settings
-    // counters are frozen. Absent (older database) → fall back to the settings row.
-    sb.from("legal_entities").select("quote_prefix, quote_next_number, invoice_prefix, invoice_next_number").eq("is_default", true).limit(1).maybeSingle(),
+    sb
+      .from("legal_entities")
+      .select("quote_prefix, quote_next_number, invoice_prefix, invoice_next_number")
+      .eq("is_default", true)
+      .limit(1)
+      .maybeSingle(),
   ]);
+  if (error) throw new Error(`business settings could not be read: ${error.message}`);
+  if (entityError) throw new Error(`default issuing company could not be read: ${entityError.message}`);
   if (!data) return null;
+  if (!entity) throw new Error("default issuing company is missing");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const d = { ...(data as any), ...((ent as any) ?? {}) };
+  const d = data as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = entity as any;
   return {
     id: d.id,
     legalName: d.legal_name,
@@ -53,8 +61,8 @@ export async function getBusinessProfile(): Promise<BusinessProfile | null> {
     bankName: d.bank_name,
     vatRate: Number(d.vat_rate),
     pricesVatInclusive: d.prices_vat_exclusive === false,
-    quoteSeries: `${d.quote_prefix}… · next ${d.quote_next_number}`,
-    invoiceSeries: `${d.invoice_prefix}… · next ${d.invoice_next_number}`,
+    quoteSeries: `${e.quote_prefix}… · next ${e.quote_next_number}`,
+    invoiceSeries: `${e.invoice_prefix}… · next ${e.invoice_next_number}`,
     // Absent only on a client that has not synced the column yet — a shop with points
     // running must never read as "switched off" and quietly stop earning.
     pointsEnabled: d.points_enabled !== false,

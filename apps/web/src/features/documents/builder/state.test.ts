@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { reducer, blankLine, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
+import { reducer, blankLine, toggleVatRate, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
 
 const line = (key: string, title: string): BuilderLine => ({ ...blankLine(), key, title });
 const car = (id: string, plate: string): BuilderCar => ({ id, plate, label: `Car ${plate}` });
@@ -109,6 +109,24 @@ describe("blankLine", () => {
     // control says otherwise.
     expect(blankLine().lineKind).toBe("service");
     expect(blankLine().discountPolicy).toBe("none");
+  });
+
+  it("uses the shop's VAT rate, including zero", () => {
+    expect(blankLine(0).vatRatePct).toBe(0);
+    expect(blankLine(7.5).vatRatePct).toBe(7.5);
+  });
+});
+
+describe("toggleVatRate", () => {
+  it("toggles between zero and the shop rate", () => {
+    expect(toggleVatRate(15, 15)).toBe(0);
+    expect(toggleVatRate(0, 15)).toBe(15);
+    expect(toggleVatRate(0, 7.5)).toBe(7.5);
+  });
+
+  it("does nothing when the shop charges no VAT", () => {
+    expect(toggleVatRate(0, 0)).toBe(0);
+    expect(toggleVatRate(15, 0)).toBe(0);
   });
 });
 

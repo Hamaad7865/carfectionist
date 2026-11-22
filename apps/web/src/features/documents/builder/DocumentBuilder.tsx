@@ -28,7 +28,7 @@ import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext, BuilderCustomer, BuilderVehicle } from "@/lib/supabase/queries/builder";
-import { reducer, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
+import { reducer, toSaveDraftLines, groupBuilderLines, toggleVatRate, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
 import { billToAddress } from "@/lib/pdf/fiscal-lock";
 import { NewCustomerButton } from "./NewCustomerButton";
@@ -457,7 +457,7 @@ export function DocumentBuilder({
     // A new line lands in the open car section (products included — each stays its
     // own line, attributed to the car it was added for; the "No car" tab is the
     // counter-goods bucket that prints unheaded at the end).
-    dispatch({ type: "addLine", line: { key: newKey(), productId: null, vehicleId: state.activeCarId, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: typed, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: 15, lineKind: adKind } });
+    dispatch({ type: "addLine", line: { key: newKey(), productId: null, vehicleId: state.activeCarId, title: adName.trim(), description: "", rich: null, unitLabel: "", qty: 1, unitCents: typed, priceInclusive: ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, adKind, ctx.posRules.policyDefaults), vatRatePct: ctx.defaultVatRatePct, lineKind: adKind } });
     setAdName("");
     setAdPrice("");
     setAdKind("service");
@@ -934,8 +934,10 @@ export function DocumentBuilder({
                         </select>
                       )}
                       <button
-                        onClick={() => !readOnly && dispatch({ type: "patchLine", key: l.key, patch: { vatRatePct: l.vatRatePct > 0 ? 0 : 15 } })}
-                        className={`h-7 rounded-[7px] px-2.5 text-[10.5px] font-bold ${l.vatRatePct > 0 ? "bg-[rgba(43,140,255,0.14)] text-link" : "bg-shade/[0.06] text-faint"}`}
+                        onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { vatRatePct: toggleVatRate(l.vatRatePct, ctx.defaultVatRatePct) } })}
+                        disabled={readOnly || !(ctx.defaultVatRatePct > 0)}
+                        title={ctx.defaultVatRatePct > 0 ? "Toggle VAT for this line" : "This shop charges no VAT"}
+                        className={`h-7 rounded-[7px] px-2.5 text-[10.5px] font-bold disabled:cursor-not-allowed disabled:opacity-50 ${l.vatRatePct > 0 ? "bg-[rgba(43,140,255,0.14)] text-link" : "bg-shade/[0.06] text-faint"}`}
                       >
                         VAT
                       </button>

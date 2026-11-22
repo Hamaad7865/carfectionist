@@ -74,10 +74,6 @@ export function TicketA4({ r }: { r: ReceiptData }) {
 
       {/* tax block + totals */}
       <div style={{ display: "flex", justifyContent: "space-between", gap: 40, marginTop: 26 }}>
-        {r.vatRegistered === false ? (
-          // A company that is not VAT-registered states no tax table at all.
-          <div style={{ alignSelf: "flex-start", fontSize: 12 }}>Not registered for VAT — no VAT charged</div>
-        ) : (
         <table style={{ borderCollapse: "collapse", alignSelf: "flex-start" }}>
           <thead>
             <tr>
@@ -96,7 +92,6 @@ export function TicketA4({ r }: { r: ReceiptData }) {
             ))}
           </tbody>
         </table>
-        )}
         <div style={{ minWidth: 260 }}>
           {/* Subtotal is the lines at FULL price, so Subtotal − Discount = TOTAL foots here the
               same way it does on the slip. Without the Subtotal row the discount was a figure

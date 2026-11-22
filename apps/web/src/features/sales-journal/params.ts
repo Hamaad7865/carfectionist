@@ -18,8 +18,6 @@ export interface RawParams {
   dev?: string;
   svc?: string;
   usr?: string;
-  /** issuing company (two-company shops only) */
-  co?: string;
   t0?: string;
   t1?: string;
   /** Open receipt modal for this document id (outside the report state — never parsed, never in the PDF). */
@@ -45,7 +43,6 @@ export function parseParams(sp: RawParams, today = muToday()): JournalParams {
       device: sp.dev || undefined,
       service: sp.svc || undefined,
       user: sp.usr || undefined,
-      company: sp.co || undefined,
       timeFrom: sp.t0 && TIME.test(sp.t0) ? sp.t0 : undefined,
       timeTo: sp.t1 && TIME.test(sp.t1) ? sp.t1 : undefined,
     },
@@ -58,7 +55,6 @@ export function toFilterState(f: SalesJournalFilters) {
     device: f.device ?? "",
     service: f.service ?? "",
     user: f.user ?? "",
-    company: f.company ?? "",
     timeFrom: f.timeFrom ?? "",
     timeTo: f.timeTo ?? "",
   };
@@ -71,7 +67,6 @@ export function toQuery(p: JournalParams): string {
   if (p.filters.device) q.set("dev", p.filters.device);
   if (p.filters.service) q.set("svc", p.filters.service);
   if (p.filters.user) q.set("usr", p.filters.user);
-  if (p.filters.company) q.set("co", p.filters.company);
   if (p.filters.timeFrom) q.set("t0", p.filters.timeFrom);
   if (p.filters.timeTo) q.set("t1", p.filters.timeTo);
   return q.toString();

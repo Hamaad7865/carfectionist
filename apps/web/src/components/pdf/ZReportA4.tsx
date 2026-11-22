@@ -45,7 +45,6 @@ export function ZReportA4({ from, number, scope, closedAt, closedByName, note, t
   const categories: Totals[] = Array.isArray(p.categories) ? p.categories : [];
   const cashiers: Totals[] = Array.isArray(p.cashiers) ? p.cashiers : [];
   const vat: Totals[] = Array.isArray(p.vat) ? p.vat : [];
-  const companies: Totals[] = Array.isArray(p.companies) ? p.companies : [];
   // Float accumulation is per drawer, not per period — always the closed service's own.
   const accumulation: Totals[] = Array.isArray(t.accumulation) ? t.accumulation : [];
   const services: Totals[] = Array.isArray(t.services) ? t.services : [];
@@ -105,30 +104,6 @@ export function ZReportA4({ from, number, scope, closedAt, closedByName, note, t
           l={`${int((p.refunds as Totals).count)} refund${int((p.refunds as Totals).count) === 1 ? "" : "s"}`}
           r={`-${money((p.refunds as Totals).amount)}`}
         />
-      )}
-
-      {/* by issuing company — only a shop with more than one company has this (the tyre
-          centre's VAT tyre company and non-VAT service company); everyone else's Z is unchanged. */}
-      {companies.length > 0 && (
-        <>
-          <div style={sec}>By company</div>
-          {companies.map((c, i) => {
-            const pays: Totals[] = Array.isArray(c.methods) ? c.methods : [];
-            return (
-              <div key={i} style={{ marginTop: i ? 8 : 0 }}>
-                <Kv l={String(c.name ?? "—")} r={money(c.total_incl)} />
-                <Kv l={`${int(c.tickets)} ticket${int(c.tickets) === 1 ? "" : "s"}`} indent />
-                {c.vat_registered === false
-                  ? <Kv l="Not registered for VAT — no VAT" indent />
-                  : <Kv l={`excl. ${money(c.excl)} · VAT`} r={money(c.vat)} indent />}
-                {Number(c.refunds) > 0 && <Kv l="Refunds" r={`-${money(c.refunds)}`} indent />}
-                {pays.map((m, j) => (
-                  <Kv key={j} l={String(m.method ?? "?").replace(/_/g, " ").toUpperCase()} r={money(m.net)} indent />
-                ))}
-              </div>
-            );
-          })}
-        </>
       )}
 
       {/* means of payment */}
@@ -202,9 +177,7 @@ export function ZReportA4({ from, number, scope, closedAt, closedByName, note, t
 
       {/* sale modes */}
       <div style={sec}>Sale modes</div>
-      {companies.length > 0
-        ? companies.map((c, i) => <Kv key={i} l={`SALES [${String(c.name ?? "").toUpperCase()}]`} r={money(c.total_incl)} indent />)
-        : <Kv l={`SALES [${from.tradingName.toUpperCase()}]`} r={money(p.total_incl)} indent />}
+      <Kv l={`SALES [${from.tradingName.toUpperCase()}]`} r={money(p.total_incl)} indent />
 
       {note && <div style={{ marginTop: 16, fontSize: 10, color: MUTED }}>Note: {note}</div>}
       <div style={{ marginTop: 10, fontSize: 10, color: MUTED }}>Closed by {closedByName ?? "—"}</div>

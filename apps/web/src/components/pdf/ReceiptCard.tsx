@@ -125,8 +125,7 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
           number, and the internal bill reference directly beneath it. */}
       <div style={centred}>
         {r.ticketNo != null && <div style={{ fontWeight: 800, fontSize: 13 }}>No. {r.ticketNo}</div>}
-        {/* A company that is not VAT-registered cannot issue a VAT invoice — its slip says so. */}
-        <div style={{ fontWeight: 700 }}>{r.vatRegistered === false ? "NUM INVOICE" : "NUM VAT INVOICE"} {r.number ?? "—"}</div>
+        <div style={{ fontWeight: 700 }}>NUM VAT INVOICE {r.number ?? "—"}</div>
         {r.billLabel && <div style={{ fontWeight: 700 }}>{r.billLabel}</div>}
         <div>{r.saleModeLabel}</div>
         {r.dateTime && <div>{r.dateTime}</div>}
@@ -199,7 +198,7 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
       <div style={{ ...centred, fontWeight: 800, fontSize: 15, marginTop: 6 }}>
         Total: <span className="num">{rs(r.totalCents)}</span>
       </div>
-      {hasLines && r.vatRegistered !== false && (
+      {hasLines && (
         <div style={{ ...centred, fontWeight: 700, marginTop: 2 }}>
           excl. VAT : <span className="num">{rs(r.totalCents - r.vatCents)}</span>
         </div>
@@ -241,13 +240,7 @@ export function ReceiptCard({ r, stampAngle = -13 }: { r: ReceiptData; stampAngl
       )}
 
       {/* ── tax breakdown ────────────────────────────────────────────────────── */}
-      {hasLines && r.vatRegistered === false && (
-        <>
-          <div style={centred}>Not registered for VAT — no VAT charged</div>
-          {dash}
-        </>
-      )}
-      {hasLines && r.vatRegistered !== false && r.vatGroups.length > 0 && (
+      {hasLines && r.vatGroups.length > 0 && (
         <>
           {r.vatGroups.map((g, i) => (
             <div key={i} style={{ marginBottom: i < r.vatGroups.length - 1 ? 4 : 0 }}>

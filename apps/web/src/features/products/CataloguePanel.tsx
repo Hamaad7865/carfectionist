@@ -5,7 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Plus, Barcode, Search, TriangleAlert, ChevronRight } from "lucide-react";
 import { formatMUR } from "@/lib/money";
-import { ProductFormModal, type SoldByOption } from "./ProductFormModal";
+import { ProductFormModal } from "./ProductFormModal";
 import { ProductActivity } from "./ProductActivity";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 import type { StockLocation } from "@/lib/supabase/locations";
@@ -58,7 +58,7 @@ function StockBadge({ state, floor }: { state: InventoryRow["state"]; floor: str
   );
 }
 
-export function CataloguePanel({ products, locations, showArchived, vatDefault, pricesInclVat, lowOnly = false, tenantId, companies = [] }: { products: InventoryRow[]; locations: StockLocation[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean; lowOnly?: boolean; tenantId: string; companies?: SoldByOption[] }) {
+export function CataloguePanel({ products, locations, showArchived, vatDefault, pricesInclVat, lowOnly = false, tenantId }: { products: InventoryRow[]; locations: StockLocation[]; showArchived: boolean; vatDefault: number; pricesInclVat: boolean; lowOnly?: boolean; tenantId: string }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<InventoryRow | null>(null);
   const [q, setQ] = useState("");
@@ -327,7 +327,6 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
         pricesInclVat={pricesInclVat}
         categories={categories}
         tenantId={tenantId}
-        companies={companies}
       />
     </>
   );

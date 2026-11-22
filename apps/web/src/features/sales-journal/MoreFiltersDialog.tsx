@@ -25,13 +25,11 @@ export interface JournalFilterState {
   device: string;
   service: string;
   user: string;
-  /** issuing company — offered only by a two-company shop */
-  company: string;
   timeFrom: string;
   timeTo: string;
 }
 
-const BLANK: JournalFilterState = { device: "", service: "", user: "", company: "", timeFrom: "", timeTo: "" };
+const BLANK: JournalFilterState = { device: "", service: "", user: "", timeFrom: "", timeTo: "" };
 const FULL_DAY = { timeFrom: "00:00", timeTo: "23:59" };
 
 /** How many filters are actually narrowing the period — drives the button badge. */
@@ -40,7 +38,6 @@ export function activeCount(f: JournalFilterState): number {
   if (f.device) n++;
   if (f.service) n++;
   if (f.user) n++;
-  if (f.company) n++;
   if ((f.timeFrom && f.timeFrom !== FULL_DAY.timeFrom) || (f.timeTo && f.timeTo !== FULL_DAY.timeTo)) n++;
   return n;
 }
@@ -88,7 +85,6 @@ export function MoreFiltersDialog({ facets, current }: { facets: JournalFacets; 
     set("dev", next.device);
     set("svc", next.service);
     set("usr", next.user);
-    set("co", next.company);
     // A full day is the default, so it never needs to sit in the URL.
     set("t0", next.timeFrom === FULL_DAY.timeFrom ? "" : next.timeFrom);
     set("t1", next.timeTo === FULL_DAY.timeTo ? "" : next.timeTo);
@@ -122,15 +118,6 @@ export function MoreFiltersDialog({ facets, current }: { facets: JournalFacets; 
         }
       >
         <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-          {facets.companies && facets.companies.length > 1 && (
-            <Picker
-              label="Company"
-              allLabel="All companies"
-              value={draft.company}
-              options={facets.companies}
-              onChange={(company) => setDraft((d) => ({ ...d, company }))}
-            />
-          )}
           <Picker
             label="Device / till"
             allLabel="All devices"

@@ -1,4 +1,3 @@
-import { issuerOf } from "./issuer";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents, formatMUR, presentLine, presentLineDiscount } from "@/lib/money";
@@ -112,11 +111,8 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
-  // The issuing company's identity (tyre centre: tyres or services); the shop's own settings for
-  // the default company, exactly as before.
-  const issuer = await issuerOf(sb, d, bs ?? null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const b: any = issuer.shop;
+  const b: any = bs ?? {};
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const config: any = tmpl?.config ?? {};
 
@@ -169,10 +165,8 @@ export async function getDocumentProps(id: string, sbOverride?: SupabaseClient<a
       brn: d.issued_brn ?? b.brn ?? "",
       email: b.email ?? "",
       phone: b.phone ?? "",
-      vatNo: issuer.vatRegistered ? (d.issued_vat_number ?? b.vat_number ?? "") : "",
+      vatNo: d.issued_vat_number ?? b.vat_number ?? "",
     },
-    // A company that is not VAT-registered states no VAT: no VAT row, a plain note instead.
-    vatRegistered: issuer.vatRegistered,
     billTo: {
       name: d.bill_to_name ?? d.customers?.name ?? "",
       // The address issue_document froze. Only a draft or a quotation falls back to the

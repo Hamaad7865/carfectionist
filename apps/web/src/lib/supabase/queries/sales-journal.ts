@@ -191,8 +191,6 @@ export interface SalesJournalFilters {
   /** time-of-day window in Mauritius local time, "HH:MM" */
   timeFrom?: string;
   timeTo?: string;
-  /** issuing company name — only a shop with several companies offers it */
-  company?: string;
 }
 
 // ── The pure core ────────────────────────────────────────────────────────────
@@ -216,8 +214,6 @@ export interface RawDoc {
   /** Set when the bill came off a job card — workshop work, so a service bill
    *  even when its labour was free-typed rather than picked from the catalogue. */
   job_id?: string | null;
-  /** The issuing company (legal_entities); null on history = the shop's default company. */
-  legal_entity_id?: string | null;
 }
 export interface RawPayment {
   id?: string;
@@ -251,7 +247,6 @@ export interface RawPaymentDoc {
   vat_total: number | string;
   vehicle_id?: string | null;
   job_id?: string | null;
-  legal_entity_id?: string | null;
 }
 export interface RawLine {
   document_id: string;
@@ -291,18 +286,7 @@ export interface JournalInput {
   jobVehicle?: Map<string, string>;
   /** The shop's one sale method, e.g. "SALES [CARFECTIONIST]". See below. */
   saleMethodLabel?: string;
-  /** Set only for a shop with MORE than one issuing company (the tyre centre): the
-   *  sale methods then split one row per company, and the company filter applies.
-   *  Absent or a single company → the journal is exactly the one-shop journal. */
-  companies?: JournalCompany[];
   filters?: SalesJournalFilters;
-}
-
-/** An issuing company as the journal names it. */
-export interface JournalCompany {
-  id: string;
-  name: string;
-  isDefault: boolean;
 }
 
 /** Cashmag's sale-method label: the sale kind, then the shop in brackets. */
@@ -470,17 +454,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   const t0 = minutes(filters.timeFrom);
   const t1 = minutes(filters.timeTo);
 
-  // Several issuing companies (tyre centre) → each bill is its company's; a bill with no
-  // company stored is the default company's. One company → none of this applies.
-  const companies = input.companies && input.companies.length > 1 ? input.companies : null;
-  const defaultCompany = companies ? (companies.find((c) => c.isDefault) ?? companies[0]) : null;
-  const companyById = new Map((companies ?? []).map((c) => [c.id, c]));
-  const companyOf = (d: { legal_entity_id?: string | null }): JournalCompany | null =>
-    companies ? ((d.legal_entity_id && companyById.get(d.legal_entity_id)) || defaultCompany) : null;
-  const companyFilter = companies ? filters.company : undefined;
-
   const docs = input.docs.filter((d) => {
-    if (companyFilter && companyOf(d)?.name !== companyFilter) return false;
     const code = d.cash_session_id ? sessionDevice.get(d.cash_session_id) : null;
     const device = code ? (deviceName.get(code) ?? code) : BACK_OFFICE;
     if (filters.device && device !== filters.device) return false;
@@ -539,7 +513,6 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     const d = strangerById.get(docId);
     if (!d) return false;                       // draft, void, or a doc we never fetched
     if (filters.service) return false;
-    if (companyFilter && companyOf(d)?.name !== companyFilter) return false;
     const code = d.cash_session_id ? sessionDevice.get(d.cash_session_id) : null;
     const device = code ? (deviceName.get(code) ?? code) : BACK_OFFICE;
     if (filters.device && device !== filters.device) return false;
@@ -680,11 +653,6 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
   // a filter (see `filters.device`), and Daily Summary breaks it out per till for
   // cash-up.
   const saleMethod: SaleMethodRow = { label: input.saleMethodLabel ?? DEFAULT_SALE_METHOD, tickets: 0, exclCents: 0, inclCents: 0 };
-  // A two-company shop sells under each company's name — "SALES [TYRE CENTRE]" and
-  // "SALES [WHEEL SERVICES]" — rows that add up to the same footing as everything else.
-  const companyRows = new Map<string, SaleMethodRow & { bills: Set<string> }>(
-    (companies ?? []).map((c) => [c.id, { label: saleMethodLabelFor(c.name), tickets: 0, exclCents: 0, inclCents: 0, bills: new Set<string>() }]),
-  );
   const byUser = new Map<string, UserRow>();
   const userBills = new Map<string, Set<string>>();   // user → the invoice bills they took money on
   const byTax = new Map<number, TaxRow>();
@@ -711,13 +679,6 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     totalExcl += paidExcl;
     saleMethod.exclCents += paidExcl;
     saleMethod.inclCents += paidIncl;
-    const co = companyOf(doc);
-    const coRow = co ? companyRows.get(co.id) : undefined;
-    if (coRow) {
-      coRow.exclCents += paidExcl;
-      coRow.inclCents += paidIncl;
-      if (settledInvoices.has(docId)) coRow.bills.add(docId);
-    }
 
     // The ex-VAT content of each individual payment — users are per-payment, the
     // ex-VAT is per-bill, so the bill's paid ex-VAT is split pro-rata over the
@@ -818,9 +779,7 @@ export function buildSalesJournal(from: string, to: string, input: JournalInput)
     clients: clientIds.size,
     clientInclCents: clientIncl,
     clientAvgInclCents: clientIds.size ? Math.round(clientIncl / clientIds.size) : 0,
-    saleMethods: companies
-      ? [...companyRows.values()].map(({ bills, ...r }) => ({ ...r, tickets: bills.size }))
-      : [saleMethod],
+    saleMethods: [saleMethod],
     taxes: [...byTax.values()].sort((a, b) => a.ratePct - b.ratePct),
     payments: paymentRows,
     paymentsSubtotalCents,
@@ -860,7 +819,7 @@ const MU_DAY_END = (d: string) => `${d}T23:59:59.999+04:00`;
 export async function fetchJournalInput(from: string, to: string): Promise<JournalInput> {
   const sb = await createClient();
   /* eslint-disable @typescript-eslint/no-explicit-any */
-  const DOC_COLUMNS = "id, doc_type, business_day, total_incl, subtotal_excl, vat_total, customer_id, issued_by, cash_session_id, issued_at, number, vehicle_id, job_id, legal_entity_id";
+  const DOC_COLUMNS = "id, doc_type, business_day, total_incl, subtotal_excl, vat_total, customer_id, issued_by, cash_session_id, issued_at, number, vehicle_id, job_id";
   const LIVE = ["issued", "partly_paid", "paid"]; // drafts and VOIDs never count
   const PAYMENT_COLUMNS = "id, document_id, method, amount, received_at, received_by, reverses_payment_id";
 
@@ -917,7 +876,7 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
   // VAT and category content has to come from somewhere. They can only ever reach
   // the totals THROUGH a payment — the aggregation never iterates docs alone.
   const lineDocIds = [...docIds, ...strangerIds];
-  const [lines, sessions, sellers, devices, customers, settings, paymentHistory, entities] = await Promise.all([
+  const [lines, sessions, sellers, devices, customers, settings, paymentHistory] = await Promise.all([
     fetchAllRows<any>(() =>
       sb
         .from("document_lines")
@@ -937,8 +896,6 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
           sb.from("payments").select(PAYMENT_COLUMNS).in("document_id", lineDocIds).order("received_at"),
         )
       : Promise.resolve([] as any[]),
-    // The shop's issuing companies — only a shop with more than one splits the journal.
-    fetchJournalCompanies(sb),
   ]);
 
   // Plates for the dropdowns — a second hop, because the cars come off the lines
@@ -975,25 +932,8 @@ export async function fetchJournalInput(from: string, to: string): Promise<Journ
     vehiclePlate: new Map(vehicles.map((v) => [v.id, v.plate as string])),
     jobVehicle: new Map(jobs.filter((jb) => jb.vehicle_id).map((jb) => [jb.id, jb.vehicle_id as string])),
     saleMethodLabel: saleMethodLabelFor(settings.data?.trading_name || "Carfectionist"),
-    ...(entities.length > 1 ? { companies: entities } : {}),
   };
   /* eslint-enable @typescript-eslint/no-explicit-any */
-}
-
-/** The shop's active issuing companies, in their order (the tyre company first). */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchJournalCompanies(sb: any): Promise<JournalCompany[]> {
-  const { data } = await sb
-    .from("legal_entities")
-    .select("id, legal_name, trading_name, is_default, sort_order")
-    .eq("is_active", true)
-    .order("sort_order");
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ((data ?? []) as any[]).map((e) => ({
-    id: e.id as string,
-    name: (String(e.trading_name ?? "").trim() || e.legal_name) as string,
-    isDefault: e.is_default === true,
-  }));
 }
 
 export async function getSalesJournal(from: string, to: string, filters: SalesJournalFilters = {}): Promise<SalesJournal> {
@@ -1030,8 +970,6 @@ export interface JournalFacets {
   devices: string[];
   services: string[];
   users: string[];
-  /** Absent for a one-company shop — the dialog then offers no company filter. */
-  companies?: string[];
 }
 
 export function facetsOf(input: JournalInput): JournalFacets {
@@ -1049,6 +987,5 @@ export function facetsOf(input: JournalInput): JournalFacets {
   const inPeriod = new Set(input.docs.map((d) => d.id));
   for (const l of input.lines) if (inPeriod.has(l.document_id)) services.add(itemName(l));
   const sorted = (s: Set<string>) => [...s].sort((a, b) => a.localeCompare(b));
-  const companies = input.companies && input.companies.length > 1 ? input.companies.map((c) => c.name) : [];
-  return { devices: sorted(devices), services: sorted(services), users: sorted(users), ...(companies.length ? { companies } : {}) };
+  return { devices: sorted(devices), services: sorted(services), users: sorted(users) };
 }

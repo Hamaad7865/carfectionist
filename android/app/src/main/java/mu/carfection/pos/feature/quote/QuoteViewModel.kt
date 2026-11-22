@@ -1297,21 +1297,26 @@ class QuoteViewModel @Inject constructor(
     fun closeAdhoc() = _s.update { it.copy(adhocOpen = false) }
     /** [isService] is asked for every time: work on a car sends the accepted quote to the
      *  board, goods over the counter do not, and a typed-in line has no product to ask. */
-    fun addAdhoc(name: String, priceCents: Long, vatRate: Double = 15.0, isService: Boolean = true) = _s.update { st ->
-        if (!editable(st)) return@update st.copy(adhocOpen = false)
-        if (name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
-        // priceCents is what was TYPED — already the shelf price when the shop quotes gross.
-        else st.copy(
-            adhocOpen = false,
-            lines = st.lines + QuoteLine(
-                null, name.trim(), centsToPlainText(priceCents), vatRate,
-                priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
-                discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
-                carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
-                priceInclusive = st.pricesInclVat,
-                vehicleId = st.lineCarId,
-            ),
-        )
+    fun addAdhoc(name: String, priceCents: Long, isService: Boolean = true) {
+        viewModelScope.launch {
+            val vatRate = catalog.vatDefault()
+            _s.update { st ->
+                if (!editable(st)) return@update st.copy(adhocOpen = false)
+                if (name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
+                // priceCents is what was TYPED — already the shelf price when the shop quotes gross.
+                else st.copy(
+                    adhocOpen = false,
+                    lines = st.lines + QuoteLine(
+                        null, name.trim(), centsToPlainText(priceCents), vatRate,
+                        priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
+                        discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
+                        carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
+                        priceInclusive = st.pricesInclVat,
+                        vehicleId = st.lineCarId,
+                    ),
+                )
+            }
+        }
     }
 
     /** Gross (pre-discount) subtotal in cents, for the "Subtotal" display row. */
@@ -2417,19 +2422,24 @@ class QuoteViewModel @Inject constructor(
         )
     }
 
-    fun addAdhocToBill(name: String, priceCents: Long, vatRate: Double = 15.0, isService: Boolean = false) = _s.update { st ->
-        if (!st.billOpen || name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
-        else st.copy(
-            adhocOpen = false,
-            billLines = st.billLines + QuoteLine(
-                null, name.trim(), centsToPlainText(priceCents), vatRate,
-                priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
-                discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
-                carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
-                priceInclusive = st.pricesInclVat,
-                vehicleId = st.lineCarId,
-            ),
-        )
+    fun addAdhocToBill(name: String, priceCents: Long, isService: Boolean = false) {
+        viewModelScope.launch {
+            val vatRate = catalog.vatDefault()
+            _s.update { st ->
+                if (!st.billOpen || name.isBlank() || priceCents <= 0) st.copy(adhocOpen = false)
+                else st.copy(
+                    adhocOpen = false,
+                    billLines = st.billLines + QuoteLine(
+                        null, name.trim(), centsToPlainText(priceCents), vatRate,
+                        priceIsGross = st.pricesInclVat, lineKind = if (isService) "service" else "product",
+                        discountPolicy = policyOf(null, if (isService) "service" else "product", st.policyDefaults),
+                        carwashPct = st.carwashPct, policyDefaults = st.policyDefaults,
+                        priceInclusive = st.pricesInclVat,
+                        vehicleId = st.lineCarId,
+                    ),
+                )
+            }
+        }
     }
 
     /** Every line on a draft bill is worked on the same way — quoted or added at the

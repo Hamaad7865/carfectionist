@@ -1,4 +1,3 @@
-import { issuerOf } from "./issuer";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { rupeesToCents, grossCents, presentLineDiscount, type DocLineRow } from "@/lib/money";
@@ -119,9 +118,6 @@ export interface ReceiptTender { method: string; count: number; amountCents: num
 
 export interface ReceiptData {
   studioName: string;
-  /** False when the issuing company is not VAT-registered: the slip prints no VAT number, no
-   *  "excl. VAT" line and no tax breakdown, and calls itself an invoice, not a VAT invoice. */
-  vatRegistered?: boolean;
   /** Signed URL of the studio logo (brand-assets is private); null = none set. */
   logoUrl: string | null;
   address: string;
@@ -402,11 +398,8 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
   const deviceCode = ((sess as any)?.device_id ?? null) as string | null;
   const terminalNo = terminalNoOf(deviceCodes.codes, deviceCode, deviceCodes.currentCodeOf);
   const billLabel = billReference(d.bill_no, terminalNo);
-  // The company that issued this bill (tyre centre: the VAT tyre company or the non-VAT service
-  // company); the shop's own settings for the default company, exactly as before.
-  const issuer = await issuerOf(sb, d, bs ?? null);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const b: any = issuer.shop;
+  const b: any = bs ?? {};
   // The bucket is private, so the card gets a fresh signed URL per render.
   const logoUrl = b.receipt_logo_path ? ((await signBrandAssets(sb, [b.receipt_logo_path]))[b.receipt_logo_path] ?? null) : null;
 
@@ -501,10 +494,8 @@ async function getReceiptWith(sb: any, id: string): Promise<ReceiptData | null> 
     studioName,
     logoUrl,
     address: b.address ?? "",
-    // Another company than the default prints its identity as frozen at issue, like the A4.
-    brn: (issuer.isDefault ? b.brn : d.issued_brn ?? b.brn) ?? "",
-    vatNo: issuer.vatRegistered ? ((issuer.isDefault ? b.vat_number : d.issued_vat_number ?? b.vat_number) ?? "") : "",
-    vatRegistered: issuer.vatRegistered,
+    brn: b.brn ?? "",
+    vatNo: b.vat_number ?? "",
     phone: b.phone ?? "",
     number: d.number,
     docLabel,

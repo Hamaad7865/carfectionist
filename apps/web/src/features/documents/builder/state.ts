@@ -142,10 +142,15 @@ export function toSaveDraftLines(lines: BuilderLine[]) {
   }));
 }
 
-export function blankLine(): BuilderLine {
+export function blankLine(vatRatePct: number = 15): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.
-  return { key: newKey(), productId: null, vehicleId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, "service"), vatRatePct: 15, lineKind: "service", priceInclusive: false };
+  return { key: newKey(), productId: null, vehicleId: null, title: "", description: "", rich: null, unitLabel: "", qty: 1, unitCents: 0, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(null, "service"), vatRatePct, lineKind: "service", priceInclusive: false };
+}
+
+export function toggleVatRate(currentRate: number, shopRate: number): number {
+  if (!(shopRate > 0)) return 0;
+  return currentRate > 0 ? 0 : shopRate;
 }
 
 export type BuilderAction =

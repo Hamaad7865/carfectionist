@@ -12,8 +12,6 @@ export interface PaymentReportRow {
   customer: string | null;
   method: string;
   amountCents: number;
-  /** The issuing company of the paid document (null on history = the shop's main company). */
-  legalEntityId?: string | null;
 }
 
 export interface VatMonthRow {
@@ -36,16 +34,6 @@ export interface ReportsData {
   /** True when the range held more months than the 12 shown. */
   vatMonthlyTruncated: boolean;
   aged: { label: string; cents: number }[];
-  /** Only for a shop with MORE than one issuing company (the tyre centre): what each
-   *  company invoiced in the range and the output VAT it owes. Absent otherwise. */
-  byCompany?: CompanyVatRow[];
-}
-
-export interface CompanyVatRow {
-  name: string;
-  vatRegistered: boolean;
-  invoicedCents: number;
-  outputVatCents: number;
 }
 
 function daysBetween(iso: string, now: number): number {
@@ -94,14 +82,13 @@ export async function getReportsData(from?: string, to?: string, method?: string
   // Invoices (aged receivables = true current position) + credit notes, which
   // net down revenue/output VAT. Range-scoped in JS below. All-time → must page.
   const makeInvQ = () =>
-    sb.from("documents").select("id, doc_type, total_incl, vat_total, amount_paid, status, issue_date, source_document_id, legal_entity_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]);
+    sb.from("documents").select("id, doc_type, total_incl, vat_total, amount_paid, status, issue_date, source_document_id").in("doc_type", ["invoice", "credit_note"]).in("status", ["issued", "partly_paid", "paid"]);
 
-  const [payRes, totRows, invRows, expRows, entRes] = await Promise.all([
+  const [payRes, totRows, invRows, expRows] = await Promise.all([
     payQ,
     fetchAllRows(makeTotQ),
     fetchAllRows(makeInvQ),
     fetchAllRows(makeExpQ),
-    sb.from("legal_entities").select("id, legal_name, trading_name, vat_registered, is_default, sort_order").eq("is_active", true).order("sort_order"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -194,30 +181,6 @@ export async function getReportsData(from?: string, to?: string, method?: string
     buckets[i].cents += owed;
   }
 
-  // ── By issuing company — a two-company shop only. A document with no company stored
-  // is the default company's. Sums the SAME range-scoped rows as the totals above, so
-  // the companies always add up to them.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const entities = ((entRes.data ?? []) as any[]);
-  let byCompany: CompanyVatRow[] | undefined;
-  if (entities.length > 1) {
-    const def = entities.find((e) => e.is_default) ?? entities[0];
-    const rows = new Map<string, CompanyVatRow>(entities.map((e) => [e.id, {
-      name: String(e.trading_name ?? "").trim() || e.legal_name,
-      vatRegistered: e.vat_registered !== false,
-      invoicedCents: 0,
-      outputVatCents: 0,
-    }]));
-    const add = (d: { legal_entity_id?: string | null; total_incl: unknown; vat_total: unknown }, sign: 1 | -1) => {
-      const r = rows.get(d.legal_entity_id ?? "") ?? rows.get(def.id)!;
-      r.invoicedCents += sign * rupeesToCents(Number(d.total_incl));
-      r.outputVatCents += sign * rupeesToCents(Number(d.vat_total));
-    };
-    for (const d of ranged(invoices)) add(d, 1);
-    for (const d of ranged(creditNotes)) add(d, -1);
-    byCompany = [...rows.values()];
-  }
-
   return {
     payments,
     byMethod,
@@ -228,7 +191,6 @@ export async function getReportsData(from?: string, to?: string, method?: string
     vatMonthly,
     vatMonthlyTruncated,
     aged: buckets,
-    ...(byCompany ? { byCompany } : {}),
   };
 }
 
@@ -238,7 +200,7 @@ export async function getReportsData(from?: string, to?: string, method?: string
 export async function getCollectedPayments(from?: string, to?: string, method?: string): Promise<PaymentReportRow[]> {
   const sb = await createClient();
   const make = () => {
-    let q = sb.from("payments").select("id, method, amount, received_at, documents(number, legal_entity_id, customers(name))");
+    let q = sb.from("payments").select("id, method, amount, received_at, documents(number, customers(name))");
     if (from) q = q.gte("received_at", dayStart(from));
     if (to) q = q.lte("received_at", dayEnd(to));
     if (method && PAYMENT_METHODS.includes(method)) q = q.eq("method", method);
@@ -247,7 +209,7 @@ export async function getCollectedPayments(from?: string, to?: string, method?: 
   const all = await fetchAllRows(make);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return (all as any[])
-    .map((p) => ({ id: p.id, date: muDateTime(p.received_at), number: p.documents?.number ?? null, customer: p.documents?.customers?.name ?? null, method: p.method, amountCents: rupeesToCents(Number(p.amount)), legalEntityId: p.documents?.legal_entity_id ?? null }))
+    .map((p) => ({ id: p.id, date: muDateTime(p.received_at), number: p.documents?.number ?? null, customer: p.documents?.customers?.name ?? null, method: p.method, amountCents: rupeesToCents(Number(p.amount)) }))
     .sort((a, b) => (a.date < b.date ? 1 : -1));
 }
 
