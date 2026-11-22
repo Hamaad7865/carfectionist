@@ -739,6 +739,37 @@ data class DocumentDto(
     @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
 )
 
+/** One invoice of a two-company sale, as issue_checkout returns it (a documents row). */
+@Serializable
+data class CheckoutBillDto(
+    val id: String,
+    val number: String? = null,
+    val status: String,
+    @SerialName("doc_type") val docType: String,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
+)
+
+/** An issuing company of the shop (legal_entities) — the tyre centre has two, Carfectionist one. */
+@Serializable
+data class CompanyDto(
+    val id: String,
+    @SerialName("legal_name") val legalName: String,
+    @SerialName("trading_name") val tradingName: String? = null,
+    @SerialName("is_default") val isDefault: Boolean = false,
+    @SerialName("vat_registered") val vatRegistered: Boolean = true,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+)
+
+/** One payment spread across a checkout's invoices (record_checkout_payment). */
+@Serializable
+data class PaymentGroupDto(
+    val id: String,
+    @SerialName("payment_ids") val paymentIds: List<String> = emptyList(),
+    @SerialName("change_given") val changeGiven: FlexDouble? = null,
+)
+
 @Serializable
 data class PaymentDto(
     val id: String,

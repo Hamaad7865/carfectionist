@@ -236,6 +236,27 @@ copy at `docs/redesign/phase-f/dashboard-mockup.png`):
 - Verified on the emulator with debug builds: Carfectionist installs over the current one and looks
   unchanged; tyre centre Till and Paid screenshotted at 1280×800.
 
+**Phase G so far** (branch `tyrecentre-two-company`):
+- *Part 1 — two apps (2fb0dfd).* Flavors `carfectionist` (id, name, look and `latest.json`
+  unchanged) and `tyrecentre` (`mu.haz.tyrecentre.pos`, "Tyre Centre POS", DESIGN-SPEC tokens,
+  Manrope/Archivo/JetBrains Mono, own icon, `tyrecentre/latest.json`). `publish-apk.mjs --brand`.
+  Both build; 561/561 unit tests each; Carfectionist debug installs over 0.1.725 on the emulator
+  and its sign-in looks unchanged; Tyre Centre installs beside it.
+- *Part 2 — the money path.* The tablet asks the server how many companies the shop has at every
+  sale. One (Carfectionist): `issue_document` / `record_payment` exactly as before, same draft id
+  and keys. Two or more: `issue_checkout` under the same `$saleKey:issue` (one invoice per
+  company; a one-company cart is still one invoice), then ONE `record_checkout_payment` across
+  the bills under `$saleKey:pay` (a split: one per part, `$saleKey:pay:i`). A lost response on a
+  two-company sale is retried by re-running the whole road — the draft save refuses, both issue
+  and payment replay — never by settling only the first bill. Offline sales replay the same way.
+  The done panel's undo voids / credit-notes every bill. New refusals (bill discount across two
+  companies, Rs 0 bill, points across two bills, …) leave the basket live.
+- *Still to do:* each company's slip (ReceiptText/ReceiptPaper, VAT and non-VAT, matching the
+  web ReceiptCard); per-company discounts and the pay order on the till; the Tyre Centre Till
+  and Paid screens (`docs/redesign/screens/tablet-till.png`, `tablet-paid-receipts.png`); ZSlip
+  per company. Until the slips land, a two-company sale prints one slip with the first bill's
+  number and the sale's total — not for use in the shop.
+
 ### H. Final checks
 `npm run test --workspace web`, typecheck, lint on touched files, `cf-build`, both Android
 debug builds, before/after screenshots next to the mockups, `PROGRESS.md` entry listing any

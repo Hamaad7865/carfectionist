@@ -263,6 +263,19 @@ data class SaleResult(
     // set there is nothing on the server to void, reverse or credit-note — the sale exists
     // only on this tablet.
     val offlineRef: String? = null,
+    // A two-company sale (tyre centre): one invoice per company, in company order, paid by one
+    // payment across them. Empty for a one-company sale - [invoiceId]/[number] are the whole
+    // story there, exactly as before. When set, [invoiceId]/[number] are the FIRST bill's and
+    // [totalCents] is the sale's total, every bill together.
+    val bills: List<SaleBill> = emptyList(),
+)
+
+/** One company's invoice of a sale. */
+data class SaleBill(
+    val id: String,
+    val number: String?,
+    val totalCents: Long,
+    val legalEntityId: String?,
 )
 
 /**
@@ -338,6 +351,13 @@ private val DETERMINISTIC_ISSUE_REJECTIONS = listOf(
     "points are switched off",
     "spend_points still spends for an unreachable customer",
     "an on-account collect needs a customer",
+    // Two-company checkout (20261123000010): refused before any number is drawn or money taken.
+    "a bill discount cannot cover two companies",
+    "sold by another company",
+    "comes to Rs 0.00",
+    "a discount names a company with nothing on this sale",
+    "points pay one bill at a time",
+    "one payment can only settle one customer's bills",
 )
 
 internal fun isDeterministicRejection(e: Throwable): Boolean {
@@ -402,7 +422,11 @@ class SaleRepository @Inject constructor(
         // trapping the cashier in a frozen basket) — and settle THAT invoice directly.
         knownInvoiceId: String? = null,
     ): SaleResult {
-        if (knownInvoiceId != null) {
+        // A two-company sale's retry re-runs the whole road instead: the draft save refuses
+        // ("cannot edit an issued document"), issue_checkout replays every bill under
+        // "$saleKey:issue" and the group payment replays under "$saleKey:pay". Settling only
+        // [knownInvoiceId] would leave the other company's bill unpaid.
+        if (knownInvoiceId != null && !severalCompanies()) {
             return settleIssued(knownInvoiceId, method, tenderCents, externalRef, cashSessionId, saleKey)
         }
         if (method == PayMethod.CREDIT) requireNotNull(customerId) { "Pick a customer for a credit sale." }
@@ -415,9 +439,32 @@ class SaleRepository @Inject constructor(
 
         // Payment (skipped for on-account credit).
         if (method == PayMethod.CREDIT) {
-            return SaleResult(issued.id, issued.number, totalCents, 0, onAccount = true)
+            return SaleResult(issued.id, issued.number, totalCents, 0, onAccount = true, bills = issued.bills)
         }
         val tendered = if (method == PayMethod.CASH) (tenderCents ?: totalCents) else null
+        if (issued.bills.size > 1) {
+            // ONE payment across every company's bill, in one transaction; each bill gets what
+            // it owes (the whole sale is paid, so the allocation has no choice to make).
+            val group = try {
+                api.recordCheckoutPayment(
+                    invoiceIds = issued.bills.map { it.id },
+                    method = requireNotNull(method.rpcValue),
+                    amountRupees = centsToRupees(totalCents),
+                    tenderedRupees = tendered?.let { centsToRupees(it) },
+                    externalRef = method.externalRefToSend(externalRef),
+                    cashSessionId = cashSessionId,
+                    allocation = "proportional",
+                    idempotencyKey = "$saleKey:pay",
+                )
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isDeterministicRejection(e)) throw e
+                throw SalePaymentUncertain(issued.id, issued.number, e)
+            }
+            val change = if (method == PayMethod.CASH && tendered != null) (tendered - totalCents).coerceAtLeast(0) else 0
+            return SaleResult(issued.id, issued.number, totalCents, change, onAccount = false, paymentIds = group.paymentIds, bills = issued.bills)
+        }
         try {
             api.recordPayment(
                 invoiceId = issued.id,
@@ -437,8 +484,20 @@ class SaleRepository @Inject constructor(
         return SaleResult(issued.id, issued.number, totalCents, change, onAccount = false)
     }
 
-    /** id/number/total of a freshly-issued (or retry-fetched) walk-in invoice. */
-    private data class IssuedInvoice(val id: String, val number: String?, val totalCents: Long)
+    /** id/number/total of a freshly-issued (or retry-fetched) walk-in invoice. On a two-company
+     *  sale [bills] holds every company's invoice and [id]/[number] are the first's, [totalCents]
+     *  their sum; on a one-company sale [bills] is empty. */
+    private data class IssuedInvoice(
+        val id: String,
+        val number: String?,
+        val totalCents: Long,
+        val bills: List<SaleBill> = emptyList(),
+    )
+
+    /** More than one issuing company: the sale is issued per company (issue_checkout). Asked of
+     *  the server each time, as the web does - a lookup that fails is an ordinary, retryable
+     *  error raised before anything costing money. */
+    private suspend fun severalCompanies(): Boolean = api.fetchActiveCompanies().size > 1
 
     /**
      * A customer the cashier typed while the tablet was offline, so the cache could not be
@@ -549,10 +608,22 @@ class SaleRepository @Inject constructor(
         // Counter sales move the Shop's on-hand (walk-in front), never the Warehouse default.
         // Resolved before the point of no return, so a failed lookup is safely retryable.
         val shopLocationId = api.fetchShopLocationId()
-        val issued = try {
+        // A shop with ONE company (Carfectionist) keeps issue_document exactly. Two or more
+        // (tyre centre) issue through issue_checkout - one invoice per company, the same key,
+        // and a one-company cart still a single invoice. Decided before the point of no return.
+        val several = severalCompanies()
+        return try {
             // The till that rang it — this is what puts the sale under its service on the
             // cash-up. Same session the payment is booked to, so money and ticket agree.
-            api.issueDocument(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
+            if (several) {
+                val bills = api.issueCheckout(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
+                    .map { SaleBill(it.id, it.number, rupeesToCents(it.totalIncl), it.legalEntityId) }
+                val first = bills.first()
+                IssuedInvoice(first.id, first.number, bills.sumOf { it.totalCents }, if (bills.size > 1) bills else emptyList())
+            } else {
+                val issued = api.issueDocument(draft?.id ?: draftId, "$saleKey:issue", shopLocationId, cashSessionId)
+                IssuedInvoice(issued.id, issued.number, rupeesToCents(issued.totalIncl)) // server total is authoritative
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -561,7 +632,6 @@ class SaleRepository @Inject constructor(
             if (isDeterministicRejection(e)) throw e
             throw SaleIssueUncertain(e)
         }
-        return IssuedInvoice(issued.id, issued.number, rupeesToCents(issued.totalIncl)) // server total is authoritative
     }
 
     /**
@@ -584,7 +654,7 @@ class SaleRepository @Inject constructor(
         discountReason: String? = null,
         knownInvoiceId: String? = null,
     ): SaleResult {
-        val issued = if (knownInvoiceId != null) {
+        val issued = if (knownInvoiceId != null && !severalCompanies()) {
             val inv = try { api.fetchInvoice(knownInvoiceId) } catch (e: CancellationException) { throw e } catch (e: Exception) { throw SalePaymentUncertain(knownInvoiceId, null, e) }
                 ?: throw SalePaymentUncertain(knownInvoiceId, null, IllegalStateException("invoice not found"))
             IssuedInvoice(inv.id, inv.number, rupeesToCents(inv.totalIncl))
@@ -594,7 +664,7 @@ class SaleRepository @Inject constructor(
                 customerId, null, walkInName, cashSessionId, saleKey, comment,
             )
         }
-        return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey)
+        return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey, issued.bills)
     }
 
     /**
@@ -622,7 +692,7 @@ class SaleRepository @Inject constructor(
         comment: String?,
     ): SaleResult {
         val issued = issueWalkInInvoice(draft, customerId, newCustomer, walkInName, cashSessionId, saleKey, comment)
-        return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey)
+        return recordTenders(issued.id, issued.number, targetCents = issued.totalCents, tenders, cashSessionId, saleKey, issued.bills)
     }
 
     /** A replayed insert of a client-minted id collides with itself: that is success, not failure. */
@@ -676,6 +746,8 @@ class SaleRepository @Inject constructor(
         tenders: List<Tender>,
         cashSessionId: String?,
         saleKey: String,
+        /** A two-company sale's bills: each tender is ONE payment spread across all of them. */
+        bills: List<SaleBill> = emptyList(),
     ): SaleResult {
         require(tenders.isNotEmpty()) { "No payment entered." }
         // Close to the penny against the SERVER total (walk-in only): adjust the last tender.
@@ -695,16 +767,31 @@ class SaleRepository @Inject constructor(
         val ids = mutableListOf<String>()
         adjusted.forEachIndexed { i, t ->
             try {
-                val pay = api.recordPayment(
-                    invoiceId = invoiceId,
-                    method = requireNotNull(t.method.rpcValue),
-                    amountRupees = centsToRupees(t.amountCents),
-                    tenderedRupees = t.tenderedCents?.let { centsToRupees(it) },
-                    externalRef = t.method.externalRefToSend(t.ref),
-                    cashSessionId = cashSessionId,
-                    idempotencyKey = "$saleKey:pay:$i",
-                )
-                ids += pay.id
+                if (bills.size > 1) {
+                    // Each part lands on the bills in proportion to what each still owes;
+                    // the last part closes them all. Same per-index key as a one-company split.
+                    ids += api.recordCheckoutPayment(
+                        invoiceIds = bills.map { it.id },
+                        method = requireNotNull(t.method.rpcValue),
+                        amountRupees = centsToRupees(t.amountCents),
+                        tenderedRupees = t.tenderedCents?.let { centsToRupees(it) },
+                        externalRef = t.method.externalRefToSend(t.ref),
+                        cashSessionId = cashSessionId,
+                        allocation = "proportional",
+                        idempotencyKey = "$saleKey:pay:$i",
+                    ).paymentIds
+                } else {
+                    val pay = api.recordPayment(
+                        invoiceId = invoiceId,
+                        method = requireNotNull(t.method.rpcValue),
+                        amountRupees = centsToRupees(t.amountCents),
+                        tenderedRupees = t.tenderedCents?.let { centsToRupees(it) },
+                        externalRef = t.method.externalRefToSend(t.ref),
+                        cashSessionId = cashSessionId,
+                        idempotencyKey = "$saleKey:pay:$i",
+                    )
+                    ids += pay.id
+                }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -715,7 +802,7 @@ class SaleRepository @Inject constructor(
             }
             if (t.method == PayMethod.CASH && t.tenderedCents != null) change += (t.tenderedCents - t.amountCents).coerceAtLeast(0)
         }
-        return SaleResult(invoiceId, number, adjusted.sumOf { it.amountCents }, change, onAccount = false, paymentIds = ids)
+        return SaleResult(invoiceId, number, adjusted.sumOf { it.amountCents }, change, onAccount = false, paymentIds = ids, bills = bills)
     }
 
     /**

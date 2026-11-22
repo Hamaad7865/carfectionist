@@ -1069,6 +1069,65 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
         }).decodeAs()
 
+    /**
+     * The shop's active issuing companies, in their order. One for Carfectionist; two for the
+     * tyre centre (VAT tyres, non-VAT services). The sale path decides by this count, as the web
+     * does — never by the app's brand.
+     */
+    suspend fun fetchActiveCompanies(): List<CompanyDto> =
+        client.postgrest.from("legal_entities")
+            .select(Columns.raw("id, legal_name, trading_name, is_default, vat_registered, sort_order")) {
+                filter { eq("is_active", true) }
+            }
+            .decodeList<CompanyDto>()
+            .sortedWith(compareBy({ it.sortOrder }, { it.id }))
+
+    /**
+     * A shop with more than one company: split the draft into one invoice per company and issue
+     * them all, in company order (the first keeps the draft's id). Same key as [issueDocument]:
+     * a one-company cart is issued BY issue_document under it, and a key issue_document already
+     * used replays through here. Idempotent.
+     */
+    suspend fun issueCheckout(
+        documentId: String,
+        idempotencyKey: String,
+        stockLocationId: String? = null,
+        sessionId: String? = null,
+    ): List<CheckoutBillDto> =
+        client.postgrest.rpc("issue_checkout", buildJsonObject {
+            put("p_document_id", documentId)
+            if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
+            put("p_idempotency_key", idempotencyKey)
+            if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
+            put("p_discounts", JsonNull)
+        }).decodeList()
+
+    /**
+     * ONE payment across several invoices of one sale, in one transaction — so a failure never
+     * leaves one company's bill paid and the other not. [allocation] is "proportional" or the id
+     * of the company whose bill is filled first. Idempotent on [idempotencyKey].
+     */
+    suspend fun recordCheckoutPayment(
+        invoiceIds: List<String>,
+        method: String,
+        amountRupees: Double,
+        tenderedRupees: Double?,
+        externalRef: String?,
+        cashSessionId: String?,
+        allocation: String,
+        idempotencyKey: String,
+    ): PaymentGroupDto =
+        client.postgrest.rpc("record_checkout_payment", buildJsonObject {
+            put("p_invoice_ids", JsonArray(invoiceIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            put("p_method", method)
+            put("p_amount", amountRupees)
+            if (tenderedRupees != null) put("p_tendered", tenderedRupees) else put("p_tendered", JsonNull)
+            if (externalRef != null) put("p_external_ref", externalRef) else put("p_external_ref", JsonNull)
+            if (cashSessionId != null) put("p_cash_session_id", cashSessionId) else put("p_cash_session_id", JsonNull)
+            put("p_allocation", allocation)
+            put("p_idempotency_key", idempotencyKey)
+        }).decodeAs()
+
     /** Records a payment + recomputes status. Idempotent. */
     suspend fun recordPayment(
         invoiceId: String,

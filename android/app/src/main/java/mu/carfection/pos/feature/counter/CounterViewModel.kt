@@ -1085,6 +1085,15 @@ class CounterViewModel @Inject constructor(
             // READY and the bill stays open. Voiding here erased the receivable for a car
             // that had already left (and the job stayed delivered).
             r.onAccount && r.fromCollect -> correction("Handover walked back — ${r.number ?: "the bill"} stays owed") { api.undoOnAccount(r.invoiceId) }
+            // A two-company sale is one invoice per company: undo every one of them, never just
+            // the first — that would leave the other company's bill standing (and paid).
+            r.bills.size > 1 && r.onAccount -> correction("Voided — ${r.bills.joinToString(" + ") { it.number ?: "bill" }}") {
+                r.bills.forEach { api.voidDocument(it.id, why ?: "Voided at POS") }
+            }
+            r.bills.size > 1 -> correction("Refunded — a credit note for ${r.bills.joinToString(" and ") { it.number ?: "each bill" }}") {
+                val shop = api.fetchShopLocationId()
+                r.bills.forEach { api.issueCreditNote(it.id, restock = true, stockLocationId = shop, sessionId = local.value.till?.id) }
+            }
             r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, why ?: "Voided at POS") }
             else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") {
                 // This till takes the refund out of its drawer (booked mirrors on the CN).
