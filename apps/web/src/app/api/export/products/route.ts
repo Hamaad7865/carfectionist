@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { toCsv, type CsvColumn } from "@/lib/csv";
 import { grossCents } from "@/lib/money";
-import { formatTyreSize, sizeFromColumns } from "@/lib/products/tyre-size";
+import { formatTyreSize, isTyreCategory, sizeFromColumns } from "@/lib/products/tyre-size";
 
 const slug = (s: string) => "stock_" + s.trim().toLowerCase().replace(/\s+/g, "_");
 
@@ -56,10 +56,12 @@ export async function GET() {
     ohByProduct.set(r.product_id, m);
   }
 
-  // brand is every shop's column; the tyre columns appear once the shop has sized a product.
+  // brand is every shop's column; the tyre columns appear once the shop has sized a product or
+  // files anything under a tyre-like category — so a tyre shop loading its range through the
+  // sheet sees them on its very first export.
   // The import reads all four back (features/dataio/actions.ts → applyImportedAttrs).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const hasSizes = (prodData as any[]).some((p) => p.tyre_width != null);
+  const hasSizes = (prodData as any[]).some((p) => p.tyre_width != null || isTyreCategory(p.category));
   const baseCols: CsvColumn[] = [
     { key: "sku", header: "sku" },
     { key: "name", header: "name" },

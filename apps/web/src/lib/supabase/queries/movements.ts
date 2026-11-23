@@ -1,3 +1,4 @@
+import { ATTR_SELECT, attrsFromRow, type ProductAttrs } from "@/lib/products/attrs-row";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, type StockLocation } from "@/lib/supabase/locations";
@@ -23,7 +24,7 @@ export interface MovementRow {
 }
 export interface InventoryOpsData {
   movements: MovementRow[];
-  products: { id: string; name: string; unit: string }[];
+  products: ({ id: string; name: string; unit: string } & ProductAttrs)[];
   /** Active only — a retired location is empty by construction, so there's nothing to adjust there. */
   locations: StockLocation[];
   /** Live counts, so adjusting doesn't mean flipping back to the Catalogue to see the shelf. */
@@ -123,7 +124,7 @@ export async function getInventoryOps(): Promise<InventoryOpsData> {
       .order("moved_at", { ascending: false })
       .order("id", { ascending: false }) // a stock count files many rows in one instant; balances need one fixed order
       .limit(120),
-    sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name"),
+    sb.from("products").select(`id, name, unit, ${ATTR_SELECT}`).eq("is_stocked", true).eq("is_active", true).order("name"),
     getStockLocations(sb, true),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
   ]);
@@ -133,7 +134,8 @@ export async function getInventoryOps(): Promise<InventoryOpsData> {
   const movements = toMovementRows(mvRows, onHand, await docNumbers(sb, mvRows));
   return {
     movements,
-    products: ((prodRes.data ?? []) as { id: string; name: string; unit: string }[]).map((p) => ({ id: p.id, name: p.name, unit: p.unit })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    products: ((prodRes.data ?? []) as any[]).map((p) => ({ id: p.id, name: p.name, unit: p.unit, ...attrsFromRow(p) })),
     locations,
     onHand,
   };
