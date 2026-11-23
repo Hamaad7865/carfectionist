@@ -356,6 +356,10 @@ data class OutstandingInvoiceDto(
     @SerialName("issued_at") val issuedAt: String? = null, // for the payment screen's bill header
     val customers: JobCustomerDto? = null,
     val vehicles: JobVehicleDto? = null,
+    /** The company that issued it, and the visit it belongs to: on the tyre centre one visit is
+     *  one invoice per company, all sharing a checkout group — collected together, as one payment. */
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
+    @SerialName("checkout_group_id") val checkoutGroupId: String? = null,
 )
 
 /** One invoice or credit note, for account settlement's shop-wide read: every open invoice
@@ -452,6 +456,9 @@ data class SaleHistoryDto(
     // their name for a business customer. Null for a walk-in or an individual.
     @SerialName("bill_to_brn") val billToBrn: String? = null,
     @SerialName("bill_to_vat_number") val billToVatNumber: String? = null,
+    // The company that issued it (legal_entities) — whose identity its slip prints. Null on
+    // older bills, which print the shop's own settings exactly as before.
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
     val customers: JobCustomerDto? = null,
     val creator: JobTechDto? = null,
     @SerialName("document_lines") val lines: List<SaleHistoryLineDto> = emptyList(),
@@ -612,6 +619,18 @@ data class StockMoveDto(
     val qty: FlexDouble = 0.0,
 )
 
+/** A product's movement with what caused it — the tyre stock detail panel's ledger line. */
+@Serializable
+data class ProductMoveDto(
+    val id: String,
+    val qty: FlexDouble = 0.0,
+    @SerialName("ref_type") val refType: String? = null,
+    val note: String? = null,
+    @SerialName("moved_at") val movedAt: String? = null,
+    @SerialName("location_id") val locationId: String? = null,
+    @SerialName("stock_locations") val location: LocationNameDto? = null,
+)
+
 @Serializable data class AppUserIdDto(val id: String)
 
 // ── Staff (technicians) ──────────────────────────────────────────────────────
@@ -748,6 +767,53 @@ data class DocumentDto(
     @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
 )
 
+/** One invoice of a two-company sale, as issue_checkout returns it (a documents row). */
+@Serializable
+data class CheckoutBillDto(
+    val id: String,
+    val number: String? = null,
+    val status: String,
+    @SerialName("doc_type") val docType: String,
+    @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    @SerialName("amount_paid") val amountPaid: FlexDouble = 0.0,
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
+)
+
+/** An issuing company of the shop (legal_entities) — the tyre centre has two, Carfectionist one. */
+@Serializable
+data class CompanyDto(
+    val id: String,
+    @SerialName("legal_name") val legalName: String,
+    @SerialName("trading_name") val tradingName: String? = null,
+    @SerialName("is_default") val isDefault: Boolean = false,
+    @SerialName("vat_registered") val vatRegistered: Boolean = true,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+)
+
+/** An issuing company's identity, as its paper prints it (web: queries/issuer.ts ISSUER_FIELDS). */
+@Serializable
+data class IssuerCompanyDto(
+    val id: String,
+    @SerialName("legal_name") val legalName: String? = null,
+    @SerialName("trading_name") val tradingName: String? = null,
+    @SerialName("is_default") val isDefault: Boolean = false,
+    @SerialName("vat_registered") val vatRegistered: Boolean = true,
+    val brn: String? = null,
+    @SerialName("vat_number") val vatNumber: String? = null,
+    val address: String? = null,
+    val phone: String? = null,
+    @SerialName("receipt_logo_path") val receiptLogoPath: String? = null,
+    @SerialName("receipt_footer_text") val receiptFooterText: String? = null,
+)
+
+/** One payment spread across a checkout's invoices (record_checkout_payment). */
+@Serializable
+data class PaymentGroupDto(
+    val id: String,
+    @SerialName("payment_ids") val paymentIds: List<String> = emptyList(),
+    @SerialName("change_given") val changeGiven: FlexDouble? = null,
+)
+
 @Serializable
 data class PaymentDto(
     val id: String,
@@ -873,13 +939,3 @@ data class CustomerPointsDto(@SerialName("points_balance") val pointsBalance: In
 @Serializable
 data class PointsDeltaDto(val delta: Int = 0)
 
-/** An issuing company of the shop (legal_entities) — the tyre centre has two, Carfectionist one. */
-@Serializable
-data class CompanyDto(
-    val id: String,
-    @SerialName("legal_name") val legalName: String,
-    @SerialName("trading_name") val tradingName: String? = null,
-    @SerialName("is_default") val isDefault: Boolean = false,
-    @SerialName("vat_registered") val vatRegistered: Boolean = true,
-    @SerialName("sort_order") val sortOrder: Int = 0,
-)

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <!-- The tyre centre's window basics (DESIGN-SPEC §2): app grey behind the cards, and the
+         tyre mark on the black primary while the app starts. -->
+    <style name="Theme.CarfectionistPos" parent="android:Theme.Material.Light.NoActionBar" tools:targetApi="31">
+        <item name="android:windowBackground">#E8ECF1</item>
+        <item name="android:statusBarColor">#E8ECF1</item>
+        <item name="android:navigationBarColor">#F7F8FA</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+        <item name="android:windowSplashScreenBackground">#0F1720</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_logo</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">#0F1720</item>
+    </style>
+</resources>

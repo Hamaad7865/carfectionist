@@ -46,6 +46,13 @@ data class ReceiptBiz(
     val logoFile: String? = null,
     /** Owner-editable footer (business_settings.receipt_footer_text), synced like the logo. */
     val footer: String = DEFAULT_RECEIPT_FOOTER,
+    /**
+     * False for an issuing company that is not VAT-registered (the tyre centre's service
+     * company): its slip is an INVOICE, not a VAT invoice, and states no VAT anywhere. True —
+     * the default — prints exactly the slip every shop printed before, byte for byte. Mirrors
+     * ReceiptData.vatRegistered on the web card (ReceiptCard.tsx).
+     */
+    val vatRegistered: Boolean = true,
 )
 
 /**
@@ -326,7 +333,8 @@ object ReceiptText {
         } else if (d.invoiceNo != null) {
             // Null only for a consolidated settlement receipt (several invoices, no single
             // number to state here) — the sections below name each one instead.
-            appendLine(center(bold("NUM VAT INVOICE ${d.invoiceNo}"), w))
+            // A company that is not VAT-registered cannot issue a VAT invoice — its slip says so.
+            appendLine(center(bold((if (d.biz.vatRegistered) "NUM VAT INVOICE " else "NUM INVOICE ") + d.invoiceNo), w))
         }
         d.billNo?.let { appendLine(center(bold("Bill $it"), w)) }
         appendLine(center(d.saleModeLabel, w))
@@ -407,7 +415,7 @@ object ReceiptText {
             if (d.discountCents > 0) appendLine(kv("    Discount :", plain(d.discountCents), w))
         }
         appendLine(center(bold((if (d.consolidatedSections.isNotEmpty()) "Grand total: " else "Total: ") + rs(d.totalCents)), w))
-        if (hasItems) appendLine(center(bold("excl. VAT : " + rs(d.totalCents - d.vatCents)), w))
+        if (hasItems && d.biz.vatRegistered) appendLine(center(bold("excl. VAT : " + rs(d.totalCents - d.vatCents)), w))
         appendLine(rule(w))
 
         // ── tenders ───────────────────────────────────────────────────────────────
@@ -456,7 +464,11 @@ object ReceiptText {
         }
 
         // ── tax breakdown ─────────────────────────────────────────────────────────
-        if (hasItems) {
+        // A company that is not VAT-registered charges none and says so, in the tax block's place.
+        if (hasItems && !d.biz.vatRegistered) {
+            wrap("VAT exempt", w).forEach { appendLine(center(it, w)) }
+            appendLine(rule(w))
+        } else if (hasItems) {
             val groups = d.vatGroups.ifEmpty {
                 listOf(ReceiptVatGroup(d.vatRatePct.toDouble(), d.totalCents - d.vatCents, d.vatCents))
             }
@@ -481,7 +493,7 @@ object ReceiptText {
         d.terminalNo?.let { appendLine(center("Appareil $it", w)) }
         d.biz.brn?.takeIf { it.isNotBlank() }?.let { appendLine(center("BRN : $it", w)) }
         // Stored as "VAT28070619"; the slip states the number itself under its own label.
-        d.biz.vatNo?.takeIf { it.isNotBlank() }?.let { appendLine(center("VAT number : " + it.removePrefix("VAT").trim(), w)) }
+        d.biz.vatNo?.takeIf { it.isNotBlank() && d.biz.vatRegistered }?.let { appendLine(center("VAT number : " + it.removePrefix("VAT").trim(), w)) }
         appendLine(center(d.cashier, w))
     }
 }

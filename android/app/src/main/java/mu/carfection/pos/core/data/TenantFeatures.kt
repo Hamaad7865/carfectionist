@@ -16,4 +16,8 @@ object TenantFeatures {
 
     /** Not synced yet (null) reads as "has WhatsApp": nothing changes for Carfectionist. */
     fun hasWhatsApp(tenantId: String?): Boolean = tenantId == null || tenantId !in TYRE_TENANTS
+
+    /** Ceramic certificates & warranty are a detailing studio's — the tyre centre has none
+     *  (mirrors hiddenModulesFor on the web). Not synced yet reads as "has it". */
+    fun hasWarranty(tenantId: String?): Boolean = tenantId == null || tenantId !in TYRE_TENANTS
 }

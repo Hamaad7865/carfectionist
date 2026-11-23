@@ -3,7 +3,7 @@
  *  on app.hazsoftware.com without either showing the other's name. Pure data — safe in
  *  server and client components; the host lookup lives in brand-server.ts. */
 export type BrandInfo = {
-  key: "carfectionist" | "haz" | "shop";
+  key: "carfectionist" | "haz" | "tyrecentre" | "shop";
   /** Product / company name shown in titles and the top bar. */
   name: string;
   /** Logo image, or null to draw the text wordmark. */
@@ -34,8 +34,26 @@ export const HAZ: BrandInfo = {
   pageDescription: "HAZ Software — point of sale and back-office management",
 };
 
+/** The tyre-centre client (docs/redesign). Its own look, scoped by `data-brand` on <html>.
+ *  The name is a placeholder until the owner names the shop; the sidebar shows the
+ *  trading name from business_settings. */
+export const TYRECENTRE: BrandInfo = {
+  key: "tyrecentre",
+  name: "Tyre Centre",
+  logoSrc: null,
+  loginBlurb: "Point of sale and back office for your tyre centre.",
+  footer: "Tyre Centre · Mauritius · under HAZ Software",
+  emailPlaceholder: "you@yourbusiness.mu",
+  pageDescription: "Tyre Centre — point of sale and back office",
+};
+
+/** Hosts that present the tyre-centre brand. A subdomain of the HAZ demo until the owner buys
+ *  a domain — swap it here. `tyrecentre.localhost` lets `next dev` show it locally. */
+const TYRECENTRE_HOSTS = new Set(["tyrecentre.hazsoftware.com", "tyrecentre.localhost"]);
+
 export function brandForHost(host: string | null | undefined): BrandInfo {
   const h = (host ?? "").toLowerCase().split(":")[0];
+  if (TYRECENTRE_HOSTS.has(h)) return TYRECENTRE;
   return h === "hazsoftware.com" || h.endsWith(".hazsoftware.com") ? HAZ : CARFECTIONIST;
 }
 
@@ -50,6 +68,8 @@ export const CARFECTIONIST_TENANTS: readonly string[] = [
  *  and nothing of Carfectionist, whichever address it signed in on. */
 export function brandForShop(hostBrand: BrandInfo, tenantId: string, shopName: string | null | undefined): BrandInfo {
   if (CARFECTIONIST_TENANTS.includes(tenantId)) return hostBrand;
-  const name = (shopName ?? "").trim() || HAZ.name;
-  return { ...HAZ, key: "shop", name, pageDescription: `${name} — point of sale and back office` };
+  const name = (shopName ?? "").trim() || (hostBrand.key === "tyrecentre" ? TYRECENTRE.name : HAZ.name);
+  // On the tyre-centre address the shop keeps the tyre-centre look (data-brand), under its own name.
+  const base = hostBrand.key === "tyrecentre" ? TYRECENTRE : { ...HAZ, key: "shop" as const };
+  return { ...base, name, pageDescription: `${name} — point of sale and back office` };
 }

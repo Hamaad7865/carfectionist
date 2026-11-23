@@ -1,5 +1,6 @@
 package mu.carfection.pos.feature.counter
 
+import mu.carfection.pos.ui.theme.Brand
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -7,6 +8,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -136,7 +139,11 @@ fun CounterScreen(
     val compactScreen = LocalConfiguration.current.screenWidthDp < COMPACT_BREAKPOINT_DP
     LaunchedEffect(Unit) { if (compactScreen && viewModel.state.value.railOpen) viewModel.toggleRail() }
 
-    Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
+    // The tyre centre's flavor draws its own Till and Paid screens (TyreTill.kt); Carfectionist's
+    // TYRE_TILL is false, so everything below is its checkout exactly as before.
+    if (TYRE_TILL && s.done != null) TyrePaid(s, viewModel)
+    else if (TYRE_TILL && s.mode == CheckoutMode.WALKIN) TyreTill(s, viewModel, onOpenTill)
+    else Column(Modifier.fillMaxSize().background(ScreenBg).padding(14.dp)) {
         // ── top bar (handoff: constant CHECKOUT title, caption swaps by mode) ─
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text("CHECKOUT", color = TextPrimary, fontFamily = Condensed, fontSize = 24.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.5.sp)
@@ -383,19 +390,24 @@ fun CounterScreen(
                     // rows listed above, so the two can't drift — and VAT below reads "of which" so
                     // it isn't mistaken for a second charge.
                     TotalRow("Subtotal", formatMUR(if (s.pricesInclVat) s.grossSubtotalCents else s.preBasketSubtotalCents), TextSecondary)
+                    // A shop with several companies discounts each company's bill on its own (owner
+                    // rule): pick the bill, and the row below edits that bill's discount.
+                    if (s.several && s.tillBills.isNotEmpty()) {
+                        CompanyBillChips(s, onPick = viewModel::setDiscFocus)
+                    }
                     // basket discount — % or Rs off the whole sale, saved as explicit discount lines
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp)
-                        ModeToggle(s.basketMode, h = 30.dp) { viewModel.setBasketMode(it) }
+                        ModeToggle(s.discMode, h = 30.dp) { viewModel.setBasketMode(it) }
                         FilledInput(
-                            value = s.basketText, onValueChange = viewModel::setBasketText,
-                            placeholder = if (s.basketMode == DiscountMode.PCT) "0" else "0.00",
+                            value = s.discText, onValueChange = viewModel::setBasketText,
+                            placeholder = if (s.discMode == DiscountMode.PCT) "0" else "0.00",
                             modifier = Modifier.width(96.dp), height = 30.dp, radius = 8.dp, bg = Inset, fontSize = 13.sp,
                         )
                         Spacer(Modifier.weight(1f))
                         // On a gross screen, show what actually came off the bill (Subtotal − TOTAL),
                         // not the net discount line — otherwise the three rows don't add up.
-                        val shownDisc = if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
+                        val shownDisc = if (s.pricesInclVat) s.discAppliedGrossCents else s.discAppliedCents
                         if (shownDisc > 0) Text("−" + formatMUR(shownDisc), color = Success, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
                     }
                     // The database is the authority (app.assert_discount_allowed) — this mirrors
@@ -409,7 +421,7 @@ fun CounterScreen(
                     }
                     if (s.allowance.reasonRequired) {
                         FilledInput(
-                            value = s.discountReason, onValueChange = viewModel::setDiscountReason,
+                            value = s.discReason, onValueChange = viewModel::setDiscountReason,
                             placeholder = "Why — e.g. regular customer, repeat wash",
                             modifier = Modifier.fillMaxWidth(), height = 36.dp, radius = 9.dp, bg = Inset, fontSize = 12.5.sp,
                         )
@@ -419,7 +431,7 @@ fun CounterScreen(
                         // The disabled Record payment button below explains the ceiling; this is
                         // the way out of it — an owner's PIN, checked server-side, without
                         // signing the cashier out or anyone becoming an owner.
-                        if (s.allowance.overCeiling) {
+                        if (s.blockAllowance.overCeiling) {
                             Text(
                                 "Ask the owner →", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.sp,
                                 modifier = Modifier.clickable { viewModel.askOwner() },
@@ -454,7 +466,7 @@ fun CounterScreen(
     // stay here too for the ticket-panel route, which reaches them with no pad open.
     if (!s.padOpen && s.reasonDialogOpen) DiscountReasonDialog(s, viewModel)
     if (!s.padOpen && s.pointsPickerOpen) PointsPickerDialog(s, viewModel)
-    if (s.adhocOpen) AdhocDialog(viewModel, s.pricesInclVat)
+    if (s.adhocOpen) { if (TYRE_TILL) TyreCustomLineDialog(s, viewModel) else AdhocDialog(viewModel, s.pricesInclVat) }
     s.oversell?.let { o ->
         val oh = s.onHand[o.product.id] ?: 0
         Dialog(onDismissRequest = viewModel::dismissOversell) {
@@ -485,9 +497,9 @@ fun CounterScreen(
             }
         }
     }
-    s.done?.let {
+    s.done?.takeUnless { TYRE_TILL }?.let {
         SaleDone(
-            result = it, receipt = s.receipt,
+            result = it, receipt = s.receipt, moreReceipts = s.moreReceipts,
             // The slip already knows how it was settled — "Split" for an allocation across
             // methods, where s.method only holds whichever row the numpad last touched.
             methodLabel = s.receipt?.payLabel ?: s.method.label,
@@ -659,7 +671,7 @@ private fun AdhocDialog(vm: CounterViewModel, inclVat: Boolean) {
  */
 @Composable
 private fun DiscountReasonDialog(s: CounterUiState, vm: CounterViewModel) {
-    val ok = s.discountReason.isNotBlank()
+    val ok = s.discReason.isNotBlank()
     Dialog(onDismissRequest = vm::closeReasonDialog) {
         Column(
             Modifier.widthIn(max = 460.dp).fillMaxWidth(0.94f).background(CardBg, RoundedCornerShape(16.dp))
@@ -673,7 +685,7 @@ private fun DiscountReasonDialog(s: CounterUiState, vm: CounterViewModel) {
             )
             Text("REASON", color = TextMuted, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
             FilledInput(
-                value = s.discountReason, onValueChange = vm::setDiscountReason,
+                value = s.discReason, onValueChange = vm::setDiscountReason,
                 placeholder = "e.g. regular customer, repeat wash",
                 modifier = Modifier.fillMaxWidth(), bg = Inset,
             )
@@ -1006,7 +1018,7 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         // Studio identity + emblem (Cashmag prints the shop's name/address/logo atop the bill).
                         Row(verticalAlignment = Alignment.Top) {
                             Column(Modifier.weight(1f).padding(end = 10.dp)) {
-                                Text(s.bizName.ifBlank { "CARFECTIONIST" }.uppercase(), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 25.sp, letterSpacing = 0.5.sp, lineHeight = 27.sp)
+                                Text(s.bizName.ifBlank { Brand.WORDMARK }.uppercase(), color = TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 25.sp, letterSpacing = 0.5.sp, lineHeight = 27.sp)
                                 s.bizAddress?.takeIf { it.isNotBlank() }?.let {
                                     Text(it, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp)
                                 }
@@ -1018,7 +1030,7 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Image(
-                                    painterResource(R.drawable.logo_carfectionist),
+                                    painterResource(Brand.logo),
                                     contentDescription = null,
                                     modifier = Modifier.size(52.dp),
                                 )
@@ -1093,7 +1105,10 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         Spacer(Modifier.height(12.dp))
                         // line items: a walk-in cart carries its lines; a collect shows the invoice's REAL
                         // lines — what the client actually took (service/products), fetched when the pad opened.
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                        // The tyre centre's walk-in sale billed by two companies shows one card per
+                        // bill instead (TyreTill.kt); Carfectionist's TYRE_TILL is false.
+                        if (TYRE_TILL && s.collect == null && s.tillBills.size > 1) TyrePayBills(s, Modifier.weight(1f))
+                        else Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             if (s.collect != null) {
                                 if (s.collectLines.isNotEmpty()) {
                                     // Every line, discounts included, so what's shown reconciles with the total.
@@ -1165,8 +1180,21 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         Spacer(Modifier.height(12.dp))
                         // The invoice total is what the lines sum to. A collect may already carry a
                         // deposit, so show what's been paid and the balance actually being settled now.
-                        val invoiceTotalCents = s.collect?.let { rupeesToCents(it.totalIncl) } ?: s.dueCents
-                        val paidAlreadyCents = s.collect?.let { rupeesToCents(it.amountPaid) } ?: 0L
+                        val invoiceTotalCents = if (s.collect != null) s.collectBills.sumOf { rupeesToCents(it.totalIncl) } else s.dueCents
+                        val paidAlreadyCents = s.collectBills.sumOf { rupeesToCents(it.amountPaid) }
+                        // One visit, one bill per company: name each, so the customer sees what
+                        // the one payment covers.
+                        if (s.collectGroup.size > 1) {
+                            s.collectGroup.forEach { b ->
+                                val co = s.billCompanyId(b)?.let { id -> s.companies.firstOrNull { it.id == id } }
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("${co?.let(::companyName) ?: "Bill"} · ${b.number ?: "—"}", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                                    Spacer(Modifier.weight(1f))
+                                    Text(formatMUR(rupeesToCents(b.totalIncl)), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
+                                }
+                                Spacer(Modifier.height(6.dp))
+                            }
+                        }
                         // A BASKET discount belongs on the bill the customer is reading.
                         //
                         // The lines above show rowGrossCents, which carries each line's OWN discount
@@ -1175,7 +1203,10 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         // Rs 880.00 line sat directly above a Rs 836.00 total with nothing to explain
                         // the difference, which is exactly the "the bill doesn't add up to what they
                         // are being charged" failure the line rendering above was already fixed for.
-                        val basketOffCents = if (s.collect != null) 0L
+                        // The tyre centre's per-company cards (TyrePayBills) already show each
+                        // bill's own discount, VAT included; a second, sale-wide figure here read
+                        // as a different discount.
+                        val basketOffCents = if (s.collect != null || (TYRE_TILL && s.tillBills.size > 1)) 0L
                             else if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
                         if (basketOffCents > 0) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1246,6 +1277,12 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
         // them back off. One-tap-and-done was the alternative and was rejected: reversals
         // are owner-only since rule 3, so a stray finger would mean fetching the owner.
         PointsBar(s, vm)
+        // A part payment (a deposit) on a visit billed by two companies: which bill it fills
+        // first. Paying in full needs no choice.
+        if (s.isPartPayment && s.allocationChoices.isNotEmpty()) {
+            AllocationChips(s, vm, "THIS PAYMENT GOES TO")
+            Spacer(Modifier.height(12.dp))
+        }
         Text("MEANS OF PAYMENT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(14.dp))
         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -1257,6 +1294,11 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
                     if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
+        }
+        // Tyre centre only: how this payment lands on each company's bill (reads, never decides).
+        if (TYRE_TILL) {
+            Spacer(Modifier.weight(1f))
+            TyreWhereMoneyGoes(s)
         }
     }
     // ── right: totals + entry (amount / cash tendered) + numpad + Record ──
@@ -1282,11 +1324,11 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
                     .clip(RoundedCornerShape(11.dp))
                     .background(AccentSoft)
                     .border(1.5.dp, AccentLine, RoundedCornerShape(11.dp))
-                    .clickable { if (s.allowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
+                    .clickable { if (s.blockAllowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (s.allowance.overCeiling) "Ask the owner" else "Add the reason",
+                    if (s.blockAllowance.overCeiling) "Ask the owner" else "Add the reason",
                     color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                 )
             }
@@ -1388,6 +1430,7 @@ private fun PointsBar(s: CounterUiState, vm: CounterViewModel) {
 
 /** Split bill: an allocation table — an amount per method — plus a numpad and Record. */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
     // ── middle: one row per method, with its allocated amount ──
     Column(
@@ -1423,6 +1466,9 @@ private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
                 )
             }
         }
+        // Two companies' bills: each part of the split is a part payment across them, and the
+        // cashier picks which bill it fills first (record_checkout_payment's allocation).
+        AllocationChips(s, vm, "EACH PART PAYS")
         Spacer(Modifier.weight(1f))
         Text("Credit can't be split — it's a receivable, not a tender.", color = TextMuted, fontFamily = Barlow, fontSize = 11.5.sp)
     }
@@ -1455,11 +1501,11 @@ private fun RowScope.SplitAllocation(s: CounterUiState, vm: CounterViewModel) {
                     .clip(RoundedCornerShape(11.dp))
                     .background(AccentSoft)
                     .border(1.5.dp, AccentLine, RoundedCornerShape(11.dp))
-                    .clickable { if (s.allowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
+                    .clickable { if (s.blockAllowance.overCeiling) vm.askOwner() else vm.openReasonDialog() },
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    if (s.allowance.overCeiling) "Ask the owner" else "Add the reason",
+                    if (s.blockAllowance.overCeiling) "Ask the owner" else "Add the reason",
                     color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp,
                 )
             }
@@ -2081,12 +2127,66 @@ private fun ViewReceiptDialog(doc: mu.carfection.pos.core.hardware.ReceiptDoc, o
     }
 }
 
+/** Where a part payment goes on a two-company visit: one chip per company, or both shared. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun AllocationChips(s: CounterUiState, vm: CounterViewModel, title: String) {
+    val choices = s.allocationChoices
+    if (choices.isEmpty()) return
+    Text(title, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp)
+    Spacer(Modifier.height(6.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        choices.forEach { (value, label) ->
+            val on = s.allocation == value
+            Box(
+                Modifier.height(36.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(18.dp))
+                    .border(1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(18.dp))
+                    .clickable { vm.setAllocation(value) }.padding(horizontal = 14.dp),
+                contentAlignment = Alignment.Center,
+            ) { Text(label, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, maxLines = 1) }
+        }
+    }
+}
+
+/**
+ * A several-company till's bills, one chip each — the company and what its bill comes to. The
+ * lit chip is the bill the Discount row edits; a bill that can't be charged yet shows in red.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun CompanyBillChips(s: CounterUiState, onPick: (String) -> Unit) {
+    val focus = s.focusBill?.company?.id
+    Text(
+        if (s.tillBills.size > 1) "DISCOUNT ON" else "BILLED BY",
+        color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp,
+    )
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        s.tillBills.forEach { b ->
+            val on = b.company.id == focus
+            val bad = b.blockReason != null
+            Row(
+                Modifier.height(34.dp)
+                    .background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(17.dp))
+                    .border(1.dp, if (bad) Danger else if (on) AccentLine else Hairline, RoundedCornerShape(17.dp))
+                    .clickable { onPick(b.company.id) }.padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(b.name, color = if (on) Accent else TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, maxLines = 1)
+                Text(formatMUR(b.totals.totalCents), color = TextMuted, fontFamily = Mono, fontSize = 11.5.sp, maxLines = 1)
+                if (!b.company.vatRegistered) Text("NO VAT", color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp)
+            }
+        }
+    }
+}
+
 // ─── Success ─────────────────────────────────────────────────────────────────
 
 @Composable
 private fun SaleDone(
     result: mu.carfection.pos.core.data.SaleResult,
     receipt: mu.carfection.pos.core.hardware.ReceiptDoc?,
+    /** A two-company sale's other bills' slips, after [receipt]'s. Empty for a one-company sale. */
+    moreReceipts: List<mu.carfection.pos.core.hardware.ReceiptDoc> = emptyList(),
     methodLabel: String,
     customerLabel: String,
     canVoid: Boolean,
@@ -2111,6 +2211,7 @@ private fun SaleDone(
                             // straight that the invoice does not exist yet.
                             if (result.offlineRef != null)
                                 "${result.offlineRef} · paid in ${methodLabel.lowercase()} · invoice follows when back online"
+                            else if (result.bills.size > 1) "Invoices ${result.bills.joinToString(" + ") { it.number ?: "—" }} · ${if (result.onAccount) "on account" else "paid in ${methodLabel.lowercase()}"}"
                             else "Invoice ${result.number ?: "—"} · ${if (result.onAccount) "on account" else "paid in ${methodLabel.lowercase()}"}",
                             color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp,
                         )
@@ -2219,10 +2320,16 @@ private fun SaleDone(
             }
             // ── right: the slip exactly as it printed (styled paper, no stamps) ─
             Box(Modifier.weight(0.9f), contentAlignment = Alignment.TopCenter) {
-                if (receipt != null) ReceiptPaper(
+                if (receipt != null && moreReceipts.isEmpty()) ReceiptPaper(
                     receipt,
                     Modifier.width(300.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
-                )
+                ) else if (receipt != null) {
+                    // One slip per company, in the order they printed.
+                    Column(
+                        Modifier.width(300.dp).heightIn(max = 560.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) { (listOf(receipt) + moreReceipts).forEach { ReceiptPaper(it, Modifier.fillMaxWidth()) } }
+                }
             }
         }
     }
@@ -2288,7 +2395,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             Text("Not a VAT invoice.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
             Text("Your VAT invoice is issued when this till is back online.", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, lineHeight = 13.sp, textAlign = TextAlign.Center)
         } else if (d.invoiceNo != null) {
-            Text("NUM VAT INVOICE ${d.invoiceNo}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
+            Text((if (d.biz.vatRegistered) "NUM VAT INVOICE " else "NUM INVOICE ") + d.invoiceNo, color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center)
         }
         d.billNo?.let { Text("Bill $it", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.Center) }
         Text(d.saleModeLabel, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center)
@@ -2312,8 +2419,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
                 Text("Qty", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.width(24.dp))
                 Text("Designation", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.weight(1f))
-                Text("UP", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
-                Text("Total", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+                Text("UP", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.padding(start = 6.dp).width(58.dp))
+                Text("Total", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.padding(start = 8.dp).width(62.dp))
             }
             // The same per-car grouping the printed slip and the web card use — the paper in
             // the customer's hand and the copy in their inbox are one document.
@@ -2332,8 +2439,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
                 Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
                     Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.width(24.dp))
                     Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
-                    Text(plainSlip(l.unitInclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
-                    Text(plainSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+                    Text(plainSlip(l.unitInclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, textAlign = TextAlign.End, softWrap = false, maxLines = 1, modifier = Modifier.padding(start = 6.dp).width(58.dp))
+                    Text(plainSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.End, softWrap = false, maxLines = 1, modifier = Modifier.padding(start = 8.dp).width(62.dp))
                 }
                 // What this line saved — only when there was a saving.
                 if (l.discountInclCents > 0) {
@@ -2369,7 +2476,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             "${if (d.consolidatedSections.isNotEmpty()) "Grand total" else "Total"}: ${plainSlip(d.totalCents)}Rs",
             color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 5.dp),
         )
-        if (hasItems) {
+        if (hasItems && d.biz.vatRegistered) {
             Text("excl. VAT : ${plainSlip(d.totalCents - d.vatCents)}Rs", color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, textAlign = TextAlign.Center)
         }
         DashRule()
@@ -2405,7 +2512,11 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         DashRule()
         // ── tax breakdown ───────────────────────────────────────────────────────
-        if (hasItems) {
+        // Mirrors ReceiptText.render: a company that is not VAT-registered says so instead.
+        if (hasItems && !d.biz.vatRegistered) {
+            Text("VAT exempt", color = PaperInk, fontFamily = Mono, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            DashRule()
+        } else if (hasItems) {
             val groups = d.vatGroups.ifEmpty {
                 listOf(mu.carfection.pos.core.hardware.ReceiptVatGroup(d.vatRatePct.toDouble(), d.totalCents - d.vatCents, d.vatCents))
             }
@@ -2422,7 +2533,7 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
         }
         d.terminalNo?.let { Text("Appareil $it", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
         d.biz.brn?.takeIf { it.isNotBlank() }?.let { Text("BRN : $it", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
-        d.biz.vatNo?.takeIf { it.isNotBlank() }?.let { Text("VAT number : ${it.removePrefix("VAT").trim()}", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
+        d.biz.vatNo?.takeIf { it.isNotBlank() && d.biz.vatRegistered }?.let { Text("VAT number : ${it.removePrefix("VAT").trim()}", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center) }
         Text(d.cashier, color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 10.dp))
         // barcode of the invoice number, captioned like the web card ("INV-0004 · 18072026")
         d.invoiceNo?.let { no ->

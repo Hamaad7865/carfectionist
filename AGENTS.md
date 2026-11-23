@@ -59,9 +59,9 @@ From `apps/web/`: `npx vitest run src/<path>/<name>.test.ts(x)` for a single tes
   `issue_checkout` (one invoice per company, linked by `checkout_group_id`; a one-company draft IS
   `issue_document` under the same key) and takes money across those bills with
   `record_checkout_payment` (allocation `proportional` or a company id). One-company shops keep
-  `issue_document`/`record_payment`. Invoices in a checkout group are exempt from
-  one-invoice-per-job/quote only per company; a car is handed back only when every company's bill
-  is settled.
+  `issue_document`/`record_payment` exactly — the web decides by counting `legal_entities`. Invoices in
+  a checkout group are exempt from one-invoice-per-job/quote only per company; a car is handed back
+  only when every company's bill is settled.
 - **Invoice fiscal lock**: issued invoices are immutable; legal fields are never hidden by template config.
 - **RLS on every query**; all writes are zod-validated server actions (`features/<domain>/actions.ts`).
 - **Rounding authority is the database** (generated columns, line-level `round(x,2)` half-away, then summed).
@@ -85,5 +85,20 @@ Use `src/lib/money/` (format/totals/parse/number-to-words), `phone.ts`, `mu-date
 `features/<domain>/` (UI + `actions.ts`) · `lib/supabase/rpc.ts` (numbering seam) ·
 `lib/pdf/`, `components/pdf/` (DocumentA4) · path alias `@/*` → `src/*` ·
 tests colocated `src/**/*.test.{ts,tsx}`. Per-report CSV: `/api/reports/[slug]/csv`.
+
+**Brands** (`lib/brand.ts`, by request host): Carfectionist and HAZ share the classic look; the
+tyre-centre client (`tyrecentre.hazsoftware.com`) gets its own (`docs/redesign/DESIGN-SPEC.md`):
+`<html data-brand="tyrecentre">`, `TyreShell` (shadcn sidebar) instead of `AppShell`, and its own
+`/dashboard` + `/sales/counter` (`features/tyrecentre/`). shadcn/ui + HextaUI live in
+`components/ui/` (`components.json`); their tokens exist only under `[data-brand="tyrecentre"]`
+in `globals.css`, and `bg-muted` is mapped to `bg-sub` (Carfectionist's `muted` is a text grey).
+Easy UI pieces (easyui.site, MIT — `npx shadcn add Surajmaurya1/easyui/<name>`) sit there too,
+restyled light: notification-bell, expandable-search, product-tour, breadcrumb (the tyre-centre
+top bar). The tyre-centre Overview (`features/tyrecentre/overview/`) is hand-built on `tc-*` tokens;
+its arithmetic lives in `overview-model.ts` (tested), its reads in `queries/tyrecentre-overview.ts`.
+Carfectionist must stay pixel-identical — never add unscoped tokens or base rules for them.
+Tyre-centre dark mode follows the computer until a choice is saved (`THEME_INIT_SCRIPT_SYSTEM`,
+top-bar `TyreThemeMenu`); its palette is the `[data-brand="tyrecentre"][data-theme="dark"]` block —
+use `tc-*` tokens (and `entityVars`/`ENTITY` for company colours), not hex, so screens flip.
 
 Note: `apps/web/AGENTS.md` holds a generic Next.js-version warning; this file is the repo source of truth.

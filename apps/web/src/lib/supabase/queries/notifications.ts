@@ -55,18 +55,34 @@ export function applyDismissals(items: NotifItem[], dismissals: Dismissal[], tod
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type SB = any;
 
-/** Outstanding invoices (money owed). */
-async function outstandingInvoices(sb: SB, today: string): Promise<NotifItem | null> {
+/** Money owed on issued invoices: the ONE count behind the bell, the tyre-centre sidebar's
+ *  "N unpaid" and the Overview's "Money owed" card, so the three can never disagree. Throws on a
+ *  failed read — callers decide what an unreadable figure shows. */
+export async function outstandingTotals(
+  sb: SB,
+  today: string,
+): Promise<{ cents: number; count: number; overdue: number; oldestIssuedAt: string | null }> {
+  const inv = await fetchAllRows(() =>
+    sb.from("documents").select("total_incl, amount_paid, due_date, issued_at").eq("doc_type", "invoice").in("status", ["issued", "partly_paid"]),
+  );
+  let cents = 0, count = 0, overdue = 0;
+  let oldestIssuedAt: string | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const d of inv as any[]) {
+    const out = rupeesToCents(Number(d.total_incl)) - rupeesToCents(Number(d.amount_paid));
+    if (out <= 0) continue;
+    cents += out;
+    count += 1;
+    if (d.due_date && d.due_date < today) overdue += 1;
+    if (d.issued_at && (!oldestIssuedAt || d.issued_at < oldestIssuedAt)) oldestIssuedAt = d.issued_at;
+  }
+  return { cents, count, overdue, oldestIssuedAt };
+}
+
+/** Outstanding invoices (money owed). Also counts the tyre-centre sidebar's "N unpaid". */
+export async function outstandingInvoices(sb: SB, today: string): Promise<NotifItem | null> {
   try {
-    const inv = await fetchAllRows(() =>
-      sb.from("documents").select("total_incl, amount_paid, due_date").eq("doc_type", "invoice").in("status", ["issued", "partly_paid"]),
-    );
-    let outstanding = 0, count = 0, overdue = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const d of inv as any[]) {
-      const out = rupeesToCents(Number(d.total_incl)) - rupeesToCents(Number(d.amount_paid));
-      if (out > 0) { outstanding += out; count += 1; if (d.due_date && d.due_date < today) overdue += 1; }
-    }
+    const { cents: outstanding, count, overdue } = await outstandingTotals(sb, today);
     if (count === 0) return null;
     return {
       key: "outstanding",
@@ -82,7 +98,7 @@ async function outstandingInvoices(sb: SB, today: string): Promise<NotifItem | n
 }
 
 /** New enquiries awaiting a reply. */
-async function newEnquiries(sb: SB): Promise<NotifItem | null> {
+export async function newEnquiries(sb: SB): Promise<NotifItem | null> {
   try {
     const { count } = await sb.from("enquiries").select("id", { count: "exact", head: true }).eq("status", "new");
     if (!count || count <= 0) return null;
@@ -188,8 +204,9 @@ async function maintenanceDue(sb: SB, today: string): Promise<NotifItem | null> 
   }
 }
 
-/** Low stock on the selling floor (only for items actually carried, to avoid noise). */
-async function lowStock(sb: SB): Promise<NotifItem | null> {
+/** Low stock on the selling floor (only for items actually carried, to avoid noise).
+ *  Also counts the tyre-centre sidebar's "N low". */
+export async function lowStock(sb: SB): Promise<NotifItem | null> {
   try {
     // The locations lookup gates the rest, but the two big reads run together.
     // Ask which floor the till sells from rather than guessing "the one that

@@ -21,7 +21,7 @@ const ITEMS = [
  *  already bills under more than one company. A one-company shop's settings look as before. */
 async function showCompanies(active: string): Promise<boolean> {
   if (active === "companies") return true;
-  if (((await getBrand()).key as string) === "tyrecentre") return true;
+  if ((await getBrand()).key === "tyrecentre") return true;
   const sb = await createClient();
   const { count } = await sb.from("legal_entities").select("id", { count: "exact", head: true }).eq("is_active", true);
   return (count ?? 0) > 1;

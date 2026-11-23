@@ -78,6 +78,41 @@ android {
         buildConfigField("String", "POS_TENANTS", "\"11111111-1111-4111-8111-000000000001,22222222-2222-4222-8222-000000000002\"")
     }
 
+    // One code base, one APK per client. Carfectionist keeps its applicationId, name and
+    // update manifest EXACTLY as before — the tablets in the shop update over it. The tyre
+    // centre is a separate app (its own id, so the two never overwrite each other) with its
+    // own look (src/tyrecentre: theme tokens, fonts, icon, Till and Paid screens) and its own
+    // update manifest. Code paths never branch on the brand for money: a two-company shop is
+    // detected from its data (legal_entities), exactly as the web does.
+    flavorDimensions += "brand"
+    productFlavors {
+        create("carfectionist") {
+            dimension = "brand"
+            applicationId = "mu.carfection.pos"
+            manifestPlaceholders["appLabel"] = "Carfectionist POS"
+            buildConfigField("String", "BRAND", "\"carfectionist\"")
+            buildConfigField("String", "UPDATE_MANIFEST", "\"latest.json\"")
+            buildConfigField("String", "APK_PREFIX", "\"carfectionist\"")
+        }
+        create("tyrecentre") {
+            dimension = "brand"
+            applicationId = "mu.haz.tyrecentre.pos" // placeholder until the owner names it
+            manifestPlaceholders["appLabel"] = "Tyre Centre POS"
+            buildConfigField("String", "BRAND", "\"tyrecentre\"")
+            buildConfigField("String", "UPDATE_MANIFEST", "\"tyrecentre/latest.json\"")
+            buildConfigField("String", "APK_PREFIX", "\"tyrecentre\"")
+            // Garage De L'Est (tyres + Service) and its TEST Tyre Sandbox
+            // (scripts/setup-tyre-sandbox.mjs): only their staff appear on this app's PIN screen.
+            buildConfigField(
+                "String", "POS_TENANTS",
+                "\"1f060b86-ad63-4dc7-93fb-a1fdfae18b27,44444444-4444-4444-8444-000000000004\"",
+            )
+            prop("tyrecentre.pos.webUrl").takeIf { it.isNotBlank() }?.let {
+                buildConfigField("String", "POS_WEB_URL", "\"$it\"")
+            }
+        }
+    }
+
     signingConfigs {
         if (hasReleaseKey) {
             create("release") {

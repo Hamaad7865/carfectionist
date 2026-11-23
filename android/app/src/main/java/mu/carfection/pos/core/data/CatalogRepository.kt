@@ -19,6 +19,7 @@ import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.money.CARWASH_MAX_PCT
 import mu.carfection.pos.core.money.PolicyDefaults
 import mu.carfection.pos.core.money.DEFAULT_POLICIES
+import mu.carfection.pos.core.network.IssuerCompanyDto
 import mu.carfection.pos.core.network.PosApi
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -126,7 +127,21 @@ class CatalogRepository @Inject constructor(
 
     /** False for a shop with no WhatsApp (the tyre centre) — see [TenantFeatures]. */
     val hasWhatsAppFlow: Flow<Boolean> = prefs.data.map { TenantFeatures.hasWhatsApp(it[tenantKey]) }
-    suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
+    /** False for the tyre centre: no Warranty tab (see [TenantFeatures.hasWarranty]). */
+    val hasWarrantyFlow: Flow<Boolean> = prefs.data.map { TenantFeatures.hasWarranty(it[tenantKey]) }
+    suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: mu.carfection.pos.ui.theme.Brand.NAME
+
+    /**
+     * The top bar's name and place line, from the signed-in shop's own settings — never a
+     * hard-coded studio: the tyre centre's tablet used to say "CARFECTIONIST · Helvetia".
+     * The place is the first part of the address ("Helvetia, 80840 Moka, MU" → "Helvetia ·
+     * Mauritius", exactly what Carfectionist's bar always said); no address → "Mauritius".
+     */
+    val shopHeaderFlow: Flow<Pair<String, String>> = prefs.data.map { p ->
+        val name = p[nameKey]?.trim()?.ifBlank { null } ?: mu.carfection.pos.ui.theme.Brand.NAME
+        val place = p[addressKey]?.lineSequence()?.flatMap { it.split(',') }?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
+        name to (if (place != null) "$place · Mauritius" else "Mauritius")
+    }
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
 
     /** Does the shop quote VAT-INCLUSIVE shelf prices? Display-only — prices stay stored net. */
@@ -136,7 +151,7 @@ class CatalogRepository @Inject constructor(
     suspend fun receiptBiz(): ReceiptBiz {
         val p = prefs.data.first()
         return ReceiptBiz(
-            name = p[nameKey] ?: "Carfectionist",
+            name = p[nameKey] ?: mu.carfection.pos.ui.theme.Brand.NAME,
             address = p[addressKey],
             brn = p[brnKey],
             vatNo = p[vatNoKey],
@@ -166,9 +181,39 @@ class CatalogRepository @Inject constructor(
         return list.ifEmpty { tillCompanies() }
     }
 
+    /** Issuing companies by id, as last read (refresh() re-reads them all). */
+    private val issuers = java.util.concurrent.ConcurrentHashMap<String, IssuerCompanyDto>()
+
+    /**
+     * The slip identity of the company that issued a bill: the shop's own settings for the
+     * default company (or a bill that names none) — Carfectionist prints exactly what it always
+     * printed — and the company's own identity laid over them for any other (overlayIssuer).
+     *
+     * A bill naming a company that cannot be read THROWS rather than falling back to the
+     * default: printing the tyre company's VAT identity on a service company's bill is a wrong
+     * legal document, so no slip beats that slip (same rule as the web's issuerOf).
+     */
+    /** Does this shop issue under more than one company, as far as the last read knows? */
+    fun severalIssuers(): Boolean = issuers.size > 1
+
+    suspend fun receiptBizFor(legalEntityId: String?): ReceiptBiz {
+        val shop = receiptBiz()
+        if (legalEntityId == null) return shop
+        val company = issuers[legalEntityId]
+            ?: api.fetchIssuerCompany(legalEntityId)?.also { issuers[legalEntityId] = it }
+            ?: error("The company that issued this bill couldn't be read — no receipt printed. Reprint it from Sales.")
+        return overlayIssuer(shop, company, logoStore.path())
+    }
+
     /** Pull settings + catalogue. Call after login and on pull-to-refresh. */
     suspend fun refresh() {
         val settings = api.fetchSettings()
+        // Best-effort: the companies' paper identities, so a slip never waits on them. A failed
+        // read leaves the cache as it was; receiptBizFor fetches on a miss.
+        runCatching { api.fetchIssuerCompanies() }.getOrNull()?.let { list ->
+            issuers.clear()
+            list.forEach { issuers[it.id] = it }
+        }
         prefs.edit {
             it[tenantKey] = settings.id
             it[vatKey] = settings.vatRate

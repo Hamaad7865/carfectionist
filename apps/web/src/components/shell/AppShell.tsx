@@ -7,6 +7,7 @@ import type { SessionContext } from "@/lib/auth/session";
 import type { BrandInfo } from "@/lib/brand";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
+import { TyreShell } from "@/components/tyrecentre/TyreShell";
 import { BottomNav } from "./BottomNav";
 import { hasWhatsApp, hiddenModulesFor } from "@/lib/auth/roles";
 import { ShopFeaturesProvider } from "./ShopFeatures";
@@ -41,10 +42,19 @@ export function AppShell({
   // Dark mode belongs to the back office only: re-apply the saved choice on
   // entry (a client navigation in from /login skips the layout's inline
   // script) and drop it on the way out, so login and public pages stay light.
+  const followSystem = brand.key === "tyrecentre";
   useEffect(() => {
-    restoreSavedTheme();
+    restoreSavedTheme(followSystem);
     return clearAppliedTheme;
-  }, []);
+  }, [followSystem]);
+
+  if (brand.key === "tyrecentre") {
+    return (
+      <TyreShell ctx={ctx} brand={brand}>
+        <ShopFeaturesProvider whatsapp={hasWhatsApp(ctx.tenantId)}>{children}</ShopFeaturesProvider>
+      </TyreShell>
+    );
+  }
 
   return (
     // Pinned to the window (not h-dvh): anything that makes the document taller — a popover, a

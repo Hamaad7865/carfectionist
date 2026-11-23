@@ -1,5 +1,6 @@
 package mu.carfection.pos.core.update
 
+import mu.carfection.pos.ui.theme.Brand
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -51,7 +52,7 @@ class UpdateManager @Inject constructor(
     private val _state = MutableStateFlow<UpdateState>(UpdateState.Idle)
     val state = _state.asStateFlow()
 
-    private val manifestUrl = "${BuildConfig.SUPABASE_URL}/storage/v1/object/public/app-releases/latest.json"
+    private val manifestUrl = "${BuildConfig.SUPABASE_URL}/storage/v1/object/public/app-releases/${BuildConfig.UPDATE_MANIFEST}"
 
     /** Read the manifest and surface an update if one is newer than this build. Silent on failure. */
     suspend fun checkForUpdate() {
@@ -83,7 +84,7 @@ class UpdateManager @Inject constructor(
         // Nothing installs until the OS is allowed to; send them to the toggle first.
         if (!context.packageManager.canRequestPackageInstalls()) {
             openUnknownSourcesSetting()
-            _state.value = UpdateState.Error("Allow \"install unknown apps\" for Carfectionist POS, then tap Update again.")
+            _state.value = UpdateState.Error("Allow \"install unknown apps\" for ${Brand.APP_NAME}, then tap Update again.")
             return
         }
         val apk = runCatching { download(manifest) }.getOrElse {
@@ -98,7 +99,7 @@ class UpdateManager @Inject constructor(
         _state.value = UpdateState.Downloading(0)
         val dir = File(context.cacheDir, "updates").apply { mkdirs() }
         dir.listFiles()?.forEach { it.delete() } // keep only the current download
-        val out = File(dir, "carfectionist-${manifest.versionCode}.apk")
+        val out = File(dir, "${BuildConfig.APK_PREFIX}-${manifest.versionCode}.apk")
 
         val conn = (URL(manifest.url).openConnection() as HttpURLConnection).apply {
             connectTimeout = 10000; readTimeout = 30000; requestMethod = "GET"

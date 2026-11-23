@@ -13,6 +13,8 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.serialization.Serializable
+import mu.carfection.pos.feature.counter.TYRE_TILL
 
 /** Brand + tyre size (20261127000010) — the till, quote picker and Stock all read them. */
 internal const val PRODUCT_ATTR_COLUMNS = "brand, tyre_width, tyre_profile, tyre_rim, tyre_load_index, tyre_speed_rating"
@@ -443,6 +445,21 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }
         return all
     }
+
+    /**
+     * One product's movements since [fromIso], newest first — sales, jobs, transfers,
+     * adjustments alike — for the tyre centre's stock detail panel (latest moves and the
+     * weekly "sold" bars). Read-only; [limit] keeps a busy product's panel quick.
+     */
+    suspend fun fetchProductMoves(productId: String, fromIso: String, limit: Long = 300): List<ProductMoveDto> =
+        client.postgrest.from("stock_movements")
+            .select(Columns.raw("id, qty, ref_type, note, moved_at, location_id, stock_locations(name)")) {
+                filter { eq("product_id", productId); gte("moved_at", fromIso) }
+                order("moved_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                order("id", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(limit)
+            }
+            .decodeList()
 
     /** On-hand at EVERY location for these products — the log shows warehouse rows too. */
     suspend fun fetchStockOnHandFor(productIds: Collection<String>): List<StockOnHandDto> =
@@ -1006,7 +1023,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             if (service != null) put("p_service", service) else put("p_service", JsonNull)
             if (technicianId != null) put("p_technician_id", technicianId) else put("p_technician_id", JsonNull)
             put("p_department", JsonNull)
-            put("p_checklist", JsonArray(emptyList()))
+            put("p_checklist", if (TYRE_TILL) tyreChecklistJson() else JsonArray(emptyList()))
         }).decodeAs<JobRow>().id
 
     /**
@@ -1060,7 +1077,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                     if (signedName != null) put("name", signedName)
                 })
             } else put("p_signature", JsonNull)
-        }).decodeAs<JobRow>().id
+        }).decodeAs<JobRow>().id.also { tyreChecklistOn(listOf(it)) }
 
     /**
      * Accept a quotation covering ANY number of cars → one job per car, in one transaction.
@@ -1090,7 +1107,22 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
                     if (signedName != null) put("name", signedName)
                 })
             } else put("p_signature", JsonNull)
-        }).decodeList<JobRow>().map { it.id }
+        }).decodeList<JobRow>().map { it.id }.also { tyreChecklistOn(it) }
+
+    /**
+     * The quote→job RPCs seed the detailing checklist. A tyre till swaps it for the tyre list
+     * here, in app code (no business logic in PL/pgSQL). Best-effort: a failed swap leaves the
+     * default, which the operator can still edit on the job card.
+     */
+    private suspend fun tyreChecklistOn(jobIds: List<String>) {
+        if (!TYRE_TILL || jobIds.isEmpty()) return
+        runCatching {
+            client.postgrest.from("jobs").select(Columns.raw("id, checklist")) { filter { isIn("id", jobIds) } }
+                .decodeList<JobChecklistRow>()
+                .filter { shouldSwapForTyre(it.checklist) }
+                .forEach { setChecklist(it.id, tyreChecklistJson()) }
+        }
+    }
 
     // ── Writes — the shared RPCs (all invariants live server-side) ───────────
 
@@ -1139,6 +1171,139 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }
         throw e
     }
+
+    /**
+     * The shop's active issuing companies, in their order. One for Carfectionist; two for the
+     * tyre centre (VAT tyres, non-VAT services). The sale path decides by this count, as the web
+     * does — never by the app's brand.
+     */
+    /** Every issuing company's paper identity — inactive ones too: an old bill of a company
+     *  since switched off still reprints under its own name. */
+    suspend fun fetchIssuerCompanies(): List<IssuerCompanyDto> =
+        client.postgrest.from("legal_entities")
+            .select(Columns.raw(ISSUER_COLS))
+            .decodeList<IssuerCompanyDto>()
+
+    suspend fun fetchIssuerCompany(id: String): IssuerCompanyDto? =
+        client.postgrest.from("legal_entities")
+            .select(Columns.raw(ISSUER_COLS)) { filter { eq("id", id) } }
+            .decodeList<IssuerCompanyDto>()
+            .firstOrNull()
+
+    private val ISSUER_COLS =
+        "id, legal_name, trading_name, is_default, vat_registered, brn, vat_number, address, phone, " +
+            "receipt_logo_path, receipt_footer_text"
+
+
+    /**
+     * A shop with more than one company: split the draft into one invoice per company and issue
+     * them all, in company order (the first keeps the draft's id). Same key as [issueDocument]:
+     * a one-company cart is issued BY issue_document under it, and a key issue_document already
+     * used replays through here. Idempotent.
+     */
+    suspend fun issueCheckout(
+        documentId: String,
+        idempotencyKey: String,
+        stockLocationId: String? = null,
+        sessionId: String? = null,
+        /** Each company's own bill discount (owner rule: discounts are per company). Empty = none. */
+        discounts: List<mu.carfection.pos.core.data.CompanyDiscountSpec> = emptyList(),
+    ): List<CheckoutBillDto> =
+        client.postgrest.rpc("issue_checkout", buildJsonObject {
+            put("p_document_id", documentId)
+            if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
+            put("p_idempotency_key", idempotencyKey)
+            if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
+            if (discounts.isEmpty()) put("p_discounts", JsonNull)
+            else put("p_discounts", kotlinx.serialization.json.buildJsonArray {
+                discounts.forEach { d ->
+                    add(buildJsonObject {
+                        put("legal_entity_id", d.legalEntityId)
+                        put("discount_kind", d.kind)
+                        put("discount_value", d.value) // percent, or RUPEES for an amount
+                        if (d.reason != null) put("discount_reason", d.reason) else put("discount_reason", JsonNull)
+                    })
+                }
+            })
+        }).decodeList()
+
+    /**
+     * Issue a draft bill (a job's invoice, a quote's bill) the way the shop bills: a shop with
+     * ONE company (Carfectionist) calls issue_document exactly as it always has; a shop with
+     * several (the tyre centre) calls issue_checkout, which splits the draft into one invoice per
+     * company and issues each — the first company's keeps the draft's id. Same key either way.
+     * Returns every issued document, first company first (one, on a one-company shop).
+     */
+    suspend fun issueBill(
+        documentId: String,
+        idempotencyKey: String,
+        stockLocationId: String? = null,
+        sessionId: String? = null,
+    ): List<CheckoutBillDto> =
+        if (fetchActiveCompanies().size > 1) {
+            issueCheckout(documentId, idempotencyKey, stockLocationId, sessionId)
+        } else {
+            val d = issueDocument(documentId, idempotencyKey, stockLocationId, sessionId)
+            listOf(CheckoutBillDto(d.id, d.number, d.status, d.docType, d.totalIncl, d.amountPaid, null))
+        }
+
+    /**
+     * The visit's OPEN invoices — every company's bill of one checkout group (the tyre centre
+     * bills one per company). The till collects them together, as one payment. Unordered: the
+     * caller orders them by company.
+     */
+    suspend fun fetchCheckoutGroupBills(groupId: String): List<OutstandingInvoiceDto> =
+        client.postgrest.from("documents")
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, legal_entity_id, checkout_group_id, jobs!documents_job_id_fkey(status), customers(name, points_balance), vehicles(plate, make, model)")) {
+                filter {
+                    eq("checkout_group_id", groupId); eq("doc_type", "invoice")
+                    isIn("status", listOf("issued", "partly_paid"))
+                }
+            }
+            .decodeList()
+
+    /** How many documents a draft will become when issued per company (checkout_document_ids):
+     *  1 on a one-company draft, 2 when it carries both companies' lines. Nothing is written. */
+    suspend fun checkoutDocumentCount(documentId: String): Int =
+        client.postgrest.rpc("checkout_document_ids", buildJsonObject {
+            put("p_document_id", documentId)
+        }).decodeList<kotlinx.serialization.json.JsonObject>().size
+
+    /**
+     * "Two quotes": split a DRAFT quote that spans companies into one draft quote per company,
+     * nothing issued (split_document_by_company). The first company's keeps the quote's id; each
+     * then carries its own discount and is sent and signed on its own. Idempotent.
+     */
+    suspend fun splitDocumentByCompany(documentId: String): List<CheckoutBillDto> =
+        client.postgrest.rpc("split_document_by_company", buildJsonObject {
+            put("p_document_id", documentId)
+        }).decodeList()
+
+    /**
+     * ONE payment across several invoices of one sale, in one transaction — so a failure never
+     * leaves one company's bill paid and the other not. [allocation] is "proportional" or the id
+     * of the company whose bill is filled first. Idempotent on [idempotencyKey].
+     */
+    suspend fun recordCheckoutPayment(
+        invoiceIds: List<String>,
+        method: String,
+        amountRupees: Double,
+        tenderedRupees: Double?,
+        externalRef: String?,
+        cashSessionId: String?,
+        allocation: String,
+        idempotencyKey: String,
+    ): PaymentGroupDto =
+        client.postgrest.rpc("record_checkout_payment", buildJsonObject {
+            put("p_invoice_ids", JsonArray(invoiceIds.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+            put("p_method", method)
+            put("p_amount", amountRupees)
+            if (tenderedRupees != null) put("p_tendered", tenderedRupees) else put("p_tendered", JsonNull)
+            if (externalRef != null) put("p_external_ref", externalRef) else put("p_external_ref", JsonNull)
+            if (cashSessionId != null) put("p_cash_session_id", cashSessionId) else put("p_cash_session_id", JsonNull)
+            put("p_allocation", allocation)
+            put("p_idempotency_key", idempotencyKey)
+        }).decodeAs()
 
     /** Records a payment + recomputes status. Idempotent. */
     suspend fun recordPayment(
@@ -1218,7 +1383,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
      */
     suspend fun fetchOutstandingInvoices(): List<OutstandingInvoiceDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, jobs!documents_job_id_fkey(status), customers(name, points_balance), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, total_incl, amount_paid, status, job_id, source_document_id, issued_at, legal_entity_id, checkout_group_id, jobs!documents_job_id_fkey(status), customers(name, points_balance), vehicles(plate, make, model)")) {
                 // 'draft' belongs here now: a quoted job's bill is raised when the car is
                 // marked ready and left OPEN, so the counter can add whatever the customer
                 // picked up on their way out. It is issued as they pay. Callers drop the
@@ -1318,7 +1483,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     private val SALE_COLS =
         "id, number, doc_type, status, issued_at, total_incl, vat_total, amount_paid, " +
             "customers(name, phone, email, points_balance), creator:app_users!documents_created_by_fkey(display_name), " +
-            "bill_no, bill_to_brn, bill_to_vat_number, " +
+            "bill_no, bill_to_brn, bill_to_vat_number, legal_entity_id, " +
             "document_lines(title, qty, line_total_excl, line_vat, sort_order, unit_price, vat_rate, discount_kind, discount_pct, discount_amount, price_includes_vat, vehicles(plate, make, model)), " +
             "payments(id, method, amount, tendered, change_given, reverses_payment_id, received_at)"
 
@@ -1715,3 +1880,5 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             client.postgrest.rpc("shop_till", buildJsonObject {}).decodeAs<CashSessionDto>()
         }.getOrNull()
 }
+
+@Serializable internal data class JobChecklistRow(val id: String, val checklist: List<ChecklistItemDto> = emptyList())

@@ -1844,7 +1844,7 @@ class QuoteViewModel @Inject constructor(
                 val depositInvoice = if (deposit != null) {
                     runCatching {
                         val inv = api.convertQuoteToInvoice(id)
-                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                        if (inv.status == null || inv.status == "draft") api.issueBill(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                         inv.id
                     }.getOrNull()
                 } else null
@@ -2383,7 +2383,7 @@ class QuoteViewModel @Inject constructor(
                 val depositInvoice = if (s.depositCents > 0) {
                     runCatching {
                         val inv = api.convertQuoteToInvoice(quoteId)
-                        if (inv.status == null || inv.status == "draft") api.issueDocument(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
+                        if (inv.status == null || inv.status == "draft") api.issueBill(inv.id, "inv:${inv.id}", sessionId = till.current.value?.id)
                         inv.id
                     }.getOrNull()
                 } else null
@@ -2670,7 +2670,18 @@ class QuoteViewModel @Inject constructor(
                 val saved = api.saveDraft(doc, billLinesJson(s))
                 // Keyed on the document, not the quote: a voided bill must be re-issuable, and a
                 // key spent on the void one would refuse its replacement for ever.
-                if (issue) api.issueDocument(saved.id, "inv:${saved.id}", sessionId = till.current.value?.id) else saved
+                if (!issue) saved
+                else {
+                    // One invoice per company on a shop with several: the screen shows the visit's
+                    // bill as one entry ("INV-12 + WS-3", their sum); the pad opens on the first.
+                    val bills = api.issueBill(saved.id, "inv:${saved.id}", sessionId = till.current.value?.id)
+                    val first = bills.first()
+                    saved.copy(
+                        id = first.id, status = first.status,
+                        number = bills.mapNotNull { it.number }.joinToString(" + ").ifEmpty { null },
+                        totalIncl = bills.sumOf { it.totalIncl },
+                    )
+                }
             }.onSuccess { doc ->
                 _s.update {
                     it.copy(

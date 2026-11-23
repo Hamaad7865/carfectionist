@@ -1,5 +1,6 @@
 package mu.carfection.pos.core.print
 
+import mu.carfection.pos.ui.theme.Brand
 import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
@@ -297,7 +298,7 @@ fun jobCardHtml(
 
     // ── footer ────────────────────────────────────────────────────────────────
     sb.append("<footer><span>").append(esc(jobRef)).append(" · ").append(statusLabel(j.status))
-        .append("</span><span>Carfectionist POS</span></footer>")
+        .append("</span><span>${Brand.APP_NAME}</span></footer>")
 
     sb.append("</body></html>")
     return sb.toString()

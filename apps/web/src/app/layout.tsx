@@ -22,16 +22,23 @@ export const viewport: Viewport = {
 export async function generateMetadata(): Promise<Metadata> {
   const brand = await getBrand();
   return {
-    title: brand.key === "haz" ? brand.name : "Carfection",
+    title: brand.key === "carfectionist" ? "Carfection" : brand.name,
     description: brand.pageDescription,
   };
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
+  // data-brand scopes a client's own look (globals.css); Carfectionist and HAZ share the default.
+  const brand = await getBrand();
   return (
-    <html lang="en" suppressHydrationWarning className={`${archivo.variable} ${manrope.variable} ${jetbrains.variable} h-full`}>
+    <html
+      lang="en"
+      suppressHydrationWarning
+      data-brand={brand.key === "tyrecentre" ? brand.key : undefined}
+      className={`${archivo.variable} ${manrope.variable} ${jetbrains.variable} h-full`}
+    >
       <body className="min-h-full">{children}</body>
     </html>
   );

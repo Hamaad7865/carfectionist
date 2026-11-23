@@ -1,5 +1,6 @@
 package mu.carfection.pos.feature.intake
 
+import mu.carfection.pos.feature.counter.TYRE_TILL
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -89,7 +90,7 @@ fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltView
         // title row
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("RECEPTION · INTAKE", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
-            Text("Customer → cars → condition → quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+            Text(if (TYRE_TILL) "Customer → car → quotation" else "Customer → cars → condition → quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
         }
 
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -99,8 +100,9 @@ fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltView
                 CustomerCard(s, viewModel)
                 VehicleCard(s, viewModel)
             }
-            // RIGHT 54fr — condition & damage
-            ConditionCard(s, viewModel, Modifier.weight(54f).fillMaxHeight())
+            // RIGHT 54fr — condition & damage. A tyre shop doesn't survey bodywork: its intake is
+            // just the customer and the car, straight on to the quotation.
+            if (!TYRE_TILL) ConditionCard(s, viewModel, Modifier.weight(54f).fillMaxHeight())
         }
 
         // footer

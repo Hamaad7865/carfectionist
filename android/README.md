@@ -31,8 +31,9 @@ M2 (offline outbox + sync), M3 (jobs), M4 (stock/certs/dashboard) follow.
 ### CLI build
 ```
 cd android
-./gradlew :app:assembleDebug      # build the APK
-./gradlew :app:testDebugUnitTest  # run the money unit tests
+./gradlew :app:assembleCarfectionistDebug      # build Carfectionist's APK
+./gradlew :app:assembleTyrecentreDebug         # build the tyre centre's APK (a separate app)
+./gradlew :app:testCarfectionistDebugUnitTest  # run the money unit tests
 ```
 
 ## Where things are

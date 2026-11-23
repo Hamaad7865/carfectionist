@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The tyre-centre mark: a tyre seen side-on, white on the black rounded square (web TyreMark). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="40dp" android:height="40dp" android:viewportWidth="40" android:viewportHeight="40">
+    <path android:pathData="M10,0h20a10,10 0 0,1 10,10v20a10,10 0 0,1 -10,10h-20a10,10 0 0,1 -10,-10v-20a10,10 0 0,1 10,-10z" android:fillColor="#0B0D0F" />
+    <group android:translateX="8.8" android:translateY="8.8" android:scaleX="0.9333" android:scaleY="0.9333">
+        <path android:pathData="M3,12a9,9 0 1,0 18,0a9,9 0 1,0 -18,0" android:strokeColor="#CDA85F" android:strokeWidth="2.2" android:fillColor="#00000000" />
+        <path android:pathData="M8.6,12a3.4,3.4 0 1,0 6.8,0a3.4,3.4 0 1,0 -6.8,0" android:strokeColor="#CDA85F" android:strokeWidth="2" android:fillColor="#00000000" />
+        <path android:pathData="M12,3v3.2M12,17.8V21M3,12h3.2M17.8,12H21" android:strokeColor="#CDA85F" android:strokeWidth="1.6" android:strokeLineCap="round" android:fillColor="#00000000" />    </group>
+</vector>

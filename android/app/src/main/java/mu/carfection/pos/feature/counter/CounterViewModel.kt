@@ -21,6 +21,7 @@ import mu.carfection.pos.core.data.SalePaymentUncertain
 import mu.carfection.pos.core.data.SERVICES_TAB
 import mu.carfection.pos.core.data.SaleRepository
 import mu.carfection.pos.core.data.SaleResult
+import mu.carfection.pos.core.data.SaleBill
 import mu.carfection.pos.core.data.Tender
 import mu.carfection.pos.core.data.WALK_IN_CUSTOMER
 import mu.carfection.pos.core.data.expandSaleLines
@@ -53,6 +54,7 @@ import mu.carfection.pos.core.money.netFromGrossCents
 import mu.carfection.pos.core.money.parseMoneyToCents
 import mu.carfection.pos.core.money.pointsValueCents
 import mu.carfection.pos.core.money.rupeesToCents
+import kotlinx.coroutines.flow.first
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.network.CashSessionDto
@@ -78,6 +80,8 @@ import javax.inject.Inject
 
 /** Everything the counter screen renders. Totals are always derived, never stored. */
 data class CounterUiState(
+    /** False for the tyre centre — no WhatsApp anywhere (TenantFeatures.hasWhatsApp). */
+    val whatsapp: Boolean = true,
     val query: String = "",
     val tab: String = "All", // category filter
     val catQuery: String = "", // narrows the category rail (189 accessories ≠ browsable)
@@ -93,6 +97,18 @@ data class CounterUiState(
     val basketText: String = "",
     // Why — required once the discount reaches into a carwash allowance (Allowance.kt).
     val discountReason: String = "",
+    // ── a shop with several issuing companies (tyre centre) ──────────────────────
+    // Its active companies, in company order. Empty or one = the classic till, unchanged.
+    val companies: List<mu.carfection.pos.core.network.CompanyDto> = emptyList(),
+    // Owner rule: discounts are PER COMPANY — each company's bill has its own discount, reason
+    // and owner approval, and there is no whole-sale discount (basketText stays empty).
+    val companyDiscs: Map<String, CompanyDisc> = emptyMap(),
+    // Which company's bill the Discount row is editing (null = the first bill).
+    val discFocus: String? = null,
+    // Which bill each part of a split fills first: "proportional" or a company id.
+    val allocation: String = "proportional",
+    // The sale as one bill per company — recomputed with the cart (withCart).
+    val tillBills: List<TillBill> = emptyList(),
     // Priced by the DB's OWN discount arithmetic, so the footer, the pay panel and the slip all
     // read one figure and it is the figure the server will store.
     val docTotals: DocDiscountTotals = computeDocTotals(emptyList(), null, 0.0, 0),
@@ -119,6 +135,8 @@ data class CounterUiState(
     val error: String? = null,
     val done: SaleResult? = null,
     val receipt: ReceiptDoc? = null, // what just printed — post-sale preview / reprint
+    /** A two-company sale's other bills' slips (each under its own company), after [receipt]. */
+    val moreReceipts: List<ReceiptDoc> = emptyList(),
     // checkout mode: the TO COLLECT / PAID TODAY list, or a walk-in cart
     val mode: CheckoutMode = CheckoutMode.LIST,
     val bills: List<OutstandingInvoiceDto> = emptyList(),
@@ -131,6 +149,13 @@ data class CounterUiState(
     val paidToday: List<TodayPaymentDto> = emptyList(),
     val listBusy: Boolean = false,
     val collect: OutstandingInvoiceDto? = null, // when set, the pad collects on this invoice
+    // The visit's open bills when [collect] has a sister bill — the tyre centre issues one invoice
+    // per company and the customer pays them as ONE payment. In company order, [collect]
+    // included; empty when the bill stands alone.
+    val collectGroup: List<OutstandingInvoiceDto> = emptyList(),
+    // Still asking the server for [collectGroup]: nothing records until it is known, or a payment
+    // would land on one company's bill alone.
+    val collectGroupPending: Boolean = false,
     val paymentAction: TodayPaymentDto? = null, // a tapped PAID TODAY row → reverse / refund
     // Changing HOW a recorded payment was taken (card declined at the terminal after it
     // was rung). methodChangeFor is the row being changed; pick/ref are the new tender.
@@ -214,6 +239,8 @@ data class CounterUiState(
      *  leak onto the next sale. */
     val approvedMaxCents: Long? = null,
     val overrideOpen: Boolean = false,
+    /** The company whose bill the open approval is for (several-company till); null = the sale. */
+    val overrideCompanyId: String? = null,
     val overrideOwners: List<UserNameDto>? = null, // null = loading
     val overrideOwnersError: String? = null,
     val overrideOwnerId: String? = null,
@@ -235,7 +262,29 @@ data class CounterUiState(
     val heldTotalCents: Long get() = heldSales.sumOf { it.totalCents }
 
     /** The whole balance the pad COULD settle: an invoice's outstanding, or the cart total. */
-    val dueCents: Long get() = collect?.let { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } ?: totals.totalCents
+    /** The bills the pad is collecting: the sister-bill group, else the one bill. */
+    val collectBills: List<OutstandingInvoiceDto> get() = collectGroup.ifEmpty { listOfNotNull(collect) }
+    val dueCents: Long get() = if (collect != null) collectBills.sumOf { rupeesToCents(it.totalIncl) - rupeesToCents(it.amountPaid) } else totals.totalCents
+
+    /** The company a collected bill was issued by (a bill with none is the main company's). */
+    fun billCompanyId(b: OutstandingInvoiceDto): String? = companyIdOfProduct(b.legalEntityId, companies)
+
+    /**
+     * Where a part payment goes on a several-company visit — "<company> first" per bill, or both
+     * in proportion (record_checkout_payment's allocation). Empty when there is only one bill.
+     */
+    val allocationChoices: List<Pair<String, String>>
+        get() {
+            val named: List<Pair<String, String>> = when {
+                collect != null && collectGroup.size > 1 -> collectGroup.mapNotNull { b ->
+                    val id = billCompanyId(b) ?: return@mapNotNull null
+                    id to "${companies.firstOrNull { it.id == id }?.let(::companyName) ?: b.number ?: "Bill"} first"
+                }
+                collect == null && several && tillBills.size > 1 -> tillBills.map { it.company.id to "${it.name} first" }
+                else -> emptyList()
+            }
+            return if (named.size > 1) named + ("proportional" to "Both, shared") else emptyList()
+        }
 
     /**
      * The most this method can take in one go. Every method can cover the whole balance
@@ -293,7 +342,7 @@ data class CounterUiState(
     // is left after points: a bill the points cover outright leaves dueAfterPointsCents at
     // zero, and requiring that to be positive made Take permanently dead with nothing
     // saying why.
-    val splitCanRecord: Boolean get() = !busy && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueAfterPointsCents
+    val splitCanRecord: Boolean get() = !busy && !collectGroupPending && discountBlockReason == null && till != null && dueCents > 0 && allocatedCents == dueAfterPointsCents
 
     /**
      * Does this sale name a REAL customer — one the cashier picked or the bill was already
@@ -352,7 +401,7 @@ data class CounterUiState(
         }
 
     val canRecord: Boolean
-        get() = !busy && discountBlockReason == null && (collect != null || cart.isNotEmpty()) && when (method) {
+        get() = !busy && !collectGroupPending && discountBlockReason == null && (collect != null || cart.isNotEmpty()) && when (method) {
             PayMethod.CREDIT -> dueCents > 0 && entryValid
             // A COLLECT may take a partial (a deposit); a WALK-IN must be settled in full —
             // and "in full" now means the rest, since points have already covered their part.
@@ -382,6 +431,18 @@ data class CounterUiState(
             else listOf(ceiling / 2, ceiling / 4 * 3).map { it / 100 * 100 }.filter { it in 1 until ceiling }.distinct()
         }
 
+    /** This shop bills per company (more than one active company). */
+    val several: Boolean get() = companies.size > 1
+
+    /** The bill the Discount row edits on a several-company till. */
+    val focusBill: TillBill? get() = tillBills.firstOrNull { it.company.id == discFocus } ?: tillBills.firstOrNull()
+
+    /** The Discount row's own figures: the focused company's on a several-company till, the
+     *  whole sale's otherwise — so the ticket and the reason dialog read one set of fields. */
+    val discMode: DiscountMode get() = if (several) focusBill?.disc?.mode ?: DiscountMode.PCT else basketMode
+    val discText: String get() = if (several) focusBill?.disc?.text.orEmpty() else basketText
+    val discReason: String get() = if (several) focusBill?.disc?.reason.orEmpty() else discountReason
+
     // ── basket discount, derived from the raw input ─────────────────────────────
     val basketPct: Int get() = if (basketMode == DiscountMode.PCT) (basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
     val basketAmtCents: Long get() = if (basketMode == DiscountMode.AMT) (parseMoneyToCents(basketText) ?: 0L).coerceAtLeast(0) else 0
@@ -399,16 +460,26 @@ data class CounterUiState(
      * that has nothing to do with it.
      */
     val allowance: Allowance
-        get() = if (collect != null) computeAllowance(emptyList(), null) else computeAllowance(
+        get() = if (collect != null) computeAllowance(emptyList(), null)
+        else if (several) focusBill?.allowance ?: computeAllowance(emptyList(), null)
+        else computeAllowance(
             cart.map { it.allowanceInput },
             docDiscount = orderDiscountKind?.let { DocDiscount(it, if (it == "percent") basketPct.toDouble() else basketAmtCents.toDouble()) },
             approvedMaxCents = approvedMaxCents,
             carwashPct = carwashPct,
         )
 
+    /** The allowance of the bill that is BLOCKING the sale — what "Ask the owner" vs "Add the
+     *  reason" must be decided on. On a several-company till that is the first blocked bill,
+     *  not whichever chip happens to be lit; otherwise the sale's own allowance. */
+    val blockAllowance: Allowance
+        get() = if (several) tillBills.firstOrNull { it.blockReason != null }?.allowance ?: allowance else allowance
+
     /** Why Record payment is dead, when the reason is the discount and not the till/basket. */
     val discountBlockReason: String?
         get() = when {
+            // Each company's bill is checked on its own, as issue_checkout will check it.
+            several -> if (collect != null) null else billsBlockReason(tillBills)
             allowance.overCeiling -> "This discount is over the ${formatMUR(allowance.ceilingCents)} allowed on this bill — ask the owner."
             allowance.reasonRequired && discountReason.isBlank() -> "Add a reason for this discount before issuing."
             else -> null
@@ -451,6 +522,11 @@ data class CounterUiState(
 
     /** The same figure ex-VAT, for the shop that quotes net. */
     val basketAppliedCents: Long get() = preBasketSubtotalCents - docTotals.subtotalCents
+
+    /** What the Discount row's own discount takes off: the focused company's bill, or the sale. */
+    val discAppliedGrossCents: Long get() = if (several) focusBill?.totals?.orderDiscountInclCents ?: 0 else basketAppliedGrossCents
+    val discAppliedCents: Long
+        get() = if (several) focusBill?.totals?.let { it.lineExclCents.sum() - it.subtotalCents } ?: 0 else basketAppliedCents
 }
 
 /**
@@ -535,10 +611,18 @@ internal fun CounterUiState.withCart(cart: List<CartLine>): CounterUiState {
     // covers, the next basket built on this screen. Same moment CounterViewModel rotates
     // saleKey (mutateCart), which is what the override's own document id is derived from.
     val s = if (cart.isEmpty() && this.cart.isNotEmpty())
-        copy(basketMode = DiscountMode.PCT, basketText = "", discountReason = "", approvedMaxCents = null, overrideOpen = false)
+        copy(
+            basketMode = DiscountMode.PCT, basketText = "", discountReason = "", approvedMaxCents = null, overrideOpen = false,
+            companyDiscs = emptyMap(), discFocus = null, allocation = "proportional",
+        )
     else this
     val priced = s.copy(cart = cart, error = null)
-    return priced.copy(
+    if (priced.several) {
+        // One bill per company, each with its own discount; the footer reads their sum.
+        val bills = tillBills(cart, priced.companies, priced.companyDiscs, priced.carwashPct)
+        return priced.copy(tillBills = bills, docTotals = combinedTotals(cart, bills))
+    }
+    return priced.copy(tillBills = emptyList(),
         docTotals = computeDocTotals(
             cart.map { it.docLine },
             priced.orderDiscountKind,
@@ -546,6 +630,19 @@ internal fun CounterUiState.withCart(cart: List<CartLine>): CounterUiState {
             priced.basketAmtCents,
         ),
     )
+}
+
+/** Edit one company's bill discount (the focused one by default) and re-price the sale. It is
+ *  part of the basket, so it freezes with it like the whole-sale discount. */
+internal fun CounterUiState.withCompanyDisc(
+    companyId: String? = focusBill?.company?.id,
+    recheck: Boolean = true,
+    edit: (CompanyDisc) -> CompanyDisc,
+): CounterUiState {
+    if (pendingSettle != null) return copy(notice = SETTLE_LOCK_NOTICE)
+    val id = companyId ?: return this
+    val next = copy(companyDiscs = companyDiscs + (id to edit(companyDiscs[id] ?: CompanyDisc())))
+    return if (recheck) next.withCart(cart) else next
 }
 
 /** The whole-sale discount is part of the basket, so it freezes with it. */
@@ -613,7 +710,10 @@ internal fun canCaptureOffline(s: CounterUiState, online: Boolean): Boolean =
         // whether any are ON this bill, not which tile is lit.
         s.pointsAppliedCents == 0L &&
         s.till != null &&
-        s.cart.isNotEmpty()
+        s.cart.isNotEmpty() &&
+        // A held sale replays with no per-company discount and shares every part across the
+        // bills — so a sale that has either choice waits for the network instead.
+        !(s.several && (s.tillBills.any { it.disc.kind != null } || (s.splitMode && s.allocation != "proportional")))
 
 /** Split counterpart: every tender in the allocation must be money actually taken. */
 internal fun tendersCapturableOffline(tenders: List<mu.carfection.pos.core.data.Tender>): Boolean =
@@ -635,6 +735,7 @@ class CounterViewModel @Inject constructor(
     private val overrideApi: OverrideApi,
     private val openJobBus: mu.carfection.pos.core.data.OpenJobBus,
     private val openQuoteBus: mu.carfection.pos.core.data.OpenQuoteBus,
+    private val sendApi: mu.carfection.pos.core.network.DocumentSendApi,
 ) : ViewModel() {
 
     private val local = MutableStateFlow(CounterUiState())
@@ -644,7 +745,10 @@ class CounterViewModel @Inject constructor(
             // "All" always survives the rail search, so there is always a way back out.
             // "Services" is pinned beside it — same rule as the quote builder's rail.
             val catQ = s.catQuery.trim()
+            // A category the shop itself named "Services" would sit beside the pinned chip as a
+            // second "Services" (the tyre centre's does) — the pinned one already lists them.
             val cats = listOf("All", SERVICES_TAB) + products.mapNotNull { it.category }.distinct().sorted()
+                .filterNot { it.equals(SERVICES_TAB, ignoreCase = true) }
                 .filter { catQ.isEmpty() || it.contains(catQ, ignoreCase = true) }
             val counts = products.mapNotNull { it.category }.groupingBy { it }.eachCount() +
                 ("All" to products.size) + (SERVICES_TAB to products.count { it.kind == "service" })
@@ -674,6 +778,10 @@ class CounterViewModel @Inject constructor(
     // the visible grid is filtered down by category tab or a half-typed search.
     private var allProducts: List<ProductEntity> = emptyList()
 
+    /** The catalogue's services, whatever category tab is showing — the tyre till offers them
+     *  beside a tyre sale ("goes with these tyres"). Read-only; adds nothing to the cart itself. */
+    fun catalogueServices(): List<ProductEntity> = allProducts.filter { it.kind == "service" }
+
     // The cached customer list, for resolving a walk-in with no network to ask.
     private var allCustomers: List<CustomerEntity> = emptyList()
 
@@ -682,7 +790,14 @@ class CounterViewModel @Inject constructor(
         loadLists()
         refreshStock()
         watchCollectRequests() // a deposit agreed at signing lands the pad on its bill
+        // How many companies this shop bills under — from disk first (a till started offline
+        // still knows), then from the server. One (Carfectionist) leaves the till as it was.
+        viewModelScope.launch {
+            applyCompanies(catalog.tillCompanies())
+            applyCompanies(catalog.refreshTillCompanies())
+        }
         viewModelScope.launch { catalog.products.collect { allProducts = it } }
+        viewModelScope.launch { catalog.hasWhatsAppFlow.collect { w -> local.value = local.value.copy(whatsapp = w) } }
         viewModelScope.launch { catalog.customers.collect { allCustomers = it } }
         // Sales held on this tablet — the cashier has to be able to see them, and see the
         // invoice number each one is finally given.
@@ -756,6 +871,7 @@ class CounterViewModel @Inject constructor(
             pointsEnabled = cur.pointsEnabled,
             carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
             allowNegativeStock = cur.allowNegativeStock,
+            whatsapp = cur.whatsapp,
         )
     }
 
@@ -841,6 +957,9 @@ class CounterViewModel @Inject constructor(
     fun openAdhoc() { local.value = local.value.copy(adhocOpen = true) }
     fun closeAdhoc() { local.value = local.value.copy(adhocOpen = false) }
 
+    /** A hand-typed line. It always bills under the shop's MAIN company — save_draft stores no
+     *  company for a line without a product, so the database files it there; a non-VAT service
+     *  is sold from the catalogue (a product "Sold by" that company), never typed in. */
     fun addAdhoc(name: String, priceCents: Long) {
         if (name.isBlank() || priceCents <= 0) { closeAdhoc(); return }
         viewModelScope.launch {
@@ -960,7 +1079,7 @@ class CounterViewModel @Inject constructor(
                 // tender row (and its change line) — and print it.
                 runCatching {
                     api.fetchInvoice(p.documentId)?.let {
-                        saleReceiptDoc(it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                        saleReceiptDoc(it, catalog.receiptBizFor(it.legalEntityId), catalog.vatDefault().toInt(),
                             pointsBalanceAfter = it.customers?.pointsBalance).copy(isPayment = true)
                     }
                 }.getOrNull()
@@ -1005,8 +1124,12 @@ class CounterViewModel @Inject constructor(
             // withholds them for the anonymous walk-in bucket) — best-effort, like every
             // other lookup here: a failed read costs the slip a line, never the reprint.
             val pointsEarned = h.id?.let { runCatching { api.pointsEarnedForDocument(it) }.getOrNull() }
+            val biz = runCatching { catalog.receiptBizFor(h.legalEntityId) }.getOrElse { e ->
+                local.value = local.value.copy(notice = e.uiMessage("Couldn’t load this receipt — try again"))
+                return@launch
+            }
             val doc = saleReceiptDoc(
-                h, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                h, biz, catalog.vatDefault().toInt(),
                 duplicataNo = if (printed > 0) printed + 1 else null,
                 duplicataAt = if (printed > 0) java.time.LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) else null,
                 pointsEarned = pointsEarned,
@@ -1043,11 +1166,49 @@ class CounterViewModel @Inject constructor(
         refreshStock()
     }
 
+    /** This tablet's device code (TAB-…), for the tyre till's header. Blank until known. */
+    suspend fun deviceCode(): String = runCatching { session.deviceId() }.getOrDefault("")
+
+    /** The phone the finished sale's receipts would go to: the picked customer's, else the
+     *  collected bill's customer's (matched by name). Blank when the book has none. */
+    suspend fun receiptPhone(): String {
+        val s = local.value
+        val all = runCatching { catalog.customers.first() }.getOrDefault(emptyList())
+        val c = s.customerId?.let { id -> all.firstOrNull { it.id == id } }
+            ?: s.done?.debtor?.let { n -> all.firstOrNull { it.name.equals(n, ignoreCase = true) } }
+        return c?.phone.orEmpty()
+    }
+
+    /**
+     * Send every bill of the finished sale on WhatsApp — one PDF per company, as printed. The
+     * server renders and delivers each AS the cashier (/api/documents/{id}/send). An offline
+     * sale has no invoice yet, so there is nothing to send.
+     */
+    fun sendDoneReceipts(to: String) {
+        val done = local.value.done ?: return
+        // The one WhatsApp number is Carfectionist's: a shop without WhatsApp never sends on it.
+        if (!local.value.whatsapp || to.isBlank() || done.offlineRef != null || local.value.busy) return
+        val ids = done.bills.map { it.id }.ifEmpty { listOf(done.invoiceId) }
+        local.value = local.value.copy(busy = true)
+        viewModelScope.launch {
+            val device = runCatching { session.deviceId() }.getOrNull()
+            val errors = ids.mapNotNull { id ->
+                runCatching { sendApi.send(id, "whatsapp", to.trim(), null, device).error }.getOrElse { it.message ?: "Network error" }
+            }
+            local.value = local.value.copy(
+                busy = false,
+                notice = if (errors.isEmpty()) (if (ids.size > 1) "${ids.size} receipts sent on WhatsApp ✓" else "Receipt sent on WhatsApp ✓")
+                else "WhatsApp didn't go: ${errors.first()}",
+            )
+        }
+    }
+
     /** Reprint the slip shown in the post-sale panel. */
     fun reprint() {
         val doc = local.value.receipt ?: return
-        viewModelScope.launch { runCatching { printer.printDoc(doc) } }
-        local.value = local.value.copy(notice = "Receipt sent to the printer")
+        val more = local.value.moreReceipts
+        viewModelScope.launch { (listOf(doc) + more).forEach { runCatching { printer.printDoc(it) } } }
+        local.value = local.value.copy(notice = if (more.isEmpty()) "Receipt sent to the printer" else "${more.size + 1} receipts sent to the printer")
     }
 
     /**
@@ -1086,6 +1247,24 @@ class CounterViewModel @Inject constructor(
             // READY and the bill stays open. Voiding here erased the receivable for a car
             // that had already left (and the job stayed delivered).
             r.onAccount && r.fromCollect -> correction("Handover walked back — ${r.number ?: "the bill"} stays owed") { api.undoOnAccount(r.invoiceId) }
+            // A two-company sale is one invoice per company: undo every one of them, never just
+            // the first — that would leave the other company's bill standing (and paid).
+            r.bills.size > 1 && r.onAccount -> correction("Voided — ${r.bills.joinToString(" + ") { it.number ?: "bill" }}") {
+                r.bills.forEach { b ->
+                    runCatching { api.voidDocument(b.id, why ?: "Voided at POS") }
+                        .onFailure { throw IllegalStateException("${b.number ?: "A bill"} wasn't voided — void it from Sales. (${it.message})", it) }
+                }
+            }
+            r.bills.size > 1 -> correction("Refunded — a credit note for ${r.bills.joinToString(" and ") { it.number ?: "each bill" }}") {
+                val shop = api.fetchShopLocationId()
+                r.bills.forEach { b ->
+                    // A bill already credited (a first attempt that stopped half-way) is skipped,
+                    // never credited twice.
+                    if (api.fetchCreditNoteFor(b.id) != null) return@forEach
+                    runCatching { api.issueCreditNote(b.id, restock = true, stockLocationId = shop, sessionId = local.value.till?.id) }
+                        .onFailure { throw IllegalStateException("${b.number ?: "A bill"} wasn't refunded — refund it from Sales. (${it.message})", it) }
+                }
+            }
             r.onAccount -> correction("${r.number ?: "Invoice"} voided") { api.voidDocument(r.invoiceId, why ?: "Voided at POS") }
             else -> correction("Refunded — credit note issued for ${r.number ?: "the sale"}") {
                 // This till takes the refund out of its drawer (booked mirrors on the CN).
@@ -1116,6 +1295,10 @@ class CounterViewModel @Inject constructor(
         local.value = local.value.copy(
             collect = bill, padOpen = true, method = PayMethod.CASH,
             collectLines = emptyList(), collectJob = null, collectDetailFailed = false, collectSourceNumber = null,
+            // An issued bill of a checkout group may have a sister bill (the other company's):
+            // the detail load below finds it, and nothing records until it has.
+            collectGroup = emptyList(), collectGroupPending = bill.status != "draft" && bill.checkoutGroupId != null,
+            allocation = "proportional",
             // Every bill opens at its full balance — unless a deposit was agreed at signing,
             // which dials the pad in for the cashier, or the job card asked for a deposit
             // nobody agreed, which opens on an empty figure to type. A part payment typed
@@ -1144,7 +1327,19 @@ class CounterViewModel @Inject constructor(
      */
     private fun loadCollectDetail(bill: OutstandingInvoiceDto) {
         viewModelScope.launch {
-            val fetched = runCatching { api.fetchInvoice(bill.id)?.lines.orEmpty().sortedBy { it.sortOrder } }
+            // The visit's other company's bill, when there is one: the customer pays them together.
+            val groupId = bill.checkoutGroupId?.takeIf { bill.status != "draft" }
+            val groupRead = if (groupId == null) Result.success(emptyList())
+            else runCatching {
+                val order = local.value.companies.map { it.id }
+                api.fetchCheckoutGroupBills(groupId)
+                    .sortedBy { b -> order.indexOf(companyIdOfProduct(b.legalEntityId, local.value.companies)).let { if (it < 0) Int.MAX_VALUE else it } }
+            }
+            val group = groupRead.getOrNull()?.takeIf { g -> g.size > 1 && g.any { it.id == bill.id } }.orEmpty()
+            val billIds = group.map { it.id }.ifEmpty { listOf(bill.id) }
+            val fetched = runCatching {
+                billIds.flatMap { id -> api.fetchInvoice(id)?.lines.orEmpty().sortedBy { it.sortOrder } }
+            }
             val job = bill.jobId?.let { jid -> runCatching { api.fetchJobDetail(jid) }.getOrNull() }
             // Name the source quote, so the header can say where this bill's prices came from.
             val srcNumber = bill.sourceDocumentId?.let { sid -> runCatching { api.fetchDocNumber(sid) }.getOrNull() }
@@ -1153,8 +1348,12 @@ class CounterViewModel @Inject constructor(
             local.value = st.copy(
                 collectLines = fetched.getOrDefault(emptyList()),
                 collectJob = job,
-                collectDetailFailed = fetched.isFailure,
+                collectDetailFailed = fetched.isFailure || groupRead.isFailure,
                 collectSourceNumber = srcNumber,
+                collectGroup = group,
+                // A failed read keeps the pad shut (retry re-reads it): never charge one company's
+                // bill alone when the visit may have two.
+                collectGroupPending = groupRead.isFailure,
             )
         }
     }
@@ -1162,7 +1361,7 @@ class CounterViewModel @Inject constructor(
     /** The item fetch failed (bad connection) — try again for the bill still on the pad. */
     fun retryCollectDetail() {
         val bill = local.value.collect ?: return
-        local.value = local.value.copy(collectDetailFailed = false)
+        local.value = local.value.copy(collectDetailFailed = false, collectGroupPending = bill.status != "draft" && bill.checkoutGroupId != null)
         loadCollectDetail(bill)
     }
 
@@ -1308,14 +1507,26 @@ class CounterViewModel @Inject constructor(
                 val result = if (bill != null) {
                     // A bill raised when the car was marked ready is still a DRAFT, and a
                     // draft takes no money — the same rule the single-method collect obeys.
-                    sales.collectSplit(bill.id, bill.number, allTenders, s.till?.id, saleKey, needsIssue = bill.status == "draft")
+                    sales.collectSplit(
+                        bill.id, bill.number, allTenders, s.till?.id, saleKey, needsIssue = bill.status == "draft",
+                        group = s.collectGroup.map { it.toSaleBill() }, allocation = s.allocation,
+                    )
                 } else {
                     sales.completeSaleSplit(
                         cart = s.cart, tenders = allTenders, customerId = s.customerId, walkInName = s.customerText,
                         cashSessionId = s.till?.id, saleKey = saleKey,
                         basketMode = s.basketMode, basketPct = s.basketPct, basketAmtCents = s.basketAmtCents,
                         comment = s.comment, discountReason = s.discountReason, knownInvoiceId = s.pendingSettle?.invoiceId,
+                        companyDiscounts = if (s.several) companyDiscountSpecs(s.tillBills) else emptyList(),
+                        allocation = if (s.several) s.allocation else "proportional",
                     )
+                }
+                if (result.bills.isNotEmpty()) {
+                    finishCompanySale(
+                        if (bill != null) result.copy(fromCollect = true, debtor = bill.customers?.name) else result,
+                        anyCash, isPayment = bill != null,
+                    )
+                    return@launch
                 }
                 // Rebuild the slip from the server invoice — it now carries every tender row.
                 val receipt = runCatching {
@@ -1325,7 +1536,7 @@ class CounterViewModel @Inject constructor(
                         // never the sale (already committed by this point).
                         val pointsEarned = runCatching { api.pointsEarnedForDocument(result.invoiceId) }.getOrNull()
                         saleReceiptDoc(
-                            it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                            it, catalog.receiptBizFor(it.legalEntityId), catalog.vatDefault().toInt(),
                             pointsEarned = pointsEarned, pointsBalanceAfter = it.customers?.pointsBalance,
                         ).copy(isPayment = bill != null)
                     }
@@ -1339,7 +1550,7 @@ class CounterViewModel @Inject constructor(
                     busy = false, padOpen = false, collect = null, pendingSettle = null,
                     splitMode = false, splitText = emptyMap(),
                     done = result.copy(fromCollect = bill != null, debtor = bill?.customers?.name),
-                    receipt = receipt,
+                    receipt = receipt, moreReceipts = emptyList(),
                 )
                 loadLists()
             } catch (e: Exception) {
@@ -1364,39 +1575,48 @@ class CounterViewModel @Inject constructor(
                     // account. If the server refuses, the collect fails loudly — printing paper
                     // for a handover the server never saw is how a car leaves while its job
                     // sits at READY forever (the original bug).
-                    try {
+                    // A shop with several companies issues the draft as one invoice per company;
+                    // every one of them goes on the account and gets its own slip.
+                    val onAccountIds: List<String> = try {
                         // On account is still the bill leaving the counter, so it is still the
                         // moment it becomes a real invoice. deliver_on_account refuses a draft
                         // outright — and rightly: you cannot owe money on a document that was
                         // never issued.
-                        if (bill.status == "draft") api.issueDocument(bill.id, "$saleKey:issue", sessionId = s.till?.id)
+                        val ids = if (bill.status == "draft") api.issueBill(bill.id, "$saleKey:issue", sessionId = s.till?.id).map { it.id }
+                        else s.collectBills.map { it.id }
                         api.deliverOnAccount(bill.id)
+                        ids
                     } catch (e: CancellationException) {
                         throw e
                     } catch (e: Exception) {
                         local.value = local.value.copy(busy = false, error = "Couldn't record the handover — ${e.message ?: "try again"}")
                         return@launch
                     }
-                    val creditSlip = runCatching {
-                        api.fetchInvoice(bill.id)?.let {
-                            saleReceiptDoc(
-                                it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
-                                depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
-                            )
-                                // A deposit on the bill makes the builder read it as a payment
-                                // slip — this slip records credit, whatever came before.
-                                .copy(isPayment = true, onAccount = true)
-                        }
-                    }.getOrNull()
+                    val creditSlips = onAccountIds.map { id ->
+                        id to runCatching {
+                            api.fetchInvoice(id)?.let {
+                                saleReceiptDoc(
+                                    it, catalog.receiptBizFor(it.legalEntityId), catalog.vatDefault().toInt(),
+                                    depositAgreedCents = if (id == bill.id) bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0 else 0,
+                                )
+                                    // A deposit on the bill makes the builder read it as a payment
+                                    // slip — this slip records credit, whatever came before.
+                                    .copy(isPayment = true, onAccount = true)
+                            }
+                        }.getOrNull()
+                    }
+                    val creditSlip = creditSlips.firstOrNull()?.second
                     launch {
-                        val printed = creditSlip != null && runCatching { printer.printDoc(creditSlip) }.isSuccess
-                        logReceiptOutcome(bill.number, printed, bill.id)
+                        creditSlips.forEach { (id, slip) ->
+                            val printed = slip != null && runCatching { printer.printDoc(slip) }.isSuccess
+                            logReceiptOutcome(slip?.invoiceNo ?: bill.number, printed, id)
+                        }
                     }
                     local.value = local.value.copy(
                         busy = false, padOpen = false, collect = null, pendingSettle = null,
                         done = SaleResult(bill.id, bill.number, s.dueCents, 0L, onAccount = true,
                             fromCollect = true, debtor = bill.customers?.name),
-                        receipt = creditSlip,
+                        receipt = creditSlip, moreReceipts = creditSlips.drop(1).mapNotNull { it.second },
                     )
                     loadLists()
                     return@launch
@@ -1411,7 +1631,15 @@ class CounterViewModel @Inject constructor(
                     cashSessionId = s.till?.id,
                     payKey = saleKey,
                     needsIssue = bill.status == "draft",
+                    group = s.collectGroup.map { it.toSaleBill() },
+                    allocation = s.allocation,
                 )
+                // A draft that a shop with several companies issued as one invoice per company:
+                // one slip per bill, each under the company that issued it.
+                if (result.bills.size > 1) {
+                    finishCompanySale(result.copy(fromCollect = true, debtor = bill.customers?.name), s.method == PayMethod.CASH, isPayment = true)
+                    return@launch
+                }
                 // The bill's items live on the server — the counter never held them, so this
                 // slip carried a total and nothing else: the customer paid Rs 38,000 and the
                 // paper never said what for. Rebuild it from the invoice that was just paid,
@@ -1422,12 +1650,16 @@ class CounterViewModel @Inject constructor(
                     api.fetchInvoice(bill.id)?.let {
                         val pointsEarned = runCatching { api.pointsEarnedForDocument(bill.id) }.getOrNull()
                         saleReceiptDoc(
-                            it, catalog.receiptBiz(), catalog.vatDefault().toInt(),
+                            it, catalog.receiptBizFor(it.legalEntityId), catalog.vatDefault().toInt(),
                             pointsEarned = pointsEarned, pointsBalanceAfter = it.customers?.pointsBalance,
                             depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
                         ).copy(isPayment = true)
                     }
-                }.getOrNull() ?: ReceiptDoc(
+                }.getOrNull() ?: if (catalog.severalIssuers()) {
+                    // The bare-total fallback cannot know which company issued the bill, and a
+                    // slip under the wrong company is a wrong legal document — none instead.
+                    null
+                } else ReceiptDoc(
                     biz = catalog.receiptBiz(),
                     invoiceNo = bill.number,
                     dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("dd MMM yyyy HH:mm")),
@@ -1445,7 +1677,7 @@ class CounterViewModel @Inject constructor(
                     depositAgreedCents = bill.sourceDocumentId?.let { qid -> s.quoteDeposits[qid] } ?: 0,
                 )
                 launch {
-                    val printed = runCatching {
+                    val printed = receipt != null && runCatching {
                         printer.printDoc(receipt) // instant payment slip
                     }.isSuccess
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
@@ -1453,7 +1685,7 @@ class CounterViewModel @Inject constructor(
                 }
                 local.value = local.value.copy(
                     busy = false, padOpen = false, collect = null, pendingSettle = null,
-                    done = result.copy(fromCollect = true, debtor = bill.customers?.name), receipt = receipt,
+                    done = result.copy(fromCollect = true, debtor = bill.customers?.name), receipt = receipt, moreReceipts = emptyList(),
                 )
                 loadLists()
             } catch (e: Exception) {
@@ -1611,16 +1843,51 @@ class CounterViewModel @Inject constructor(
 
     // ── basket discount ─────────────────────────────────────────────────────────
     fun setBasketMode(mode: DiscountMode) {
-        local.value = local.value.withBasket(mode, "")
+        val s = local.value
+        if (s.several) { local.value = s.withCompanyDisc { it.copy(mode = mode, text = "") }; return }
+        local.value = s.withBasket(mode, "")
     }
 
     fun setBasketText(text: String) {
         val s = local.value
-        local.value = s.withBasket(s.basketMode, text.filter { c -> c.isDigit() || c == '.' })
+        val clean = text.filter { c -> c.isDigit() || c == '.' }
+        if (s.several) { local.value = s.withCompanyDisc { it.copy(text = clean) }; return }
+        local.value = s.withBasket(s.basketMode, clean)
     }
 
     /** Why — required once the discount reaches into a carwash allowance (Allowance.kt). */
-    fun setDiscountReason(t: String) { local.value = local.value.copy(discountReason = t) }
+    fun setDiscountReason(t: String) {
+        val s = local.value
+        if (s.several) { local.value = s.withCompanyDisc(recheck = false) { it.copy(reason = t) }.let { it.copy(tillBills = tillBills(it.cart, it.companies, it.companyDiscs, it.carwashPct)) }; return }
+        local.value = s.copy(discountReason = t)
+    }
+
+    /** Which company's bill the Discount row edits (several-company till). */
+    fun setDiscFocus(companyId: String) { local.value = local.value.copy(discFocus = companyId) }
+
+    /** Which bill each part of a split fills first: "proportional" or a company id. */
+    fun setAllocation(a: String) {
+        if (local.value.pendingSettle != null) { local.value = local.value.copy(notice = SETTLE_LOCK_NOTICE); return }
+        local.value = local.value.copy(allocation = a)
+    }
+
+    /** Point the Discount row at the first bill that can't be charged yet — so "Add the reason" /
+     *  "Ask the owner" on the pad act on the bill that is actually blocking. */
+    private fun focusBlockedBill() {
+        val s = local.value
+        if (!s.several) return
+        s.tillBills.firstOrNull { it.blockReason != null }?.let { local.value = s.copy(discFocus = it.company.id) }
+    }
+
+    private fun applyCompanies(list: List<mu.carfection.pos.core.network.CompanyDto>) {
+        val s = local.value
+        if (list == s.companies) return
+        val next = s.copy(companies = list)
+        // Becoming a several-company till: no whole-sale discount survives (it can't cover two
+        // companies); the per-company discounts take its place. Never mid-settle.
+        local.value = if (s.pendingSettle != null) next
+        else (if (next.several) next.copy(basketText = "", discountReason = "", approvedMaxCents = null) else next).withCart(s.cart)
+    }
 
     /**
      * Open/close the reason box from the payment pad.
@@ -1630,7 +1897,7 @@ class CounterViewModel @Inject constructor(
      * the pay button dead, and had no way forward without backing out of the sale. The
      * refusal now carries its own way out.
      */
-    fun openReasonDialog() { local.value = local.value.copy(reasonDialogOpen = true) }
+    fun openReasonDialog() { focusBlockedBill(); local.value = local.value.copy(reasonDialogOpen = true) }
     fun closeReasonDialog() { local.value = local.value.copy(reasonDialogOpen = false) }
 
     // ── "Ask the owner" — the tablet's side of OwnerOverrideDialog.tsx (counter copy;
@@ -1642,9 +1909,12 @@ class CounterViewModel @Inject constructor(
     private fun currentSaleRefId(): String = SaleRepository.draftIdFor(saleKey)
 
     fun askOwner() {
+        focusBlockedBill()
         val s = local.value
         val requested = s.allowance.actualCents
         local.value = s.copy(
+            // The bill the approval is for: the focused company's on a several-company till.
+            overrideCompanyId = if (s.several) s.focusBill?.company?.id else null,
             overrideOpen = true, overrideOwnerId = null, overridePin = "", overrideReason = "",
             overrideAmountText = if (requested > 0) centsToPlainText(requested) else "",
             overrideBusy = false, overrideError = null, overrideDone = false,
@@ -1685,7 +1955,11 @@ class CounterViewModel @Inject constructor(
         val ownerId = s.overrideOwnerId ?: return
         val cents = parseMoneyToCents(s.overrideAmountText)?.takeIf { it > 0 } ?: return
         if (s.overridePin.length != 4 || s.overrideReason.isBlank()) return
-        val refId = currentSaleRefId()
+        // A several-company sale pins the approval to THAT company's bill, by the id it will
+        // carry once issue_checkout splits the draft (the first bill keeps the draft's own).
+        val company = s.overrideCompanyId
+        val refId = if (company == null) currentSaleRefId()
+        else checkoutBillId(currentSaleRefId(), company, first = s.tillBills.firstOrNull()?.company?.id == company)
         local.value = local.value.copy(overrideBusy = true, overrideError = null)
         viewModelScope.launch {
             val result = overrideApi.requestOverride(
@@ -1697,7 +1971,9 @@ class CounterViewModel @Inject constructor(
             local.value = local.value.copy(overridePin = "")
             when (result) {
                 is OverrideOutcome.Approved -> {
-                    local.value = local.value.copy(overrideBusy = false, overrideDone = true, approvedMaxCents = cents)
+                    local.value = if (company == null) local.value.copy(overrideBusy = false, overrideDone = true, approvedMaxCents = cents)
+                    else local.value.copy(overrideBusy = false, overrideDone = true)
+                        .withCompanyDisc(company) { it.copy(approvedMaxCents = cents) }
                     // Let the "approved" flourish be seen, then close on its own — mirrors the
                     // web dialog's 1.6s auto-close so the cashier isn't left clicking anything
                     // with the owner still standing there.
@@ -2009,7 +2285,13 @@ class CounterViewModel @Inject constructor(
                     discountReason = s.discountReason,
                     // Retry of a settle that already issued: go straight to the payment.
                     knownInvoiceId = s.pendingSettle?.invoiceId,
+                    companyDiscounts = if (s.several) companyDiscountSpecs(s.tillBills) else emptyList(),
                 )
+                // A shop with several companies: each bill's own slip, from the server.
+                if (result.bills.isNotEmpty()) {
+                    finishCompanySale(result, s.method == PayMethod.CASH)
+                    return@launch
+                }
                 // Sale is committed — printing/drawer are fire-and-forget (can never lose it).
                 // Receipt mirrors the SAVED lines (incl. discount lines) in the studio's slip format.
                 // Each row at the price the INVOICE carries — line discount applied, VAT added.
@@ -2082,7 +2364,7 @@ class CounterViewModel @Inject constructor(
                     if (s.method == PayMethod.CASH) runCatching { drawer.kick() }
                     logReceiptOutcome(result.number, printed, result.invoiceId)
                 }
-                local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt, pendingSettle = null)
+                local.value = local.value.copy(busy = false, padOpen = false, done = result, receipt = receipt, moreReceipts = emptyList(), pendingSettle = null)
             } catch (e: Exception) {
                 local.value = local.value.withSettleFailure(e)
             }
@@ -2158,12 +2440,54 @@ class CounterViewModel @Inject constructor(
                 }
                 local.value = local.value.copy(
                     busy = false, padOpen = false, splitMode = false, splitText = emptyMap(),
-                    done = result, receipt = receipt, pendingSettle = null,
+                    done = result, receipt = receipt, moreReceipts = emptyList(), pendingSettle = null,
                 )
             } catch (e: Exception) {
                 local.value = local.value.copy(busy = false, error = e.uiMessage("Couldn't save the sale on this tablet — don't take the money."))
             }
         }
+    }
+
+    /**
+     * The end of a sale on a shop with several companies (the tyre centre): one slip PER BILL,
+     * each rebuilt from what the server stored and printed under the company that issued it —
+     * never from the cart, which does not know which company billed which line. Printed in
+     * company order, each traced against its own bill (so a reprint's "Duplicata N" counts per
+     * bill). A slip that cannot be built is not printed at all, rather than printed under the
+     * wrong company; the sale itself is committed whatever happens here.
+     */
+    private suspend fun finishCompanySale(result: SaleResult, openDrawer: Boolean, isPayment: Boolean = false) {
+        val till = local.value.till?.id
+        val terminal = runCatching { api.terminalNo(session.deviceId()) }.getOrNull()
+        val built: List<Pair<SaleBill, ReceiptDoc?>> = result.bills.map { b ->
+            b to runCatching {
+                val h = api.fetchInvoice(b.id) ?: error("bill not found")
+                val pointsEarned = runCatching { api.pointsEarnedForDocument(b.id) }.getOrNull()
+                saleReceiptDoc(
+                    h, catalog.receiptBizFor(h.legalEntityId), catalog.vatDefault().toInt(),
+                    ticketNo = till?.let { runCatching { api.sessionTicketNo(it, b.id) }.getOrNull() },
+                    terminalNo = terminal,
+                    pointsEarned = pointsEarned, pointsBalanceAfter = h.customers?.pointsBalance,
+                ).let { if (isPayment) it.copy(isPayment = true) else it }
+            }.getOrNull()
+        }
+        val slips = built.mapNotNull { it.second }
+        viewModelScope.launch {
+            built.forEach { (b, slip) ->
+                val printed = slip != null && runCatching { printer.printDoc(slip) }.isSuccess
+                logReceiptOutcome(b.number, printed, b.id)
+            }
+            if (openDrawer) runCatching { drawer.kick() }
+        }
+        val missing = built.filter { it.second == null }.map { it.first.number ?: "a bill" }
+        local.value = local.value.copy(
+            busy = false, padOpen = false, collect = null, pendingSettle = null,
+            splitMode = false, splitText = emptyMap(),
+            done = result, receipt = slips.firstOrNull(), moreReceipts = slips.drop(1),
+            notice = if (missing.isEmpty()) local.value.notice
+            else "Sale done — the receipt for ${missing.joinToString(" and ")} didn't print. Reprint it from Sales.",
+        )
+        loadLists()
     }
 
     /** The provisional slip: the sale exactly as it was rung, with no fiscal number claimed. */
@@ -2225,6 +2549,10 @@ class CounterViewModel @Inject constructor(
             pointValueRupees = cur.pointValueRupees, pointsEnabled = cur.pointsEnabled,
             carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
             allowNegativeStock = cur.allowNegativeStock,
+            // Shop-wide too: hasWhatsAppFlow only re-emits on a change, so a reset that
+            // dropped it would bring the WhatsApp key back at the tyre centre.
+            whatsapp = cur.whatsapp,
+            companies = cur.companies, // shop-wide: which companies it bills under
         )
         refreshTill()
     }
@@ -2294,3 +2622,7 @@ class CounterViewModel @Inject constructor(
         }
     }
 }
+
+/** A collected bill as the sale paths name it (its company and what it comes to). */
+internal fun OutstandingInvoiceDto.toSaleBill(): mu.carfection.pos.core.data.SaleBill =
+    mu.carfection.pos.core.data.SaleBill(id, number, rupeesToCents(totalIncl), legalEntityId)

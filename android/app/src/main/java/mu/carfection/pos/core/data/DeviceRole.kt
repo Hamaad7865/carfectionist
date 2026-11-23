@@ -21,8 +21,8 @@ fun takesPaymentsOf(row: JsonObject?): Boolean =
     runCatching { row?.get("takes_payments")?.jsonPrimitive?.booleanOrNull }.getOrNull() ?: true
 
 /** The nav rail. A device that cannot take money has no business showing Checkout. */
-fun visibleTabs(takesPayments: Boolean): List<PosTab> =
-    if (takesPayments) PosTab.entries.toList() else PosTab.entries.filter { it != PosTab.SALE }
+fun visibleTabs(takesPayments: Boolean, hasWarranty: Boolean = true): List<PosTab> =
+    PosTab.entries.filter { (takesPayments || it != PosTab.SALE) && (hasWarranty || it != PosTab.CERT) }
 
 /** Where the app opens, and where a sign-out returns to. */
 fun landingTab(takesPayments: Boolean): PosTab =
