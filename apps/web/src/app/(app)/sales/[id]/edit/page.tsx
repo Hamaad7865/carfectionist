@@ -39,6 +39,8 @@ export default async function EditDocumentPage({ params }: { params: Promise<{ i
     docDiscountValue: draft.docDiscountValue,
     docDiscountReason: draft.docDiscountReason,
     sectionConfig: draft.sectionConfig,
+    companyDiscounts: draft.companyDiscounts,
+    docCompanyId: draft.legalEntityId,
     customFields: draft.customFields,
     comment: draft.comment,
     dirty: false,

@@ -29,6 +29,8 @@ data class ProductDto(
     @SerialName("discount_policy") val discountPolicy: String = "inherit",
     // True: selling_price IS the VAT-inclusive shelf price exactly as typed (20260812000030).
     @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
+    // The company that sells it, on a shop with several (null = the main company).
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
 )
 
 @Serializable
@@ -75,6 +77,9 @@ data class JobRow(val id: String)
     @SerialName("source_document_id") val sourceDocumentId: String? = null,
     // What the document comes to as it stands — the quote screen shows the running bill.
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    // The draft's company as stored: a draft follows its lines' company (app.draft_follows_lines),
+    // and a hand-typed line is stamped with it on the next save (app.lines_stamp_entity).
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
 )
 
 /**
@@ -173,6 +178,11 @@ data class QuoteRowDto(
     val job: JobStatusRefDto? = null,
     val customers: CustomerNameDto? = null,
     val vehicles: VehicleNameDto? = null,
+    // A two-company shop (tyre centre): the company this quote is numbered under, and the visit
+    // it belongs to — a quote both companies sold is issued as one quote per company, all sharing
+    // a checkout group (the first company's keeps the draft's id, which IS the group id).
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
+    @SerialName("checkout_group_id") val checkoutGroupId: String? = null,
 )
 
 @Serializable data class JobStatusRefDto(val status: String = "")
@@ -863,3 +873,14 @@ data class CustomerPointsDto(@SerialName("points_balance") val pointsBalance: In
 /** One customer_points_ledger row's delta — used to sum what a single document earned. */
 @Serializable
 data class PointsDeltaDto(val delta: Int = 0)
+
+/** An issuing company of the shop (legal_entities) — the tyre centre has two, Carfectionist one. */
+@Serializable
+data class CompanyDto(
+    val id: String,
+    @SerialName("legal_name") val legalName: String,
+    @SerialName("trading_name") val tradingName: String? = null,
+    @SerialName("is_default") val isDefault: Boolean = false,
+    @SerialName("vat_registered") val vatRegistered: Boolean = true,
+    @SerialName("sort_order") val sortOrder: Int = 0,
+)

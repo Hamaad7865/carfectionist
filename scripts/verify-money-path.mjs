@@ -53,12 +53,15 @@ try {
   const lines = PRICES.map((line, i) => ({ product_id: services[i].id, ...line }));
 
   // The series counters move as documents are issued, so read them now and
-  // expect the very next number rather than one frozen at seed time.
+  // expect the very next number rather than one frozen at seed time. Since
+  // 20261122000010 each issuing company owns its series (app.next_entity_number);
+  // the business_settings counters are frozen. These documents carry no company,
+  // so they number in the tenant's default company.
   const { rows: [bs] } = await client.query(
     `select quote_prefix, quote_next_number, quote_number_padding,
             invoice_prefix, invoice_next_number, invoice_number_padding
-       from public.business_settings where id = $1`, [owner.tenant_id]);
-  if (!bs) throw new Error("no business_settings row for this tenant — nothing mints document numbers");
+       from public.legal_entities where tenant_id = $1 and is_default`, [owner.tenant_id]);
+  if (!bs) throw new Error("no default company for this tenant — nothing mints document numbers");
 
   await client.query("select set_config('request.jwt.claims', $1, true)", [
     JSON.stringify({ sub: OWNER, role: "authenticated" }),

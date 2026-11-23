@@ -35,6 +35,8 @@ import { NewCustomerButton } from "./NewCustomerButton";
 import { OwnerOverrideDialog } from "@/features/documents/OwnerOverrideDialog";
 import { saveVehicleAction, saveCustomerAddressAction } from "@/features/contacts/actions";
 import { btn } from "@/components/ui/button";
+import { splitByCompany, lineCompanyId, orderCompanies } from "@/lib/documents/company-split";
+import { CompanySplitPanel, CompanyChip, type SplitPart } from "./CompanySplitPanel";
 
 // UUID keys so the builder's line keys can never collide with those minted
 // server-side in state.ts (both previously used an l<N> counter from 0).
@@ -71,7 +73,7 @@ function CarSectionHead({ plate, label, subtotal, hint }: { plate: string | null
 // Signature of the editable content — used to detect edits made WHILE a save is
 // in flight, so saveOk doesn't clear dirty and silently drop them.
 const editSig = (st: BuilderState) =>
-  JSON.stringify({ l: st.lines, c: st.customerId, d: st.docType, sc: st.sectionConfig, cf: st.customFields, cm: st.comment, dk: st.docDiscountKind, dv: st.docDiscountValue, dr: st.docDiscountReason });
+  JSON.stringify({ l: st.lines, c: st.customerId, d: st.docType, sc: st.sectionConfig, cf: st.customFields, cm: st.comment, dk: st.docDiscountKind, dv: st.docDiscountValue, dr: st.docDiscountReason, cd: st.companyDiscounts });
 
 /**
  * A money text field that keeps a local editing buffer so a transient "1500."
@@ -154,6 +156,8 @@ export function DocumentBuilder({
   // every document (see sales/new and sales/[id]/edit), so navigating to a
   // different document starts this at null again with no extra plumbing.
   const [approvedMaxCents, setApprovedMaxCents] = useState<number | null>(null);
+  // A split draft: which company's quote the A4 preview shows (null = the first).
+  const [previewCo, setPreviewCo] = useState<string | null>(null);
   const [overrideDialogDocId, setOverrideDialogDocId] = useState<string | null>(null);
   const [askOwnerBusy, setAskOwnerBusy] = useState(false);
   const paneRef = useRef<HTMLDivElement>(null);
@@ -243,6 +247,19 @@ export function DocumentBuilder({
   const grouped = state.cars.length > 0;
   const sections = useMemo(() => groupBuilderLines(state.lines, state.cars), [state.lines, state.cars]);
   const ordered = useMemo(() => sections.flatMap((s) => s.lines), [sections]);
+
+  // A two-company shop (tyre centre): which company sells each line — the product's company,
+  // else the default (app.lines_stamp_entity). A one-company shop never reaches any of this.
+  const multiCompany = ctx.companies.length > 1;
+  const productCompany = useMemo(() => new Map(ctx.products.map((p) => [p.id, p.companyId ?? null])), [ctx.products]);
+  // A hand-typed line goes to the draft's stored company (lines_stamp_entity), which the last save returned.
+  const docCompanyId = state.docCompanyId ?? null;
+  const companyOf = useCallback(
+    (productId: string | null) => lineCompanyId(productId, productCompany, ctx.companies, docCompanyId),
+    [productCompany, ctx.companies, docCompanyId],
+  );
+  const companyIndex = useMemo(() => new Map(orderCompanies(ctx.companies).map((c, i) => [c.id, i] as const)), [ctx.companies]);
+  const companyById = useMemo(() => new Map(ctx.companies.map((c) => [c.id, c] as const)), [ctx.companies]);
   const groupKeyOf = useCallback(
     (l: BuilderLine) => (l.vehicleId && state.cars.some((c) => c.id === l.vehicleId) ? l.vehicleId : ""),
     [state.cars],
@@ -288,15 +305,19 @@ export function DocumentBuilder({
       if (s.status !== "draft" && !s.amending) return serverRef.current.docId;
       const startSig = editSig(s);
       dispatch({ type: "saveStart" });
+      // A draft spanning two companies cannot carry one bill discount (split_by_company refuses
+      // it) — each company's own discount rides in template_overrides instead.
+      const spanning = multiCompany && s.status === "draft" && new Set(s.lines.map((l) => companyOf(l.productId))).size > 1;
+      const companyDiscounts = s.companyDiscounts && Object.keys(s.companyDiscounts).length > 0 ? { companyDiscounts: s.companyDiscounts } : {};
       const payload: SaveDraftInput = {
-        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields } as Record<string, unknown>, comment: s.comment, discountKind: s.docDiscountKind, discountValue: s.docDiscountValue, discountReason: s.docDiscountReason },
+        doc: { id: serverRef.current.docId, docType: s.docType, customerId: s.customerId, templateOverrides: { ...s.sectionConfig, customFields: s.customFields, ...companyDiscounts } as Record<string, unknown>, comment: s.comment, discountKind: spanning ? null : s.docDiscountKind, discountValue: spanning ? 0 : s.docDiscountValue, discountReason: s.docDiscountReason },
         lines: toSaveDraftLines(s.lines),
         expectedRev: serverRef.current.docId ? serverRef.current.revision : null,
       };
       const res = await saveDraftAction(payload);
       if (res.ok) {
         serverRef.current = { docId: res.data.id, revision: res.data.revision };
-        dispatch({ type: "saveOk", docId: res.data.id, revision: res.data.revision, stillDirty: editSig(stateRef.current) !== startSig });
+        dispatch({ type: "saveOk", docId: res.data.id, revision: res.data.revision, stillDirty: editSig(stateRef.current) !== startSig, companyId: res.data.legal_entity_id ?? null });
         return res.data.id;
       }
       dispatch({ type: "saveError", error: res.error });
@@ -306,13 +327,13 @@ export function DocumentBuilder({
     const next = saveChain.current.then(run, run);
     saveChain.current = next.catch(() => null);
     return next;
-  }, []);
+  }, [multiCompany, companyOf]);
 
   useEffect(() => {
     if ((state.status !== "draft" && !state.amending) || !state.dirty) return;
     const t = setTimeout(() => void doSave(), 1200);
     return () => clearTimeout(t);
-  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.comment, state.status, state.amending, state.docDiscountKind, state.docDiscountValue, state.docDiscountReason, doSave]);
+  }, [state.dirty, state.lines, state.customerId, state.docType, state.sectionConfig, state.customFields, state.comment, state.status, state.amending, state.docDiscountKind, state.docDiscountValue, state.docDiscountReason, state.companyDiscounts, doSave]);
 
   async function onIssue() {
     const s = stateRef.current;
@@ -329,6 +350,12 @@ export function DocumentBuilder({
     const id = await doSave();
     if (!id) return setBusy(false);
     const res = await issueDocumentAction({ documentId: id, idempotencyKey: issueKey });
+    if (res.ok && res.data.parts.length > 1) {
+      // Split into one document per company: this draft now holds only the first company's
+      // lines, so show the issued set side by side instead of a builder that no longer matches.
+      router.push(`/sales/${res.data.parts[0].id}`);
+      return;
+    }
     if (res.ok) {
       dispatch({ type: "issued", number: res.data.number ?? "", status: res.data.status });
       router.refresh();
@@ -362,17 +389,45 @@ export function DocumentBuilder({
 
   // One assembly, shared by the totals and the discount-allowance math below — a line's
   // policy rides beside the fields computeTotals already wanted.
+  // A non-VAT company's line carries no VAT whatever it says (lines_stamp_entity forces 0) — so a
+  // hand-typed line on its quote must not show 15% on screen that the database will not store.
+  const vatFreeLine = (productId: string | null) => multiCompany && companyById.get(companyOf(productId) ?? "")?.vatRegistered === false;
   const lineInputs = state.lines.map((l) => ({
     qty: l.qty,
     unitCents: l.unitCents,
     discountPct: l.discountPct,
     discountKind: l.discountKind,
     discountAmountCents: l.discountAmountCents,
-    vatRatePct: l.vatRatePct,
+    vatRatePct: vatFreeLine(l.productId) ? 0 : l.vatRatePct,
     policy: l.discountPolicy,
     priceInclusive: l.priceInclusive,
   }));
-  const docDiscount = state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null;
+  // The quotes this draft becomes, one per company (a two-company shop only). Each carries its
+  // own discount; the database re-checks every allowance when issue_checkout issues them.
+  const isDraft = state.status === "draft";
+  const parts: SplitPart[] = useMemo(() => !multiCompany || !isDraft ? [] : splitByCompany(
+        state.lines.map((l) => ({
+          key: l.key, title: l.title, productId: l.productId,
+          qty: l.qty, unitCents: l.unitCents, discountPct: l.discountPct, discountKind: l.discountKind,
+          discountAmountCents: l.discountAmountCents, vatRatePct: l.vatRatePct, policy: l.discountPolicy, priceInclusive: l.priceInclusive,
+        })),
+        (l) => companyOf(l.productId),
+        ctx.companies,
+        state.companyDiscounts ?? {},
+      ).map((p, i) => {
+        const priced = p.company.vatRegistered ? p.lines : p.lines.map((l) => ({ ...l, vatRatePct: 0 }));
+        // An owner's approval is pinned to this draft's id, which the first company's quote keeps.
+        const a = computeAllowance(priced, p.discount, i === 0 ? approvedMaxCents : null, ctx.posRules.carwashPct);
+        const blockReason = a.overCeiling
+          ? `Over the ${formatMUR(a.ceilingCents)} allowed on ${p.company.name}'s ${state.docType} — ask the owner.`
+          : a.reasonRequired && !p.discount?.reason?.trim()
+            ? `Add a reason for ${p.company.name}'s discount.`
+            : null;
+        return { ...p, blockReason };
+      }), [multiCompany, isDraft, state.lines, state.companyDiscounts, state.docType, companyOf, ctx.companies, ctx.posRules.carwashPct, approvedMaxCents]);
+  const spanning = parts.length > 1;
+  // The whole-document discount pauses while the draft spans companies (each quote has its own).
+  const docDiscount = !spanning && state.docDiscountKind ? { kind: state.docDiscountKind, value: state.docDiscountValue } : null;
   const totals = computeTotals(lineInputs, docDiscount);
   // The database is the authority (app.assert_discount_allowed, raised from inside
   // issue_document) — this mirrors it so the builder can clamp an input and explain
@@ -380,7 +435,9 @@ export function DocumentBuilder({
   // approvedMaxCents comes from the "Ask the owner" dialog below: an owner's PIN,
   // checked server-side, raises the ceiling for this document only — see askOwner().
   const allowance = computeAllowance(lineInputs, docDiscount, approvedMaxCents, ctx.posRules.carwashPct);
-  const discountBlockReason = allowance.overCeiling
+  const discountBlockReason = spanning
+    ? parts.find((p) => p.blockReason)?.blockReason ?? null
+    : allowance.overCeiling
     ? `This discount is over the ${formatMUR(allowance.ceilingCents)} allowed on this ${state.docType} — ask the owner.`
     : allowance.reasonRequired && !state.docDiscountReason.trim()
       ? "Add a reason for this discount before issuing."
@@ -392,8 +449,20 @@ export function DocumentBuilder({
 
   // Render the A4 markup only when the document changes; zoom is a cheap wrapper
   // applied on top, so dragging the zoom control never re-runs renderToStaticMarkup.
+  // A two-company shop previews each quote on its own company's paper: that company's lines,
+  // letterhead, VAT status and discount. One company (Carfectionist) keeps the shop's own.
+  const previewCompanyId = (parts.find((p) => p.company.id === previewCo) ?? parts[0])?.company.id ?? null;
   const innerMarkup = useMemo(() => {
-    const props = toDocumentProps(state, ctx.business, {
+    const co = previewCompanyId ? companyById.get(previewCompanyId) : undefined;
+    const cd = co ? state.companyDiscounts?.[co.id] : undefined;
+    const shown: BuilderState = co
+      ? {
+          ...state,
+          lines: state.lines.filter((l) => companyOf(l.productId) === co.id).map((l) => (co.vatRegistered ? l : { ...l, vatRatePct: 0 })),
+          ...(spanning ? { docDiscountKind: cd?.kind ?? null, docDiscountValue: cd?.value ?? 0 } : {}),
+        }
+      : state;
+    const base = toDocumentProps(shown, co ? co.business : ctx.business, {
       createdBy: ctx.createdBy,
       customerName: customer?.name ?? "",
       customerCountry: customer?.country ?? "Mauritius",
@@ -406,9 +475,10 @@ export function DocumentBuilder({
       issueDate: readOnly ? state.issueDate ?? new Date().toISOString().slice(0, 10) : null,
       cars: state.cars,
     });
+    const props = co ? { ...base, vatRegistered: co.vatRegistered } : base;
     return renderToStaticMarkup(<DocumentA4 {...props} />);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state, ctx, customer, billAddress, readOnly]);
+  }, [state, ctx, customer, billAddress, readOnly, previewCompanyId, spanning, companyOf, companyById]);
 
   const previewHtml = useMemo(
     () =>
@@ -518,6 +588,10 @@ export function DocumentBuilder({
               onBeforeSend={async () => (await saveAddress()) && !!(await doSave())}
               onSent={(issued) => {
                 if (!issued) return;
+                if ((issued.parts ?? 1) > 1 && state.docId) {
+                  router.push(`/sales/${state.docId}`);
+                  return;
+                }
                 dispatch({ type: "issued", number: issued.number, status: issued.status });
                 router.refresh();
               }}
@@ -545,7 +619,7 @@ export function DocumentBuilder({
             title={discountBlockReason ?? undefined}
             className="grad-brand shadow-brand flex h-[38px] items-center gap-2 rounded-[10px] px-[18px] font-display text-[13px] font-extrabold text-white disabled:opacity-60"
           >
-            {busy ? "Working…" : `Issue ${state.docType}`}
+            {busy ? "Working…" : spanning ? `Issue ${parts.length} ${state.docType}s` : `Issue ${state.docType}`}
             <ArrowRight size={16} />
           </button>
         )}
@@ -915,6 +989,10 @@ export function DocumentBuilder({
                       <div className="min-w-0 flex-1 basis-full sm:basis-0">
                         <div className="truncate text-[13px] font-semibold text-ink">{l.title || "—"}</div>
                         {l.productId === null && <span className="text-[8.5px] font-bold tracking-[0.1em] text-[#6a55d6]">AD-HOC</span>}
+                        {multiCompany && (() => {
+                          const co = companyById.get(companyOf(l.productId) ?? "");
+                          return co ? <div className="mt-1"><CompanyChip name={co.name} index={companyIndex.get(co.id) ?? 0} /></div> : null;
+                        })()}
                         {!descOpen && summary && (
                           <div className="truncate text-[11px] text-faint" title={summary}>{summary.replace(/\n/g, " · ")}</div>
                         )}
@@ -935,6 +1013,16 @@ export function DocumentBuilder({
                       )}
                       {/* Incl. VAT → + VAT → No VAT: what the typed rate means (nextLineVat). */}
                       {(() => {
+                        // A company that is not VAT-registered charges none on any line — the
+                        // database forces the rate to 0, so the toggle would only mislead.
+                        const co = multiCompany ? companyById.get(companyOf(l.productId) ?? "") : undefined;
+                        if (co && !co.vatRegistered) {
+                          return (
+                            <span title={`${co.name} is not VAT registered`} className="flex h-7 items-center whitespace-nowrap rounded-[7px] bg-shade/[0.06] px-2.5 text-[10.5px] font-bold text-faint">
+                              No VAT
+                            </span>
+                          );
+                        }
                         const mode = lineVatMode(l);
                         return (
                           <button
@@ -1153,7 +1241,27 @@ export function DocumentBuilder({
             </div>
           )}
 
+          {spanning && (
+            <>
+              <div className="flex gap-2.5 rounded-[12px] border border-[rgba(43,140,255,0.22)] bg-[rgba(43,140,255,0.08)] px-3.5 py-3">
+                <span aria-hidden="true" className="grid size-5 flex-none place-items-center rounded-full border-[1.5px] border-link text-[12px] font-extrabold text-link">i</span>
+                <span className="text-[12.5px] leading-[1.5] text-body">
+                  These lines are sold by {parts.length === 2 ? "two" : parts.length} companies, so this becomes{" "}
+                  <b className="text-ink-strong">{parts.length} {state.docType}s</b> when you issue or send it. Nothing to choose: each line goes to its company. Discounts are per {state.docType}
+                  {state.docDiscountKind && state.docDiscountValue > 0 ? " — the whole-document discount is paused while it is split." : "."}
+                </span>
+              </div>
+              <CompanySplitPanel
+                parts={parts}
+                docType={state.docType}
+                readOnly={readOnly}
+                onDiscount={(companyId, discount) => dispatch({ type: "setCompanyDiscount", companyId, discount })}
+              />
+            </>
+          )}
+
           {/* totals */}
+          {!spanning && (
           <div className="ml-auto w-64 border-t border-line pt-4 text-[13px]">
             {!readOnly && (
               <div className="mb-2 flex items-center gap-2">
@@ -1200,16 +1308,39 @@ export function DocumentBuilder({
             {discountShown > 0 && (
               <div className="flex justify-between py-1 text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(discountShown)}</span></div>
             )}
-            <div className="flex justify-between py-1 text-muted"><span>VAT (15%)</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
+            {multiCompany && state.lines.length > 0 && state.lines.every((l) => vatFreeLine(l.productId)) ? (
+              <div className="flex justify-between py-1 text-muted"><span>VAT</span><span className="text-[12px] font-bold text-body">VAT exempt</span></div>
+            ) : (
+              <div className="flex justify-between py-1 text-muted"><span>VAT (15%)</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
+            )}
             <div className="mt-1 flex justify-between rounded-[10px] bg-sub px-3 py-2 font-bold"><span className="text-ink">Total (MUR)</span><span className="num text-brand">{formatMUR(totals.totalCents)}</span></div>
           </div>
+          )}
         </div>
 
         {/* PREVIEW */}
         {showPreview && (
           <div className="flex min-h-0 flex-col border-l border-line bg-band">
             <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-sub px-3">
-              <span className="mr-auto text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Preview</span>
+              <span className={`${spanning ? "" : "mr-auto "}text-[11px] font-bold uppercase tracking-[0.12em] text-faint`}>Preview</span>
+              {spanning && (
+                <div role="tablist" aria-label="Which quote to preview" className="ml-2 mr-auto flex min-w-0 rounded-full border border-line-2 bg-card p-0.5">
+                  {parts.map((p) => {
+                    const on = p.company.id === previewCompanyId;
+                    return (
+                      <button
+                        key={p.company.id}
+                        role="tab"
+                        aria-selected={on}
+                        onClick={() => setPreviewCo(p.company.id)}
+                        className={`h-6 max-w-[140px] truncate rounded-full px-2.5 text-[11.5px] ${on ? "bg-band font-bold text-ink-strong" : "font-semibold text-muted hover:text-body"}`}
+                      >
+                        {p.company.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
               <button onClick={() => zoomBy(-0.1)} title="Zoom out" className="grid size-7 place-items-center rounded-[8px] border border-line-2 bg-card text-body hover:border-brand">
                 <ZoomOut size={15} />
               </button>

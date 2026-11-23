@@ -653,6 +653,15 @@ data class QuoteState(
      *  same reason the web's askOwner() calls doSave() first. Only used for target="quote";
      *  the bill already has a real id by the time it can be opened at all. */
     val askOwnerBusy: Boolean = false,
+    // ── a two-company shop (tyre centre): one quote per issuing company ──────────
+    /** The shop's active issuing companies. One (every other shop) = nothing splits. */
+    val companies: List<mu.carfection.pos.core.network.CompanyDto> = emptyList(),
+    /** product id → the company that sells it (null = the default company). */
+    val productCompany: Map<String, String?> = emptyMap(),
+    /** The company this draft is stored under — where a hand-typed line goes (lineCompanyId). */
+    val docCompanyId: String? = null,
+    /** Set once a split has been issued: every quote of the visit shares it (issue_checkout). */
+    val checkoutGroupId: String? = null,
 ) {
     /** True when this quotation covers more than one car — the only time anything groups. */
     val multiCar: Boolean get() = cars.size > 1
@@ -761,7 +770,14 @@ class QuoteViewModel @Inject constructor(
     }
 
     init {
-        viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p) } } }
+        viewModelScope.launch { catalog.products.collect { p -> _s.update { it.copy(products = p, productCompany = p.associate { e -> e.id to e.legalEntityId }) } } }
+        // The shop's issuing companies — cached first so an offline tablet still shows the split,
+        // then refreshed. A one-company shop gets one (or none) and nothing on screen changes.
+        viewModelScope.launch {
+            _s.update { it.copy(companies = catalog.tillCompanies()) }
+            val fresh = catalog.refreshTillCompanies()
+            _s.update { it.copy(companies = fresh) }
+        }
         // The standalone-quote picker searches the same cached customer book intake does.
         viewModelScope.launch { catalog.customers.collect { allCustomers = it } }
         // Pull the latest catalogue so SERVICES (and any newly-added products) show in the
@@ -814,6 +830,10 @@ class QuoteViewModel @Inject constructor(
                     // minutes (same reasoning as pricesInclVat above).
                     carwashPct = _s.value.carwashPct,
                     policyDefaults = _s.value.policyDefaults,
+                    // Loaded once, in init: drop them and the next operator's builder stops
+                    // splitting — the bill discount returns and Accept runs on a two-company draft.
+                    companies = _s.value.companies,
+                    productCompany = _s.value.productCompany,
                 )
             }
         }
@@ -1125,6 +1145,7 @@ class QuoteViewModel @Inject constructor(
         _s.update {
             it.copy(
                 mode = QuoteMode.BUILDER, quoteId = q.id, ref = q.number ?: "Draft", status = q.status,
+                docCompanyId = q.legalEntityId, checkoutGroupId = q.checkoutGroupId,
                 // Opening a DIFFERENT quote ends any amend in progress — it belonged to
                 // whatever was open before, not to this one.
                 amending = false,
@@ -1408,6 +1429,9 @@ class QuoteViewModel @Inject constructor(
     private fun basketPct(s: QuoteState): Int = if (s.basketMode == DiscountMode.PCT) (s.basketText.toIntOrNull() ?: 0).coerceIn(0, 100) else 0
     private fun basketAmtCents(s: QuoteState): Long = if (s.basketMode == DiscountMode.AMT) (parseMoneyToCents(s.basketText) ?: 0L).coerceAtLeast(0) else 0
     private fun docDiscountKind(s: QuoteState): String? = when {
+        // A bill discount cannot cover two companies (documents_entity_guard refuses it): while
+        // the quote spans them it is neither shown nor sent, and each quote goes out undiscounted.
+        spansCompanies(s) -> null
         s.basketMode == DiscountMode.AMT && basketAmtCents(s) > 0 -> "amount"
         s.basketMode == DiscountMode.PCT && basketPct(s) > 0 -> "percent"
         else -> null
@@ -1419,18 +1443,76 @@ class QuoteViewModel @Inject constructor(
     }
 
     fun totals(s: QuoteState): DocDiscountTotals = computeDocTotals(
-        s.lines.map {
+        s.lines.mapIndexed { i, it ->
             DocLineIn(
                 qty = it.qty.toDouble(), unitCents = it.unitCents,
                 discountKind = if (it.discountMode == DiscountMode.AMT) "amount" else "percent",
                 discountPct = it.discountPct.toDouble(),
                 discountAmtInclCents = if (it.discountMode == DiscountMode.AMT) it.discountAmtCents else 0L,
-                vatRatePct = it.vatRate,
+                // A non-VAT company's line carries no VAT whatever it says (lines_stamp_entity
+                // forces 0): never show 15% the database will not store.
+                vatRatePct = if (vatFreeLine(s, i)) 0.0 else it.vatRate,
                 priceInclusive = it.priceInclusive,
             )
         },
         orderKind = docDiscountKind(s), orderPct = basketPct(s).toDouble(), orderAmtInclCents = basketAmtCents(s),
     )
+
+    // ── one quote per company (tyre centre) — the tablet's mirror of company-split.ts ───────
+    private fun QuoteLine.toDocLineIn() = DocLineIn(
+        qty = qty.toDouble(), unitCents = unitCents,
+        discountKind = if (discountMode == DiscountMode.AMT) "amount" else "percent",
+        discountPct = discountPct.toDouble(),
+        discountAmtInclCents = if (discountMode == DiscountMode.AMT) discountAmtCents else 0L,
+        vatRatePct = vatRate,
+        priceInclusive = priceInclusive,
+    )
+
+    /** True when line [i] is sold by a company that is not VAT-registered (two-company shops only). */
+    private fun vatFreeLine(s: QuoteState, i: Int): Boolean =
+        s.companies.size > 1 && lineCompany(s, i)?.let { id -> s.companies.firstOrNull { it.id == id } }?.vatRegistered == false
+
+    /** The quote's only company, when it is not VAT-registered — its footer says "VAT exempt". */
+    fun vatExemptOnly(s: QuoteState): Boolean = companyParts(s).singleOrNull()?.company?.vatRegistered == false
+
+    /** The company that sells line [i] — what the database will stamp on it when it is saved. */
+    fun lineCompany(s: QuoteState, i: Int): String? =
+        s.lines.getOrNull(i)?.let { lineCompanyId(it.productId, s.productCompany, s.companies, s.docCompanyId) }
+
+    /**
+     * The quotes this one goes out as, one per company, with each one's own totals. Empty at a
+     * one-company shop. The database makes the split (issue_checkout, run by the send route) —
+     * this only shows it before anything is numbered.
+     */
+    fun companyParts(s: QuoteState): List<CompanyPart> {
+        if (s.companies.size < 2 || s.lines.isEmpty()) return emptyList()
+        return splitByCompany(s.lines.map { it.toDocLineIn() }, { i -> lineCompany(s, i) }, s.companies)
+    }
+
+    /** True while this draft's lines are sold by more than one company — it will go out as several quotes. */
+    fun spansCompanies(s: QuoteState): Boolean = companyParts(s).size > 1
+
+    /** This quote is (or, once issued, will be) one of a visit's per-company quotes. checkout_group_id
+     *  is set only on a split pair (issue_checkout), so this does not wait for the quote list. */
+    private fun isSplitVisit(s: QuoteState): Boolean = !s.checkoutGroupId.isNullOrEmpty() || spansCompanies(s)
+
+    /**
+     * What this tablet cannot do yet for a visit split per company. Signing it is fine: the database
+     * accepts every quote of the visit and opens ONE job (20261126000010). Billing it is not — the
+     * bill is issued per company and paid across both (issue_checkout / record_checkout_payment),
+     * which this till does not do yet, so goods-only accepts, deposits and Bill go to the back office.
+     */
+    private fun splitBlockReason(s: QuoteState, billing: Boolean = false): String? = when {
+        !isSplitVisit(s) -> null
+        billing -> "This visit is billed per company — bill it from the back office."
+        // An issued pair: the quote open may be the goods half, whose sibling holds the work.
+        !hasService(s) && !s.checkoutGroupId.isNullOrEmpty() ->
+            "This visit is billed per company — sign it on its quote with the work on it, or bill it from the back office."
+        !hasService(s) -> "Goods sold by two companies are billed per company — bill them from the back office."
+        s.depositCents > 0 ->
+            "A deposit on a visit billed per company is taken in the back office for now — accept without the deposit here."
+        else -> null
+    }
 
     // ── discount allowance — the tablet's mirror of app.document_discount_limits ─────────────
     // The database is the authority (app.assert_discount_allowed, raised from inside
@@ -1875,7 +1957,12 @@ class QuoteViewModel @Inject constructor(
         }
     }
 
-    fun openAccept() = _s.update { it.copy(acceptOpen = true, startJobNow = hasService(it), agreedVia = null) }
+    fun openAccept() = _s.update {
+        // Refused BEFORE the customer signs, not after: a pad that takes a signature and then
+        // says no is worse than a button that explains itself.
+        if (isSplitVisit(it) && !hasService(it)) splitBlockReason(it)?.let { reason -> return@update it.copy(error = reason) }
+        it.copy(acceptOpen = true, startJobNow = hasService(it), agreedVia = null)
+    }
 
     /** Signing here, or agreed elsewhere. Picking a channel puts the pad away. */
     fun setAgreedVia(via: String?) = _s.update { it.copy(agreedVia = via) }
@@ -2136,6 +2223,9 @@ class QuoteViewModel @Inject constructor(
                         it.copy(
                             busy = false, quoteId = d.id, savedRef = d.number ?: "Draft saved",
                             status = d.status ?: it.status,
+                            // save_draft hands the row back AFTER draft_follows_lines ran: the
+                            // company a hand-typed line added next will be stamped with.
+                            docCompanyId = d.legalEntityId ?: it.docCompanyId,
                             // signed is deliberately untouched: a revise keeps the
                             // agreement (20260910000130) — the signature, the status
                             // and the booking all carry, only the figures move.
@@ -2157,6 +2247,7 @@ class QuoteViewModel @Inject constructor(
         // the client has signed, and so an offline accept is never queued only to fail the
         // same guard on replay. The UI disables this button on the same condition.
         discountBlockReason(s)?.let { reason -> _s.update { it.copy(error = reason) }; return }
+        splitBlockReason(s)?.let { reason -> _s.update { it.copy(error = reason) }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
@@ -2168,9 +2259,15 @@ class QuoteViewModel @Inject constructor(
                 // A draft — or a quote reopened with Revise — gets the builder's edits
                 // persisted first. Any other issued/accepted quote converts as-is; the
                 // RPC is idempotent and hands back the same job.
-                val quoteId =
+                val savedId =
                     if (s.status == "draft" || s.amending) api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
+                // Two companies sell what is on this draft: issue it as one quote per company
+                // first (the same issue_checkout the send uses) — accepting it as it stands would
+                // number ONE quote spanning both. The accept below then covers the whole visit.
+                val quoteId =
+                    if (s.status == "draft" && spansCompanies(s)) api.issueQuoteAcrossCompanies(savedId, "quote-accept:$savedId").firstOrNull() ?: savedId
+                    else savedId
                 // Signed, but the work is not starting today — no job, no card on the board.
                 // "Create job" on this quote raises it whenever the customer comes back.
                 if (!s.startJobNow) {
@@ -2336,6 +2433,7 @@ class QuoteViewModel @Inject constructor(
         if (s.busy) return // double-tap on a fresh quote = two quotes -> two invoices
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         if (s.lines.isEmpty()) { _s.update { it.copy(error = "Add a line before billing") }; return }
+        splitBlockReason(s, billing = true)?.let { reason -> _s.update { it.copy(error = reason) }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
@@ -2641,7 +2739,10 @@ class QuoteViewModel @Inject constructor(
             // number and "Sent ✓" onto whatever quote is on screen, and pointing the next
             // Save or Accept at the wrong document.
             _s.update { if (it.quoteId == null && it.customerId == cid) it.copy(quoteId = saved) else it }
-            val out = runCatching { sendApi.send(saved, channel, to.trim(), note.trim().take(300), session.deviceId()) }
+            // A quote already issued one per company resends the whole visit — the customer
+            // always gets every company's quote together, as the back office's "Resend both" does.
+            val group = (s.checkoutGroupId?.let { g -> s.quotes.count { it.checkoutGroupId == g } } ?: 0) > 1
+            val out = runCatching { sendApi.send(saved, channel, to.trim(), note.trim().take(300), session.deviceId(), group) }
                 .getOrElse { SendOutcome(it.message ?: "Network error") }
             _s.update { cur ->
                 // A late result must not stamp a DIFFERENT quote's dialog (the
@@ -2649,11 +2750,18 @@ class QuoteViewModel @Inject constructor(
                 if (cur.quoteId != saved) cur
                 else if (out.error == null) cur.copy(
                     sendBusy = false,
-                    sendDone = if (channel == "email") "Sent by email ✓" else "Sent on WhatsApp ✓",
+                    sendDone = when {
+                        out.issuedParts > 1 || group -> "${if (out.issuedParts > 1) out.issuedParts else (s.quotes.count { it.checkoutGroupId == s.checkoutGroupId })} quotes sent ${if (channel == "email") "by email" else "on WhatsApp"} ✓"
+                        channel == "email" -> "Sent by email ✓"
+                        else -> "Sent on WhatsApp ✓"
+                    },
                     // The send issued it: drop the DRAFT chip and show the number, or the
                     // builder stays editable over a quote the server has already frozen.
                     status = out.issuedStatus ?: cur.status,
                     ref = out.issuedNumber ?: cur.ref,
+                    // Issued one per company: the draft's id IS the visit's group (issue_checkout),
+                    // so Accept/Bill stand down and a resend goes to every company's quote.
+                    checkoutGroupId = if (out.issuedParts > 1) saved else cur.checkoutGroupId,
                     // remember what worked so re-opening prefills the corrected value
                     customerEmail = if (channel == "email") to.trim() else cur.customerEmail,
                     customerPhone = if (channel == "whatsapp") to.trim() else cur.customerPhone,

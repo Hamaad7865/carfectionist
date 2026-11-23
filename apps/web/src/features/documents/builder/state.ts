@@ -2,6 +2,7 @@ import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
 import type { DiscountKind } from "@/lib/money/totals";
 import { policyOf, type DiscountPolicy } from "@/lib/money/allowance";
 import type { RichDoc } from "@/lib/rich/types";
+import type { CompanyDiscount } from "@/lib/documents/company-split";
 
 /** One of the customer's cars ticked onto this document, in the order picked. */
 export interface BuilderCar {
@@ -77,6 +78,12 @@ export interface BuilderState {
    *  document, read back by app.assert_discount_allowed. "" = none typed yet. */
   docDiscountReason: string;
   sectionConfig: Partial<SectionFlags>;
+  /** A two-company shop: each company's own discount, keyed by company id, for a draft whose
+   *  lines span companies (it cannot carry one bill discount). Saved in template_overrides and
+   *  handed to issue_checkout — see lib/documents/company-split.ts. Absent = none. */
+  companyDiscounts?: Record<string, CompanyDiscount>;
+  /** The draft's stored company as its last save returned it (hand-typed lines go to it). */
+  docCompanyId?: string | null;
   customFields: { label: string; value: string }[];
   comment: string; // internal note — shown in Sales list + invoice screen, never on a receipt/PDF
   dirty: boolean;
@@ -184,13 +191,14 @@ export type BuilderAction =
   | { type: "duplicateLine"; key: string }
   | { type: "setDocDiscount"; kind: DiscountKind | null; value: number }
   | { type: "setDiscountReason"; reason: string }
+  | { type: "setCompanyDiscount"; companyId: string; discount: CompanyDiscount | null }
   | { type: "setSection"; key: keyof SectionFlags; value: boolean }
   | { type: "addCustomField"; field?: { label: string; value: string } }
   | { type: "patchCustomField"; index: number; patch: Partial<{ label: string; value: string }> }
   | { type: "removeCustomField"; index: number }
   | { type: "setComment"; comment: string }
   | { type: "saveStart" }
-  | { type: "saveOk"; docId: string; revision: number; number?: string | null; status?: string; stillDirty?: boolean }
+  | { type: "saveOk"; docId: string; revision: number; number?: string | null; status?: string; stillDirty?: boolean; companyId?: string | null }
   | { type: "saveError"; error: string }
   | { type: "issued"; number: string; status: string };
 
@@ -268,6 +276,12 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
     }
     case "setDocDiscount":
       return touched({ ...state, docDiscountKind: action.kind, docDiscountValue: action.value });
+    case "setCompanyDiscount": {
+      const next = { ...(state.companyDiscounts ?? {}) };
+      if (action.discount) next[action.companyId] = action.discount;
+      else delete next[action.companyId];
+      return touched({ ...state, companyDiscounts: next });
+    }
     case "setDiscountReason":
       return touched({ ...state, docDiscountReason: action.reason });
     case "setSection":
@@ -289,6 +303,7 @@ export function reducer(state: BuilderState, action: BuilderAction): BuilderStat
         revision: action.revision,
         number: action.number ?? state.number,
         status: action.status ?? state.status,
+        docCompanyId: action.companyId !== undefined ? action.companyId : state.docCompanyId,
         // Keep dirty when the document changed mid-save (edits made after the
         // saved snapshot) — otherwise those edits are silently lost while the UI
         // reads "Saved". The pending autosave timer (armed by that edit) then fires.
