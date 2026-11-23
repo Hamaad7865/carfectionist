@@ -972,7 +972,7 @@ internal fun TyrePaid(s: CounterUiState, vm: CounterViewModel) {
                 "Back to the list", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp,
                 textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().clickable { vm.backToList() }.padding(top = 12.dp, bottom = 2.dp),
             )
-            if (sendOpen) SendReceiptsDialog(vm, onClose = { sendOpen = false })
+            if (sendOpen && s.whatsapp) SendReceiptsDialog(vm, onClose = { sendOpen = false })
         }
         // The slips exactly as they printed — ReceiptPaper is the code that renders the printed slip.
         Column(Modifier.weight(1f).fillMaxHeight()) {

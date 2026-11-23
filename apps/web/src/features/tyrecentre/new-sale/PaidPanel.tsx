@@ -5,6 +5,7 @@ import { Check, MessageCircle, Plus, Printer } from "lucide-react";
 import { knobPill } from "@/components/tyrecentre/tc";
 import { formatAmount, formatMUR } from "@/lib/money";
 import { entityColours } from "@/lib/tyrecentre/entity-colours";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 
 /** One company's invoice of the sale, as issued. */
 export interface PaidBill {
@@ -35,6 +36,8 @@ export interface PaidSale {
 export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () => void }) {
   const bills = sale.bills.length ? sale.bills : [{ id: sale.invoiceId, number: sale.number, totalCents: sale.totalCents, companyName: sale.companyName, index: 0 }];
   const many = bills.length > 1;
+  // A shop with no WhatsApp (the tyre centre, roles.ts hasWhatsApp) gets Print alone.
+  const whatsapp = useWhatsApp();
   const shareWhatsApp = () => {
     const text = [
       ...bills.map((b) => `${b.companyName} — Receipt ${b.number ?? ""}${many ? ` · ${formatMUR(b.totalCents)}` : ""}`.trim()),
@@ -79,7 +82,7 @@ export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () =
         </Link>
       )}
 
-      <div className="mt-auto grid grid-cols-2 gap-2 pt-6">
+      <div className={`mt-auto grid ${whatsapp ? "grid-cols-2" : "grid-cols-1"} gap-2 pt-6`}>
         <button
           type="button"
           // One receipt per company — each prints its own name, BRN and VAT status.
@@ -91,13 +94,15 @@ export function PaidPanel({ sale, onNewSale }: { sale: PaidSale; onNewSale: () =
         >
           <Printer className="size-[18px]" /> {many ? `Print ${bills.length}` : "Print"}
         </button>
-        <button
-          type="button"
-          onClick={shareWhatsApp}
-          className="inline-flex h-[54px] items-center justify-center gap-2 rounded-[16px] bg-tc-sub text-[14px] font-semibold text-tc-ink hover:bg-tc-track"
-        >
-          <MessageCircle className="size-[18px] text-tc-success" /> WhatsApp
-        </button>
+        {whatsapp && (
+          <button
+            type="button"
+            onClick={shareWhatsApp}
+            className="inline-flex h-[54px] items-center justify-center gap-2 rounded-[16px] bg-tc-sub text-[14px] font-semibold text-tc-ink hover:bg-tc-track"
+          >
+            <MessageCircle className="size-[18px] text-tc-success" /> WhatsApp
+          </button>
+        )}
       </div>
       <button type="button" onClick={onNewSale} className={`${knobPill(52)} mt-2`} autoFocus>
         New sale

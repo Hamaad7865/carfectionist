@@ -11,7 +11,7 @@ import {
   Wrench,
   type LucideIcon,
 } from "lucide-react";
-import { NAV, effectiveModules, type Role } from "@/lib/auth/roles";
+import { NAV, effectiveModules, hiddenModulesFor, type Role } from "@/lib/auth/roles";
 
 /** What a row's badge counts — filled in from the live shell status. */
 export type BadgeKind = "readyJobs" | "unpaidInvoices" | "lowStock";
@@ -39,11 +39,13 @@ export interface TcNav {
 const NEW_SALE_HREF = "/sales/counter";
 
 /** The tyre-centre sidebar (DESIGN-SPEC §6.1), cut to what this user's role and modules
- *  allow — the same rule the Carfectionist sidebar uses (navForUser). Each row names the
- *  module it opens; the route layouts and RLS enforce it again. */
-export function tyreCentreNav(role: Role, modules: string[] | null | undefined): TcNav {
+ *  allow — the same rule the Carfectionist sidebar uses (navForUser) — and to what the shop
+ *  offers at all (hiddenModulesFor: a tyre centre has no Messages, Marketing, Certificates or
+ *  Enquiries). Each row names the module it opens; the route layouts and RLS enforce it again. */
+export function tyreCentreNav(role: Role, modules: string[] | null | undefined, tenantId: string): TcNav {
   const allowed = new Set(effectiveModules(role, modules));
-  const can = (href: string) => allowed.has(href);
+  const hidden = new Set(hiddenModulesFor(tenantId));
+  const can = (href: string) => allowed.has(href) && !hidden.has(href);
   const tillRoles: Role[] = ["owner", "manager"];
 
   const shopFloor: TcNavLink[] = [];

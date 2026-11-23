@@ -871,6 +871,7 @@ class CounterViewModel @Inject constructor(
             pointsEnabled = cur.pointsEnabled,
             carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
             allowNegativeStock = cur.allowNegativeStock,
+            whatsapp = cur.whatsapp,
         )
     }
 
@@ -1185,7 +1186,8 @@ class CounterViewModel @Inject constructor(
      */
     fun sendDoneReceipts(to: String) {
         val done = local.value.done ?: return
-        if (to.isBlank() || done.offlineRef != null || local.value.busy) return
+        // The one WhatsApp number is Carfectionist's: a shop without WhatsApp never sends on it.
+        if (!local.value.whatsapp || to.isBlank() || done.offlineRef != null || local.value.busy) return
         val ids = done.bills.map { it.id }.ifEmpty { listOf(done.invoiceId) }
         local.value = local.value.copy(busy = true)
         viewModelScope.launch {
@@ -2547,6 +2549,9 @@ class CounterViewModel @Inject constructor(
             pointValueRupees = cur.pointValueRupees, pointsEnabled = cur.pointsEnabled,
             carwashPct = cur.carwashPct, policyDefaults = cur.policyDefaults,
             allowNegativeStock = cur.allowNegativeStock,
+            // Shop-wide too: hasWhatsAppFlow only re-emits on a change, so a reset that
+            // dropped it would bring the WhatsApp key back at the tyre centre.
+            whatsapp = cur.whatsapp,
             companies = cur.companies, // shop-wide: which companies it bills under
         )
         refreshTill()

@@ -5,6 +5,8 @@ import { usePathname, useRouter } from "next/navigation";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import type { SessionContext } from "@/lib/auth/session";
+import { hasWhatsApp } from "@/lib/auth/roles";
+import { ShopFeaturesProvider } from "@/components/shell/ShopFeatures";
 import type { BrandInfo } from "@/lib/brand";
 import { isNewSalePath, NEW_SALE_HREF, tyreCentreNav } from "@/lib/tyrecentre/nav";
 import { getShellStatusAction, type ShellStatus } from "@/features/tyrecentre/shell-actions";
@@ -17,7 +19,7 @@ import { TyreTopbar } from "./TyreTopbar";
 export function TyreShell({ ctx, brand, children }: { ctx: SessionContext; brand: BrandInfo; children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const nav = useMemo(() => tyreCentreNav(ctx.role, ctx.modules), [ctx.role, ctx.modules]);
+  const nav = useMemo(() => tyreCentreNav(ctx.role, ctx.modules, ctx.tenantId), [ctx.role, ctx.modules, ctx.tenantId]);
   const newSale = isNewSalePath(pathname);
   const [open, setOpen] = useState(!newSale);
   const [searchOpen, setSearchOpen] = useState(false);
@@ -58,6 +60,9 @@ export function TyreShell({ ctx, brand, children }: { ctx: SessionContext; brand
   }, [canSell, router]);
 
   return (
+    // Same as AppShell: what this shop offers (no WhatsApp for the tyre centre) for every
+    // client component below — the server actions check hasWhatsApp again.
+    <ShopFeaturesProvider whatsapp={hasWhatsApp(ctx.tenantId)}>
     <SidebarProvider
       open={open}
       onOpenChange={setOpen}
@@ -77,5 +82,6 @@ export function TyreShell({ ctx, brand, children }: { ctx: SessionContext; brand
       <TyreCommandSearch open={searchOpen} onOpenChange={setSearchOpen} />
       <Toaster position="bottom-right" />
     </SidebarProvider>
+    </ShopFeaturesProvider>
   );
 }
