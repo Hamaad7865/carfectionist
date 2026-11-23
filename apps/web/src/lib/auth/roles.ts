@@ -123,8 +123,12 @@ export function titleForPath(pathname: string): string {
   return match?.label ?? "Carfectionist";
 }
 
-/** Shops that are tyre centres, not detailing studios (Garage De L'Est: tyres + Service). */
-export const TYRE_TENANTS: readonly string[] = ["1f060b86-ad63-4dc7-93fb-a1fdfae18b27"];
+/** Shops that are tyre centres, not detailing studios: Garage De L'Est (tyres + Service) and its
+ *  TEST Tyre Sandbox (scripts/setup-tyre-sandbox.mjs). The tablet mirrors this list. */
+export const TYRE_TENANTS: readonly string[] = [
+  "1f060b86-ad63-4dc7-93fb-a1fdfae18b27",
+  "44444444-4444-4444-8444-000000000004",
+];
 
 /** Detailing-studio modules a tyre centre never uses: WhatsApp messages, marketing campaigns,
  *  coating certificates and the detailing enquiry form. Hidden from its menu and refused by URL. */
