@@ -9,6 +9,7 @@ import { issueDocument } from "@/lib/supabase/rpc";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordOutbound } from "@/lib/wa-inbox";
 import * as wa from "@/lib/whatsapp";
+import { hasWhatsApp, NO_WHATSAPP } from "@/lib/auth/roles";
 
 // One send path for tablet + web: render the exact document PDF and deliver it
 // by email (attachment + download link) or WhatsApp (utility template with a
@@ -121,6 +122,9 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
   const { data: doc } = await sb.from("documents").select(DOC_SELECT).eq("id", i.docId).maybeSingle();
   if (!doc) return { ok: false, error: "Document not found." };
   let d: any = doc;
+  // Before anything else: refusing AFTER issuing would leave a quote numbered for a send
+  // that never happened. The tyre centre has no WhatsApp (roles.ts hasWhatsApp).
+  if (i.channel === "whatsapp" && !hasWhatsApp(d.tenant_id)) return { ok: false, error: NO_WHATSAPP };
 
   // A quotation exists to be argued with: the customer reads it, thinks, and only
   // then accepts. So the send has to happen BEFORE acceptance — and a draft has no
@@ -203,7 +207,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       note,
       pdfBase64: Buffer.from(pdf).toString("base64"),
       downloadLink: link,
-      studioName: "Carfectionist",
+      studioName: props.from.tradingName,
     });
     if (!r.ok) return r;
   } else {

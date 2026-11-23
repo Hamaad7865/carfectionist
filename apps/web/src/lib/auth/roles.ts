@@ -139,3 +139,13 @@ export function hiddenModulesFor(tenantId: string): readonly string[] {
 export function isTyreShop(tenantId: string): boolean {
   return TYRE_TENANTS.includes(tenantId);
 }
+
+/** WhatsApp runs on ONE number per deployment (the WHATSAPP_* secrets), and that number is
+ *  Carfectionist's. The tyre centre asked for no WhatsApp at all, and its customers must never
+ *  get a message from another business's number — so no screen offers it and every send path
+ *  refuses it. The tablet mirrors this list (core/TenantFeatures.kt). */
+export function hasWhatsApp(tenantId: string | null | undefined): boolean {
+  return !!tenantId && !isTyreShop(tenantId);
+}
+
+export const NO_WHATSAPP = "WhatsApp isn't offered for this business.";

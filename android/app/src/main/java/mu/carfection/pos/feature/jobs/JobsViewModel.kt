@@ -143,6 +143,8 @@ fun invoiceAmountHint(pricesInclVat: Boolean): String =
     else "VAT 15% is added automatically when the invoice is issued."
 
 data class JobsState(
+    /** False at a shop with no WhatsApp: the invoice sheet offers email only. */
+    val whatsapp: Boolean = true,
     val loading: Boolean = true,
     val jobs: List<JobBoardDto> = emptyList(),
     val technicians: List<TechnicianDto> = emptyList(),
@@ -233,6 +235,7 @@ class JobsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { deviceRole.takesPayments.collect { t -> _s.update { it.copy(takesPayments = t) } } }
+        viewModelScope.launch { catalog.hasWhatsAppFlow.collect { w -> _s.update { it.copy(whatsapp = w) } } }
     }
 
     init {

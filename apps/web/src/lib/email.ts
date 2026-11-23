@@ -126,7 +126,7 @@ export async function sendReceiptEmail(i: ReceiptEmailInput): Promise<SendResult
   </div>
 </body></html>`;
 
-  return bindingSend({ to: i.to, from: FROM, subject, html, text });
+  return bindingSend({ to: i.to, from: { ...FROM, name: i.studioName }, subject, html, text });
 }
 
 export interface DocumentEmailInput {
@@ -184,7 +184,7 @@ export async function sendDocumentEmail(i: DocumentEmailInput): Promise<SendResu
 
   return bindingSend({
     to: i.to,
-    from: FROM_DOCS,
+    from: { ...FROM_DOCS, name: i.studioName },
     subject,
     html,
     text,
@@ -228,7 +228,7 @@ export async function sendStatementEmail(i: StatementEmailInput): Promise<SendRe
 
   return bindingSend({
     to: i.to,
-    from: FROM_DOCS,
+    from: { ...FROM_DOCS, name: i.studioName },
     subject,
     html,
     text,
@@ -275,7 +275,7 @@ export async function sendZReportEmail(i: ZReportEmailInput): Promise<SendResult
 
   return bindingSend({
     to: i.to,
-    from: FROM_DOCS,
+    from: { ...FROM_DOCS, name: i.studioName },
     subject,
     html,
     text,

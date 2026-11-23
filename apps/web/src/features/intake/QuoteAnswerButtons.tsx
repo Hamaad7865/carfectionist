@@ -6,6 +6,7 @@ import { Check, X, MessageCircle, Phone, Mail } from "lucide-react";
 import { acceptQuoteOnlyAction, declineQuoteAction } from "./actions";
 import { convertQuoteToInvoiceAction } from "@/features/documents/actions";
 import { btn } from "@/components/ui/button";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 
 // A quotation that has been SENT is waiting on one thing: the customer's answer.
 // Before this, "yes" could only be recorded by handing them a tablet to sign — impossible
@@ -33,6 +34,8 @@ export function QuoteAnswerButtons({
   hasService: boolean;
 }) {
   const router = useRouter();
+  // No WhatsApp at this shop, so nobody can have agreed by it.
+  const channels = useWhatsApp() ? CHANNELS : CHANNELS.filter((c) => c.key !== "whatsapp");
   const [open, setOpen] = useState<null | "yes" | "no">(null);
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
@@ -96,7 +99,7 @@ export function QuoteAnswerButtons({
             time, in place of a signature.
           </p>
           <div className="flex flex-wrap gap-2">
-            {CHANNELS.map(({ key, label, icon: Icon }) => (
+            {channels.map(({ key, label, icon: Icon }) => (
               <button key={key} onClick={() => accept(key)} disabled={busy} className={btn("primary", "md", "gap-2")}>
                 <Icon size={14} /> {busy ? "Accepting…" : label}
               </button>

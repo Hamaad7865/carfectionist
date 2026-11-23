@@ -188,11 +188,13 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
                     FilledInput(value = email, onValueChange = { email = it }, placeholder = "customer@email.com", modifier = Modifier.weight(1f), bg = Inset)
                     FillBtn(if (s.sendBusy) "…" else "Send", Modifier.width(96.dp), 48) { if (!s.sendBusy && email.isNotBlank()) viewModel.sendToCustomer("email", email, note) }
                 }
-                MiniLabel("WHATSAPP")
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
-                    Box(Modifier.width(96.dp).height(48.dp).background(Color(0xFF25D366), RoundedCornerShape(13.dp)).clickable(enabled = !s.sendBusy && phone.isNotBlank()) { viewModel.sendToCustomer("whatsapp", phone, note) }, contentAlignment = Alignment.Center) {
-                        Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF06231A))
+                if (s.whatsapp) {
+                    MiniLabel("WHATSAPP")
+                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
+                        Box(Modifier.width(96.dp).height(48.dp).background(Color(0xFF25D366), RoundedCornerShape(13.dp)).clickable(enabled = !s.sendBusy && phone.isNotBlank()) { viewModel.sendToCustomer("whatsapp", phone, note) }, contentAlignment = Alignment.Center) {
+                            Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF06231A))
+                        }
                     }
                 }
 
@@ -1803,7 +1805,9 @@ private fun SignStep(
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            listOf(null to "Signing here", "whatsapp" to "WhatsApp", "phone" to "Phone", "email" to "Email").forEach { (via, label) ->
+            listOf(null to "Signing here", "whatsapp" to "WhatsApp", "phone" to "Phone", "email" to "Email")
+                .filter { (via, _) -> s.whatsapp || via != "whatsapp" }
+                .forEach { (via, label) ->
                 val on = s.agreedVia == via
                 Box(
                     Modifier.weight(1f).height(36.dp)

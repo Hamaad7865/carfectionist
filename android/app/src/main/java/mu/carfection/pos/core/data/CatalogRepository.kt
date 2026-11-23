@@ -123,6 +123,9 @@ class CatalogRepository @Inject constructor(
     suspend fun policyDefaults(): PolicyDefaults = policyDefaultsFlow.first()
 
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
+
+    /** False for a shop with no WhatsApp (the tyre centre) — see [TenantFeatures]. */
+    val hasWhatsAppFlow: Flow<Boolean> = prefs.data.map { TenantFeatures.hasWhatsApp(it[tenantKey]) }
     suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
 
