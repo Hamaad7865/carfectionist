@@ -319,15 +319,19 @@ export function attrSearchText(brand: string | null, size: TyreSize | null, load
  * The pickers' search: every word typed must be found — in the product's own words (name,
  * barcode, SKU…), its brand, its size in any common spelling, or, read as a partial size,
  * match its stored size. So "michelin 205/55", "205/55 r16" and "2055516" all find a
- * Michelin 205/55 R16; a plain "wax" search behaves as it always did.
+ * Michelin 205/55 R16. A product with no brand and no size keeps the old one-phrase search.
  */
 export function productSearchMatches(
   query: string,
   words: (string | null | undefined)[],
   attrs: { brand: string | null; size: TyreSize | null; loadIndex?: string | null; speedRating?: string | null },
 ): boolean {
-  const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (tokens.length === 0) return true;
+  const whole = query.trim().toLowerCase();
+  if (!whole) return true;
+  // No brand and no size (all of Carfectionist's products today): exactly the search it always had — the
+  // whole query as one phrase in any of its words. Only a branded or sized product goes word by word.
+  if (!attrs.brand?.trim() && !attrs.size) return words.some((w) => (w ?? "").toLowerCase().includes(whole));
+  const tokens = whole.split(/\s+/).filter(Boolean);
   const hay = [...words.map((w) => (w ?? "").toLowerCase()), attrSearchText(attrs.brand, attrs.size, attrs.loadIndex, attrs.speedRating)].join("\n");
   return tokens.every((t) => {
     if (hay.includes(t)) return true;

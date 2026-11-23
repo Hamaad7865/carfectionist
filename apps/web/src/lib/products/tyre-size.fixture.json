@@ -462,6 +462,14 @@
         "size": null,
         "load": null,
         "speed": null
+      },
+      {
+        "name": "Foam Lance Kit",
+        "barcode": "77",
+        "brand": null,
+        "size": null,
+        "load": null,
+        "speed": null
       }
     ],
     "cases": [
@@ -470,7 +478,8 @@
         "out": [
           0,
           1,
-          2
+          2,
+          3
         ]
       },
       {
@@ -537,7 +546,30 @@
       {
         "q": "bridgestone r16",
         "out": []
+      },
+      {
+        "q": "lance kit",
+        "out": [
+          3
+        ]
+      },
+      {
+        "q": "  FOAM ",
+        "out": [
+          3
+        ]
+      },
+      {
+        "q": "kit lance",
+        "out": []
+      },
+      {
+        "q": "wax ultimate",
+        "out": [
+          2
+        ]
       }
-    ]
+    ],
+    "note": "A product with no brand and no size searches exactly as before brand/size existed: the whole query as one phrase in any of its words ('kit lance' finds nothing). Only a product with a brand or size takes the word-by-word search."
   }
 }

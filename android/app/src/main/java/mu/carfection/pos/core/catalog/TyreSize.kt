@@ -249,10 +249,15 @@ object TyreSizes {
     /**
      * The pickers' search: every word typed must be found in the product's own words, its brand,
      * its size in any common spelling, or — read as a partial size — match its stored size.
+     * A product with no brand and no size keeps the old one-phrase search.
      */
     fun searchMatches(query: String, words: List<String?>, brand: String?, size: TyreSize?, loadIndex: String? = null, speedRating: String? = null): Boolean {
-        val tokens = query.trim().lowercase(Locale.ROOT).split(Regex("""\s+""")).filter { it.isNotEmpty() }
-        if (tokens.isEmpty()) return true
+        val whole = query.trim().lowercase(Locale.ROOT)
+        if (whole.isEmpty()) return true
+        // No brand and no size (all of Carfectionist's products today): exactly the search it always had — the
+        // whole query as one phrase in any of its words. Only a branded or sized product goes word by word.
+        if (brand.isNullOrBlank() && size == null) return words.any { (it ?: "").lowercase(Locale.ROOT).contains(whole) }
+        val tokens = whole.split(Regex("""\s+""")).filter { it.isNotEmpty() }
         val hay = (words.map { (it ?: "").lowercase(Locale.ROOT) } + searchText(brand, size, loadIndex, speedRating)).joinToString("\n")
         return tokens.all { t ->
             if (hay.contains(t)) true

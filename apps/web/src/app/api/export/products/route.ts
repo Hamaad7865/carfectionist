@@ -56,17 +56,20 @@ export async function GET() {
     ohByProduct.set(r.product_id, m);
   }
 
-  // brand is every shop's column; the tyre columns appear once the shop has sized a product or
-  // files anything under a tyre-like category — so a tyre shop loading its range through the
-  // sheet sees them on its very first export.
+  // brand appears once any product has one (or the shop sells tyres); the tyre columns once the
+  // shop has sized a product or files anything under a tyre-like category — so a tyre shop loading
+  // its range through the sheet sees them on its very first export, and a shop that uses neither
+  // (Carfectionist today) keeps exactly the sheet it always had.
   // The import reads all four back (features/dataio/actions.ts → applyImportedAttrs).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const hasSizes = (prodData as any[]).some((p) => p.tyre_width != null || isTyreCategory(p.category));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hasBrands = hasSizes || (prodData as any[]).some((p) => (p.brand ?? "").trim() !== "");
   const baseCols: CsvColumn[] = [
     { key: "sku", header: "sku" },
     { key: "name", header: "name" },
     { key: "category", header: "category" },
-    { key: "brand", header: "brand" },
+    ...(hasBrands ? [{ key: "brand", header: "brand" }] : []),
     ...(hasSizes
       ? [
           { key: "tyre_size", header: "tyre_size" },
