@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
 import { resolveShopLocationId } from "@/lib/supabase/locations";
 import { backOfficeTillId } from "@/lib/supabase/till";
+import { issueAcrossCompanies } from "@/lib/supabase/issue-across-companies";
 import * as rpc from "@/lib/supabase/rpc";
 import { saveDraftInputSchema, toRpcDoc, toRpcLines, type SaveDraftInput } from "./payload";
 import { formatMUR } from "@/lib/money";
@@ -44,7 +45,16 @@ const issueSchema = z.object({
   idempotencyKey: z.string().nullable().optional(),
 });
 
-export async function issueDocumentAction(input: z.infer<typeof issueSchema>): Promise<ActionResult<rpc.DocumentRow>> {
+/** One document an issue produced — a two-company quote or bill produces one per company. */
+export interface IssuedPart {
+  id: string;
+  number: string | null;
+  legalEntityId: string | null;
+}
+
+export async function issueDocumentAction(
+  input: z.infer<typeof issueSchema>,
+): Promise<ActionResult<rpc.DocumentRow & { parts: IssuedPart[] }>> {
   await requireRole(...WRITE_ROLES);
   const parsed = issueSchema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid input" };
@@ -52,16 +62,18 @@ export async function issueDocumentAction(input: z.infer<typeof issueSchema>): P
   try {
     // The desk's till: a ticket issued here belongs to the desk's service on the cash-up.
     const sessionId = await backOfficeTillId(sb);
-    // A shop with two issuing companies (tyre centre) issues through issue_checkout: a bill from a
-    // quote or job that holds both tyres and services becomes one invoice per company (the first
-    // keeps this document's id). One-company shops keep issue_document exactly.
-    const { count: companies } = await sb.from("legal_entities").select("id", { count: "exact", head: true }).eq("is_active", true);
-    const doc = (companies ?? 0) > 1
-      ? (await rpc.issueCheckout(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId))[0]
-      : await rpc.issueDocument(sb, parsed.data.documentId, parsed.data.stockLocationId ?? null, parsed.data.idempotencyKey ?? null, sessionId);
+    // A two-company shop (tyre centre): a quote or bill whose lines both companies sell becomes
+    // one document per company, each numbered in its own series; the first keeps this id.
+    // One-company shops keep issue_document exactly (issue-across-companies.ts).
+    const rows = await issueAcrossCompanies(sb, parsed.data.documentId, {
+      stockLocationId: parsed.data.stockLocationId ?? null,
+      idempotencyKey: parsed.data.idempotencyKey ?? null,
+      sessionId,
+    });
     revalidatePath("/sales");
-    revalidatePath(`/sales/${parsed.data.documentId}`);
-    return { ok: true, data: doc };
+    for (const r of rows) revalidatePath(`/sales/${r.id}`);
+    const parts = rows.map((r) => ({ id: r.id, number: r.number, legalEntityId: r.legal_entity_id ?? null }));
+    return { ok: true, data: { ...rows[0], parts } };
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
@@ -284,7 +296,7 @@ const sendDocSchema = z.object({
 /** Email / WhatsApp the document PDF to the customer (same engine as the tablet). */
 export async function sendDocumentAction(
   input: z.infer<typeof sendDocSchema>,
-): Promise<{ ok: true; issued?: { number: string; status: string } } | { ok: false; error: string }> {
+): Promise<{ ok: true; issued?: { number: string; status: string; parts?: number } } | { ok: false; error: string }> {
   await requireRole(...WRITE_ROLES);
   const p = sendDocSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Invalid input" };
@@ -312,7 +324,7 @@ const REMINDER_NOTE = "A friendly reminder that this invoice is still outstandin
  *  optional auto-reminders on an unpaid invoice. */
 export async function deliverDocumentAction(
   input: z.infer<typeof deliverSchema>,
-): Promise<{ ok: true; scheduled: boolean; reminders: number; issued?: { number: string; status: string } } | { ok: false; error: string }> {
+): Promise<{ ok: true; scheduled: boolean; reminders: number; issued?: { number: string; status: string; parts?: number } } | { ok: false; error: string }> {
   await requireRole(...WRITE_ROLES);
   const p = deliverSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Invalid input" };
@@ -355,7 +367,7 @@ export async function deliverDocumentAction(
 
   // ── the primary action: schedule for later, or send now ──
   let scheduled = false;
-  let issued: { number: string; status: string } | undefined;
+  let issued: { number: string; status: string; parts?: number } | undefined;
   if (scheduleAt) {
     // Interpret the naive datetime-local as Mauritius time (UTC+4, no DST).
     const when = new Date(`${scheduleAt}:00+04:00`);
@@ -364,19 +376,23 @@ export async function deliverDocumentAction(
     // A draft quote is issued NOW, not when the send fires: the document the customer
     // eventually receives must be the one that was locked when this was queued, and
     // nobody should be able to edit a quote out from under a send already promised.
+    // A quote both companies sell splits here into one quote per company (same key and seam as
+    // an immediate send), and every one of them is queued.
+    let sendIds = [documentId];
     if (!doc.number) {
       try {
-        const row = await rpc.issueDocument(sb, documentId, null, `quote-send:${documentId}`, null);
-        issued = { number: row.number ?? "", status: row.status };
+        const rows = await issueAcrossCompanies(sb, documentId, { idempotencyKey: `quote-send:${documentId}` });
+        issued = { number: rows.map((r) => r.number ?? "").join(" + "), status: rows[0].status, parts: rows.length };
+        sendIds = rows.map((r) => r.id);
       } catch (e) {
         return { ok: false, error: `Couldn't issue this quotation to schedule it: ${(e as Error).message}` };
       }
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { error } = await (sb as any).from("scheduled_sends").insert({
-      tenant_id: doc.tenant_id, document_id: documentId, channel, to_addr: toAddr,
+    const { error } = await (sb as any).from("scheduled_sends").insert(sendIds.map((id) => ({
+      tenant_id: doc.tenant_id, document_id: id, channel, to_addr: toAddr,
       note: note ?? null, kind: "send", scheduled_at: when.toISOString(), created_by: createdBy,
-    });
+    })));
     if (error) return { ok: false, error: `Couldn't schedule: ${error.message}` };
     scheduled = true;
   } else {

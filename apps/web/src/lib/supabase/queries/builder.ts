@@ -28,6 +28,30 @@ import { parseRichDoc } from "@/lib/rich/schema";
 import type { RichDoc } from "@/lib/rich/types";
 import { ATTR_SELECT, attrsFromRow, type ProductAttrs } from "@/lib/products/attrs-row";
 import type { BuilderBusiness } from "@/features/documents/builder/toDocumentProps";
+import { readCompanyDiscounts, COMPANY_DISCOUNTS_KEY, type SplitCompany, type CompanyDiscount } from "@/lib/documents/company-split";
+import { overlayIssuer, ISSUER_FIELDS } from "./issuer";
+
+/** An issuing company as the builder shows it: the split rule's fields plus its own letterhead,
+ *  so each quote of a split previews on the paper it will be printed on. */
+export interface BuilderCompany extends SplitCompany {
+  business: BuilderBusiness;
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function toBuilderBusiness(bs: any): BuilderBusiness {
+  return {
+    tradingName: bs.trading_name ?? "Carfectionist",
+    legalName: bs.legal_name ?? "",
+    country: bs.country === "MU" ? "Mauritius" : (bs.country ?? "Mauritius"),
+    brn: bs.brn ?? "",
+    email: bs.email ?? "",
+    phone: bs.phone ?? "",
+    vatNo: bs.vat_number ?? "",
+    bankAccountName: bs.bank_account_name ?? "",
+    bankAccountNumber: bs.bank_account_number ?? "",
+    bankName: bs.bank_name ?? "",
+  };
+}
 
 export interface CatalogueProduct extends ProductAttrs {
   id: string;
@@ -42,6 +66,8 @@ export interface CatalogueProduct extends ProductAttrs {
    *  a line from it is flagged and the ledger extracts the VAT, so it lands on the figure. */
   priceIncludesVat: boolean;
   photoUrl: string | null;
+  /** The issuing company that sells it (products.legal_entity_id); null → the default company. */
+  companyId?: string | null;
 }
 export interface BuilderCustomer {
   id: string;
@@ -80,6 +106,9 @@ export interface BuilderContext {
    *  round-trip). */
   vehicles: BuilderVehicle[];
   posRules: PosRules;
+  /** The shop's active issuing companies. Two or more (tyre centre): a quote spanning them is
+   *  previewed — and issued — as one quote per company. One (Carfectionist): nothing changes. */
+  companies: BuilderCompany[];
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,12 +123,13 @@ function toSectionConfig(config: any): Partial<SectionFlags> {
 export async function getBuilderContext(): Promise<BuilderContext> {
   const sb = await createClient();
   const session = await getSessionContext();
-  const [bsRes, tmplRes, prodRes, custRes, vehRes] = await Promise.all([
+  const [bsRes, tmplRes, prodRes, custRes, vehRes, coRes] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
-    sb.from("products").select(`id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy, ${ATTR_SELECT}`).eq("is_active", true).order("kind").order("name"),
+    sb.from("products").select(`id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy, legal_entity_id, ${ATTR_SELECT}`).eq("is_active", true).order("kind").order("name"),
     sb.from("customers").select("id, name, country, email, phone, address, brn, vat_number").order("name"),
     sb.from("vehicles").select("id, customer_id, plate, make, model").eq("is_active", true).order("plate"),
+    sb.from("legal_entities").select(`id, vat_registered, quote_prefix, sort_order, is_default, ${ISSUER_FIELDS.join(", ")}`).eq("is_active", true).order("sort_order").order("id"),
   ]);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -112,18 +142,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
     createdBy: session?.displayName?.replace(/\s*\(.*\)\s*$/, "").trim() ?? "",
     pricesInclVat: bs.prices_vat_exclusive === false,
     posRules: posRulesFrom(bs),
-    business: {
-      tradingName: bs.trading_name ?? "Carfectionist",
-      legalName: bs.legal_name ?? "",
-      country: bs.country === "MU" ? "Mauritius" : (bs.country ?? "Mauritius"),
-      brn: bs.brn ?? "",
-      email: bs.email ?? "",
-      phone: bs.phone ?? "",
-      vatNo: bs.vat_number ?? "",
-      bankAccountName: bs.bank_account_name ?? "",
-      bankAccountNumber: bs.bank_account_number ?? "",
-      bankName: bs.bank_name ?? "",
-    },
+    business: toBuilderBusiness(bs),
     templateTerms: Array.isArray(config.terms) ? config.terms : [],
     templateConfig: toSectionConfig(config),
     customFieldDefs: Array.isArray(config.custom_fields)
@@ -142,6 +161,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       discountPolicy: p.discount_policy,
       priceIncludesVat: p.price_includes_vat === true,
       photoUrl: productPhotoUrl(p.photo_path),
+      companyId: p.legal_entity_id ?? null,
       ...attrsFromRow(p),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -163,6 +183,19 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       make: v.make ?? null,
       model: v.model ?? null,
     })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    companies: (coRes.data ?? []).map((c: any) => ({
+      id: c.id,
+      name: (c.trading_name as string | null)?.trim() || c.legal_name,
+      legalName: c.legal_name,
+      vatRegistered: c.vat_registered !== false,
+      quotePrefix: c.quote_prefix ?? "",
+      sortOrder: Number(c.sort_order ?? 0),
+      isDefault: c.is_default === true,
+      // The same overlay the printed A4 uses (issuer.ts): the default company IS the shop's
+      // settings row; another company's legal identity and bank are its own, never borrowed.
+      business: toBuilderBusiness(overlayIssuer(bs, c).shop),
+    })),
   };
 }
 
@@ -181,6 +214,10 @@ export interface LoadedDraft {
   docDiscountValue: number; // percent: % ; amount: Cents (VAT-inclusive)
   docDiscountReason: string;
   sectionConfig: Partial<SectionFlags>;
+  /** Each company's discount on a draft that spans companies (template_overrides). */
+  companyDiscounts: Record<string, CompanyDiscount>;
+  /** The draft's stored issuing company — where its hand-typed lines go on the next save. */
+  legalEntityId: string | null;
   customFields: { label: string; value: string }[];
   comment: string;
   lines: {
@@ -226,7 +263,9 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const d: any = doc;
   const to = (d.template_overrides ?? {}) as Record<string, unknown>;
-  const { customFields: cf, ...flags } = to;
+  // companyDiscounts is not a section flag — it is read out on its own below.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { customFields: cf, [COMPANY_DISCOUNTS_KEY]: _cd, ...flags } = to;
   return {
     docId: d.id,
     docType: d.doc_type,
@@ -240,6 +279,8 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     docDiscountValue: d.discount_kind === "amount" ? rupeesToCents(Number(d.discount_value)) : Number(d.discount_value ?? 0),
     docDiscountReason: d.discount_reason ?? "",
     sectionConfig: flags as Partial<SectionFlags>,
+    companyDiscounts: readCompanyDiscounts(to),
+    legalEntityId: d.legal_entity_id ?? null,
     customFields: Array.isArray(cf) ? (cf as { label: string; value: string }[]) : [],
     comment: d.comment ?? "",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

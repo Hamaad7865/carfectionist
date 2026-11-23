@@ -5,10 +5,10 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [ProductEntity::class, CustomerEntity::class],
-    // v10, not v9: the unmerged tyrecentre-two-company and quote-split branches both took v9 with a
-    // different schema (+legalEntityId). Same version + different schema = identity-hash crash on
-    // start once merged; whoever merges second bumps past the other.
-    version = 10, // v10: +products.brand/tyre* (read-cache; destructive migration rebuilds it, same as v4-v8)
+    // v10: v9 (quote-split, on main) added products.legalEntityId; v10 adds products.brand/tyre*.
+    // The tyrecentre-two-company branch also took v9 with its own schema — it must bump past v10
+    // when it merges (same version + different schema = identity-hash crash on start).
+    version = 10, // read-cache; destructive migration rebuilds it, same as v4-v9
     exportSchema = false,
 )
 abstract class PosDatabase : RoomDatabase() {

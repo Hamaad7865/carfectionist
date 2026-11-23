@@ -37,7 +37,7 @@ export function SendDocumentDialog({
   onClose: () => void;
   /** Fires on a successful send. `issued` is set when THIS send is what issued a
    *  draft quotation, so the caller can retire its Draft chip. */
-  onSent?: (issued?: { number: string; status: string }) => void;
+  onSent?: (issued?: { number: string; status: string; parts?: number }) => void;
 }) {
   // A shop with no WhatsApp (the tyre centre) gets the email sheet, whoever opened it.
   const channel = useWhatsApp() ? askedChannel : "email";

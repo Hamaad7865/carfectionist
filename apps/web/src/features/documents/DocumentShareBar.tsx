@@ -30,7 +30,7 @@ export function DocumentShareBar({
   onBeforeSend?: () => Promise<boolean>;
   /** Fires on a successful send; `issued` is set when the send is what issued a
    *  draft quotation. Defaults to refreshing the route. */
-  onSent?: (issued?: { number: string; status: string }) => void;
+  onSent?: (issued?: { number: string; status: string; parts?: number }) => void;
 }) {
   const router = useRouter();
   const whatsapp = useWhatsApp();
