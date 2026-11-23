@@ -211,6 +211,12 @@ class CatalogRepository @Inject constructor(
                 photoPath = p.photoPath,
                 discountPolicy = p.discountPolicy,
                 priceInclusive = p.priceIncludesVat,
+                brand = p.brand?.ifBlank { null },
+                tyreWidth = p.tyreWidth,
+                tyreProfile = p.tyreProfile,
+                tyreRim = p.tyreRim,
+                tyreLoadIndex = p.tyreLoadIndex,
+                tyreSpeedRating = p.tyreSpeedRating,
                 legalEntityId = p.legalEntityId,
             )
         }

@@ -978,7 +978,7 @@ class QuoteViewModel @Inject constructor(
         return s.products
             .filter { s.kindMatch(it) }
             .filter { s.tab == "All" || it.category == s.tab }
-            .filter { q.isEmpty() || it.name.contains(q, ignoreCase = true) || it.barcode?.contains(q) == true }
+            .filter { q.isEmpty() || it.matchesSearch(q) } // name, barcode, brand, tyre size
     }
 
     fun setTab(t: String) = _s.update { it.copy(tab = t) }

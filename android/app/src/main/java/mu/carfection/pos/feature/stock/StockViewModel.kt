@@ -19,6 +19,11 @@ import mu.carfection.pos.core.money.shelfCents
 import mu.carfection.pos.core.network.NewStockMovementDto
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.StockProductDto
+import mu.carfection.pos.core.catalog.AttrItem
+import mu.carfection.pos.core.catalog.BrandRow
+import mu.carfection.pos.core.catalog.SizeQuery
+import mu.carfection.pos.core.catalog.SizeRow
+import mu.carfection.pos.core.catalog.TyreSizes
 import kotlin.math.roundToInt
 import mu.carfection.pos.core.network.uiMessage
 import javax.inject.Inject
@@ -52,6 +57,8 @@ data class StockItem(
     val onHand: Int,
     val threshold: Double,
     val photoUrl: String? = null,
+    /** "Michelin · 205/55 R16 91V"; "" when it has neither (20261127000010). */
+    val attr: String = "",
 ) {
     val low: Boolean get() = onHand < threshold
     val zero: Boolean get() = onHand == 0
@@ -70,6 +77,10 @@ data class StockState(
     val tab: String = "All",
     val query: String = "",
     val catQuery: String = "", // narrows the category chip row (same idea as the checkout rail)
+    // Brand (grouping key, "" = any) and tyre size as typed ("205/55", "R16") — the web
+    // catalogue's two filters, read by the same TyreSizes rules.
+    val brandKey: String = "",
+    val sizeText: String = "",
     val tenant: String? = null,
     val locationId: String? = null,
     val adj: AdjustState? = null,
@@ -147,15 +158,29 @@ class StockViewModel @Inject constructor(
     fun setTab(t: String) = _s.update { it.copy(tab = t) }
     fun setQuery(q: String) = _s.update { it.copy(query = q) }
     fun setCatQuery(q: String) = _s.update { it.copy(catQuery = q) }
+    fun setBrand(key: String) = _s.update { it.copy(brandKey = key) }
+    fun setSizeText(t: String) = _s.update { it.copy(sizeText = t) }
+    fun clearBrandSize() = _s.update { it.copy(brandKey = "", sizeText = "") }
+
+    /** Stock counted here is the SHOP count — what this screen shows and adjusts. */
+    private fun attrItems(s: StockState) = s.products.map { AttrItem(it.brand, it.tyreSize, (s.onHand[it.id] ?: 0).toDouble()) }
+    fun brands(s: StockState): List<BrandRow> = TyreSizes.brandOptions(attrItems(s))
+    fun hasSizes(s: StockState) = s.products.any { it.tyreSize != null }
+    fun sizeQuery(s: StockState): SizeQuery? = TyreSizes.parseSizeQuery(s.sizeText)?.takeIf { it.isSet }
+    /** Typed something that is not a size — the box goes red rather than silently matching all. */
+    fun sizeBad(s: StockState) = s.sizeText.isNotBlank() && sizeQuery(s) == null
+    fun brandsForSize(s: StockState, q: SizeQuery): List<BrandRow> = TyreSizes.brandsForSize(attrItems(s), q)
+    fun sizesForBrand(s: StockState): List<SizeRow> = TyreSizes.sizesForBrand(attrItems(s), s.brandKey)
 
     fun items(s: StockState): List<StockItem> {
         val q = s.query.trim()
+        val size = sizeQuery(s)
         return s.products
             .filter { s.tab == "All" || it.category == s.tab }
+            .filter { TyreSizes.matchesFilter(it.brand, it.tyreSize, s.brandKey, size) }
             .filter {
-                q.isEmpty() || it.name.contains(q, ignoreCase = true) ||
-                    it.category?.contains(q, ignoreCase = true) == true ||
-                    it.barcode?.contains(q) == true // scanner types into the field too
+                // name, category, barcode (the scanner types into the field too), brand, tyre size
+                q.isEmpty() || TyreSizes.searchMatches(q, listOf(it.name, it.category, it.barcode), it.brand, it.tyreSize, it.tyreLoadIndex, it.tyreSpeedRating)
             }
             .map {
                 val net = rupeesToCents(it.sellingPrice)
@@ -167,6 +192,7 @@ class StockViewModel @Inject constructor(
                     s.onHand[it.id] ?: 0,
                     (it.lowStockThreshold ?: DEFAULT_LOW_THRESHOLD).coerceAtMost(MAX_LOW_THRESHOLD),
                     mu.carfection.pos.core.data.productPhotoUrl(it.photoPath),
+                    listOfNotNull(it.brand?.ifBlank { null }, it.tyreSize?.let { z -> TyreSizes.formatSpec(z, it.tyreLoadIndex, it.tyreSpeedRating) }).joinToString(" · "),
                 )
             }
     }

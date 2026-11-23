@@ -1,3 +1,4 @@
+import { ATTR_SELECT, attrsFromRow, type ProductAttrs } from "@/lib/products/attrs-row";
 import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, pickSalesFloor } from "@/lib/supabase/locations";
@@ -7,7 +8,7 @@ import { rupeesToCents, policyOf, type DiscountPolicy } from "@/lib/money";
 // would be exactly the client/DB divergence this feature exists to prevent.
 import { posRulesFrom, type PosRules } from "@/lib/supabase/queries/builder";
 
-export interface CounterProduct {
+export interface CounterProduct extends ProductAttrs {
   id: string;
   name: string;
   kind: string;
@@ -33,7 +34,7 @@ export interface CounterProduct {
 export async function getCounterRef(): Promise<{ products: CounterProduct[]; customers: { id: string; name: string }[]; vatDefault: number; pricesInclVat: boolean; posRules: PosRules }> {
   const sb = await createClient();
   const [prodData, bsRes, custData, ohData, locRes] = await Promise.all([
-    fetchAllRows(() => sb.from("products").select("id, name, kind, category, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, photo_path, discount_policy, legal_entity_id").eq("is_active", true).order("category").order("name")),
+    fetchAllRows(() => sb.from("products").select(`id, name, kind, category, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, photo_path, discount_policy, legal_entity_id, ${ATTR_SELECT}`).eq("is_active", true).order("category").order("name")),
     sb.from("business_settings").select("vat_rate, prices_vat_exclusive, discount_carwash_pct, default_policy_service, default_policy_goods").limit(1).maybeSingle(),
     fetchAllRows(() => sb.from("customers").select("id, name").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
@@ -71,6 +72,7 @@ export async function getCounterRef(): Promise<{ products: CounterProduct[]; cus
     priceIncludesVat: p.price_includes_vat === true,
     barcode: p.barcode ?? null,
     photoUrl: productPhotoUrl(p.photo_path),
+    ...attrsFromRow(p),
     isStocked: !!p.is_stocked,
     shopQty: shopByProduct.get(p.id) ?? 0,
     warehouseQty: whByProduct.get(p.id) ?? 0,

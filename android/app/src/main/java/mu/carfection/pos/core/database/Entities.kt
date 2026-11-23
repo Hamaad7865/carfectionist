@@ -29,7 +29,28 @@ data class ProductEntity(
     // The company that sells it (legal_entities) on a shop with several — the tyre centre's VAT
     // tyre company or its non-VAT service company. Null = the shop's main company.
     val legalEntityId: String? = null,
+    // Brand (any product) and tyre size (20261127000010); size columns all-or-nothing.
+    val brand: String? = null,
+    val tyreWidth: Int? = null,
+    val tyreProfile: Int? = null,
+    val tyreRim: Double? = null,
+    val tyreLoadIndex: String? = null,
+    val tyreSpeedRating: String? = null,
 ) {
+    val tyreSize: mu.carfection.pos.core.catalog.TyreSize?
+        get() = mu.carfection.pos.core.catalog.TyreSizes.fromColumns(tyreWidth, tyreProfile, tyreRim)
+
+    /** "Michelin · 205/55 R16 91V" under the name on a tile; "" when it has neither. */
+    val attrLabel: String
+        get() = listOfNotNull(
+            brand?.ifBlank { null },
+            tyreSize?.let { mu.carfection.pos.core.catalog.TyreSizes.formatSpec(it, tyreLoadIndex, tyreSpeedRating) },
+        ).joinToString(" · ")
+
+    /** The pickers' search: name, barcode, brand and size (any spelling, or a partial size). */
+    fun matchesSearch(q: String): Boolean =
+        mu.carfection.pos.core.catalog.TyreSizes.searchMatches(q, listOf(name, barcode), brand, tyreSize, tyreLoadIndex, tyreSpeedRating)
+
     /** Business rule: blank = 10, hard cap 20 (mirrors the DB check + web form). */
     val effectiveLowStock: Int
         get() = (lowStockThreshold ?: DEFAULT_LOW_STOCK).coerceAtMost(MAX_LOW_STOCK).toInt()

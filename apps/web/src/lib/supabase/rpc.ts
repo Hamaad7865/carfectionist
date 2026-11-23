@@ -300,6 +300,8 @@ export interface ImportReport {
   updated: number;
   skipped: number;
   stock_adjusted?: number;
+  /** Products whose brand / tyre size the import set (set by the web action, not the RPC). */
+  attrs_set?: number;
   errors: { name?: string; sku?: string; error: string }[];
 }
 export const importCustomers = (sb: Client, rows: unknown[], dryRun: boolean) =>
