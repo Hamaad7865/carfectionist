@@ -56,6 +56,11 @@ export async function createJobAction(input: z.input<typeof createSchema>): Prom
   const p = createSchema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid job details." };
   const sb = await createClient();
+  const department = p.data.department?.trim() || null;
+  if (department) {
+    const { data: place } = await sb.from("work_places").select("id").eq("name", department).maybeSingle();
+    if (!place) return { ok: false, error: "Choose a current place of work." };
+  }
 
   // One atomic RPC resolves-or-creates the customer + vehicle and inserts the job
   // in a single transaction — no orphan customer/vehicle if anything fails.
@@ -69,7 +74,7 @@ export async function createJobAction(input: z.input<typeof createSchema>): Prom
       newVehicleMake: p.data.newVehicleMake ?? null,
       service: p.data.service ?? null,
       technicianId: p.data.technicianId || null,
-      department: p.data.department || null,
+      department,
       checklist: isTyreShop(ctx.tenantId) ? TYRE_CHECKLIST : DEFAULT_CHECKLIST,
     });
     revalidatePath("/jobs");
@@ -102,7 +107,12 @@ export async function createDocumentFromJobAction(
 export async function setJobDepartmentAction(jobId: string, department: string | null): Promise<Result> {
   await requireRole(...ROLES);
   const sb = await createClient();
-  const { error } = await sb.from("jobs").update({ department }).eq("id", jobId);
+  const name = department?.trim() || null;
+  if (name) {
+    const { data: place } = await sb.from("work_places").select("id").eq("name", name).maybeSingle();
+    if (!place) return { ok: false, error: "Choose a current place of work." };
+  }
+  const { error } = await sb.from("jobs").update({ department: name }).eq("id", jobId);
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/jobs/${jobId}`);
   revalidatePath("/jobs");

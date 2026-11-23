@@ -7,6 +7,7 @@ import { getSessionContext, requireRole, type SessionContext } from "@/lib/auth/
 import { logAudit } from "@/lib/supabase/audit";
 import type { ActivityRow } from "./activity";
 import { attrColumns } from "@/lib/products/attr-columns";
+import { isTyreShop } from "@/lib/auth/roles";
 
 const ROLES = ["owner", "manager"] as const;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -72,6 +73,9 @@ export async function saveProductAction(input: z.input<typeof schema>): Promise<
   const ctx = await requireRole(...ROLES);
   const p = schema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid product" };
+  if (isTyreShop(ctx.tenantId) && p.data.discountPolicy === "carwash") {
+    return { ok: false, error: "Carwash discount rules are not available for a tyre centre." };
+  }
   const attrs = attrColumns(
     { brand: p.data.brand, tyreSize: p.data.tyreSize, loadIndex: p.data.tyreLoadIndex, speedRating: p.data.tyreSpeedRating },
     p.data.kind,

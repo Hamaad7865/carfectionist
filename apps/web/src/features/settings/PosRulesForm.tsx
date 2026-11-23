@@ -17,10 +17,13 @@ type RForm = {
   reversalRequiresOwner: boolean;
 };
 
-const seed = (r: PosRulesSettings): RForm => ({
+const visiblePolicy = (policy: RForm["defaultPolicyService"], tyreShop: boolean, fallback: "none" | "free") =>
+  tyreShop && policy === "carwash" ? fallback : policy;
+
+const seed = (r: PosRulesSettings, tyreShop: boolean): RForm => ({
   carwashPct: String(r.carwashPct),
-  defaultPolicyService: r.defaultPolicyService,
-  defaultPolicyGoods: r.defaultPolicyGoods,
+  defaultPolicyService: visiblePolicy(r.defaultPolicyService, tyreShop, "none"),
+  defaultPolicyGoods: visiblePolicy(r.defaultPolicyGoods, tyreShop, "free"),
   defaultOpeningFloat: String(r.defaultOpeningFloat),
   allowNegativeStock: r.allowNegativeStock,
   reversalRequiresOwner: r.reversalRequiresOwner,
@@ -64,13 +67,14 @@ function Toggle({ on, onToggle, label, onText, offText }: { on: boolean; onToggl
   );
 }
 
-export function PosRulesForm({ rules }: { rules: PosRulesSettings }) {
+export function PosRulesForm({ rules, tyreShop }: { rules: PosRulesSettings; tyreShop: boolean }) {
   const router = useRouter();
-  const [f, setF] = useState<RForm>(() => seed(rules));
+  const [f, setF] = useState<RForm>(() => seed(rules, tyreShop));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const set = <K extends keyof RForm>(k: K, v: RForm[K]) => { setF((s) => ({ ...s, [k]: v })); setSaved(false); };
+  const policyOptions = tyreShop ? POLICY_OPTIONS.filter((option) => option.value !== "carwash") : POLICY_OPTIONS;
 
   async function save() {
     setError(null);
@@ -81,9 +85,9 @@ export function PosRulesForm({ rules }: { rules: PosRulesSettings }) {
       // Show what was actually persisted: an out-of-range cap or float snaps server-side,
       // and the box must not keep displaying the rejected input beside "Saved".
       setF({
-        carwashPct: String(r.saved.carwashPct),
-        defaultPolicyService: r.saved.defaultPolicyService,
-        defaultPolicyGoods: r.saved.defaultPolicyGoods,
+        carwashPct: r.saved.carwashPct == null ? f.carwashPct : String(r.saved.carwashPct),
+        defaultPolicyService: visiblePolicy(r.saved.defaultPolicyService, tyreShop, "none"),
+        defaultPolicyGoods: visiblePolicy(r.saved.defaultPolicyGoods, tyreShop, "free"),
         defaultOpeningFloat: String(r.saved.defaultOpeningFloat),
         allowNegativeStock: r.saved.allowNegativeStock,
         reversalRequiresOwner: r.saved.reversalRequiresOwner,
@@ -97,23 +101,41 @@ export function PosRulesForm({ rules }: { rules: PosRulesSettings }) {
     <div className="flex flex-col gap-4">
       <FormError error={error} />
 
-      <Section icon={<Percent size={15} />} title="Discounts" hint="What each kind of line may be discounted, and how far a carwash may go.">
-        <Field label="Carwash cap %" hint="The most a carwash line may be discounted, with a reason">
-          <input className={inputCls} value={f.carwashPct} onChange={(e) => set("carwashPct", e.target.value)} inputMode="decimal" />
-        </Field>
+      <Section
+        icon={<Percent size={15} />}
+        title="Discounts"
+        hint={tyreShop
+          ? "Choose the discount defaults for tyre-centre services and products."
+          : "What each kind of line may be discounted, and how far a carwash may go."}
+      >
+        {!tyreShop && (
+          <Field label="Carwash cap %" hint="The most a carwash line may be discounted, with a reason">
+            <input className={inputCls} value={f.carwashPct} onChange={(e) => set("carwashPct", e.target.value)} inputMode="decimal" />
+          </Field>
+        )}
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Default for services" hint="When a service has no policy of its own">
+          <Field
+            label="Default for services"
+            hint={tyreShop ? "Fitting, balancing and alignment services" : "When a service has no policy of its own"}
+          >
             <select className={inputCls} value={f.defaultPolicyService} onChange={(e) => set("defaultPolicyService", e.target.value as RForm["defaultPolicyService"])}>
-              {POLICY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {policyOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </Field>
-          <Field label="Default for products" hint="When a product has no policy of its own">
+          <Field
+            label={tyreShop ? "Default for tyres & parts" : "Default for products"}
+            hint={tyreShop ? "When a tyre or part has no policy of its own" : "When a product has no policy of its own"}
+          >
             <select className={inputCls} value={f.defaultPolicyGoods} onChange={(e) => set("defaultPolicyGoods", e.target.value as RForm["defaultPolicyGoods"])}>
-              {POLICY_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {policyOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </Field>
         </div>
-        <p className="text-[11px] text-faint">A single item can always override its default — set that on the product itself under Products.</p>
+        <p className="text-[11px] text-faint">
+          {tyreShop
+            ? "A tyre, part or service can override its default under Products."
+            : "A single item can always override its default — set that on the product itself under Products."}
+        </p>
       </Section>
 
       <Section icon={<Boxes size={15} />} title="Till & stock" hint="Defaults the tablet till reads when a cashier opens a drawer or sells a low item.">

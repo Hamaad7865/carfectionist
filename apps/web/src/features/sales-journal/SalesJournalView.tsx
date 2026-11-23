@@ -47,7 +47,7 @@ function PriorCell({ now, prev }: { now: number; prev: number }) {
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-      <div className="flex items-center gap-2.5 border-b border-line px-5 py-3.5">
+      <div className="flex items-center gap-2.5 border-b border-line px-4 py-3.5 md:px-5">
         <span className="grad-rail h-[15px] w-[3px] rounded-[3px]" />
         <span className="font-display text-[14px] font-bold uppercase tracking-[0.06em] text-ink-strong">{title}</span>
       </div>
@@ -56,9 +56,12 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-const HEAD = "grid gap-3 border-b border-line bg-band px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th";
-const ROW = "grid items-center gap-3 border-b border-line px-5 py-3 text-[13.5px] font-medium";
-const TOTAL = "grid items-center gap-3 bg-sub px-5 py-3 text-[14px] font-bold text-ink";
+/** Phones: the label column stays pinned while the figures swipe sideways under it.
+ *  It reaches back over the row's left padding so nothing shows through beside it. */
+const PIN = "max-md:[&>*:first-child]:sticky max-md:[&>*:first-child]:left-0 max-md:[&>*:first-child]:z-[1] max-md:[&>*:first-child]:-ml-4 max-md:[&>*:first-child]:pl-4 max-md:[&>*:first-child]:shadow-[1px_0_0_var(--color-line)]";
+const HEAD = `grid gap-3 border-b border-line bg-band px-4 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th md:px-5 ${PIN} max-md:[&>*:first-child]:bg-band`;
+const ROW = `grid items-center gap-3 border-b border-line px-4 py-3 text-[13.5px] font-medium md:px-5 ${PIN} max-md:[&>*:first-child]:bg-card`;
+const TOTAL = `grid items-center gap-3 bg-sub px-4 py-3 text-[14px] font-bold text-ink md:px-5 ${PIN} max-md:[&>*:first-child]:bg-sub`;
 
 /**
  * Merge current rows with the comparison period's, keyed by label, so a line
@@ -115,7 +118,7 @@ export function SalesJournalView({
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <div className="rounded-[15px] border border-line bg-card p-5">
           <div className="text-[13px] font-semibold text-muted">Bills settled</div>
-          <div className="num mt-2 text-[32px] font-extrabold text-ink-strong">{j.tickets}</div>
+          <div className="num mt-2 text-[28px] font-extrabold text-ink-strong sm:text-[32px]">{j.tickets}</div>
           {cmp && (
             <div className="mt-1.5 flex items-baseline gap-2">
               <span className="num text-[12.5px] font-medium text-faint">{prior!.tickets}</span>
@@ -124,9 +127,9 @@ export function SalesJournalView({
           )}
         </div>
 
-        <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+        <div className="@container rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
           <div className="text-[13px] font-semibold text-hero-sub">Total received incl tax</div>
-          <div className="num mt-2 text-[32px] font-extrabold text-hero-ink">{money(j.totalInclCents)}</div>
+          <div className="num mt-2 whitespace-nowrap text-[clamp(20px,11.5cqi,32px)] font-extrabold text-hero-ink">{money(j.totalInclCents)}</div>
           <div className="num mt-1 text-[12.5px] font-medium text-hero-sub">Avg {money(j.avgInclCents)}</div>
           {cmp && (
             <div className="mt-1.5 flex items-baseline gap-2">
@@ -138,7 +141,7 @@ export function SalesJournalView({
 
         <div className="rounded-[15px] border border-line bg-card p-5">
           <div className="text-[13px] font-semibold text-muted">Clients</div>
-          <div className="num mt-2 text-[32px] font-extrabold text-ink-strong">{j.clients}</div>
+          <div className="num mt-2 text-[28px] font-extrabold text-ink-strong sm:text-[32px]">{j.clients}</div>
           <div className="num mt-1 text-[12.5px] font-medium text-faint">
             {money(j.clientInclCents)} · Avg {money(j.clientAvgInclCents)}
           </div>
@@ -180,7 +183,7 @@ export function SalesJournalView({
 
       {/* ── 2. Taxes ── */}
       <Card title="Taxes">
-        <div className="min-w-[720px]">
+        <div className="min-w-[840px]">
           <div className={HEAD} style={grid("1fr 70px 140px 140px 150px 150px")}>
             <span>Label</span>
             <span className="text-right">Rate</span>
@@ -323,7 +326,7 @@ export function SalesJournalView({
 
       {/* ── 4. Categories ── */}
       <Card title="Categories">
-        <div className="min-w-[660px]">
+        <div className="min-w-[740px]">
           <div className={HEAD} style={grid("1fr 110px 100px 160px 160px")}>
             <span>Label</span>
             <span className="text-right">Quantity</span>

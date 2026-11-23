@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Bell, Menu, X } from "lucide-react";
+import { CalendarDays, Bell, X } from "lucide-react";
 import { NAV } from "@/lib/auth/roles";
-import { GlobalSearch } from "./GlobalSearch";
+import { GlobalSearch, MobileSearch } from "./GlobalSearch";
 import { ThemeToggle } from "./ThemeToggle";
 import { dismissNotificationAction, dismissAllNotificationsAction } from "@/features/shell/notification-actions";
 import type { NotifItem } from "@/lib/supabase/queries/notifications";
@@ -29,12 +29,10 @@ const SUBS: Record<string, string> = {
 const TONE: Record<string, string> = { warn: "#b07c14", danger: "#d63b50", info: "#2b8cff" };
 
 export function Topbar({
-  onMenu,
   fiscalYears = [],
   brand,
 }: {
   brand?: { name: string };
-  onMenu?: () => void;
   fiscalYears?: { label: string; from: string; to: string }[];
 }) {
   const pathname = usePathname();
@@ -47,18 +45,18 @@ export function Topbar({
 
   return (
     <header
-      className="relative flex h-[58px] shrink-0 items-center gap-3 border-b border-line bg-linear-to-b from-card/92 to-sub/75 px-4 md:h-[62px] md:gap-4 md:px-6"
+      className="relative shrink-0 border-b border-line bg-linear-to-b from-card/92 to-sub/75"
+      style={{ paddingTop: "env(safe-area-inset-top)" }}
     >
-      <button onClick={onMenu} aria-label="Open menu" className="grid size-9 shrink-0 place-items-center rounded-[10px] border border-line-2 bg-white text-body md:hidden">
-        <Menu size={18} />
-      </button>
+      <div className="flex h-[56px] items-center gap-2 px-4 md:h-[62px] md:gap-4 md:px-6">
 
       <div className="min-w-0 flex-1 md:min-w-[180px] md:flex-none">
         <div className="truncate font-display text-[16px] font-extrabold leading-[1.1] text-ink-strong md:text-[18px]">{title}</div>
-        <div className="mt-px hidden truncate text-[11.5px] font-medium text-muted sm:block">{sub}</div>
+        <div className="mt-px hidden truncate text-[11.5px] font-medium text-muted md:block">{sub}</div>
       </div>
 
       <GlobalSearch />
+      <MobileSearch />
 
       <div className="hidden flex-1 md:block" />
 
@@ -83,14 +81,16 @@ export function Topbar({
         )}
       </div>
 
-      <ThemeToggle />
+      <div className="hidden sm:block">
+        <ThemeToggle />
+      </div>
 
       {/* Notifications */}
       <div className="relative z-50">
         <button
           onClick={() => setMenu((m) => (m === "notif" ? null : "notif"))}
           aria-label="Notifications"
-          className={`relative grid size-9 place-items-center rounded-[10px] border bg-white text-muted md:size-[38px] ${menu === "notif" ? "border-brand" : "border-line-2"}`}
+          className={`relative grid size-10 place-items-center rounded-[10px] border bg-card text-muted md:size-[38px] ${menu === "notif" ? "border-brand" : "border-line-2"}`}
         >
           <Bell size={17} />
           {notifications.length > 0 && (
@@ -100,7 +100,7 @@ export function Topbar({
           )}
         </button>
         {menu === "notif" && (
-          <div className="absolute right-0 top-[46px] w-[min(340px,calc(100vw-24px))] overflow-hidden rounded-[13px] border border-line bg-card shadow-[0_20px_50px_-15px_rgba(15,23,32,0.35)]">
+          <div className="fixed inset-x-3 top-[calc(env(safe-area-inset-top)+62px)] flex max-h-[calc(100dvh-env(safe-area-inset-top)-150px)] flex-col overflow-hidden rounded-[13px] border border-line bg-card shadow-[0_20px_50px_-15px_rgba(15,23,32,0.35)] sm:absolute sm:inset-x-auto sm:right-0 sm:top-[46px] sm:max-h-[min(560px,calc(100dvh-90px))] sm:w-[340px]">
             <div className="flex items-center gap-2 border-b border-line px-4 py-2.5">
               <span className="font-display text-[13px] font-bold text-ink-strong">Notifications</span>
               <div className="flex-1" />
@@ -113,7 +113,7 @@ export function Topbar({
             {notifications.length === 0 ? (
               <div className="px-4 py-8 text-center text-[12.5px] text-faint">You&apos;re all caught up ✨</div>
             ) : (
-              <>
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
                 {notifications.map((n) => (
                   <div key={n.key} className="flex items-start border-b border-line last:border-b-0 hover:bg-sub">
                     {/* Opening it counts as seeing it — that is what "I clicked
@@ -135,7 +135,7 @@ export function Topbar({
                     <button
                       onClick={() => void dismiss(n.key)}
                       aria-label={`Clear: ${n.label}`}
-                      className="mx-1.5 mt-2.5 grid size-7 shrink-0 place-items-center rounded-[8px] text-faint hover:bg-band hover:text-body"
+                      className="mx-1 mt-1.5 grid size-10 shrink-0 place-items-center rounded-[8px] text-faint hover:bg-band hover:text-body md:mx-1.5 md:mt-2.5 md:size-7"
                     >
                       <X size={13} strokeWidth={2.5} />
                     </button>
@@ -144,13 +144,14 @@ export function Topbar({
                 <p className="bg-band px-4 py-2 text-[10.5px] leading-snug text-faint">
                   Cleared alerts come back tomorrow if they are still true — or sooner if they grow.
                 </p>
-              </>
+              </div>
             )}
           </div>
         )}
       </div>
 
       {menu && <div className="fixed inset-0 z-40" onClick={() => setMenu(null)} />}
+      </div>
     </header>
   );
 }

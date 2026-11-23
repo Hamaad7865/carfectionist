@@ -94,7 +94,7 @@ export function CampaignWizard({ templates, audience, onClose }: { templates: Wa
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <div className="flex max-h-[92vh] w-full max-w-2xl flex-col rounded-[18px] border border-line bg-app" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[92dvh] w-full max-w-2xl flex-col rounded-[18px] border border-line bg-app" onClick={(e) => e.stopPropagation()}>
         {/* header + steps */}
         <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
           <div className="flex items-center gap-2.5">

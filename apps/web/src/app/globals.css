@@ -454,3 +454,25 @@
     pointer-events: none;
   }
 }
+
+/* ── Phones ────────────────────────────────────────────────────────────────
+   iOS Safari zooms the whole page into any field whose text is under 16px and
+   never zooms back out, which leaves the back office half off-screen. Unlayered
+   on purpose: it must beat the text-[13px] utilities on every input. */
+@media (max-width: 767.98px) {
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+  /* A tap should feel like a tap: no grey flash, no 300ms double-tap wait. */
+  a,
+  button,
+  [role="button"],
+  label,
+  summary {
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+}
+

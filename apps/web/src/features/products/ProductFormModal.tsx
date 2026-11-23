@@ -10,15 +10,16 @@ import { ProductPhotoField } from "./ProductPhotoField";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 import { btn } from "@/components/ui/button";
 import { formatTyreSize, formatTyreSpec, parseSizeQuery, parseTyreSpec, showsTyreFields } from "@/lib/products/tyre-size";
+import { isTyreShop } from "@/lib/auth/roles";
 
 const KINDS = ["service", "product", "consumable"] as const;
 const UNITS = ["piece", "ml", "l", "g", "kg", "m2", "service"] as const;
-const DISCOUNT_POLICIES = ["inherit", "carwash", "none", "free"] as const;
+type ProductDiscountPolicy = "inherit" | "carwash" | "none" | "free";
 
 type PForm = {
   name: string; sku: string; description: string;
   kind: (typeof KINDS)[number]; category: string; unit: (typeof UNITS)[number];
-  discountPolicy: (typeof DISCOUNT_POLICIES)[number];
+  discountPolicy: ProductDiscountPolicy;
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
   isStocked: boolean; threshold: string; isActive: boolean; photoPath: string;
   legalEntityId: string;
@@ -31,7 +32,7 @@ export interface SoldByOption { id: string; name: string; isDefault: boolean; va
 // the same product (the catalogue and the invoice each had their own), off on 20 of 305 products.
 const grossPrice = (p: InventoryRow, vatDefault: number) =>
   (grossCents(Math.round(p.sellingPrice * 100), p.vatRatePct ?? vatDefault) / 100).toFixed(2);
-const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number, defaultKind?: PForm["kind"], defaultCompany = ""): PForm => ({
+const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number, tyreShop: boolean, defaultKind?: PForm["kind"], defaultCompany = ""): PForm => ({
   name: p?.name ?? "",
   sku: p?.sku ?? "",
   description: p?.description ?? "",
@@ -39,7 +40,9 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number,
   category: p?.category ?? "",
   unit: (p?.unit as PForm["unit"]) ?? "piece",
   // A new product hasn't earned an exception yet — the owner ticks one on later.
-  discountPolicy: (p?.discountPolicy as PForm["discountPolicy"]) ?? "inherit",
+  discountPolicy: tyreShop && p?.discountPolicy === "carwash"
+    ? "none"
+    : (p?.discountPolicy as PForm["discountPolicy"]) ?? "inherit",
   // A flagged product's selling_price IS the gross — show it as stored. A net product
   // shown on a gross form is grossed up; otherwise it is the net.
   sellingPrice: p ? (p.priceIncludesVat ? String(p.sellingPrice) : inclVat ? grossPrice(p, vatDefault) : String(p.sellingPrice)) : "",
@@ -60,18 +63,19 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number,
 export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], brands = [], defaultKind, tenantId, companies = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; brands?: string[]; defaultKind?: (typeof KINDS)[number]; tenantId: string; companies?: SoldByOption[] }) {
   // "Sold by" exists only for a shop that bills under more than one company.
   const multiCompany = companies.length > 1;
+  const tyreShop = isTyreShop(tenantId);
   const mainCompany = companies.find((c) => c.isDefault)?.id ?? companies[0]?.id ?? "";
   const router = useRouter();
   const editing = !!product;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [priceInclVat, setPriceInclVat] = useState((product?.priceIncludesVat ?? false) || pricesInclVat);
-  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind, mainCompany));
+  const [f, setF] = useState<PForm>(() => seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, tyreShop, defaultKind, mainCompany));
 
   // Re-seed whenever the modal opens for a (different) product.
   const [seededFor, setSeededFor] = useState<string | null | undefined>(undefined);
   if (open && seededFor !== (product?.id ?? null)) {
-    setF(seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, defaultKind, mainCompany));
+    setF(seed(product ?? undefined, (product?.priceIncludesVat ?? false) || pricesInclVat, vatDefault, tyreShop, defaultKind, mainCompany));
     setSeededFor(product?.id ?? null);
     setPriceInclVat((product?.priceIncludesVat ?? false) || pricesInclVat);
     setError(null);
@@ -212,7 +216,7 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
         </div>
         {tyreFields && (
           <div className="rounded-[12px] border border-line bg-sub p-3">
-            <div className="grid grid-cols-[1fr_110px_110px] gap-3">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-[1fr_110px_110px] [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
               <Field label="Tyre size" hint={sizeFull ? `Reads as ${formatTyreSpec({ width: sizeFull.width!, profile: sizeFull.profile!, rim: sizeFull.rim! }, f.tyreLoadIndex.trim() || null, f.tyreSpeedRating.trim().toUpperCase() || null)}` : f.tyreSize.trim() ? "Write it like 205/55 R16" : "Width / profile R rim"}>
                 <input className={inputCls} value={f.tyreSize} onChange={(e) => set("tyreSize", e.target.value)} placeholder="205/55 R16" />
               </Field>
@@ -253,13 +257,13 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
         <Field label="Discount">
           <select className={inputCls} value={f.discountPolicy} onChange={(e) => set("discountPolicy", e.target.value as PForm["discountPolicy"])}>
             <option value="inherit">Follow the kind — a service gives nothing away</option>
-            {/* the carwash rule is the detailing studio's; the tyre centre (several companies) has none */}
-            {(!multiCompany || f.discountPolicy === "carwash") && <option value="carwash">Carwash — up to 5%, with a reason</option>}
+            {!tyreShop && <option value="carwash">Carwash — up to 5%, with a reason</option>}
             <option value="none">Never discounted</option>
             <option value="free">No limit</option>
           </select>
         </Field>
-        <div className="grid grid-cols-3 gap-3">
+        {/* Phones: the sell price on its own row, cost and VAT side by side under it. */}
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 [&>*:first-child]:col-span-2 sm:[&>*:first-child]:col-span-1">
           <Field label={priceInclVat ? "Sell price (incl. VAT)" : "Sell price (excl. VAT)"} hint="Rupees"><input className={inputCls} value={f.sellingPrice} onChange={(e) => set("sellingPrice", e.target.value)} inputMode="decimal" placeholder="0.00" /></Field>
           <Field label="Cost price" hint="Rupees"><input className={inputCls} value={f.costPrice} onChange={(e) => set("costPrice", e.target.value)} inputMode="decimal" placeholder="0.0000" /></Field>
           <Field label="VAT rate %" hint={noVatCompany ? "No VAT — company not registered" : "Blank = default"}><input className={inputCls} value={noVatCompany ? "0" : f.vatRate} disabled={noVatCompany} onChange={(e) => set("vatRate", e.target.value)} inputMode="decimal" placeholder={String(vatDefault)} /></Field>

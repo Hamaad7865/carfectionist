@@ -213,13 +213,13 @@ export function IntakeFlow({ tenantId, customers }: { tenantId: string; customer
       {/* action bar */}
       <div className={tyre ? "" : "lg:col-span-2"}>
         {error && <p className="mb-2 rounded-[10px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[13px] text-rose">{error}</p>}
-        <div className="flex items-center justify-between gap-4 rounded-[15px] border border-line bg-card px-5 py-3">
+        <div className="flex flex-col items-stretch gap-3 rounded-[15px] border border-line bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-5">
           <span className="text-[12.5px] text-muted">
             {[hasCustomer && (custMode === "new" ? newCustName : selected?.name), markers.length ? `${markers.length} damage mark${markers.length === 1 ? "" : "s"}` : null, photos.length ? `${photos.length} photo${photos.length === 1 ? "" : "s"}` : null]
               .filter(Boolean)
               .join("  ·  ") || "Find or create the customer to begin"}
           </span>
-          <button onClick={start} disabled={!canStart} className="grad-brand shadow-brand inline-flex h-12 items-center gap-2 rounded-[13px] px-7 text-[15px] font-extrabold text-white disabled:opacity-50">
+          <button onClick={start} disabled={!canStart} className="grad-brand shadow-brand inline-flex h-12 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[13px] px-7 text-[15px] font-extrabold text-white disabled:opacity-50">
             {busy ? "Starting…" : <>Start quotation <ArrowRight size={17} /></>}
           </button>
         </div>

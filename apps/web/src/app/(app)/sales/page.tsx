@@ -64,9 +64,9 @@ export default async function SalesPage({
     <div className="flex flex-col gap-4 p-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-3">
-          <h2 className="font-display text-[19px] font-extrabold text-ink-strong sm:text-[20px]">Quotes &amp; Invoices</h2>
+          <h2 className="hidden font-display text-[20px] font-extrabold text-ink-strong sm:block">Quotes &amp; Invoices</h2>
           {/* View switch — Tickets is the Cashmag-style invoice history */}
-          <div className="flex rounded-[10px] border border-line-2 bg-sub p-0.5">
+          <div className="flex flex-1 rounded-[10px] border border-line-2 bg-sub p-0.5 sm:flex-none [&>a]:flex-1 [&>a]:text-center sm:[&>a]:flex-none">
             <Link href="/sales" className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "documents" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Documents</Link>
             <Link href={`/sales?view=tickets&from=${today}&to=${today}`} className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "tickets" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Tickets</Link>
             <Link href="/sales?view=archived" className={`h-8 rounded-[8px] px-3 text-[12px] font-bold leading-8 ${view === "archived" ? "bg-card text-ink shadow-sm" : "text-muted"}`}>Archive</Link>

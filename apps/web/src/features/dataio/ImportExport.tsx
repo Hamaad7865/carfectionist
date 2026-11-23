@@ -72,7 +72,7 @@ export function ImportExport({ kind, pricesInclVat = false }: { kind: Kind; pric
 
       {open && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={reset}>
-          <div className="w-full max-w-[440px] rounded-[16px] border border-line bg-card p-6 shadow-brand" onClick={(e) => e.stopPropagation()}>
+          <div className="max-h-[92dvh] w-full max-w-[440px] overflow-y-auto rounded-[16px] border border-line bg-card p-6 shadow-brand" onClick={(e) => e.stopPropagation()}>
             <div className="mb-4 flex items-start justify-between">
               <div>
                 <div className="font-display text-[17px] font-extrabold text-ink-strong">Import {label}</div>

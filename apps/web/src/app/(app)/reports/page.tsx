@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { chipRail } from "@/components/ui/rail";
+import { ChipRail } from "@/components/ui/ChipRail";
 import { Download } from "lucide-react";
 import { getReportsData, getExtraReports, getCustomerStatement, getStatementCustomers, getDiscountsReport, getStatementOfAccounts, getCustomerAgedStatement, getSettleableInvoices, getCustomerPointsContext, listZReports } from "@/lib/supabase/queries/reports";
 import { getDailySummary } from "@/lib/supabase/queries/daily-summary";
@@ -102,6 +104,23 @@ export default async function ReportsPage({
 
   return (
     <ReportsShell
+      mobileNav={
+        <ChipRail>
+          {REPORTS.map((x) => {
+            const on = report === x.key;
+            return (
+              <Link
+                key={x.key}
+                href={`/reports${qs({ r: x.key, from: sp.from, to: sp.to })}`}
+                aria-current={on ? "page" : undefined}
+                className={`inline-flex h-9 shrink-0 items-center whitespace-nowrap rounded-full border px-3.5 text-[13px] font-bold ${on ? "border-transparent bg-ink text-card" : "border-line-2 bg-card text-body"}`}
+              >
+                {x.label}
+              </Link>
+            );
+          })}
+        </ChipRail>
+      }
       rail={
         <>
           <div className="flex flex-col gap-[3px]">
@@ -129,15 +148,15 @@ export default async function ReportsPage({
         </>
       }
     >
-        <div className="flex flex-none flex-wrap items-center gap-2.5 border-b border-line bg-sub px-5 py-3">
-          <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Date</span>
-          <Link href={`/reports${qs({ r: report, m: method })}`} className={`h-[30px] rounded-lg border px-3 text-[13px] font-semibold leading-[30px] ${!sp.from && !sp.to ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
+        <div className="flex flex-none flex-wrap items-center gap-2 border-b border-line bg-sub px-4 py-3 md:gap-2.5 md:px-5">
+          <span className="hidden text-[11px] font-bold uppercase tracking-[0.12em] text-faint sm:inline">Date</span>
+          <Link href={`/reports${qs({ r: report, m: method })}`} className={`h-9 rounded-lg border px-3 text-[13px] font-semibold leading-9 md:h-[30px] md:leading-[30px] ${!sp.from && !sp.to ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
             All time
           </Link>
-          <Link href={`/reports${qs({ r: report, from: monthStart, to: monthEnd, m: method })}`} className={`h-[30px] rounded-lg border px-3 text-[13px] font-semibold leading-[30px] ${sp.from === monthStart ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
+          <Link href={`/reports${qs({ r: report, from: monthStart, to: monthEnd, m: method })}`} className={`h-9 rounded-lg border px-3 text-[13px] font-semibold leading-9 md:h-[30px] md:leading-[30px] ${sp.from === monthStart ? "border-link bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-card text-muted"}`}>
             This month
           </Link>
-          <div className="mx-1 h-6 w-px bg-line-2" />
+          <div className="mx-1 hidden h-6 w-px bg-line-2 sm:block" />
           <DateRangeFilter label={false} />
           <div className="flex-1" />
           {report !== "statement" && report !== "statement-list" && report !== "z-reports" && (
@@ -147,7 +166,7 @@ export default async function ReportsPage({
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="p-4 md:flex-1 md:overflow-y-auto md:p-5">
           {report === "daily-summary" && daily && (
             <DailySummaryTable
               summary={daily}
@@ -167,15 +186,15 @@ export default async function ReportsPage({
 
           {report === "collected" && (
             <div className="flex flex-col gap-4">
-              <div className="flex flex-wrap items-center gap-1.5">
-                <span className="mr-1 text-[12px] font-bold uppercase tracking-[0.1em] text-faint">Method</span>
+              <div className={`${chipRail} items-center`}>
+                <span className="mr-1 shrink-0 text-[12px] font-bold uppercase tracking-[0.1em] text-faint">Method</span>
                 {[undefined, "cash", "card", "juice", "bank_transfer", "cheque"].map((mkey) => {
                   const on = method === mkey;
                   return (
                     <Link
                       key={mkey ?? "all"}
                       href={`/reports${qs({ r: "collected", from: sp.from, to: sp.to, m: mkey })}`}
-                      className={`inline-flex h-8 items-center justify-center rounded-lg px-3 text-[13px] font-semibold ${on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-muted hover:text-body"}`}
+                      className={`inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-lg px-3 text-[13px] font-semibold md:h-8 ${on ? "border border-link bg-[rgba(43,140,255,0.12)] text-link" : "border border-line-2 bg-card text-muted hover:text-body"}`}
                     >
                       {mkey ? METHOD_LABEL[mkey] : "All"}
                     </Link>
@@ -183,9 +202,10 @@ export default async function ReportsPage({
                 })}
               </div>
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-                <div className="rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+                <div className="@container rounded-[15px] border border-[rgba(43,140,255,0.25)] p-5" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
                   <div className="text-[13px] font-semibold text-hero-sub">Cash received · {rangeLabel}</div>
-                  <div className="num mt-2 text-[32px] font-extrabold text-hero-ink">{formatMUR(data.collectedCents)}</div>
+                  {/* Sized to its card (cqi), so a seven-figure total never wraps "Rs" onto its own line. */}
+                  <div className="num mt-2 whitespace-nowrap text-[clamp(20px,11.5cqi,32px)] font-extrabold text-hero-ink">{formatMUR(data.collectedCents)}</div>
                 </div>
                 <div className="rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[13px] font-semibold text-muted">Revenue invoiced</div>
@@ -222,23 +242,35 @@ export default async function ReportsPage({
               </div>
 
               <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-                <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                <div className="flex items-center justify-between border-b border-line px-4 md:px-5 py-3.5">
                   <span className="font-display text-[15px] font-bold text-ink-strong">Payments received</span>
                   <span className="rounded-lg bg-[rgba(43,140,255,0.1)] px-2.5 py-1 text-[12px] font-bold text-link">{data.payments.length} payments</span>
                 </div>
-                <div className="grid grid-cols-[140px_110px_1fr_120px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                <div className="hidden grid-cols-[140px_110px_1fr_120px_130px] gap-3 border-b border-line bg-sub px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th md:grid">
                   <span>Date</span><span>Document</span><span>Customer</span><span>Method</span><span className="text-right">Amount</span>
                 </div>
                 {data.payments.length === 0 ? (
                   <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No payments in this range.</div>
                 ) : (
                   data.payments.map((p) => (
-                    <div key={p.id} className="grid grid-cols-[140px_110px_1fr_120px_130px] items-center gap-3 border-b border-line px-5 py-3 text-[13.5px] font-medium">
-                      <span className="num text-muted">{p.date}</span>
-                      <span className="num font-bold text-link">{p.number ?? "—"}</span>
-                      <span className="text-body">{p.customer ?? "—"}</span>
-                      <span className="text-muted">{METHOD_LABEL[p.method] ?? p.method}</span>
-                      <span className="num text-right font-bold text-ink">{formatMUR(p.amountCents)}</span>
+                    <div key={p.id} className="border-b border-line">
+                      {/* Phone row: who and how much first; when, which bill, how underneath. */}
+                      <div className="flex items-start justify-between gap-3 px-4 py-3 md:hidden">
+                        <div className="min-w-0">
+                          <div className="truncate text-[13.5px] font-semibold text-body">{p.customer ?? "—"}</div>
+                          <div className="mt-0.5 text-[12px] text-muted">
+                            <span className="num">{p.date}</span> · <span className="num font-bold text-link">{p.number ?? "—"}</span> · {METHOD_LABEL[p.method] ?? p.method}
+                          </div>
+                        </div>
+                        <span className="num shrink-0 text-[14px] font-bold text-ink">{formatMUR(p.amountCents)}</span>
+                      </div>
+                      <div className="hidden grid-cols-[140px_110px_1fr_120px_130px] items-center gap-3 px-4 md:px-5 py-3 text-[13.5px] font-medium md:grid">
+                        <span className="num text-muted">{p.date}</span>
+                        <span className="num font-bold text-link">{p.number ?? "—"}</span>
+                        <span className="text-body">{p.customer ?? "—"}</span>
+                        <span className="text-muted">{METHOD_LABEL[p.method] ?? p.method}</span>
+                        <span className="num text-right font-bold text-ink">{formatMUR(p.amountCents)}</span>
+                      </div>
                     </div>
                   ))
                 )}
@@ -248,7 +280,7 @@ export default async function ReportsPage({
 
           {report === "vat" && (
             <div className="max-w-2xl">
-              <div className="grid grid-cols-3 gap-3.5">
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
                 <div className="rounded-[15px] border border-line bg-card p-5">
                   <div className="text-[13px] font-semibold text-muted">Output VAT</div>
                   <div className="num mt-2 text-[24px] font-extrabold text-ink-strong">{formatMUR(data.vat.outputCents)}</div>
@@ -270,11 +302,11 @@ export default async function ReportsPage({
               {/* ── By company — a two-company shop only (the VAT company files the return) ── */}
               {data.byCompany && (
                 <div className="mt-4 overflow-hidden rounded-[15px] border border-line bg-card">
-                  <div className="grid grid-cols-[1fr_130px_130px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                  <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 md:grid-cols-[1fr_130px_130px] border-b border-line bg-band px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                     <span>Company</span><span className="text-right">Invoiced</span><span className="text-right">Output VAT</span>
                   </div>
                   {data.byCompany.map((c) => (
-                    <div key={c.name} className="grid grid-cols-[1fr_130px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium last:border-b-0">
+                    <div key={c.name} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 md:grid-cols-[1fr_130px_130px] border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium last:border-b-0">
                       <span className="font-semibold text-body">
                         {c.name}
                         {!c.vatRegistered && <span className="ml-2 rounded-[5px] bg-shade/[0.06] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-muted">Not VAT-registered</span>}
@@ -351,14 +383,14 @@ export default async function ReportsPage({
 
               {/* Monthly breakdown table — the accessible twin of the chart */}
               {data.vatMonthly.length > 0 && (
-                <div className="mt-4 overflow-hidden rounded-[15px] border border-line bg-card">
-                  <div className="grid grid-cols-[1fr_110px_110px_130px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                <div className="mt-4 overflow-hidden max-md:overflow-x-auto max-md:[&>*]:min-w-[540px] rounded-[15px] border border-line bg-card">
+                  <div className="grid grid-cols-[1fr_110px_110px_130px] gap-3 border-b border-line bg-band px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                     <span>Month</span><span className="text-right">Output VAT</span><span className="text-right">Input VAT</span><span className="text-right">Net payable</span>
                   </div>
                   {[...data.vatMonthly].reverse().map((mo) => {
                     const current = mo.month === muToday().slice(0, 7);
                     return (
-                      <div key={mo.month} className={`grid grid-cols-[1fr_110px_110px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium last:border-b-0 ${current ? "bg-[rgba(43,140,255,0.05)]" : ""}`}>
+                      <div key={mo.month} className={`grid grid-cols-[1fr_110px_110px_130px] items-center gap-3 border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium last:border-b-0 ${current ? "bg-[rgba(43,140,255,0.05)]" : ""}`}>
                         <span className="font-semibold text-body">
                           {mo.label}
                           {current && <span className="ml-2 rounded-[5px] bg-[rgba(43,140,255,0.12)] px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-link">Current</span>}
@@ -379,14 +411,14 @@ export default async function ReportsPage({
 
           {report === "receivables" && (
             <div className="max-w-2xl overflow-hidden rounded-[15px] border border-line bg-card">
-              <div className="flex items-center justify-between border-b border-line px-5 py-4">
+              <div className="flex items-center justify-between border-b border-line px-4 md:px-5 py-4">
                 <span className="font-display text-[15px] font-bold text-ink-strong">Aged receivables</span>
                 <span className="num text-[14px] font-extrabold text-amber-ink">{formatMUR(data.outstandingCents)}</span>
               </div>
               {data.aged.map((b) => {
                 const pct = data.outstandingCents > 0 ? Math.round((b.cents / data.outstandingCents) * 100) : 0;
                 return (
-                  <div key={b.label} className="border-b border-line px-5 py-3.5">
+                  <div key={b.label} className="border-b border-line px-4 md:px-5 py-3.5">
                     <div className="flex items-center justify-between">
                       <span className="text-[14px] font-semibold text-body">{b.label}</span>
                       <span className="num text-[14px] font-bold text-ink">{formatMUR(b.cents)}</span>
@@ -407,7 +439,7 @@ export default async function ReportsPage({
                   { label: "Revenue invoiced", note: "VAT-exclusive", cents: extra.pnl.revenueCents, tone: "text-ink-strong" },
                   { label: "Cost of goods sold", note: "Stock consumed on sales & jobs", cents: -extra.pnl.cogsCents, tone: "text-body" },
                 ].map((r) => (
-                  <div key={r.label} className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                  <div key={r.label} className="flex items-center justify-between border-b border-line px-4 md:px-5 py-3.5">
                     <div>
                       <div className="text-[14px] font-semibold text-body">{r.label}</div>
                       <div className="text-[12px] font-medium text-faint">{r.note}</div>
@@ -415,18 +447,18 @@ export default async function ReportsPage({
                     <span className={`num text-[14px] font-bold ${r.tone}`}>{formatMUR(r.cents)}</span>
                   </div>
                 ))}
-                <div className="flex items-center justify-between border-b border-line bg-sub px-5 py-3">
+                <div className="flex items-center justify-between border-b border-line bg-sub px-4 md:px-5 py-3">
                   <span className="text-[14px] font-bold text-ink">Gross profit</span>
                   <span className="num text-[15px] font-extrabold text-mint">{formatMUR(extra.pnl.grossCents)}</span>
                 </div>
-                <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                <div className="flex items-center justify-between border-b border-line px-4 md:px-5 py-3.5">
                   <div>
                     <div className="text-[14px] font-semibold text-body">Operating expenses</div>
                     <div className="text-[12px] font-medium text-faint">VAT-exclusive</div>
                   </div>
                   <span className="num text-[14px] font-bold text-body">{formatMUR(-extra.pnl.expensesCents)}</span>
                 </div>
-                <div className="flex items-center justify-between px-5 py-4" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
+                <div className="flex items-center justify-between px-4 md:px-5 py-4" style={{ background: "linear-gradient(150deg,var(--hero-a),var(--hero-b))" }}>
                   <span className="text-[14px] font-extrabold text-hero-ink">Net profit</span>
                   <span className="num text-[19.5px] font-extrabold" style={{ color: extra.pnl.netCents >= 0 ? "#0f2f5e" : "#d63b50" }}>{formatMUR(extra.pnl.netCents)}</span>
                 </div>
@@ -437,7 +469,7 @@ export default async function ReportsPage({
 
           {report === "bestsellers" && extra && (
             <div className="max-w-2xl overflow-hidden rounded-[15px] border border-line bg-card">
-              <div className="grid grid-cols-[36px_1fr_90px_130px] gap-3 border-b border-line bg-band px-5 py-3 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+              <div className="grid grid-cols-[20px_minmax(0,1fr)_auto_auto] gap-3 md:grid-cols-[36px_1fr_90px_130px] border-b border-line bg-band px-4 md:px-5 py-3 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                 <span>#</span><span>Item</span><span className="text-right">Qty</span><span className="text-right">Revenue</span>
               </div>
               {extra.bestSellers.length === 0 ? (
@@ -446,7 +478,7 @@ export default async function ReportsPage({
                 extra.bestSellers.map((b, i) => {
                   const max = extra.bestSellers[0].revenueCents || 1;
                   return (
-                    <div key={b.name} className="grid grid-cols-[36px_1fr_90px_130px] items-center gap-3 border-b border-line px-5 py-3 text-[13.5px] font-medium">
+                    <div key={b.name} className="grid grid-cols-[20px_minmax(0,1fr)_auto_auto] items-center gap-3 md:grid-cols-[36px_1fr_90px_130px] border-b border-line px-4 md:px-5 py-3 text-[13.5px] font-medium">
                       <span className="num font-bold text-faint">{i + 1}</span>
                       <div className="min-w-0">
                         <div className="truncate font-semibold text-body">{b.name}</div>
@@ -465,14 +497,14 @@ export default async function ReportsPage({
 
           {report === "technician" && extra && (
             <div className="max-w-2xl overflow-hidden rounded-[15px] border border-line bg-card">
-              <div className="grid grid-cols-[1fr_80px_140px] gap-3 border-b border-line bg-band px-5 py-3 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] gap-3 md:grid-cols-[1fr_80px_140px] border-b border-line bg-band px-4 md:px-5 py-3 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                 <span>Technician</span><span className="text-right">Jobs</span><span className="text-right">Revenue</span>
               </div>
               {extra.byTechnician.length === 0 ? (
                 <div className="px-5 py-14 text-center text-[14.5px] font-medium text-faint">No invoiced revenue in this range yet.</div>
               ) : (
                 extra.byTechnician.map((t) => (
-                  <div key={t.name} className="grid grid-cols-[1fr_80px_140px] items-center gap-3 border-b border-line px-5 py-3.5 text-[14px] font-medium">
+                  <div key={t.name} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3 md:grid-cols-[1fr_80px_140px] border-b border-line px-4 md:px-5 py-3.5 text-[14px] font-medium">
                     <span className="font-semibold text-body">{t.name}</span>
                     <span className="num text-right text-muted">{t.jobs || "—"}</span>
                     <span className="num text-right font-bold text-ink">{formatMUR(t.revenueCents)}</span>
@@ -485,9 +517,9 @@ export default async function ReportsPage({
           {report === "discounts" && discounts && (
             <div className="flex flex-col gap-4">
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-                <div className="rounded-[15px] border border-[rgba(245,166,35,0.3)] p-5" style={{ background: "linear-gradient(150deg,#fff5e4,#ffedd0)" }}>
+                <div className="@container rounded-[15px] border border-[rgba(245,166,35,0.3)] p-5" style={{ background: "linear-gradient(150deg,#fff5e4,#ffedd0)" }}>
                   <div className="text-[13px] font-semibold text-amber-ink">Discount given · {rangeLabel}</div>
-                  <div className="num mt-2 text-[32px] font-extrabold text-[#7a4f00]">{formatMUR(discounts.totalDiscountCents)}</div>
+                  <div className="num mt-2 whitespace-nowrap text-[clamp(20px,11.5cqi,32px)] font-extrabold text-[#7a4f00]">{formatMUR(discounts.totalDiscountCents)}</div>
                   <div className="mt-1 text-[12px] font-medium text-amber-ink">Revenue foregone (excl. VAT)</div>
                 </div>
                 <div className="rounded-[15px] border border-line bg-card p-5">
@@ -502,15 +534,15 @@ export default async function ReportsPage({
                 </div>
               </div>
 
-              <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-                <div className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+              <div className="overflow-hidden max-md:overflow-x-auto max-md:[&>*]:min-w-[720px] rounded-[14px] border border-line bg-card">
+                <div className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] gap-3 border-b border-line bg-band px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                   <span>Date</span><span>Invoice</span><span>Customer</span><span className="text-right">Gross ex-VAT</span><span className="text-right">Discount</span><span className="text-right">%</span>
                 </div>
                 {discounts.rows.length === 0 ? (
                   <div className="px-5 py-14 text-center text-[14.5px] font-medium text-faint">No discounts given in this range.</div>
                 ) : (
                   discounts.rows.map((d) => (
-                    <div key={d.id} className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] items-center gap-3 border-b border-line px-5 py-3 text-[13.5px] font-medium">
+                    <div key={d.id} className="grid grid-cols-[104px_96px_1fr_120px_110px_62px] items-center gap-3 border-b border-line px-4 md:px-5 py-3 text-[13.5px] font-medium">
                       <span className="num text-muted">{d.date ?? "—"}</span>
                       <Link href={`/sales/${d.id}`} className="num font-bold text-link hover:underline">{d.number ?? "—"}</Link>
                       <span className="truncate text-body">{d.customer ?? "—"}</span>
@@ -531,15 +563,15 @@ export default async function ReportsPage({
                 <div className="mt-1 text-[13.5px] font-medium text-muted">Every customer who owes the shop, as at {muDate(new Date().toISOString())}. Carried-forward figures are the balances brought over from Cashmag.</div>
               </div>
 
-              <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-                <div className="grid grid-cols-[1fr_130px_130px_150px_120px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+              <div className="overflow-hidden max-md:overflow-x-auto max-md:[&>*]:min-w-[700px] rounded-[15px] border border-line bg-card">
+                <div className="grid grid-cols-[1fr_130px_130px_150px_120px] gap-3 border-b border-line bg-sub px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                   <span>Customer</span><span className="text-right">Live</span><span className="text-right">Carried</span><span className="text-right">Balance owed</span><span className="text-right">Statement</span>
                 </div>
                 {statementList.length === 0 ? (
                   <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No customer owes anything right now.</div>
                 ) : (
                   statementList.map((c) => (
-                    <div key={c.id} className="grid grid-cols-[1fr_130px_130px_150px_120px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
+                    <div key={c.id} className="grid grid-cols-[1fr_130px_130px_150px_120px] items-center gap-3 border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium">
                       <Link href={`/reports${qs({ r: "statement", c: c.id })}`} className="font-semibold text-link hover:underline">{c.name}</Link>
                       <span className="num text-right text-muted">{c.liveCents ? formatMUR(c.liveCents) : "—"}</span>
                       <span className="num text-right text-muted">{c.carriedCents ? formatMUR(c.carriedCents) : "—"}</span>
@@ -551,7 +583,7 @@ export default async function ReportsPage({
                     </div>
                   ))
                 )}
-                <div className="grid grid-cols-[1fr_130px_130px_150px_120px] items-center gap-3 bg-sub px-5 py-3 text-[14px] font-medium">
+                <div className="grid grid-cols-[1fr_130px_130px_150px_120px] items-center gap-3 bg-sub px-4 md:px-5 py-3 text-[14px] font-medium">
                   <span className="font-bold text-ink">{statementList.length} customer{statementList.length === 1 ? "" : "s"}</span>
                   <span /><span />
                   <span className="num text-right font-extrabold text-brand">{formatMUR(statementList.reduce((s, c) => s + c.balanceCents, 0))}</span>
@@ -564,7 +596,7 @@ export default async function ReportsPage({
           {report === "statement" && statement && (
             <div className="flex flex-col gap-4">
               <div className="flex flex-wrap items-center justify-between gap-2.5">
-                <div className="flex flex-wrap items-center gap-2.5">
+                <div className="flex w-full items-center gap-2.5 sm:w-auto sm:flex-wrap">
                   <span className="text-[12px] font-bold uppercase tracking-[0.1em] text-faint">Customer</span>
                   <StatementPicker customers={statement.customers} current={sp.c} from={sp.from} to={sp.to} />
                 </div>
@@ -590,14 +622,14 @@ export default async function ReportsPage({
 
               {statement.aged && statement.aged.soldeCents !== 0 && (
                 <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-                  <div className="border-b border-line px-5 py-3.5 font-display text-[15px] font-bold text-ink-strong">Balance — aged</div>
+                  <div className="border-b border-line px-4 md:px-5 py-3.5 font-display text-[15px] font-bold text-ink-strong">Balance — aged</div>
                   <div className="overflow-x-auto">
                     <div className="min-w-[640px]">
-                      <div className="grid border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th" style={{ gridTemplateColumns: `130px repeat(${statement.aged.buckets.length}, 1fr)` }}>
+                      <div className="grid border-b border-line bg-sub px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th" style={{ gridTemplateColumns: `130px repeat(${statement.aged.buckets.length}, 1fr)` }}>
                         <span>Solde</span>
                         {statement.aged.buckets.map((b) => <span key={b.key} className="text-right">{b.label}</span>)}
                       </div>
-                      <div className="grid items-center px-5 py-3 text-[13.5px] font-medium" style={{ gridTemplateColumns: `130px repeat(${statement.aged.buckets.length}, 1fr)` }}>
+                      <div className="grid items-center px-4 md:px-5 py-3 text-[13.5px] font-medium" style={{ gridTemplateColumns: `130px repeat(${statement.aged.buckets.length}, 1fr)` }}>
                         <span className="num font-extrabold text-brand">{formatMUR(statement.aged.soldeCents)}</span>
                         {statement.aged.buckets.map((b) => <span key={b.key} className="num text-right text-body">{b.cents ? formatMUR(b.cents) : "—"}</span>)}
                       </div>
@@ -607,13 +639,13 @@ export default async function ReportsPage({
               )}
 
               {statement.aged && (statement.aged.invoices.length > 0 || statement.aged.carriedCents !== 0) && (
-                <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-                  <div className="border-b border-line px-5 py-3.5 font-display text-[15px] font-bold text-ink-strong">Credit invoices</div>
-                  <div className="grid grid-cols-[110px_1fr_130px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                <div className="overflow-hidden max-md:overflow-x-auto max-md:[&>*]:min-w-[560px] rounded-[15px] border border-line bg-card">
+                  <div className="border-b border-line px-4 md:px-5 py-3.5 font-display text-[15px] font-bold text-ink-strong">Credit invoices</div>
+                  <div className="grid grid-cols-[110px_1fr_130px_130px] gap-3 border-b border-line bg-sub px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                     <span>Date</span><span>Detail</span><span className="text-right">Debit</span><span className="text-right">Credit</span>
                   </div>
                   {statement.aged.carriedCents !== 0 && (
-                    <div className="grid grid-cols-[110px_1fr_130px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium text-muted">
+                    <div className="grid grid-cols-[110px_1fr_130px_130px] items-center gap-3 border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium text-muted">
                       <span className="num">Avant</span>
                       <span className="italic">Carried forward from Cashmag</span>
                       <span className="num text-right text-body">{statement.aged.carriedCents > 0 ? formatMUR(statement.aged.carriedCents) : "—"}</span>
@@ -621,7 +653,7 @@ export default async function ReportsPage({
                     </div>
                   )}
                   {statement.aged.invoices.map((inv, i) => (
-                    <div key={i} className="grid grid-cols-[110px_1fr_130px_130px] items-start gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
+                    <div key={i} className="grid grid-cols-[110px_1fr_130px_130px] items-start gap-3 border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium">
                       <span className="num text-muted">{inv.date ? muDate(`${inv.date}T00:00:00+04:00`) : "—"}</span>
                       <span className="text-body">
                         {inv.number && <span className="num font-semibold text-link">{inv.number}</span>}
@@ -633,7 +665,7 @@ export default async function ReportsPage({
                       <span className="num text-right text-mint">{inv.creditCents ? formatMUR(inv.creditCents) : "—"}</span>
                     </div>
                   ))}
-                  <div className="grid grid-cols-[110px_1fr_130px_130px] items-center gap-3 bg-sub px-5 py-3 text-[14px] font-medium">
+                  <div className="grid grid-cols-[110px_1fr_130px_130px] items-center gap-3 bg-sub px-4 md:px-5 py-3 text-[14px] font-medium">
                     <span /><span className="font-bold text-ink">Balance owed</span>
                     <span className="num text-right font-extrabold text-brand">{formatMUR(statement.aged.soldeCents)}</span>
                     <span />
@@ -662,16 +694,16 @@ export default async function ReportsPage({
                     </div>
                   </div>
 
-                  <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-                    <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
+                  <div className="overflow-hidden max-md:overflow-x-auto max-md:[&>*]:min-w-[660px] rounded-[15px] border border-line bg-card">
+                    <div className="flex items-center justify-between border-b border-line px-4 md:px-5 py-3.5">
                       <span className="font-display text-[15px] font-bold text-ink-strong">{statement.data.customerName}</span>
                       <span className="text-[13px] font-medium text-muted">{rangeLabel}</span>
                     </div>
-                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] gap-3 border-b border-line bg-sub px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                       <span>Date</span><span>Detail</span><span className="text-right">Debit</span><span className="text-right">Credit</span><span className="text-right">Balance</span>
                     </div>
                     {sp.from && (
-                      <div className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium text-muted">
+                      <div className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium text-muted">
                         <span /><span className="italic">Opening balance</span><span /><span /><span className="num text-right font-bold text-ink">{formatMUR(statement.data.openingCents)}</span>
                       </div>
                     )}
@@ -679,7 +711,7 @@ export default async function ReportsPage({
                       <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No transactions in this range.</div>
                     ) : (
                       statement.data.lines.map((l, i) => (
-                        <div key={i} className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
+                        <div key={i} className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium">
                           <span className="num text-muted">{l.date}</span>
                           <span className="text-body">{l.detail}{l.ref ? <span className="num ml-2 text-faint">{l.ref}</span> : null}</span>
                           <span className="num text-right text-body">{l.debitCents ? formatMUR(l.debitCents) : "—"}</span>
@@ -688,7 +720,7 @@ export default async function ReportsPage({
                         </div>
                       ))
                     )}
-                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 bg-sub px-5 py-3 text-[14px] font-medium">
+                    <div className="grid grid-cols-[110px_1fr_120px_120px_130px] items-center gap-3 bg-sub px-4 md:px-5 py-3 text-[14px] font-medium">
                       <span /><span className="font-bold text-ink">Balance due</span><span /><span /><span className="num text-right font-extrabold text-brand">{formatMUR(statement.data.closingCents)}</span>
                     </div>
                   </div>
@@ -707,14 +739,14 @@ export default async function ReportsPage({
               <div className="overflow-hidden rounded-[15px] border border-line bg-card">
                 <div className="overflow-x-auto">
                   <div className="min-w-[800px]">
-                  <div className="grid grid-cols-[76px_132px_84px_minmax(90px,1fr)_124px_70px_110px] gap-3 border-b border-line bg-sub px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
+                  <div className="grid grid-cols-[76px_132px_84px_minmax(90px,1fr)_124px_70px_110px] gap-3 border-b border-line bg-sub px-4 md:px-5 py-2.5 text-[11.5px] font-bold uppercase tracking-[0.1em] text-th">
                     <span>Number</span><span>Closed</span><span>Device</span><span>Closed by</span><span className="text-right">Total</span><span className="text-right">Variance</span><span className="text-right">Reprint</span>
                   </div>
                   {zReports.length === 0 ? (
                     <div className="px-5 py-12 text-center text-[14.5px] font-medium text-faint">No till closures in this range.</div>
                   ) : (
                     zReports.map((z) => (
-                      <div key={z.id} className="grid grid-cols-[76px_132px_84px_minmax(90px,1fr)_124px_70px_110px] items-center gap-3 border-b border-line px-5 py-2.5 text-[13.5px] font-medium">
+                      <div key={z.id} className="grid grid-cols-[76px_132px_84px_minmax(90px,1fr)_124px_70px_110px] items-center gap-3 border-b border-line px-4 md:px-5 py-2.5 text-[13.5px] font-medium">
                         <span className="num font-bold text-body">{z.number}</span>
                         <span className="num whitespace-nowrap text-muted">{muDateTime(z.closedAt)}</span>
                         <span className="num text-muted">{z.device ?? "—"}</span>

@@ -38,10 +38,10 @@ export default async function SalesJournalPage({ searchParams }: { searchParams:
   const pdfHref = `/api/sales-journal/pdf?${baseQuery}`;
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="flex flex-none flex-wrap items-center gap-2.5 border-b border-line bg-sub px-5 py-3">
+    <div className="flex min-w-0 flex-col md:h-full">
+      <div className="flex flex-none flex-wrap items-center gap-2.5 border-b border-line bg-sub px-4 py-3 md:px-5">
         <PeriodPicker range={range} today={today} compare={compare} />
-        <div className="mx-1 h-6 w-px bg-line-2" />
+        <div className="mx-1 hidden h-6 w-px bg-line-2 md:block" />
         <MoreFiltersDialog facets={facets} current={toFilterState(filters)} />
         <div className="flex-1" />
         <a href={pdfHref} target="_blank" rel="noreferrer" className={btn("ghost", "sm")}>
@@ -49,7 +49,7 @@ export default async function SalesJournalPage({ searchParams }: { searchParams:
         </a>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-5">
+      <div className="p-4 md:flex-1 md:overflow-y-auto md:p-5">
         <SalesJournalView journal={journal} prior={priorJournal} priorRange={prior} businessName={businessName} query={baseQuery} />
       </div>
 

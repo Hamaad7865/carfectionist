@@ -5,7 +5,7 @@ import { getSessionContext } from "@/lib/auth/session";
 import { isTyreShop } from "@/lib/auth/roles";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
-import { SalesPerformanceChart } from "@/features/dashboard/SalesPerformanceChart";
+import { ResponsiveSalesPerformanceChart } from "@/features/dashboard/SalesPerformanceChart";
 import {
   normalizeSalesPeriodInput,
   type SalesSearchParams,
@@ -21,14 +21,17 @@ const METHOD_COLOR: Record<string, string> = {
 };
 const METHOD_LABEL: Record<string, string> = { card: "Card", cash: "Cash", juice: "Juice", bank_transfer: "Bank transfer", cheque: "Cheque" };
 
+/** A headline figure. Phones: one full-width row (icon · label · figure) so a
+ *  seven-digit rupee amount never breaks across lines. sm and up: a card. */
 function Kpi({ icon: Icon, value, label, tint }: { icon: typeof ReceiptText; value: string; label: string; tint: string }) {
   return (
-    <div className={`${card} p-[17px]`}>
-      <span className="grid size-[34px] place-items-center rounded-[10px]" style={{ background: `${tint}22`, color: tint }}>
+    <div className={`${card} flex items-center gap-3 px-4 py-3 sm:block sm:p-[17px]`}>
+      <span className="grid size-[34px] shrink-0 place-items-center rounded-[10px]" style={{ background: `${tint}22`, color: tint }}>
         <Icon size={18} />
       </span>
-      <div className="num mt-3.5 text-[19px] font-extrabold leading-tight tracking-tight text-ink-strong min-[400px]:text-[24.5px] sm:text-[29px]">{value}</div>
-      <div className="mt-0.5 text-[13px] font-medium text-muted">{label}</div>
+      <div className="min-w-0 flex-1 text-[13.5px] font-semibold text-muted sm:hidden">{label}</div>
+      <div className="num whitespace-nowrap text-[18px] font-extrabold leading-tight tracking-tight text-ink-strong sm:mt-3.5 sm:text-[24.5px] lg:text-[29px]">{value}</div>
+      <div className="mt-0.5 hidden text-[13px] font-medium text-muted sm:block">{label}</div>
     </div>
   );
 }
@@ -65,7 +68,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 sm:gap-3.5 lg:grid-cols-4">
         <Kpi icon={ReceiptText} value={formatMUR(d.invoicedCents)} label="Invoiced (issued)" tint="#2b8cff" />
         <Kpi icon={Banknote} value={formatMUR(d.collectedCents)} label="Collected" tint="#0da77c" />
         <Kpi icon={Clock} value={formatMUR(d.outstandingCents)} label="Outstanding" tint="#f5a623" />
@@ -79,7 +82,28 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
           <div className="mt-0.5 text-[12.5px] font-medium text-muted">
             Each company&apos;s own bills and payments — together they make the totals above
           </div>
-          <div className="mt-3 overflow-x-auto">
+          {/* Phones: one block per company. */}
+          <div className="mt-3 flex flex-col gap-2.5 sm:hidden">
+            {d.companies.map((c) => (
+              <div key={c.id} className="rounded-[12px] bg-sub px-3.5 py-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="min-w-0 flex-1 truncate text-[14px] font-bold text-ink-strong">{c.name}</span>
+                  <span className="shrink-0 text-[11px] font-medium text-muted">{c.vatRegistered ? "VAT 15%" : "VAT exempt"}</span>
+                </div>
+                <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[12.5px]">
+                  <dt className="text-muted">Invoiced</dt>
+                  <dd className="num text-right font-semibold text-ink">{formatMUR(c.invoicedCents)}</dd>
+                  <dt className="text-muted">Collected</dt>
+                  <dd className="num text-right font-semibold text-ink">{formatMUR(c.collectedCents)}</dd>
+                  <dt className="text-muted">Outstanding</dt>
+                  <dd className="num text-right font-semibold text-ink">{formatMUR(c.outstandingCents)}</dd>
+                  <dt className="text-muted">Invoices</dt>
+                  <dd className="num text-right font-semibold text-ink">{c.invoiceCount}</dd>
+                </dl>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[560px] text-[13.5px]">
               <thead>
                 <tr className="text-left text-[11px] font-bold uppercase tracking-wider text-muted">
@@ -109,7 +133,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
         </div>
       )}
 
-      <SalesPerformanceChart data={d.salesPerformance} />
+      <ResponsiveSalesPerformanceChart data={d.salesPerformance} />
 
       {/* Collected by method + catalogue */}
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[minmax(0,400px)_1fr]">
@@ -125,7 +149,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
                   <span className="num max-w-[94px] text-center text-[13px] font-extrabold leading-tight text-ink-strong">{formatMUR(d.collectedCents)}</span>
                 </div>
               </div>
-              <div className="flex min-w-[176px] flex-col gap-2.5">
+              <div className="flex min-w-[176px] flex-1 flex-col gap-2.5">
                 {d.byMethod.map((m) => (
                   <div key={m.method} className="flex items-center gap-2.5">
                     <span className="size-2.5 rounded-[3px]" style={{ background: METHOD_COLOR[m.method] ?? "#8c96a1" }} />
@@ -140,7 +164,7 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
 
         <div className={`${card} p-5`}>
           <div className="font-display text-[15px] font-bold text-ink">Catalogue &amp; team</div>
-          <div className="mt-3 grid grid-cols-2 gap-2.5 text-[13.5px] font-medium">
+          <div className="mt-3 grid grid-cols-1 gap-2.5 text-[13.5px] font-medium min-[400px]:grid-cols-2">
             {[
               { icon: Wrench, label: "Services", value: d.counts.services },
               { icon: Package, label: "Stocked products", value: d.counts.stocked },
@@ -171,10 +195,10 @@ export default async function DashboardPage({ searchParams }: { searchParams: Pr
               {d.recent.map((r) => (
                 <Link key={r.id} href={`/sales/${r.id}`} className="flex items-center gap-2.5 rounded-[9px] px-1.5 py-2 hover:bg-sub">
                   <div className="min-w-0 flex-1">
-                    <div className="text-[13.5px] font-semibold text-body">{r.customer ?? "—"}</div>
+                    <div className="truncate text-[13.5px] font-semibold text-body">{r.customer ?? "—"}</div>
                     <div className="num text-[11.5px] font-medium text-faint">{r.number ?? "Draft"} · {r.date}</div>
                   </div>
-                  <span className="num text-[13px] font-bold text-ink">{formatMUR(r.totalCents)}</span>
+                  <span className="num shrink-0 text-[13px] font-bold text-ink">{formatMUR(r.totalCents)}</span>
                   <StatusPill status={r.status} />
                 </Link>
               ))}

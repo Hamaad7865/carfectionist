@@ -5,7 +5,10 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
 import { existsInTenant } from "@/lib/supabase/guards";
-import { createJobAction, setJobScheduleAction } from "@/features/jobs/actions";
+import { setJobScheduleAction } from "@/features/jobs/actions";
+import * as rpc from "@/lib/supabase/rpc";
+import { isTyreShop } from "@/lib/auth/roles";
+import { TYRE_CHECKLIST, DETAILING_CHECKLIST } from "@/features/jobs/checklist";
 
 const ROLES = ["owner", "manager", "cashier"] as const;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -39,13 +42,18 @@ export async function createAppointmentAction(input: z.input<typeof createSchema
   // so it stores/compares correctly (matches every other timestamp write).
   const when = new Date(p.data.scheduledAt);
   if (Number.isNaN(when.getTime())) return { ok: false, error: "Invalid date & time." };
+  const department = p.data.department?.trim() || null;
+  if (department) {
+    const { data: place } = await sb.from("work_places").select("id").eq("name", department).maybeSingle();
+    if (!place) return { ok: false, error: "Choose a current place of work." };
+  }
 
   const { error } = await sb.from("appointments").insert({
     tenant_id: ctx.tenantId,
     customer_id: p.data.customerId,
     vehicle_id: p.data.vehicleId,
     service: p.data.service || null,
-    department: p.data.department || null,
+    department,
     technician_id: p.data.technicianId || null,
     scheduled_at: when.toISOString(),
     notes: p.data.notes || null,
@@ -67,7 +75,7 @@ export async function setAppointmentStatusAction(id: string, status: (typeof STA
 }
 
 export async function convertAppointmentToJobAction(id: string): Promise<ConvertResult> {
-  await requireRole(...ROLES);
+  const ctx = await requireRole(...ROLES);
   const sb = await createClient();
   const { data: apt } = await sb
     .from("appointments")
@@ -84,26 +92,32 @@ export async function convertAppointmentToJobAction(id: string): Promise<Convert
     return { ok: false, error: "Only a scheduled, confirmed or arrived appointment can become a job." };
   }
 
-  const job = await createJobAction({
-    customerId: a.customer_id,
-    vehicleId: a.vehicle_id,
-    service: a.service ?? undefined,
-    technicianId: a.technician_id ?? null,
-    department: a.department ?? null,
-  });
-  if (!job.ok || !job.data) return { ok: false, error: job.ok ? "Could not create the job." : job.error };
+  let jobId: string;
+  try {
+    const job = await rpc.createJob(sb, {
+      customerId: a.customer_id,
+      vehicleId: a.vehicle_id,
+      service: a.service ?? null,
+      technicianId: a.technician_id ?? null,
+      department: a.department ?? null,
+      checklist: isTyreShop(ctx.tenantId) ? TYRE_CHECKLIST : DETAILING_CHECKLIST,
+    });
+    jobId = job.id;
+  } catch (e) {
+    return { ok: false, error: (e as Error).message };
+  }
 
   // Atomic claim: only the FIRST conversion wins (job_id still null → our job).
   // A concurrent conversion that lost the race gets 0 rows back and rolls its job.
   const { data: claimed, error } = await sb
     .from("appointments")
-    .update({ job_id: job.data.id, status: "arrived" })
+    .update({ job_id: jobId, status: "arrived" })
     .eq("id", id)
     .is("job_id", null)
     .select("id")
     .maybeSingle();
   if (error || !claimed) {
-    await sb.from("jobs").delete().eq("id", job.data.id); // roll back the orphan job
+    await sb.from("jobs").delete().eq("id", jobId); // roll back the orphan job
     return { ok: false, error: error?.message ?? "This appointment is already a job." };
   }
   revalidatePath("/appointments");
@@ -113,10 +127,10 @@ export async function convertAppointmentToJobAction(id: string): Promise<Convert
   // Best-effort: the job already exists and the appointment is claimed, so a
   // schedule failure warns instead of failing the conversion.
   if (a.scheduled_at) {
-    const s = await setJobScheduleAction(job.data.id, a.scheduled_at, null);
+    const s = await setJobScheduleAction(jobId, a.scheduled_at, null);
     if (!s.ok) {
-      return { ok: true, data: { jobId: job.data.id }, warning: `Job created, but its schedule could not be carried over: ${s.error}` };
+      return { ok: true, data: { jobId }, warning: `Job created, but its schedule could not be carried over: ${s.error}` };
     }
   }
-  return { ok: true, data: { jobId: job.data.id } };
+  return { ok: true, data: { jobId } };
 }

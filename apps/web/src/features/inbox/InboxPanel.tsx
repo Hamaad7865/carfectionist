@@ -73,9 +73,11 @@ export function InboxPanel({
   const approved = templates.filter((t) => t.status === "approved");
 
   return (
-    <div className="grid h-[calc(100vh-190px)] min-h-[520px] grid-cols-1 gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+    // Below lg there is room for one pane: the list, or the open thread with a way back.
+    // dvh, so a phone's collapsing browser toolbar never hides the reply box.
+    <div className="grid h-[calc(100dvh-170px)] min-h-[480px] grid-cols-1 gap-4 lg:h-[calc(100dvh-190px)] lg:min-h-[520px] lg:grid-cols-[320px_minmax(0,1fr)]">
       {/* ── conversations ── */}
-      <div className="flex min-h-0 flex-col overflow-hidden rounded-[15px] border border-line bg-card">
+      <div className={`${thread ? "hidden lg:flex" : "flex"} min-h-0 flex-col overflow-hidden rounded-[15px] border border-line bg-card`}>
         <div className="border-b border-line p-2.5">
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-faint" />
@@ -129,7 +131,7 @@ export function InboxPanel({
       </div>
 
       {/* ── thread ── */}
-      <div className="flex min-h-0 flex-col overflow-hidden rounded-[15px] border border-line bg-card">
+      <div className={`${thread ? "flex" : "hidden lg:flex"} min-h-0 flex-col overflow-hidden rounded-[15px] border border-line bg-card`}>
         {!thread ? (
           <div className="grid flex-1 place-items-center text-center">
             <div>
@@ -139,12 +141,15 @@ export function InboxPanel({
           </div>
         ) : (
           <>
+            <Link href="/messages" className="border-b border-line px-4 py-2 text-[13px] font-semibold text-muted hover:text-body lg:hidden">
+              ← All conversations
+            </Link>
             {/* header: who + their car + live job */}
             <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-2.5">
               <div className="min-w-0">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-2">
                   <span className="truncate text-[14px] font-bold text-ink">{thread.name}</span>
-                  <span className="num text-[12px] text-muted">{thread.phone}</span>
+                  <span className="num whitespace-nowrap text-[12px] text-muted">{thread.phone}</span>
                 </div>
                 <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11.5px] text-faint">
                   {thread.customerId ? (

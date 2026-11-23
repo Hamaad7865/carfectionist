@@ -1,7 +1,7 @@
 "use client";
 
 import { attrLabel, pickerMatches } from "@/lib/products/attrs-row";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Search, Minus, Plus, X, Printer, MessageCircle, Download, ArrowRight, ShoppingCart, AlertTriangle, PanelLeftClose, PanelLeftOpen, KeyRound } from "lucide-react";
@@ -77,6 +77,17 @@ export function CounterSale({
   // The cart, its discounts and the customer are one value: everything a settle sends. Once an
   // attempt reaches issue_document they freeze together, so a retry re-sends the same request.
   const [basket, setBasket] = useState<Basket>(EMPTY_BASKET);
+  // Phones: the "View ticket" bar hides while the ticket itself is on screen.
+  // A callback ref, so the ticket is watched again each time it remounts after a sale.
+  const [ticketInView, setTicketInView] = useState(false);
+  const ticketIo = useRef<IntersectionObserver | null>(null);
+  const watchTicket = useCallback((el: HTMLDivElement | null) => {
+    ticketIo.current?.disconnect();
+    ticketIo.current = null;
+    if (!el || typeof IntersectionObserver === "undefined") return;
+    ticketIo.current = new IntersectionObserver(([e]) => setTicketInView(e.isIntersecting), { threshold: 0.15 });
+    ticketIo.current.observe(el);
+  }, []);
   const { lines: cart, orderDiscKind, orderDiscValue, orderDiscReason, customer, customerId, pending, notice } = basket;
   const frozen = pending !== null;
   const [method, setMethod] = useState<Method>("cash");
@@ -473,7 +484,7 @@ export function CounterSale({
       </div>
 
       {/* ticket */}
-      <div className="flex min-w-0 flex-col rounded-[15px] border border-line bg-card">
+      <div id="counter-ticket" ref={watchTicket} className="flex min-w-0 scroll-mt-3 flex-col rounded-[15px] border border-line bg-card">
         <div className="border-b border-line px-4 py-3">
           <input
             className={`h-10 w-full rounded-[10px] border bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand ${method === "credit" && !customerId ? "border-amber-ink" : "border-line-2"}`}
@@ -512,25 +523,28 @@ export function CounterSale({
               // computes the same ceiling server-side from the product join.
               const lim = lineDiscountLimits(l, posRules.carwashPct);
               return (
-              <div key={l.product.id} className="flex items-center gap-2 border-b border-line py-2.5">
-                <div className="min-w-0 flex-1">
+              // Two rows, as the ticket is ~350px wide everywhere: name + remove on top,
+              // qty · discount · amount below, so the name is never squeezed to a letter.
+              <div key={l.product.id} className="flex flex-wrap items-center gap-x-2 gap-y-1.5 border-b border-line py-2.5">
+                <div className="order-1 min-w-0 flex-1">
                   <div className="truncate text-[12.5px] font-semibold text-body">{l.product.name}</div>
                   <div className="num text-[11px] text-faint">{formatMUR(shelfCents(l.product.priceCents, l.product.vatRate, pricesInclVat, l.product.priceIncludesVat))} each</div>
                 </div>
-                <div className="flex items-center gap-1.5">
+                <div className="order-4 flex items-center gap-1.5">
                   <button disabled={frozen} onClick={() => setQty(l.product.id, l.qty - 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body disabled:opacity-50"><Minus size={13} /></button>
                   <span className="num w-6 text-center text-[13px] font-bold text-ink">{l.qty}</span>
                   <button disabled={frozen} onClick={() => setQty(l.product.id, l.qty + 1)} className="flex size-7 items-center justify-center rounded-md border border-line-2 bg-sub text-body disabled:opacity-50"><Plus size={13} /></button>
                 </div>
                 <div
-                  className={`flex items-center rounded-[7px] border border-line-2 bg-sub ${lim.disabled ? "opacity-50" : ""}`}
+                  className={`order-5 flex items-center rounded-[7px] border border-line-2 bg-sub ${lim.disabled ? "opacity-50" : ""}`}
                   title={lim.disabled ? "This service is not discounted — ask the owner" : "Line discount (% or Rs off)"}
                 >
                   <button disabled={frozen || lim.disabled} onClick={() => patchLine(l.product.id, { discountKind: l.discountKind === "amount" ? "percent" : "amount", discountPct: 0, discountAmountCents: 0 })} className="grid h-7 w-6 place-items-center text-[10px] font-bold text-faint disabled:cursor-not-allowed disabled:opacity-50">{l.discountKind === "amount" ? "Rs" : "%"}</button>
                   <input value={l.discountKind === "amount" ? (l.discountAmountCents ? String(l.discountAmountCents / 100) : "") : (l.discountPct || "")} readOnly={frozen} disabled={lim.disabled} onChange={(e) => l.discountKind === "amount" ? patchLine(l.product.id, { discountAmountCents: Math.min(lim.amtMaxCents, Math.max(0, parseMoneyInput(e.target.value) ?? 0)) }) : patchLine(l.product.id, { discountPct: Math.min(lim.pctMax, Math.max(0, parseFloat(e.target.value) || 0)) })} inputMode="decimal" placeholder="disc" className="h-7 w-10 bg-transparent pr-1 text-right text-[11px] text-body outline-none placeholder:text-faint disabled:cursor-not-allowed" />
                 </div>
-                <span className="num w-[84px] text-right text-[13px] font-bold text-ink">{formatMUR(pricesInclVat ? lt.exclCents + lt.vatCents : lt.exclCents)}</span>
-                <button disabled={frozen} onClick={() => setQty(l.product.id, 0)} className="text-faint hover:text-rose disabled:opacity-50 disabled:hover:text-faint"><X size={15} /></button>
+                <span className="num order-6 ml-auto text-right text-[13px] font-bold text-ink">{formatMUR(pricesInclVat ? lt.exclCents + lt.vatCents : lt.exclCents)}</span>
+                <button disabled={frozen} onClick={() => setQty(l.product.id, 0)} aria-label={`Remove ${l.product.name}`} className="order-2 grid size-8 shrink-0 place-items-center rounded-md text-faint hover:text-rose disabled:opacity-50 disabled:hover:text-faint"><X size={15} /></button>
+                <div className="order-3 h-0 basis-full" aria-hidden />
               </div>
               );
             })
@@ -671,6 +685,21 @@ export function CounterSale({
         </div>
       </div>
 
+      {/* Phones: the ticket sits below the product grid, so once something is in the
+          sale a bar floats at the bottom with the count and total and jumps to it. */}
+      {cart.length > 0 && !ticketInView && (
+        <button
+          type="button"
+          onClick={() => document.getElementById("counter-ticket")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="grad-brand shadow-brand sticky bottom-3 z-20 flex h-12 w-full items-center justify-between gap-3 rounded-[12px] px-4 text-white lg:hidden"
+        >
+          <span className="flex items-center gap-2 text-[13.5px] font-bold">
+            <ShoppingCart size={17} /> View ticket · {cart.length} {cart.length === 1 ? "item" : "items"}
+          </span>
+          <span className="num text-[15px] font-extrabold">{formatMUR(totals.totalCents)}</span>
+        </button>
+      )}
+
       {overrideOpen && (
         <OwnerOverrideDialog
           documentId={draftId}
@@ -698,7 +727,7 @@ export function CounterSale({
       {confirmNeg && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-[rgba(15,23,32,0.5)]" onClick={() => setConfirmNeg(null)} />
-          <div className="relative w-full max-w-sm rounded-[16px] border border-line bg-card p-6 shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
+          <div className="relative max-h-[92dvh] w-full max-w-sm overflow-y-auto rounded-[16px] border border-line bg-card p-6 shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
             <div className="flex items-center gap-2.5">
               <div className="grid size-9 shrink-0 place-items-center rounded-full bg-[rgba(245,166,35,0.16)] text-amber-ink"><AlertTriangle size={18} /></div>
               <div className="font-display text-[16px] font-extrabold text-ink-strong">Shop stock will go negative</div>
@@ -758,7 +787,7 @@ function PriceProductDialog({
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-[rgba(15,23,32,0.5)]" onClick={onClose} />
-      <div className="relative w-full max-w-sm rounded-[16px] border border-line bg-card p-6 shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
+      <div className="relative max-h-[92dvh] w-full max-w-sm overflow-y-auto rounded-[16px] border border-line bg-card p-6 shadow-[0_20px_60px_-10px_rgba(15,23,32,0.5)]">
         <div className="font-display text-[16px] font-extrabold text-ink-strong">Set a price</div>
         <p className="mt-1.5 text-[13px] font-semibold text-body">{product.name}</p>
         <p className="mt-2 text-[12.5px] text-muted">

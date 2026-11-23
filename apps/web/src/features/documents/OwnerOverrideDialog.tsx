@@ -157,7 +157,7 @@ export function OwnerOverrideDialog({
       onClick={(e) => { e.stopPropagation(); onClose(); }}
     >
       <div
-        className="w-full max-w-md overflow-hidden rounded-[18px] border border-line bg-card shadow-[0_24px_60px_rgba(6,12,20,0.28)]"
+        className="max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-[18px] border border-line bg-card shadow-[0_24px_60px_rgba(6,12,20,0.28)]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* header */}

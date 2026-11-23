@@ -3,13 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Plus, LogOut, ChevronDown } from "lucide-react";
+import { Plus, LogOut, ChevronDown, X } from "lucide-react";
 import { groupNav, navForUser, ROLE_LABEL, type NavGroupKey, type Role } from "@/lib/auth/roles";
 import { signOut } from "@/lib/auth/actions";
 import { Brand } from "./Brand";
 import type { BrandInfo } from "@/lib/brand";
 import { btn } from "@/components/ui/button";
 import { ANIMATED_NAV_ICONS } from "./NavIcons";
+import { ThemeToggle } from "./ThemeToggle";
 
 const COLLAPSED_KEY = "sidebar-collapsed";
 
@@ -20,7 +21,26 @@ function initials(name: string): string {
   return letters.toUpperCase();
 }
 
-export function Sidebar({ role, displayName, modules, brand, hidden = [] }: { role: Role; displayName: string; modules: string[] | null; brand: BrandInfo; hidden?: readonly string[] }) {
+export function Sidebar({
+  role,
+  displayName,
+  modules,
+  brand,
+  hidden = [],
+  onClose,
+  onNavigate,
+}: {
+  role: Role;
+  displayName: string;
+  modules: string[] | null;
+  brand: BrandInfo;
+  hidden?: readonly string[];
+  /** Set when the sidebar is the phone drawer: shows a close button. */
+  onClose?: () => void;
+  /** Drawer only: takes over link taps, so the drawer can close (popping its
+   *  history entry) before the page changes — Back then returns in one press. */
+  onNavigate?: (href: string) => void;
+}) {
   const pathname = usePathname();
   const sections = groupNav(navForUser(role, modules).filter((i) => !hidden.includes(i.href)));
   const name = displayName.replace(/\s*\(.*\)\s*$/, "").trim();
@@ -49,15 +69,33 @@ export function Sidebar({ role, displayName, modules, brand, hidden = [] }: { ro
     });
   }
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
+  const take = (href: string) => (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (!onNavigate || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    onNavigate(href);
+  };
 
   return (
     <nav className="flex h-full w-full shrink-0 flex-col border-r border-line bg-linear-to-b from-card to-sub px-[13px] py-[18px]">
-      <div className="px-2 pb-[18px] pt-1">
-        <Brand brand={brand} />
+      <div className="flex items-center gap-2 px-2 pb-[18px] pt-1">
+        <div className="min-w-0 flex-1">
+          <Brand brand={brand} />
+        </div>
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close menu"
+            className="grid size-10 shrink-0 place-items-center rounded-[11px] text-muted hover:bg-shade/4 hover:text-body"
+          >
+            <X size={20} />
+          </button>
+        )}
       </div>
 
       <Link
         href="/sales/new?type=invoice"
+        onClick={take("/sales/new?type=invoice")}
         className={btn("primary", "lg", "mx-0.5 mb-3.5 gap-2 text-[14px]")}
       >
         <Plus size={17} strokeWidth={2.4} />
@@ -75,7 +113,7 @@ export function Sidebar({ role, displayName, modules, brand, hidden = [] }: { ro
                   type="button"
                   onClick={() => toggle(section.key)}
                   aria-expanded={open}
-                  className="flex h-7 w-full items-center gap-1 rounded-[8px] px-[13px] text-[12px] font-extrabold uppercase tracking-[0.08em] text-ink transition-colors hover:text-link"
+                  className="flex h-9 w-full items-center gap-1 rounded-[8px] px-[13px] md:h-7 text-[12px] font-extrabold uppercase tracking-[0.08em] text-ink transition-colors hover:text-link"
                 >
                   <span className="flex-1 text-left">{section.label}</span>
                   <ChevronDown size={15} strokeWidth={2.6} className={`text-muted transition-transform ${open ? "" : "-rotate-90"}`} />
@@ -93,8 +131,9 @@ export function Sidebar({ role, displayName, modules, brand, hidden = [] }: { ro
                       <Link
                         key={item.href}
                         href={item.href}
+                        onClick={take(item.href)}
                         aria-current={active ? "page" : undefined}
-                        className={`group relative flex h-9 items-center gap-3 rounded-[10px] px-[13px] text-[14.5px] font-bold transition-colors ${
+                        className={`group relative flex h-11 items-center gap-3 rounded-[10px] px-[13px] text-[15px] font-bold md:h-9 md:text-[14.5px] transition-colors ${
                           active ? "bg-brand/10 text-link" : "text-body hover:bg-shade/4"
                         }`}
                       >
@@ -121,16 +160,21 @@ export function Sidebar({ role, displayName, modules, brand, hidden = [] }: { ro
           <div className="truncate text-[13px] font-bold text-ink">{name}</div>
           <div className="text-[11px] font-medium text-muted">{ROLE_LABEL[role]} · Admin</div>
         </div>
+        {/* On a phone the topbar has no room for the theme switch; it lives here. */}
+        <div className="sm:hidden">
+          <ThemeToggle />
+        </div>
         <form action={signOut}>
           <button
             type="submit"
             title="Sign out"
-            className="grid size-8 place-items-center rounded-lg text-faint transition-colors hover:bg-card hover:text-rose"
+            aria-label="Sign out"
+            className="grid size-10 place-items-center rounded-lg text-faint transition-colors hover:bg-card hover:text-rose md:size-8"
           >
             <LogOut size={16} />
           </button>
         </form>
-        <ChevronDown size={16} className="text-faint" />
+        <ChevronDown size={16} className="hidden text-faint md:block" />
       </div>
     </nav>
   );

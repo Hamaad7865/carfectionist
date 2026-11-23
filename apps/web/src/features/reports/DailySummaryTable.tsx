@@ -23,6 +23,9 @@ function cellText(c: ReturnType<typeof columnDefs>[number], r: DailySummaryRow):
 }
 const isNum = (c: ReturnType<typeof columnDefs>[number]) => !c.text;
 
+/** The day column stays put while the figures swipe sideways on a phone. */
+const STICKY = "sticky left-0 z-[1] shadow-[1px_0_0_var(--color-line)]";
+
 export function DailySummaryTable({
   summary,
   sections,
@@ -85,7 +88,7 @@ export function DailySummaryTable({
               {cols.map((c, i) => (
                 <th
                   key={`${c.head}-${i}`}
-                  className={`whitespace-nowrap border-b border-line bg-sub px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.08em] text-faint ${isNum(c) ? "text-right" : "text-left"}`}
+                  className={`whitespace-nowrap border-b border-line bg-sub px-3 py-2 text-[11.5px] font-bold uppercase tracking-[0.08em] text-faint ${isNum(c) ? "text-right" : "text-left"} ${i === 0 ? STICKY : ""}`}
                 >
                   {c.head}
                 </th>
@@ -96,7 +99,7 @@ export function DailySummaryTable({
             {summary.rows.map((r) => (
               <tr key={r.day} className="border-b border-line-2 last:border-0 hover:bg-sub">
                 {cols.map((c, i) => (
-                  <td key={i} className={`whitespace-nowrap px-3 py-2 ${isNum(c) ? "num text-right" : "font-semibold text-body"} ${r.tickets === 0 ? "text-faint" : "text-body"}`}>
+                  <td key={i} className={`whitespace-nowrap px-3 py-2 ${isNum(c) ? "num text-right" : "font-semibold text-body"} ${r.tickets === 0 ? "text-faint" : "text-body"} ${i === 0 ? `${STICKY} bg-card` : ""}`}>
                     {cellText(c, r)}
                   </td>
                 ))}
@@ -106,7 +109,7 @@ export function DailySummaryTable({
           <tfoot>
             <tr className="bg-band">
               {cols.map((c, i) => (
-                <td key={i} className={`whitespace-nowrap px-3 py-2.5 font-bold text-ink-strong ${isNum(c) ? "num text-right" : ""}`}>
+                <td key={i} className={`whitespace-nowrap px-3 py-2.5 font-bold text-ink-strong ${isNum(c) ? "num text-right" : ""} ${i === 0 ? `${STICKY} bg-band` : ""}`}>
                   {i === 0 ? "Total" : cellText(c, summary.totals)}
                 </td>
               ))}

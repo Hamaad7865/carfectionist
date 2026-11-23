@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ChipRail } from "@/components/ui/ChipRail";
 import { getInventory } from "@/lib/supabase/queries/inventory";
 import { getSessionContext } from "@/lib/auth/session";
 import { isTyreShop } from "@/lib/auth/roles";
@@ -41,15 +42,15 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
 
   return (
     <div className="flex flex-col gap-4 p-4 sm:p-6">
-      <div className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 pb-1 sm:mx-0 sm:px-0 sm:pb-0 [&>*]:shrink-0">
-        <Link href="/products" className={tabCls(tab === "catalogue")}>Catalogue</Link>
-        <Link href="/products?tab=inventory" className={tabCls(tab === "inventory")}>Inventory</Link>
-        <Link href="/products?tab=categories" className={tabCls(tab === "categories")}>Categories</Link>
-        <Link href="/products?tab=transfers" className={tabCls(tab === "transfers")}>Transfers</Link>
-        {recipesOn && <Link href="/products?tab=recipes" className={tabCls(tab === "recipes")}>Recipes</Link>}
+      <ChipRail className="-mx-4 flex items-center gap-1.5 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0 [&::-webkit-scrollbar]:hidden [&>*]:shrink-0">
+        <Link href="/products" aria-current={tab === "catalogue" ? "page" : undefined} className={tabCls(tab === "catalogue")}>Catalogue</Link>
+        <Link href="/products?tab=inventory" aria-current={tab === "inventory" ? "page" : undefined} className={tabCls(tab === "inventory")}>Inventory</Link>
+        <Link href="/products?tab=categories" aria-current={tab === "categories" ? "page" : undefined} className={tabCls(tab === "categories")}>Categories</Link>
+        <Link href="/products?tab=transfers" aria-current={tab === "transfers" ? "page" : undefined} className={tabCls(tab === "transfers")}>Transfers</Link>
+        {recipesOn && <Link href="/products?tab=recipes" aria-current={tab === "recipes" ? "page" : undefined} className={tabCls(tab === "recipes")}>Recipes</Link>}
         <div className="flex-1" />
         {(tab === "catalogue" || tab === "inventory") && <ImportExport kind="products" pricesInclVat={pricesInclVat} />}
-      </div>
+      </ChipRail>
 
       {tab === "catalogue" && inventory && session && (
         <CataloguePanel

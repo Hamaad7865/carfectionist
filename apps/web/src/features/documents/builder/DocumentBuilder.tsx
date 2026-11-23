@@ -1,7 +1,7 @@
 "use client";
 
 import { attrLabel, pickerMatches } from "@/lib/products/attrs-row";
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState, Fragment } from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -115,6 +115,16 @@ function MoneyField({ cents, onCents, className, placeholder, syncKey }: { cents
   );
 }
 
+const NARROW_QUERY = "(max-width: 1023.98px)";
+function subscribeNarrow(cb: () => void) {
+  const mq = window.matchMedia(NARROW_QUERY);
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+}
+function isNarrowNow() {
+  return window.matchMedia(NARROW_QUERY).matches;
+}
+
 export function DocumentBuilder({
   ctx,
   initial,
@@ -129,7 +139,12 @@ export function DocumentBuilder({
   const router = useRouter();
   const [state, dispatch] = useReducer(reducer, initial);
   const [busy, setBusy] = useState(false);
-  const [showPreview, setShowPreview] = useState(true);
+  // Below lg the form and the preview stack in one column, and a phone has no room
+  // for both: open on the form, and let "Preview" swap the whole pane to the A4.
+  // null = the user has not toggled yet, so follow the screen size.
+  const narrow = useSyncExternalStore(subscribeNarrow, isNarrowNow, () => false);
+  const [previewChoice, setPreviewChoice] = useState<boolean | null>(null);
+  const showPreview = previewChoice ?? !narrow;
   const [catQuery, setCatQuery] = useState("");
   const [openDesc, setOpenDesc] = useState<string | null>(null); // which line's description is being edited
   const [catKind, setCatKind] = useState<"all" | "service" | "product">("all");
@@ -556,13 +571,20 @@ export function DocumentBuilder({
         {state.status === "draft" && state.docId && <DeleteDraftButton documentId={state.docId} docType={state.docType} />}
         <div className="flex-1" />
         <button
-          onClick={() => setShowPreview((v) => !v)}
+          onClick={() => setPreviewChoice(!showPreview)}
           title={showPreview ? "Hide preview" : "Show preview"}
           aria-pressed={showPreview}
           className="flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3 text-[12.5px] font-semibold text-body hover:border-brand"
         >
           {showPreview ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}
-          {showPreview ? "Hide preview" : "Preview"}
+          {showPreview ? (
+            <>
+              <span className="lg:hidden">Edit</span>
+              <span className="hidden lg:inline">Hide preview</span>
+            </>
+          ) : (
+            "Preview"
+          )}
         </button>
         {/* A quotation is sent BEFORE it is agreed — the customer has to read the price
             to accept it. Sending issues the draft on the way out, so this sits beside
@@ -655,7 +677,7 @@ export function DocumentBuilder({
 
       <div className={`grid min-h-0 flex-1 grid-cols-1 ${showPreview ? "lg:grid-cols-2" : ""}`}>
         {/* CONTROLS */}
-        <div className="flex flex-col gap-4 overflow-y-auto p-4 md:p-[22px]">
+        <div className={`${showPreview ? "hidden lg:flex" : "flex"} flex-col gap-4 overflow-y-auto p-4 md:p-[22px]`}>
           {/* doc type + bill to */}
           <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
             <div>
@@ -971,7 +993,7 @@ export function DocumentBuilder({
                         /* The rail sits BESIDE the row, not as icons on top of the
                            content — Refrens hides these behind a hover on the row
                            itself, which is unfindable on a tablet. */
-                        <div className="flex flex-col gap-px" title="Move this line">
+                        <div className="flex shrink-0 flex-col gap-px" title="Move this line">
                           <button
                             onClick={() => dispatch({ type: "moveLine", key: l.key, by: -1 })}
                             disabled={li === 0}
@@ -990,12 +1012,16 @@ export function DocumentBuilder({
                           </button>
                         </div>
                       )}
-                      <div className="min-w-0 flex-1 basis-full sm:basis-0">
+                      <div className="min-w-0 flex-1 basis-full overflow-hidden sm:min-w-[180px] sm:basis-[180px]">
                         <div className="truncate text-[13px] font-semibold text-ink">{l.title || "—"}</div>
                         {l.productId === null && <span className="text-[8.5px] font-bold tracking-[0.1em] text-[#6a55d6]">AD-HOC</span>}
                         {multiCompany && (() => {
                           const co = companyById.get(companyOf(l.productId) ?? "");
-                          return co ? <div className="mt-1"><CompanyChip name={co.name} index={companyIndex.get(co.id) ?? 0} /></div> : null;
+                          return co ? (
+                            <div className="mt-1 max-w-[150px] overflow-hidden">
+                              <CompanyChip name={co.name} index={companyIndex.get(co.id) ?? 0} />
+                            </div>
+                          ) : null;
                         })()}
                         {!descOpen && summary && (
                           <div className="truncate text-[11px] text-faint" title={summary}>{summary.replace(/\n/g, " · ")}</div>
@@ -1007,7 +1033,7 @@ export function DocumentBuilder({
                           onChange={(e) => dispatch({ type: "patchLine", key: l.key, patch: { vehicleId: e.target.value || null } })}
                           title="Which car this charge is for"
                           aria-label={`Car for ${l.title || "line"}`}
-                          className="h-7 max-w-[122px] truncate rounded-[7px] border border-line-2 bg-sub px-1.5 text-[11px] font-semibold text-body outline-none focus:border-brand"
+                          className="h-7 max-w-[122px] shrink-0 truncate rounded-[7px] border border-line-2 bg-sub px-1.5 text-[11px] font-semibold text-body outline-none focus:border-brand"
                         >
                           <option value="">No car</option>
                           {state.cars.map((c) => (
@@ -1022,7 +1048,7 @@ export function DocumentBuilder({
                         const co = multiCompany ? companyById.get(companyOf(l.productId) ?? "") : undefined;
                         if (co && !co.vatRegistered) {
                           return (
-                            <span title={`${co.name} is not VAT registered`} className="flex h-7 items-center whitespace-nowrap rounded-[7px] bg-shade/[0.06] px-2.5 text-[10.5px] font-bold text-faint">
+                            <span title={`${co.name} is not VAT registered`} className="flex h-7 shrink-0 items-center whitespace-nowrap rounded-[7px] bg-shade/[0.06] px-2.5 text-[10.5px] font-bold text-faint">
                               No VAT
                             </span>
                           );
@@ -1032,7 +1058,7 @@ export function DocumentBuilder({
                           <button
                             onClick={() => !readOnly && dispatch({ type: "patchLine", key: l.key, patch: nextLineVat(l) })}
                             title={mode === "incl" ? "The price already includes VAT — click to add VAT on top" : mode === "plus" ? "VAT is added on top of the price — click to make this line VAT-free" : "No VAT on this line — click if the price includes VAT"}
-                            className={`h-7 whitespace-nowrap rounded-[7px] px-2.5 text-[10.5px] font-bold ${mode === "incl" ? "bg-[rgba(43,140,255,0.14)] text-link" : mode === "plus" ? "bg-amber/15 text-amber-ink" : "bg-shade/[0.06] text-faint"}`}
+                            className={`h-7 shrink-0 whitespace-nowrap rounded-[7px] px-2.5 text-[10.5px] font-bold ${mode === "incl" ? "bg-[rgba(43,140,255,0.14)] text-link" : mode === "plus" ? "bg-amber/15 text-amber-ink" : "bg-shade/[0.06] text-faint"}`}
                           >
                             {mode === "incl" ? "Incl. VAT" : mode === "plus" ? "+ VAT" : "No VAT"}
                           </button>
@@ -1040,7 +1066,7 @@ export function DocumentBuilder({
                       })()}
                       {!readOnly && (
                         <div
-                          className={`flex items-center rounded-[7px] border border-line-2 bg-sub ${lineDiscountDisabled ? "opacity-50" : ""}`}
+                          className={`flex shrink-0 items-center rounded-[7px] border border-line-2 bg-sub ${lineDiscountDisabled ? "opacity-50" : ""}`}
                           title={lineDiscountDisabled ? "This service is not discounted — ask the owner" : "Line discount (% or Rs off)"}
                         >
                           <button
@@ -1070,7 +1096,7 @@ export function DocumentBuilder({
                            identity — ~13% of values land a cent out, so a round-trip rewrote the field
                            under the cursor and saved a mangled rate). The line amount and the printed
                            document state the ex-VAT price; this box is entry, not presentation. */
-                        <div className="relative w-[96px]" title={l.priceInclusive ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
+                        <div className="relative w-[96px] shrink-0" title={l.priceInclusive ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
                           <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
                           <MoneyField
                             // Gross in, net stored — ONE WAY. The typed text is never derived back
@@ -1091,7 +1117,7 @@ export function DocumentBuilder({
                         </div>
                       )}
                       {!readOnly && (
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex shrink-0 items-center gap-1.5">
                           <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: Math.max(1, l.qty - 1) } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-band text-[14px] font-bold text-body">−</button>
                           <span className="num min-w-4 text-center text-[13px] font-bold text-ink">{l.qty}</span>
                           <button onClick={() => dispatch({ type: "patchLine", key: l.key, patch: { qty: l.qty + 1 } })} className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-band text-[14px] font-bold text-body">+</button>
@@ -1109,14 +1135,14 @@ export function DocumentBuilder({
                           the price shows without VAT, the footer's VAT row carries the tax, and the
                           TOTAL still lands on the typed gross. The rate box above keeps the typed
                           shelf figure — that is entry, not presentation. */}
-                      <span className="num min-w-[78px] text-right text-[13px] font-bold text-ink">{formatMUR(net)}</span>
+                      <span className="num min-w-[78px] shrink-0 text-right text-[13px] font-bold text-ink">{formatMUR(net)}</span>
                       {!readOnly && (
                         <>
                           <button
                             onClick={() => setOpenDesc(descOpen ? null : l.key)}
                             aria-expanded={descOpen}
                             title={summary ? "Edit this line's description" : "Add a description to this line"}
-                            className={`grid size-[26px] place-items-center rounded-[7px] border ${descOpen || summary ? "border-brand bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-sub text-faint hover:text-body"}`}
+                            className={`grid size-[26px] shrink-0 place-items-center rounded-[7px] border ${descOpen || summary ? "border-brand bg-[rgba(43,140,255,0.12)] text-link" : "border-line-2 bg-sub text-faint hover:text-body"}`}
                           >
                             <AlignLeft size={13} />
                           </button>
@@ -1124,11 +1150,11 @@ export function DocumentBuilder({
                             onClick={() => dispatch({ type: "duplicateLine", key: l.key })}
                             title="Duplicate this line"
                             aria-label="Duplicate line"
-                            className="grid size-[26px] place-items-center rounded-[7px] border border-line-2 bg-sub text-faint hover:text-body"
+                            className="grid size-[26px] shrink-0 place-items-center rounded-[7px] border border-line-2 bg-sub text-faint hover:text-body"
                           >
                             <Copy size={13} />
                           </button>
-                          <button onClick={() => dispatch({ type: "removeLine", key: l.key })} aria-label="Remove line" className="grid size-[26px] place-items-center rounded-[7px] bg-[rgba(255,84,104,0.12)] text-rose"><X size={13} strokeWidth={2.6} /></button>
+                          <button onClick={() => dispatch({ type: "removeLine", key: l.key })} aria-label="Remove line" className="grid size-[26px] shrink-0 place-items-center rounded-[7px] bg-[rgba(255,84,104,0.12)] text-rose"><X size={13} strokeWidth={2.6} /></button>
                         </>
                       )}
                     </div>
@@ -1324,7 +1350,7 @@ export function DocumentBuilder({
 
         {/* PREVIEW */}
         {showPreview && (
-          <div className="flex min-h-0 flex-col border-l border-line bg-band">
+          <div className="flex min-h-0 flex-col border-line bg-band lg:border-l">
             <div className="flex h-10 shrink-0 items-center gap-1 border-b border-line bg-sub px-3">
               <span className={`${spanning ? "" : "mr-auto "}text-[11px] font-bold uppercase tracking-[0.12em] text-faint`}>Preview</span>
               {spanning && (

@@ -3,7 +3,7 @@ import { fetchAllRows } from "@/lib/supabase/paginate";
 import { getStockLocations, pickSalesFloor } from "@/lib/supabase/locations";
 import { isLow, canMove } from "@/lib/stock/low";
 import { rupeesToCents, formatMUR } from "@/lib/money";
-import { muToday, muNow } from "@/lib/mu-date";
+import { muToday, muNow, muDateTime } from "@/lib/mu-date";
 
 export interface NotifItem {
   key: string;
@@ -117,6 +117,66 @@ async function jobsStarted(sb: SB, dayStartIso: string): Promise<NotifItem | nul
   }
 }
 
+export interface AppointmentReminderRow {
+  id: string;
+  scheduled_at: string;
+  service: string | null;
+  customers: { name: string | null } | null;
+}
+
+export function appointmentReminderWindow(nowIso: string, reminderDays: number): { start: string; end: string } {
+  const startMs = Date.parse(nowIso);
+  const days = Number.isFinite(reminderDays) ? Math.max(1, Math.min(30, Math.trunc(reminderDays))) : 3;
+  return {
+    start: new Date(startMs).toISOString(),
+    end: new Date(startMs + days * 24 * 3600_000).toISOString(),
+  };
+}
+
+export function appointmentReminderItem(
+  rows: AppointmentReminderRow[],
+  count: number,
+): NotifItem | null {
+  if (count <= 0) return null;
+  const first = rows.slice().sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at))[0];
+  const customer = first?.customers?.name?.trim() || "customer";
+  const service = first?.service?.trim();
+  return {
+    key: "appointments",
+    label: `${count} upcoming appointment${count === 1 ? "" : "s"}`,
+    detail: first
+      ? `${customer}${service ? ` · ${service}` : ""} · ${muDateTime(first.scheduled_at)}`
+      : "Open the appointments schedule",
+    href: "/appointments",
+    tone: "info",
+    count,
+  };
+}
+
+/** Live scheduled/confirmed bookings inside the tenant's reminder window. */
+async function upcomingAppointments(sb: SB, nowIso: string): Promise<NotifItem | null> {
+  try {
+    const { data: settings } = await sb
+      .from("business_settings")
+      .select("appointment_reminder_days")
+      .limit(1)
+      .maybeSingle();
+    const reminderDays = Number(settings?.appointment_reminder_days ?? 3);
+    const window = appointmentReminderWindow(nowIso, reminderDays);
+    const { data, count } = await sb
+      .from("appointments")
+      .select("id, scheduled_at, service, customers(name)", { count: "exact" })
+      .in("status", ["scheduled", "confirmed"])
+      .gte("scheduled_at", window.start)
+      .lte("scheduled_at", window.end)
+      .order("scheduled_at", { ascending: true })
+      .limit(5);
+    return appointmentReminderItem((data ?? []) as AppointmentReminderRow[], count ?? 0);
+  } catch {
+    return null;
+  }
+}
+
 /** Ceramic maintenance due. */
 async function maintenanceDue(sb: SB, today: string): Promise<NotifItem | null> {
   try {
@@ -182,8 +242,12 @@ async function lowStock(sb: SB): Promise<NotifItem | null> {
 /** Everything that is true right now, before anyone's dismissals are applied.
  *  Exported because the dismiss action needs the SERVER's count of an alert —
  *  a stale browser must not be able to silence one bigger than it has seen. */
-export async function collectNotifications(sb: SB, today: string): Promise<NotifItem[]> {
-  // All four at once — the wall-clock cost is now the slowest single source,
+export async function collectNotifications(
+  sb: SB,
+  today: string,
+  nowIso = new Date().toISOString(),
+): Promise<NotifItem[]> {
+  // All sources at once — the wall-clock cost is now the slowest single source,
   // not the sum of all of them.
   // Start of the Mauritius business day (UTC+4, no DST) as an instant — the
   // window for "started today".
@@ -194,6 +258,7 @@ export async function collectNotifications(sb: SB, today: string): Promise<Notif
     maintenanceDue(sb, today),
     lowStock(sb),
     jobsStarted(sb, dayStartIso),
+    upcomingAppointments(sb, nowIso),
   ]);
   return items.filter((i): i is NotifItem => i !== null);
 }
@@ -211,9 +276,10 @@ async function myDismissals(sb: SB): Promise<Dismissal[]> {
 
 export async function getNotifications(): Promise<NotifItem[]> {
   const sb = await createClient();
+  const now = new Date();
   const today = muToday(); // Mauritius calendar day, not UTC
 
-  const [items, dismissals] = await Promise.all([collectNotifications(sb, today), myDismissals(sb)]);
+  const [items, dismissals] = await Promise.all([collectNotifications(sb, today, now.toISOString()), myDismissals(sb)]);
   return applyDismissals(items, dismissals, today);
 }
 

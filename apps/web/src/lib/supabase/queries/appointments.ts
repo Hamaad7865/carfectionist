@@ -23,11 +23,12 @@ export interface AppointmentsData {
   appointments: AppointmentRow[];
   customers: AptRefCustomer[];
   technicians: { id: string; name: string }[];
+  workPlaces: { id: string; name: string }[];
 }
 
 export async function getAppointments(nowISO: string): Promise<AppointmentsData> {
   const sb = await createClient();
-  const [aptRes, custRes, vehRes, techRes] = await Promise.all([
+  const [aptRes, custRes, vehRes, techRes, placesRes] = await Promise.all([
     sb
       .from("appointments")
       .select("id, service, department, scheduled_at, status, notes, job_id, customers(name), vehicles(plate, make, model), app_users!appointments_technician_id_fkey(display_name)")
@@ -36,6 +37,7 @@ export async function getAppointments(nowISO: string): Promise<AppointmentsData>
     sb.from("customers").select("id, name").order("name"),
     sb.from("vehicles").select("id, customer_id, plate, make, model").order("plate"),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
+    sb.from("work_places").select("id, name").order("sort_order").order("name"),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -62,7 +64,8 @@ export async function getAppointments(nowISO: string): Promise<AppointmentsData>
   }
   const customers: AptRefCustomer[] = ((custRes.data ?? []) as any[]).map((c) => ({ id: c.id, name: c.name, vehicles: vehByCust.get(c.id) ?? [] }));
   const technicians = ((techRes.data ?? []) as any[]).map((u) => ({ id: u.id, name: u.display_name.replace(/\s*\(.*\)\s*$/, "").trim() }));
+  const workPlaces = ((placesRes.data ?? []) as any[]).map((place) => ({ id: place.id, name: place.name }));
   /* eslint-enable @typescript-eslint/no-explicit-any */
 
-  return { appointments, customers, technicians };
+  return { appointments, customers, technicians, workPlaces };
 }
