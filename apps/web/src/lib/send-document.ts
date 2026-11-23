@@ -5,7 +5,7 @@ import { PdfConfigError } from "@/lib/pdf/render";
 import { sendDocumentEmail } from "@/lib/email";
 import { docToken } from "@/lib/receipt-token";
 import { normalizePhoneMU } from "@/lib/phone";
-import { issueDocument } from "@/lib/supabase/rpc";
+import { issueAcrossCompanies } from "@/lib/supabase/issue-across-companies";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { recordOutbound } from "@/lib/wa-inbox";
 import * as wa from "@/lib/whatsapp";
@@ -102,12 +102,15 @@ export interface SendDocumentInput {
   saveContact?: boolean;
   origin: string; // https://app-carfectionist.com — for the public PDF link
   deviceCode?: string | null; // stamps the traceability event when sent from a tablet
+  /** Send every quote of a two-company split, not just this one ("Send both"). A draft that THIS
+   *  send splits always sends every part, whatever this says. */
+  wholeGroup?: boolean;
 }
 
 /** `issued` is set only when THIS send is what issued the document, so the caller
  *  can retire its "Draft" chip instead of showing one over a frozen quote. */
 export type SendDocumentResult =
-  | { ok: true; issued?: { number: string; status: string } }
+  | { ok: true; issued?: { number: string; status: string; parts?: number } }
   | { ok: false; error: string };
 
 const KIND_LABEL: Record<string, string> = { quote: "quotation", invoice: "invoice", credit_note: "credit note" };
@@ -121,7 +124,7 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
   // Load the document through the operator's RLS — also proves they may see it.
   const { data: doc } = await sb.from("documents").select(DOC_SELECT).eq("id", i.docId).maybeSingle();
   if (!doc) return { ok: false, error: "Document not found." };
-  let d: any = doc;
+  const d: any = doc;
   // Before anything else: refusing AFTER issuing would leave a quote numbered for a send
   // that never happened. The tyre centre has no WhatsApp (roles.ts hasWhatsApp).
   if (i.channel === "whatsapp" && !hasWhatsApp(d.tenant_id)) return { ok: false, error: NO_WHATSAPP };
@@ -131,7 +134,8 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
   // number for the PDF header, the WhatsApp template or the customer to quote back.
   // Sending issues it: 'issued' already means "quoted to the customer, not agreed".
   // Acceptance stays where it is — the signature pad and convert_quote_to_invoice.
-  let issued: { number: string; status: string } | undefined;
+  let issued: { number: string; status: string; parts?: number } | undefined;
+  let ids: string[] = [i.docId];
   if (!d.number) {
     if (d.doc_type !== "quote") {
       // Issuing one of these is a fiscal act — the number, the stock and the till all
@@ -147,17 +151,56 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
       // refuse a quotation. convert_quote_to_job issues its quote the same way.
       // The key mirrors quote-accept:<id> — the RPC's advisory lock + replay make a
       // double-tap, a retry, or two operators sending at once land on ONE number.
-      await issueDocument(sb as any, i.docId, null, `quote-send:${i.docId}`, null);
+      // A two-company shop: a quote both companies sell becomes one quote per company here,
+      // each numbered in its own series — and the customer gets every one of them.
+      const rows = await issueAcrossCompanies(sb, i.docId, { idempotencyKey: `quote-send:${i.docId}` });
+      ids = rows.map((r) => r.id);
+      issued = { number: rows.map((r) => r.number ?? "").join(" + "), status: rows[0].status, parts: rows.length };
     } catch (e) {
       return { ok: false, error: `Couldn't issue this quotation to send it: ${(e as Error).message}` };
     }
-    // Re-read rather than patch: issuing also stamps issue_date, the bill-to snapshot
-    // and the VAT breakdown, and the PDF/template below read those.
-    const { data: fresh } = await sb.from("documents").select(DOC_SELECT).eq("id", i.docId).maybeSingle();
-    if (!fresh || !(fresh as any).number) return { ok: false, error: "This quotation could not be issued." };
-    d = fresh as any;
-    issued = { number: d.number, status: d.status };
+  } else if (i.wholeGroup) {
+    ids = await groupDocumentIds(sb, i.docId);
   }
+
+  // One document after another; a failure part-way says how far it got.
+  for (let k = 0; k < ids.length; k++) {
+    // The document already loaded above needs no second read unless this send just issued it.
+    const r = await deliverOne({ ...i, docId: ids[k] }, !issued && ids[k] === i.docId ? d : null);
+    if (!r.ok) {
+      return { ok: false, error: ids.length > 1 && k > 0 ? `${r.error} (${k} of ${ids.length} quotes were sent before this.)` : r.error };
+    }
+  }
+  return { ok: true, issued };
+}
+
+/** Every live document of the two-company sale or quote this one belongs to, in company order —
+ *  just this one when it stands alone (every Carfectionist document). */
+async function groupDocumentIds(sb: SupabaseClient<any>, docId: string): Promise<string[]> {
+  const { data: self } = await sb.from("documents").select("checkout_group_id, doc_type").eq("id", docId).maybeSingle();
+  const group = (self as any)?.checkout_group_id as string | null | undefined;
+  if (!group) return [docId];
+  const [{ data: docs }, { data: ents }] = await Promise.all([
+    sb.from("documents").select("id, legal_entity_id, number").eq("checkout_group_id", group).eq("doc_type", (self as any).doc_type).neq("status", "void"),
+    sb.from("legal_entities").select("id, sort_order").order("sort_order").order("id"),
+  ]);
+  const order = new Map(((ents ?? []) as any[]).map((e, n) => [e.id as string, n]));
+  const live = ((docs ?? []) as any[]).filter((x) => x.number);
+  if (live.length === 0) return [docId];
+  return live
+    .sort((a, b) => (order.get(a.legal_entity_id) ?? 99) - (order.get(b.legal_entity_id) ?? 99))
+    .map((x) => x.id as string);
+}
+
+/** Deliver ONE issued document: render its own PDF (its own company's letterhead) and send it. */
+async function deliverOne(i: SendDocumentInput, loaded: any = null): Promise<{ ok: true } | { ok: false; error: string }> {
+  const sb = i.sb as SupabaseClient<any>;
+  // Re-read rather than patch: issuing also stamps issue_date, the bill-to snapshot
+  // and the VAT breakdown, and the PDF/template below read those. A document that was
+  // already numbered when the send began is passed in as it was read.
+  const fresh = loaded ?? (await sb.from("documents").select(DOC_SELECT).eq("id", i.docId).maybeSingle()).data;
+  if (!fresh || !(fresh as any).number) return { ok: false, error: "This quotation could not be issued." };
+  const d: any = fresh;
   // A rehearsal must never reach a customer. The sandbox tenant exists so testing can be
   // undone, and a test quotation landing in somebody's WhatsApp is the one part of a test
   // that cannot be. So every send from it is redirected, whatever the operator typed.
@@ -320,7 +363,6 @@ export async function sendDocument(i: SendDocumentInput): Promise<SendDocumentRe
     payload: { channel: i.channel, to, number: d.number, kind },
     device_id: i.deviceCode ?? null,
   });
-  /* eslint-enable @typescript-eslint/no-explicit-any */
-
-  return { ok: true, issued };
+  return { ok: true };
 }
+/* eslint-enable @typescript-eslint/no-explicit-any */

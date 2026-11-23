@@ -5,19 +5,25 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 // that: which documents may travel numberless, and on exactly what terms.
 
 const issueDocument = vi.fn();
-vi.mock("@/lib/supabase/rpc", () => ({ issueDocument: (...a: unknown[]) => issueDocument(...a) }));
+const issueCheckout = vi.fn();
+vi.mock("@/lib/supabase/rpc", () => ({
+  issueDocument: (...a: unknown[]) => issueDocument(...a),
+  issueCheckout: (...a: unknown[]) => issueCheckout(...a),
+  checkoutDocumentIds: async () => [],
+}));
 
 import { sendDocument } from "./send-document";
 
 type Row = Record<string, unknown> | null;
 
-/** The slice of supabase-js sendDocument actually uses to load the document. */
-function client(rows: Row[]) {
+/** The slice of supabase-js sendDocument actually uses to load the document. `companies` is
+ *  what a head-count of the shop's active issuing companies answers (one = Carfectionist). */
+function client(rows: Row[], companies = 1) {
   const queue = [...rows];
   return {
     from: () => ({
       select: () => ({
-        eq: () => ({ maybeSingle: async () => ({ data: queue.shift() ?? null }) }),
+        eq: () => ({ count: companies, maybeSingle: async () => ({ data: queue.shift() ?? null }) }),
       }),
     }),
   } as never;
@@ -134,6 +140,31 @@ describe("sendDocument — what may be sent without a number", () => {
     const r = await send(client([null]));
 
     expect(r).toEqual({ ok: false, error: "Document not found." });
+  });
+});
+
+describe("sendDocument — a two-company shop (tyre centre)", () => {
+  beforeEach(() => { issueDocument.mockClear(); issueCheckout.mockClear(); });
+
+  it("a quote both companies sell is issued as one quote per company, then every one is sent", async () => {
+    issueCheckout.mockResolvedValue([
+      { id: "doc-1", number: "Q-0001", status: "issued", legal_entity_id: "garage", checkout_group_id: "doc-1" },
+      { id: "doc-2", number: "SQ-0001", status: "issued", legal_entity_id: "service", checkout_group_id: "doc-1" },
+    ]);
+    const sb = client([
+      draftQuote,
+      { status: "draft", template_overrides: {} }, // the issue seam reads the draft's stored discounts
+      { ...draftQuote, number: "Q-0001", status: "issued" }, // delivering the first quote re-reads it
+      { is_sandbox: false, sandbox_send_to: null },
+    ], 2);
+
+    const r = await send(sb);
+
+    expect(issueDocument).not.toHaveBeenCalled();
+    // Same key and no till, exactly as a one-company send — the split is the database's.
+    expect(issueCheckout).toHaveBeenCalledWith(sb, "doc-1", null, "quote-send:doc-1", null, null);
+    // The first quote reached delivery (and stopped on the bad address); the second follows it.
+    expect(r).toEqual({ ok: false, error: "That email address doesn't look right." });
   });
 });
 

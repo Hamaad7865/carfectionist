@@ -14,6 +14,7 @@ import { btn } from "@/components/ui/button";
 import { RichContent } from "@/lib/rich/render";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { CheckoutBillsPanel } from "@/features/documents/CheckoutBillsPanel";
+import { QuoteGroupCards } from "@/features/documents/QuoteGroupCards";
 import { getCheckoutBills } from "@/lib/supabase/queries/checkout";
 import { paymentControls } from "@/features/documents/payment-controls";
 import { ConvertButton } from "@/features/documents/ConvertButton";
@@ -121,6 +122,17 @@ export default async function DocumentDetailPage({
   // change_payment_method is a pinned-amount correction — a cashier may do it
   // (the RPC still refuses a cash-source change for a non-manager).
   const canChangeMethod = !!session && ["owner", "manager", "cashier"].includes(session.role);
+
+  // A quote split per company (tyre centre): every company's quote, read in full, so the page shows
+  // them side by side. Every Carfectionist document has no group and skips this.
+  const groupParts =
+    doc.docType === "quote" && checkoutBills.length > 1
+      ? (
+          await Promise.all(
+            checkoutBills.map(async (bill) => ({ bill, doc: bill.id === doc.id ? doc : await getDocumentDetail(bill.id) })),
+          )
+        ).filter((p): p is { bill: (typeof checkoutBills)[number]; doc: NonNullable<typeof doc> } => !!p.doc)
+      : [];
 
   // The car's journey — quotes and invoices sit inside the same five steps.
   const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
@@ -423,7 +435,10 @@ export default async function DocumentDetailPage({
         )}
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
-          {/* Lines */}
+          {groupParts.length > 1 ? (
+            <QuoteGroupCards currentId={doc.id} parts={groupParts} />
+          ) : (
+          /* Lines */
           <div className="overflow-hidden rounded-[15px] border border-line bg-card">
             <div className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-th">
               <span>Item</span>
@@ -487,6 +502,7 @@ export default async function DocumentDetailPage({
               </div>
             </div>
           </div>
+          )}
 
           {/* Payments */}
           <div className="space-y-4">
