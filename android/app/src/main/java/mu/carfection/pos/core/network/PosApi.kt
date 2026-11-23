@@ -25,10 +25,19 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Reads (catalogue sync; RLS scopes everything to the tenant) ──────────
     suspend fun fetchProducts(): List<ProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy")) {
+            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy, legal_entity_id")) {
                 filter { eq("is_active", true) }
             }
             .decodeList()
+
+    /** The shop's active issuing companies, in the order the database numbers a split in. */
+    suspend fun fetchActiveCompanies(): List<CompanyDto> =
+        client.postgrest.from("legal_entities")
+            .select(Columns.raw("id, legal_name, trading_name, is_default, vat_registered, sort_order")) {
+                filter { eq("is_active", true) }
+            }
+            .decodeList<CompanyDto>()
+            .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
     suspend fun fetchCustomers(): List<CustomerDto> =
         client.postgrest.from("customers")
@@ -199,7 +208,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, revision_of, book_for_at, deposit_due, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, revision_of, book_for_at, deposit_due, legal_entity_id, checkout_group_id, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(120) // deep enough that the search bar reaches past the last few days

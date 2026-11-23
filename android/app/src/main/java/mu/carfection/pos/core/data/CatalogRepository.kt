@@ -146,6 +146,26 @@ class CatalogRepository @Inject constructor(
         )
     }
 
+    private val companiesKey = stringPreferencesKey("till_companies_json")
+    private val companiesJson = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+    /**
+     * The shop's active issuing companies, as last synced — kept on disk so a till started
+     * offline still knows it bills per company (and offers per-company discounts, never a
+     * whole-sale one a mixed cart's replay would be refused). Empty until the first sync.
+     */
+    suspend fun tillCompanies(): List<mu.carfection.pos.core.network.CompanyDto> =
+        prefs.data.first()[companiesKey]?.let {
+            runCatching { companiesJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(mu.carfection.pos.core.network.CompanyDto.serializer()), it) }.getOrNull()
+        }.orEmpty()
+
+    /** Re-read the companies from the server and keep them; the last list on failure. */
+    suspend fun refreshTillCompanies(): List<mu.carfection.pos.core.network.CompanyDto> {
+        val list = runCatching { api.fetchActiveCompanies() }.getOrNull() ?: return tillCompanies()
+        if (list.isNotEmpty()) prefs.edit { it[companiesKey] = companiesJson.encodeToString(kotlinx.serialization.builtins.ListSerializer(mu.carfection.pos.core.network.CompanyDto.serializer()), list) }
+        return list.ifEmpty { tillCompanies() }
+    }
+
     /** Pull settings + catalogue. Call after login and on pull-to-refresh. */
     suspend fun refresh() {
         val settings = api.fetchSettings()
@@ -191,6 +211,7 @@ class CatalogRepository @Inject constructor(
                 photoPath = p.photoPath,
                 discountPolicy = p.discountPolicy,
                 priceInclusive = p.priceIncludesVat,
+                legalEntityId = p.legalEntityId,
             )
         }
         if (products.isNotEmpty()) productDao.replaceAll(products)

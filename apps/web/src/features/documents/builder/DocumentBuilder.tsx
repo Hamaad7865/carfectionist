@@ -635,7 +635,7 @@ export function DocumentBuilder({
             <FileDown size={15} /> Print / PDF
           </a>
         )}
-        {(readOnly || state.amending) && state.docType === "quote" && (
+        {(readOnly || state.amending) && state.docType === "quote" && !state.checkoutGroupId && (
           <button onClick={onConvert} disabled={busy} className="grad-brand shadow-brand flex h-[38px] items-center justify-center rounded-[10px] px-4 font-display text-[13px] font-extrabold text-white disabled:opacity-60">
             Convert to invoice
           </button>

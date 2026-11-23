@@ -134,6 +134,12 @@ export default async function DocumentDetailPage({
         ).filter((p): p is { bill: (typeof checkoutBills)[number]; doc: NonNullable<typeof doc> } => !!p.doc)
       : [];
 
+  // Accept, bill and start-job act on ONE quote (accept_quote / convert_quote_to_*), so on a
+  // split visit they would leave the other company's quote behind. They stand down here — and
+  // on the tablet — until accepting a visit's quotes together exists.
+  const splitVisit = groupParts.length > 1;
+  const SPLIT_NOTE = "One quote per company for this visit — accepting and billing them together is not available yet.";
+
   // The car's journey — quotes and invoices sit inside the same five steps.
   const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
 
@@ -229,7 +235,7 @@ export default async function DocumentDetailPage({
                 <Link href={billedHref} className={btn("primary")}>
                   Go to invoice <ArrowRight size={15} />
                 </Link>
-              ) : supersededBills.length > 0 ? (
+              ) : supersededBills.length > 0 || splitVisit ? (
                 // Billing this quote is refused while a bill from the quotation it
                 // replaced is still standing — the same goods would be charged twice.
                 // The notice above says which bill and what to do about it; the button
@@ -271,6 +277,8 @@ export default async function DocumentDetailPage({
               <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job -&gt;</Link>
             ) : ["declined", "expired"].includes(doc.status) ? (
               <span className="text-[12px] font-semibold text-faint">Quote is {doc.status}</span>
+            ) : splitVisit ? (
+              <span className="max-w-[420px] text-right text-[12px] font-semibold text-faint">{SPLIT_NOTE}</span>
             ) : (
               <div className="flex flex-col gap-3">
                 <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} hasService={doc.hasService} />
@@ -386,7 +394,7 @@ export default async function DocumentDetailPage({
               <span className="text-[11px] font-bold uppercase tracking-[0.12em] text-faint">Condition &amp; Damage (at intake)</span>
               {doc.jobId ? (
                 <Link href={`/jobs/${doc.jobId}`} className="text-[12.5px] font-bold text-link hover:underline">View job →</Link>
-              ) : billedHref ? null : (
+              ) : billedHref || splitVisit ? null : (
                 <StartJobButton
                   documentId={doc.id}
                   quote={doc.docType === "quote"}

@@ -149,14 +149,21 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
         var email by remember(s.customerEmail) { mutableStateOf(s.customerEmail ?: "") }
         var phone by remember(s.customerPhone) { mutableStateOf(s.customerPhone ?: "") }
         var note by remember { mutableStateOf(SEND_NOTE_PRESETS.first().second) }
+        // A quote two companies sell goes out as one quote each; one already split resends them all.
+        val sendCount = viewModel.companyParts(s).size.takeIf { it > 1 && (s.status == "draft" || s.amending) }
+            ?: s.checkoutGroupId?.let { g -> s.quotes.count { it.checkoutGroupId == g } }?.takeIf { it > 1 }
+            ?: 1
+        val sendLabel = if (sendCount > 1) "Send $sendCount" else "Send"
         Dialog(onDismissRequest = { viewModel.clearToast(); if (jobId != null) viewModel.back() else viewModel.closeSend() }) {
             Column(Modifier.width(470.dp).card().padding(26.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (jobId != null) "Quote accepted" else "Send quotation", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
+                Text(if (jobId != null) "Quote accepted" else if (sendCount > 1) "Send $sendCount quotations" else "Send quotation", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 22.sp, color = TextPrimary)
                 Text(
                     when {
                         jobId != null && s.jobs.size > 1 ->
                             "${s.jobs.size} job cards created, one per car. Send the signed quotation to the customer:"
                         jobId != null -> "JOB-${jobId.take(4).uppercase()} created. Send the signed quotation to the customer:"
+                        sendCount > 1 && s.status == "draft" -> "These items are sold by $sendCount companies, so the customer gets $sendCount quotations — one from each, with its own number:"
+                        sendCount > 1 -> "Send all $sendCount quotations of this visit to the customer — again if they have already had them:"
                         s.status == "draft" -> "Send this quotation to the customer so they can agree to it:"
                         else -> "Send ${s.ref} to the customer — again if they have already had it:"
                     },
@@ -186,14 +193,14 @@ fun QuoteScreen(onGoIntake: () -> Unit, onViewJob: () -> Unit, onGoCheckout: () 
                 MiniLabel("EMAIL")
                 Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
                     FilledInput(value = email, onValueChange = { email = it }, placeholder = "customer@email.com", modifier = Modifier.weight(1f), bg = Inset)
-                    FillBtn(if (s.sendBusy) "…" else "Send", Modifier.width(96.dp), 48) { if (!s.sendBusy && email.isNotBlank()) viewModel.sendToCustomer("email", email, note) }
+                    FillBtn(if (s.sendBusy) "…" else sendLabel, Modifier.width(96.dp), 48) { if (!s.sendBusy && email.isNotBlank()) viewModel.sendToCustomer("email", email, note) }
                 }
                 if (s.whatsapp) {
                     MiniLabel("WHATSAPP")
                     Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
                         FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
                         Box(Modifier.width(96.dp).height(48.dp).background(Color(0xFF25D366), RoundedCornerShape(13.dp)).clickable(enabled = !s.sendBusy && phone.isNotBlank()) { viewModel.sendToCustomer("whatsapp", phone, note) }, contentAlignment = Alignment.Center) {
-                            Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF06231A))
+                            Text(if (s.sendBusy) "…" else sendLabel, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = Color(0xFF06231A))
                         }
                     }
                 }
@@ -958,7 +965,12 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     .border(1.dp, AccentLine, RoundedCornerShape(10.dp))
                     .clickable { vm.openSend() }.padding(horizontal = 13.dp),
                 contentAlignment = Alignment.Center,
-            ) { Text("Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent) }
+            ) {
+                // A quote two companies sell goes out as one quote each — say so on the button.
+                val n = vm.companyParts(s).size.takeIf { it > 1 && (s.status == "draft" || s.amending) }
+                    ?: s.checkoutGroupId?.let { g -> s.quotes.count { it.checkoutGroupId == g } }?.takeIf { it > 1 }
+                Text(if (n != null) "Send $n quotes" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = Accent)
+            }
         }
         // Revising is the only thing left to DO to a quote the customer has been shown, so it
         // belongs with the other header actions rather than buried under the lines.
@@ -1149,6 +1161,14 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             // totals footer
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
             Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                // One of a visit's per-company quotes: the others, one tap away.
+                VisitSiblings(s) { q -> vm.openQuote(q) }
+                // Lines two companies sell go out as one quote each (tyre centre): a block per
+                // company and the combined total replace the single quote's footer.
+                val parts = vm.companyParts(s)
+                // Read below as well (the Sign/Accept button), so it lives outside the branch.
+                val discountBlockReason = vm.discountBlockReason(s)
+                if (parts.size > 1) CompanySplitTotals(s, parts) else {
                 val t = vm.totals(s)
                 // Ex-VAT footer (owner decision, 2026-08-14): Subtotal and Line discounts are
                 // taxable figures, VAT is its own row, and the TOTAL still lands on the typed
@@ -1193,7 +1213,6 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                 // be allowed to issue, and so an offline accept is never queued only to fail
                 // the same guard on replay.
                 val allowance = vm.allowance(s)
-                val discountBlockReason = vm.discountBlockReason(s)
                 if (vm.editable(s) && allowance.actualCents > 0) {
                     Text(
                         "Up to ${formatMUR(allowance.ceilingCents)} may be discounted on this bill.",
@@ -1225,6 +1244,7 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                     Text("TOTAL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp, color = TextPrimary)
                     Spacer(Modifier.weight(1f))
                     Text(formatMUR(t.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 26.sp, color = Accent)
+                }
                 }
                 // The car's journey — same five steps as the back office. Hidden while the
                 // client is signing: it is decorative at that moment, and the ~90dp it eats

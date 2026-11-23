@@ -20,7 +20,7 @@ export interface IssueOptions {
 
 /**
  * THE way server code issues a draft — quote or invoice, web or tablet (the tablet reaches it
- * through /api/documents/[id]/issue and /send).
+ * through /api/documents/[id]/send, which issues a draft quotation on the way out).
  *
  *  - A one-company shop (Carfectionist): issue_document, exactly as before.
  *  - A two-company shop (tyre centre): issue_checkout. A draft whose lines are sold by both

@@ -26,6 +26,9 @@ data class ProductEntity(
     // a line from it is flagged, so the ledger extracts VAT and the line lands on the figure.
     // False (default): sellingPriceCents is VAT-exclusive and VAT is added on top.
     val priceInclusive: Boolean = false,
+    // The company that sells it (legal_entities) on a shop with several — the tyre centre's VAT
+    // tyre company or its non-VAT service company. Null = the shop's main company.
+    val legalEntityId: String? = null,
 ) {
     /** Business rule: blank = 10, hard cap 20 (mirrors the DB check + web form). */
     val effectiveLowStock: Int
