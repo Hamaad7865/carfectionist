@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { reducer, blankLine, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
+import { reducer, blankLine, lineVatMode, nextLineVat, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
+import { computeTotals } from "@/lib/money";
 
 const line = (key: string, title: string): BuilderLine => ({ ...blankLine(), key, title });
 const car = (id: string, plate: string): BuilderCar => ({ id, plate, label: `Car ${plate}` });
@@ -219,5 +220,41 @@ describe("groupBuilderLines", () => {
     const lines = base.lines.map((l, i) => ({ ...l, vehicleId: i < 2 ? "v1" : "v2" }));
     const groups = groupBuilderLines(lines, [hilux, swift]);
     expect(groups.map((g) => g.car?.id ?? null)).toEqual(["v1", "v2"]);
+  });
+});
+
+describe("the line's VAT button — Incl. VAT → + VAT → No VAT", () => {
+  // Owner rule (2026-11-23): the typed Rs 200 never moves; the button says what it means.
+  const totalsOf = (l: { priceInclusive: boolean; vatRatePct: number }) =>
+    computeTotals([{ qty: 1, unitCents: 20_000, vatRatePct: l.vatRatePct, priceInclusive: l.priceInclusive }]);
+  const incl = { priceInclusive: true, vatRatePct: 15 };
+
+  it("Incl. VAT: Rs 200 is the total, VAT is extracted from it", () => {
+    expect(lineVatMode(incl)).toBe("incl");
+    const t = totalsOf(incl);
+    expect([t.subtotalCents, t.vatCents, t.totalCents]).toEqual([17_391, 2_609, 20_000]);
+  });
+
+  it("+ VAT: Rs 200 + 15% = Rs 230", () => {
+    const plus = nextLineVat(incl);
+    expect(lineVatMode(plus)).toBe("plus");
+    const t = totalsOf(plus);
+    expect([t.subtotalCents, t.vatCents, t.totalCents]).toEqual([20_000, 3_000, 23_000]);
+  });
+
+  it("No VAT: Rs 200, no tax", () => {
+    const none = nextLineVat(nextLineVat(incl));
+    expect(lineVatMode(none)).toBe("none");
+    const t = totalsOf(none);
+    expect([t.vatCents, t.totalCents]).toEqual([0, 20_000]);
+  });
+
+  it("cycles back to Incl. VAT at 15%", () => {
+    expect(nextLineVat(nextLineVat(nextLineVat(incl)))).toEqual(incl);
+  });
+
+  it("a line saved at 0% before this change reads as No VAT, whatever its inclusive flag", () => {
+    expect(lineVatMode({ priceInclusive: false, vatRatePct: 0 })).toBe("none");
+    expect(lineVatMode({ priceInclusive: true, vatRatePct: 0 })).toBe("none");
   });
 });

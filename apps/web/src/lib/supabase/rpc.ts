@@ -58,6 +58,8 @@ export interface DocumentRow {
   customer_id: string | null;
   source_document_id: string | null;
   issued_at: string | null;
+  /** The issuing company (legal_entities). A draft follows its lines (app.draft_follows_lines). */
+  legal_entity_id?: string | null;
 }
 
 export interface PaymentRow {
@@ -127,6 +129,11 @@ export interface CheckoutDocumentRow extends DocumentRow {
   legal_entity_id: string | null;
   checkout_group_id: string | null;
 }
+
+/** What issue_checkout WOULD produce for this draft, changing nothing: one row per company on its
+ *  lines, with the id its document has (or will have). One row = nothing to split. */
+export const checkoutDocumentIds = (sb: Client, documentId: string) =>
+  callRpc<{ legal_entity_id: string; document_id: string }[]>(sb, "checkout_document_ids", { p_document_id: documentId });
 
 /** "Two quotes": a draft spanning companies becomes one draft per company (nothing issued). */
 export const splitDocumentByCompany = (sb: Client, documentId: string) =>
@@ -293,6 +300,8 @@ export interface ImportReport {
   updated: number;
   skipped: number;
   stock_adjusted?: number;
+  /** Products whose brand / tyre size the import set (set by the web action, not the RPC). */
+  attrs_set?: number;
   errors: { name?: string; sku?: string; error: string }[];
 }
 export const importCustomers = (sb: Client, rows: unknown[], dryRun: boolean) =>

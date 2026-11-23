@@ -5,6 +5,8 @@ import { z } from "zod";
 import { requireRole } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import * as rpc from "@/lib/supabase/rpc";
+import { isTyreShop } from "@/lib/auth/roles";
+import { TYRE_CHECKLIST, shouldSwapForTyre } from "@/features/jobs/checklist";
 
 const markerSchema = z.object({
   x: z.number(),
@@ -57,7 +59,7 @@ export async function createIntakeQuoteAction(input: z.input<typeof intakeSchema
 }
 
 export async function createJobFromDocumentAction(documentId: string): Promise<Result<{ jobId: string }>> {
-  await requireRole("owner", "manager", "cashier");
+  const ctx = await requireRole("owner", "manager", "cashier");
   const sb = await createClient();
   try {
     // A quote is ACCEPTED into its job — issued (gapless number), flipped to
@@ -69,6 +71,7 @@ export async function createJobFromDocumentAction(documentId: string): Promise<R
     const job = (doc as any).doc_type === "quote"
       ? await rpc.convertQuoteToJob(sb, documentId)
       : await rpc.createJobFromDocument(sb, documentId);
+    if (isTyreShop(ctx.tenantId)) await applyTyreChecklist(sb, job.id);
     revalidatePath("/jobs");
     revalidatePath(`/sales/${documentId}`);
     return { ok: true, data: { jobId: job.id } };
@@ -140,4 +143,15 @@ export async function addJobPhotoAction(input: z.input<typeof addPhotoSchema>): 
   if (error) return { ok: false, error: error.message };
   revalidatePath(`/jobs/${p.data.jobId}`);
   return { ok: true };
+}
+
+/** The quote→job RPCs seed the detailing checklist; a tyre shop gets its own list,
+ *  set here in app code (no business logic in PL/pgSQL). Only an untouched
+ *  default is swapped, so a re-accept never wipes ticks. Best-effort. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function applyTyreChecklist(sb: any, jobId: string) {
+  const { data } = await sb.from("jobs").select("checklist").eq("id", jobId).maybeSingle();
+  if (data && shouldSwapForTyre(data.checklist)) {
+    await sb.from("jobs").update({ checklist: TYRE_CHECKLIST }).eq("id", jobId);
+  }
 }

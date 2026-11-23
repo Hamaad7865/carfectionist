@@ -59,6 +59,9 @@ class RootViewModel @Inject constructor(
 ) : ViewModel() {
     val isLoggedIn = session.isLoggedIn
     val staffName: String get() = session.userName
+    /** The signed-in shop's name and place for the top bar (see CatalogRepository.shopHeaderFlow). */
+    val shopHeader = catalog.shopHeaderFlow
+    val hasWarranty = catalog.hasWarrantyFlow
     val staffRole: String get() = session.userRole
     val online = connectivity.online
     val pendingSync = outbox.pending
@@ -291,11 +294,14 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 val heldSales by rootViewModel.unsyncedSales.collectAsState(initial = 0)
                 val syncing by rootViewModel.syncing.collectAsState()
                 val takesPayments by rootViewModel.takesPayments.collectAsState()
+                val hasWarranty by rootViewModel.hasWarranty.collectAsState(initial = true)
+                val shopHeader by rootViewModel.shopHeader.collectAsState(initial = mu.carfection.pos.ui.theme.Brand.NAME to "Mauritius")
                 PosShell(
                     active = tab,
                     onSelect = rootViewModel::navigate,
-                    tabs = mu.carfection.pos.core.data.visibleTabs(takesPayments),
-                    studioName = "Carfectionist",
+                    tabs = mu.carfection.pos.core.data.visibleTabs(takesPayments, hasWarranty),
+                    studioName = shopHeader.first,
+                    studioPlace = shopHeader.second,
                     staffName = rootViewModel.staffName,
                     staffRole = rootViewModel.staffRole,
                     online = online,

@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { MessageCircle } from "lucide-react";
 import { setWaOptOutAction } from "@/features/marketing/actions";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 
 // A small control on the contact detail: whether this customer receives
 // WhatsApp marketing. Opting out excludes them from every campaign audience.
@@ -11,6 +12,7 @@ export function WaOptOutToggle({ customerId, optOut }: { customerId: string; opt
   const router = useRouter();
   const [on, setOn] = useState(!optOut); // "on" = receives marketing
   const [busy, setBusy] = useState(false);
+  const whatsapp = useWhatsApp();
 
   async function toggle() {
     const next = !on;
@@ -22,6 +24,7 @@ export function WaOptOutToggle({ customerId, optOut }: { customerId: string; opt
     else router.refresh();
   }
 
+  if (!whatsapp) return null; // no WhatsApp marketing at this shop
   return (
     <div className="flex items-center justify-between rounded-[12px] border border-line px-4 py-3">
       <div className="flex items-center gap-2.5">

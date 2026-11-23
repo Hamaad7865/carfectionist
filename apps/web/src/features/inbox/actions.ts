@@ -5,6 +5,7 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireRole } from "@/lib/auth/session";
+import { hasWhatsApp, NO_WHATSAPP } from "@/lib/auth/roles";
 import * as wa from "@/lib/whatsapp";
 
 const ROLES = ["owner", "manager", "cashier"] as const;
@@ -17,6 +18,7 @@ const replySchema = z.object({ conversationId: z.string().min(1), body: z.string
 
 export async function sendReplyAction(input: z.infer<typeof replySchema>): Promise<Result> {
   const ctx = await requireRole(...ROLES);
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   const p = replySchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Type a message first." };
   if (!wa.isConfigured()) return { ok: false, error: "WhatsApp isn't connected yet." };
@@ -72,7 +74,8 @@ export async function sendReplyAction(input: z.infer<typeof replySchema>): Promi
 const tplSchema = z.object({ conversationId: z.string().min(1), templateId: z.string().min(1) });
 
 export async function sendTemplateReplyAction(input: z.infer<typeof tplSchema>): Promise<Result> {
-  await requireRole(...ROLES);
+  const ctx = await requireRole(...ROLES);
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   const p = tplSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Pick a template." };
   if (!wa.isConfigured()) return { ok: false, error: "WhatsApp isn't connected yet." };

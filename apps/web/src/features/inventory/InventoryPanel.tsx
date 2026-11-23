@@ -1,5 +1,6 @@
 "use client";
 
+import { attrLabel, pickerMatches } from "@/lib/products/attrs-row";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -72,7 +73,8 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
   const matches = useMemo(() => {
     const s = query.trim().toLowerCase();
     if (!s) return [];
-    return data.products.filter((p) => p.name.toLowerCase().includes(s)).slice(0, 8);
+    // Name, brand and tyre size — the tablet Stock screen finds the same products.
+    return data.products.filter((p) => pickerMatches(s, [p.name], p)).slice(0, 8);
   }, [query, data.products]);
 
   async function submit() {
@@ -125,7 +127,10 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
                       onClick={() => { setProductId(p.id); setQuery(p.name); setOpen(false); }}
                       className="flex w-full items-center justify-between gap-2 rounded-[8px] px-2.5 py-2 text-left hover:bg-sub"
                     >
-                      <span className="min-w-0 truncate text-[13px] font-semibold text-body">{p.name}</span>
+                      <span className="min-w-0 truncate text-[13px] font-semibold text-body">
+                        {p.name}
+                        {attrLabel(p) && <span className="ml-2 text-[11.5px] font-medium text-muted">{attrLabel(p)}</span>}
+                      </span>
                       <span className="shrink-0 text-[11px] text-faint">
                         {data.locations.map((l, i) => (
                           <span key={l.id}>

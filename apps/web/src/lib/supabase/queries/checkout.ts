@@ -11,6 +11,10 @@ export interface CheckoutBill {
   outstandingCents: number;
   legalEntityId: string;
   companyName: string;
+  /** The company's registered name, as its letterhead prints it. */
+  legalName: string;
+  /** False for a company that is not VAT-registered — its document states "VAT exempt". */
+  vatRegistered: boolean;
   /** The company's place in the shop's sort order — its colour, its place on the receipts. */
   index: number;
 }
@@ -32,7 +36,7 @@ export async function getCheckoutBills(documentId: string): Promise<CheckoutBill
       .eq("checkout_group_id", group)
       .eq("doc_type", (self as Row).doc_type)
       .neq("status", "void"),
-    sb.from("legal_entities").select("id, legal_name, trading_name, is_default, sort_order").order("sort_order").order("id"),
+    sb.from("legal_entities").select("id, legal_name, trading_name, is_default, sort_order, vat_registered").order("sort_order").order("id"),
   ]);
   const companies = (ents.data ?? []) as Row[];
   const main = companies.find((c) => c.is_default);
@@ -50,6 +54,8 @@ export async function getCheckoutBills(documentId: string): Promise<CheckoutBill
       outstandingCents: d.doc_type === "invoice" ? totalCents - rupeesToCents(Number(d.amount_paid ?? 0)) : 0,
       legalEntityId: entityId,
       companyName: co ? co.trading_name || co.legal_name : "—",
+      legalName: co?.legal_name ?? "—",
+      vatRegistered: co ? co.vat_registered !== false : true,
       index: Math.max(0, at),
     };
   });

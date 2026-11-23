@@ -35,7 +35,13 @@ export function Brand({
           aria-label={brand.name}
           className="flex h-[46px] w-[184px] items-center justify-center rounded-[8px] bg-linear-to-br from-[#2b8cff] to-[#4a6cff] font-display text-[19px] font-extrabold tracking-wide text-white"
         >
-          HAZ <span className="ml-1.5 font-semibold opacity-90">Software</span>
+          {brand.key === "haz" ? (
+            <>
+              HAZ <span className="ml-1.5 font-semibold opacity-90">Software</span>
+            </>
+          ) : (
+            <span className="truncate px-2 text-[15px]">{brand.name}</span>
+          )}
         </span>
       )}
       {showWordmark && subtitle ? (

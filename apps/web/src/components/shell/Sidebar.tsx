@@ -20,9 +20,9 @@ function initials(name: string): string {
   return letters.toUpperCase();
 }
 
-export function Sidebar({ role, displayName, modules, brand }: { role: Role; displayName: string; modules: string[] | null; brand: BrandInfo }) {
+export function Sidebar({ role, displayName, modules, brand, hidden = [] }: { role: Role; displayName: string; modules: string[] | null; brand: BrandInfo; hidden?: readonly string[] }) {
   const pathname = usePathname();
-  const sections = groupNav(navForUser(role, modules));
+  const sections = groupNav(navForUser(role, modules).filter((i) => !hidden.includes(i.href)));
   const name = displayName.replace(/\s*\(.*\)\s*$/, "").trim();
 
   // Folded sections are remembered per browser; the section holding the open

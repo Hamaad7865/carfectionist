@@ -152,6 +152,12 @@ android {
     }
 }
 
+// TyreSizeTest reads the web's fixture; without declaring it, editing only the fixture would leave
+// testDebugUnitTest UP-TO-DATE and the Kotlin mirror could drift from the web unnoticed.
+tasks.withType<Test>().configureEach {
+    inputs.file(rootProject.file("../apps/web/src/lib/products/tyre-size.fixture.json"))
+}
+
 hilt {
     // Without this, NO unit test can run from a clean build tree. The aggregating task
     // (hiltJavaCompileDebugUnitTest) re-validates @HiltAndroidApp in a javac pass where

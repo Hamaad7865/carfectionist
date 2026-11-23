@@ -1,4 +1,5 @@
 import { getSessionContext } from "@/lib/auth/session";
+import { hasWhatsApp } from "@/lib/auth/roles";
 import { fetchTemplateStatuses } from "@/lib/whatsapp";
 import { createAdminClient } from "@/lib/supabase/admin";
 
@@ -14,7 +15,7 @@ const MAP: Record<string, "pending" | "approved" | "rejected"> = {
 
 export async function GET() {
   const session = await getSessionContext();
-  if (!session || session.role !== "owner") return new Response("forbidden", { status: 403 });
+  if (!session || session.role !== "owner" || !hasWhatsApp(session.tenantId)) return new Response("forbidden", { status: 403 });
 
   const res = await fetchTemplateStatuses();
   if (!res.ok) return Response.json({ ok: false, error: res.error }, { status: 502 });

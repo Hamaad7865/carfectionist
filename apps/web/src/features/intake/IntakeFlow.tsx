@@ -8,12 +8,16 @@ import { CarDiagram } from "./CarDiagram";
 import { PhotoUploader, type IntakePhoto } from "./PhotoUploader";
 import { MARKER_TYPES, type Marker, type MarkerType } from "./damage";
 import { createIntakeQuoteAction } from "./actions";
+import { isTyreShop } from "@/lib/auth/roles";
 
 const field = "h-10 w-full rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
 const lbl = "mb-1.5 block text-[11px] font-bold uppercase tracking-[0.12em] text-faint";
 
 export function IntakeFlow({ tenantId, customers }: { tenantId: string; customers: IntakeCustomer[] }) {
   const router = useRouter();
+  // A tyre shop doesn't survey bodywork: its intake is the customer, the car and the job,
+  // straight on to the quotation (same as the tablet's tyre intake).
+  const tyre = isTyreShop(tenantId);
   const [custMode, setCustMode] = useState<"pick" | "new">("pick");
   const [custQuery, setCustQuery] = useState("");
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -74,7 +78,7 @@ export function IntakeFlow({ tenantId, customers }: { tenantId: string; customer
   }
 
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,46fr)_minmax(0,54fr)]">
+    <div className={tyre ? "grid max-w-[720px] grid-cols-1 gap-4" : "grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,46fr)_minmax(0,54fr)]"}>
       {/* left: customer + vehicle */}
       <div className="flex flex-col gap-4">
         {/* customer */}
@@ -158,11 +162,12 @@ export function IntakeFlow({ tenantId, customers }: { tenantId: string; customer
         {/* service */}
         <div className="rounded-[15px] border border-line bg-card p-4">
           <span className={lbl}>Service requested</span>
-          <input className={field} placeholder="e.g. Full decontamination & body polish" value={service} onChange={(e) => setService(e.target.value)} />
+          <input className={field} placeholder={tyre ? "e.g. 4 tyres fitted & balanced, wheel alignment" : "e.g. Full decontamination & body polish"} value={service} onChange={(e) => setService(e.target.value)} />
         </div>
       </div>
 
-      {/* right: condition & damage + photos */}
+      {/* right: condition & damage + photos (not for a tyre shop) */}
+      {!tyre && (
       <div className="rounded-[15px] border border-line bg-card p-4">
         <div className="mb-3 flex items-center justify-between">
           <span className={lbl + " mb-0"}>Condition &amp; Damage</span>
@@ -203,9 +208,10 @@ export function IntakeFlow({ tenantId, customers }: { tenantId: string; customer
           </div>
         </div>
       </div>
+      )}
 
       {/* action bar */}
-      <div className="lg:col-span-2">
+      <div className={tyre ? "" : "lg:col-span-2"}>
         {error && <p className="mb-2 rounded-[10px] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[13px] text-rose">{error}</p>}
         <div className="flex items-center justify-between gap-4 rounded-[15px] border border-line bg-card px-5 py-3">
           <span className="text-[12.5px] text-muted">

@@ -14,6 +14,7 @@ import { btn } from "@/components/ui/button";
 import { RichContent } from "@/lib/rich/render";
 import { RecordPaymentForm } from "@/features/documents/RecordPaymentForm";
 import { CheckoutBillsPanel } from "@/features/documents/CheckoutBillsPanel";
+import { QuoteGroupCards } from "@/features/documents/QuoteGroupCards";
 import { getCheckoutBills } from "@/lib/supabase/queries/checkout";
 import { paymentControls } from "@/features/documents/payment-controls";
 import { ConvertButton } from "@/features/documents/ConvertButton";
@@ -121,6 +122,21 @@ export default async function DocumentDetailPage({
   // change_payment_method is a pinned-amount correction — a cashier may do it
   // (the RPC still refuses a cash-source change for a non-manager).
   const canChangeMethod = !!session && ["owner", "manager", "cashier"].includes(session.role);
+
+  // A quote split per company (tyre centre): every company's quote, read in full, so the page shows
+  // them side by side. Every Carfectionist document has no group and skips this.
+  const groupParts =
+    doc.docType === "quote" && checkoutBills.length > 1
+      ? (
+          await Promise.all(
+            checkoutBills.map(async (bill) => ({ bill, doc: bill.id === doc.id ? doc : await getDocumentDetail(bill.id) })),
+          )
+        ).filter((p): p is { bill: (typeof checkoutBills)[number]; doc: NonNullable<typeof doc> } => !!p.doc)
+      : [];
+
+  // A visit split per company is ONE agreement (20261126000010): signing either quote accepts
+  // both and opens one job, so whether it is work or goods is the visit's, not this half's.
+  const visitHasService = groupParts.length > 1 ? groupParts.some((p) => p.doc.hasService) : doc.hasService;
 
   // The car's journey — quotes and invoices sit inside the same five steps.
   const flow = doc.docType !== "credit_note" ? await getDealFlow({ documentId: id }) : null;
@@ -261,12 +277,12 @@ export default async function DocumentDetailPage({
               <span className="text-[12px] font-semibold text-faint">Quote is {doc.status}</span>
             ) : (
               <div className="flex flex-col gap-3">
-                <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} hasService={doc.hasService} />
+                <StartJobButton documentId={doc.id} quote alreadyAccepted={doc.status === "accepted"} hasService={visitHasService} />
                 {/* Sent and waiting on the customer. Their answer arrives by whatever route the
                     quote went out on, so it has to be recordable without them in the room —
                     and "no" is a lost sale, not a document raised in error. */}
                 {doc.status === "issued" && (
-                  <QuoteAnswerButtons documentId={doc.id} customerName={doc.customerName} hasService={doc.hasService} />
+                  <QuoteAnswerButtons documentId={doc.id} customerName={doc.customerName} hasService={visitHasService} />
                 )}
               </div>
             )}
@@ -379,7 +395,7 @@ export default async function DocumentDetailPage({
                   documentId={doc.id}
                   quote={doc.docType === "quote"}
                   alreadyAccepted={doc.docType === "quote" && doc.status === "accepted"}
-                  hasService={doc.hasService}
+                  hasService={visitHasService}
                 />
               )}
             </div>
@@ -423,7 +439,10 @@ export default async function DocumentDetailPage({
         )}
 
         <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[1fr_20rem]">
-          {/* Lines */}
+          {groupParts.length > 1 ? (
+            <QuoteGroupCards currentId={doc.id} parts={groupParts} />
+          ) : (
+          /* Lines */
           <div className="overflow-hidden rounded-[15px] border border-line bg-card">
             <div className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-th">
               <span>Item</span>
@@ -487,6 +506,7 @@ export default async function DocumentDetailPage({
               </div>
             </div>
           </div>
+          )}
 
           {/* Payments */}
           <div className="space-y-4">

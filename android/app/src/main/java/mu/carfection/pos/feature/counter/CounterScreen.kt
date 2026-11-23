@@ -573,10 +573,15 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
                         modifier = Modifier.size(26.dp).clip(RoundedCornerShape(7.dp)),
                     )
                 }
-                Text(
-                    p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp).weight(1f),
-                )
+                Column(Modifier.padding(end = 20.dp).weight(1f)) {
+                    Text(
+                        p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    // Brand · tyre size, the same line the web's pickers show (attrLabel).
+                    val attr = p.attrLabel
+                    if (attr.isNotEmpty()) Text(attr, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             Spacer(Modifier.weight(1f))
             val oh = (onHand ?: 0).coerceAtLeast(0) // oversold rows read as empty, not "-1"
@@ -2403,8 +2408,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
             Row(Modifier.fillMaxWidth().padding(bottom = 2.dp)) {
                 Text("Qty", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.width(24.dp))
                 Text("Designation", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, modifier = Modifier.weight(1f))
-                Text("UP", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
-                Text("Total", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+                Text("UP", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.padding(start = 6.dp).width(58.dp))
+                Text("Total", color = PaperFaint, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, textAlign = TextAlign.End, modifier = Modifier.padding(start = 8.dp).width(62.dp))
             }
             // The same per-car grouping the printed slip and the web card use — the paper in
             // the customer's hand and the copy in their inbox are one document.
@@ -2423,8 +2428,8 @@ internal fun ReceiptPaper(d: mu.carfection.pos.core.hardware.ReceiptDoc, modifie
                 Row(Modifier.fillMaxWidth().padding(vertical = 1.dp), verticalAlignment = Alignment.Top) {
                     Text("${if (l.qty % 1.0 == 0.0) l.qty.toInt() else l.qty}", color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, modifier = Modifier.width(24.dp))
                     Text(l.title, color = PaperInk, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.sp, lineHeight = 14.sp, modifier = Modifier.weight(1f))
-                    Text(plainSlip(l.unitInclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, textAlign = TextAlign.End, modifier = Modifier.width(52.dp))
-                    Text(plainSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.End, modifier = Modifier.width(56.dp))
+                    Text(plainSlip(l.unitInclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.sp, textAlign = TextAlign.End, softWrap = false, maxLines = 1, modifier = Modifier.padding(start = 6.dp).width(58.dp))
+                    Text(plainSlip(l.inclCents), color = PaperInk, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, textAlign = TextAlign.End, softWrap = false, maxLines = 1, modifier = Modifier.padding(start = 8.dp).width(62.dp))
                 }
                 // What this line saved — only when there was a saving.
                 if (l.discountInclCents > 0) {

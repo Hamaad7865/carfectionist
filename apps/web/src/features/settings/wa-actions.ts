@@ -1,6 +1,7 @@
 "use server";
 
 import { requireRole } from "@/lib/auth/session";
+import { hasWhatsApp, NO_WHATSAPP } from "@/lib/auth/roles";
 import { normalizePhoneMU } from "@/lib/phone";
 import * as wa from "@/lib/whatsapp";
 
@@ -8,7 +9,8 @@ import * as wa from "@/lib/whatsapp";
  *  template) at a number. If this arrives, the whole sending chain — token,
  *  phone id, permissions, billing — is genuinely working. */
 export async function sendTestMessageAction(to: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  await requireRole("owner", "manager");
+  const ctx = await requireRole("owner", "manager");
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   const phone = normalizePhoneMU(to);
   if (!phone) return { ok: false, error: "That phone number doesn't look right." };
   if (!wa.isConfigured()) return { ok: false, error: "Add the WhatsApp credentials first." };

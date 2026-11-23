@@ -380,6 +380,9 @@ private val DETERMINISTIC_ISSUE_REJECTIONS = listOf(
     "a discount names a company with nothing on this sale",
     "points pay one bill at a time",
     "one payment can only settle one customer's bills",
+    // A bill two companies sell is issued per company (PosApi.issueDocument rewords the
+    // database's "sold by another company"): refused before anything is numbered.
+    "is issued per company",
 )
 
 internal fun isDeterministicRejection(e: Throwable): Boolean {

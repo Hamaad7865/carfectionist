@@ -5,7 +5,10 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [ProductEntity::class, CustomerEntity::class],
-    version = 9, // v9: +products.legalEntityId (read-cache; destructive migration rebuilds it, same as v4-v8)
+    // v11: main's v10 (products.legalEntityId + brand/tyre*) merged with tyrecentre-two-company's
+    // own v9 (products.legalEntityId). Bumped past both so neither build's cache matches this
+    // schema (same version + different schema = identity-hash crash on start).
+    version = 11, // read-cache; destructive migration rebuilds it, same as v4-v10
     exportSchema = false,
 )
 abstract class PosDatabase : RoomDatabase() {

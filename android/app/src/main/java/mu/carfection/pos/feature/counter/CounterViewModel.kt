@@ -80,6 +80,8 @@ import javax.inject.Inject
 
 /** Everything the counter screen renders. Totals are always derived, never stored. */
 data class CounterUiState(
+    /** False for the tyre centre — no WhatsApp anywhere (TenantFeatures.hasWhatsApp). */
+    val whatsapp: Boolean = true,
     val query: String = "",
     val tab: String = "All", // category filter
     val catQuery: String = "", // narrows the category rail (189 accessories ≠ browsable)
@@ -743,7 +745,10 @@ class CounterViewModel @Inject constructor(
             // "All" always survives the rail search, so there is always a way back out.
             // "Services" is pinned beside it — same rule as the quote builder's rail.
             val catQ = s.catQuery.trim()
+            // A category the shop itself named "Services" would sit beside the pinned chip as a
+            // second "Services" (the tyre centre's does) — the pinned one already lists them.
             val cats = listOf("All", SERVICES_TAB) + products.mapNotNull { it.category }.distinct().sorted()
+                .filterNot { it.equals(SERVICES_TAB, ignoreCase = true) }
                 .filter { catQ.isEmpty() || it.contains(catQ, ignoreCase = true) }
             val counts = products.mapNotNull { it.category }.groupingBy { it }.eachCount() +
                 ("All" to products.size) + (SERVICES_TAB to products.count { it.kind == "service" })
@@ -756,7 +761,8 @@ class CounterViewModel @Inject constructor(
                         else -> it.category == s.tab
                     }
                 }
-                .filter { q.isEmpty() || it.name.lowercase().contains(q) || (it.barcode ?: "").contains(q) }
+                // Name, barcode, brand and tyre size ("michelin 205/55", "2055516") — TyreSizes.searchMatches.
+                .filter { q.isEmpty() || it.matchesSearch(q) }
             val cq = s.customerText.trim().lowercase()
             val matches = if (cq.isEmpty() || s.customerId != null) emptyList()
             else customers.filter { it.name.lowercase().contains(cq) }.take(6)
@@ -787,6 +793,7 @@ class CounterViewModel @Inject constructor(
             applyCompanies(catalog.refreshTillCompanies())
         }
         viewModelScope.launch { catalog.products.collect { allProducts = it } }
+        viewModelScope.launch { catalog.hasWhatsAppFlow.collect { w -> local.value = local.value.copy(whatsapp = w) } }
         viewModelScope.launch { catalog.customers.collect { allCustomers = it } }
         // Sales held on this tablet — the cashier has to be able to see them, and see the
         // invoice number each one is finally given.

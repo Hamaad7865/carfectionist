@@ -10,6 +10,15 @@ import { ProductActivity } from "./ProductActivity";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 import type { StockLocation } from "@/lib/supabase/locations";
 import { btn } from "@/components/ui/button";
+import { SizeBrandSummary } from "./SizeBrandSummary";
+import { attrLabel, pickerMatches } from "@/lib/products/attrs-row";
+import {
+  brandOptions,
+  isSizeQuerySet,
+  matchesAttrFilter,
+  parseSizeQuery,
+  type AttrItem,
+} from "@/lib/products/tyre-size";
 
 const qty = (n: number | null | undefined) => (n == null ? "—" : String(n));
 const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-3 text-[13px] text-ink outline-none focus:border-brand";
@@ -27,6 +36,10 @@ const gridCols = (locationCount: number) => ({
 // without this switch the services are unfindable, which is exactly how it felt.
 type KindFilter = "all" | "service" | "product";
 const isService = (p: InventoryRow) => p.kind === "service";
+/** Everything on hand across every location (null = not stocked). */
+const totalOnHand = (p: InventoryRow) => (p.stock ? Object.values(p.stock).reduce((s, n) => s + n, 0) : null);
+const toAttr = (p: InventoryRow): AttrItem => ({ brand: p.brand, size: p.tyreSize, qty: totalOnHand(p) });
+const attrLine = attrLabel;
 
 /** LOW and OUT are different jobs, so they don't share a badge: LOW is in the
  *  warehouse and needs moving, OUT has to be bought. Lumping them together is
@@ -67,6 +80,18 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
   // Starts on when the bell sent you here (/products?low=1) — that alert's whole
   // job is to hand you the list, not a search box.
   const [low, setLow] = useState(lowOnly);
+  // Brand (a grouping key, "" = any) and size (as typed: "205/55", "R16", "205/55 R16").
+  const [brand, setBrand] = useState("");
+  const [sizeText, setSizeText] = useState("");
+  const sizeQ = useMemo(() => parseSizeQuery(sizeText), [sizeText]);
+  const sizeSet = isSizeQuerySet(sizeQ) ? sizeQ : null;
+  const sizeBad = sizeText.trim() !== "" && !sizeSet;
+
+  const attrItems = useMemo(() => products.map(toAttr), [products]);
+  const brands = useMemo(() => brandOptions(attrItems), [attrItems]);
+  // The size box only appears for a shop that has sized something (or is typing into it).
+  const hasSizes = useMemo(() => products.some((p) => p.tyreSize), [products]);
+  const brandLabel = brands.find((b) => b.key === brand)?.brand ?? "";
 
   const categories = useMemo(
     () => [...new Set(products.map((p) => p.category).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
@@ -81,13 +106,10 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
     return products.filter(
       (p) =>
         (!cat || p.category === cat) &&
-        (!s ||
-          p.name.toLowerCase().includes(s) ||
-          (p.barcode ?? "").toLowerCase().includes(s) ||
-          (p.sku ?? "").toLowerCase().includes(s) ||
-          (p.category ?? "").toLowerCase().includes(s)),
+        matchesAttrFilter({ brand: p.brand, size: p.tyreSize }, { brandKey: brand, size: sizeSet }) &&
+        (!s || pickerMatches(s, [p.name, p.barcode, p.sku, p.category], p)),
     );
-  }, [products, q, cat]);
+  }, [products, q, cat, brand, sizeSet]);
 
   const counts = useMemo(() => {
     const service = matched.filter(isService).length;
@@ -109,7 +131,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
   // on every visit. Sixty is more than a screenful; "Show more" reveals the rest.
   const PAGE = 60;
   const [limit, setLimit] = useState(PAGE);
-  useEffect(() => setLimit(PAGE), [q, cat, kind, low]); // a new filter starts at the top again
+  useEffect(() => setLimit(PAGE), [q, cat, kind, low, brand, sizeText]); // a new filter starts at the top again
   const shown = useMemo(() => filtered.slice(0, limit), [filtered, limit]);
   const hidden = filtered.length - shown.length;
 
@@ -163,6 +185,22 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
           <option value="">All categories</option>
           {categories.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
+        {brands.length > 0 && (
+          <select className={field} value={brand} onChange={(e) => setBrand(e.target.value)} aria-label="Brand">
+            <option value="">All brands</option>
+            {brands.map((b) => <option key={b.key} value={b.key}>{b.brand} ({b.products})</option>)}
+          </select>
+        )}
+        {(hasSizes || sizeText) && (
+          <input
+            className={`${field} w-[150px] ${sizeBad ? "border-rose" : ""}`}
+            placeholder="Size e.g. 205/55"
+            value={sizeText}
+            onChange={(e) => setSizeText(e.target.value)}
+            aria-label="Tyre size"
+            title={sizeBad ? "Write a size like 205/55 R16, 205/55 or R16" : "Width / profile R rim — any part"}
+          />
+        )}
         {lowTotal > 0 && (
           <button
             onClick={() => setLow((v) => !v)}
@@ -188,6 +226,16 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
           <Plus size={15} strokeWidth={2.4} /> {kind === "service" ? "New service" : "New product"}
         </button>
       </div>
+
+      <SizeBrandSummary
+        items={attrItems}
+        size={sizeSet}
+        brandKey={brand}
+        brandLabel={brandLabel}
+        onPickBrand={setBrand}
+        onPickSize={(label) => { setSizeText(label); }}
+        onClear={() => { setBrand(""); setSizeText(""); }}
+      />
 
       <div className="mt-3 overflow-hidden rounded-[14px] border border-line bg-card">
         <div className="hidden gap-2.5 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.08em] text-th md:grid" style={gridCols(locations.length)}>
@@ -225,6 +273,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                     <StockBadge state={r.state} floor={floorName} />
                     {!r.isActive && <span className="shrink-0 rounded-[5px] bg-shade/[0.08] px-1.5 py-0.5 text-[9px] font-bold text-faint">ARCHIVED</span>}
                   </div>
+                  {attrLine(r) && <div className="mt-0.5 truncate text-[11px] font-semibold text-muted">{attrLine(r)}</div>}
                   <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
                     {r.category && <span className="rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 font-semibold text-link">{r.category}</span>}
                     {r.stock && <span>{locations.map((l) => `${l.name} ${qty(r.stock![l.id])}`).join(" · ")}</span>}
@@ -241,7 +290,10 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
               <div className="hidden items-center gap-2.5 px-5 py-3 md:grid" style={gridCols(locations.length)}>
                 <span className="flex min-w-0 items-center gap-2 text-[13px] font-semibold text-body">
                   <Thumb url={r.photoUrl} size={24} />
-                  <span className="min-w-0 truncate" title={r.name}>{r.name}</span>
+                  <span className="min-w-0 truncate" title={r.name}>
+                    {r.name}
+                    {attrLine(r) && <span className="ml-2 text-[11.5px] font-medium text-muted">{attrLine(r)}</span>}
+                  </span>
                   {/* Purple = workshop work, the same colour the dashboard uses
                       to split workshop revenue from counter revenue. */}
                   {kind === "all" && isService(r) && <span className="shrink-0 rounded-[5px] bg-[rgba(124,92,232,0.14)] px-1.5 py-0.5 text-[9px] font-bold tracking-wide text-[#5b45b0] dark:text-[#b2a6f5]">SERVICE</span>}
@@ -326,6 +378,7 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
         vatDefault={vatDefault}
         pricesInclVat={pricesInclVat}
         categories={categories}
+        brands={brands.map((b) => b.brand)}
         tenantId={tenantId}
         companies={companies}
       />

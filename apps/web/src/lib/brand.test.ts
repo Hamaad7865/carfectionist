@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brandForHost } from "./brand";
+import { brandForHost, brandForShop, CARFECTIONIST, HAZ } from "./brand";
 
 describe("brandForHost", () => {
   it("presents HAZ Software on the hazsoftware.com demo host", () => {
@@ -27,5 +27,22 @@ describe("brandForHost", () => {
     const { logoSrc, ...text } = brandForHost("app.hazsoftware.com");
     expect(logoSrc).toBeNull();
     expect(JSON.stringify(text).toLowerCase()).not.toContain("carfection");
+  });
+});
+
+describe("brandForShop", () => {
+  it("keeps the host's brand for the Carfectionist shop and its sandbox", () => {
+    expect(brandForShop(CARFECTIONIST, "11111111-1111-4111-8111-000000000001", "x")).toBe(CARFECTIONIST);
+    expect(brandForShop(HAZ, "22222222-2222-4222-8222-000000000002", "x")).toBe(HAZ);
+  });
+  it("shows another shop its own name and nothing of Carfectionist, even on the Carfectionist host", () => {
+    const b = brandForShop(CARFECTIONIST, "1f060b86-ad63-4dc7-93fb-a1fdfae18b27", " Garage De L'Est LTEE ");
+    expect(b.name).toBe("Garage De L'Est LTEE");
+    expect(b.key).toBe("shop");
+    expect(b.logoSrc).toBeNull();
+    expect(JSON.stringify(b).toLowerCase()).not.toContain("carfection");
+  });
+  it("falls back to HAZ Software when the shop has no name", () => {
+    expect(brandForShop(CARFECTIONIST, "other", null).name).toBe("HAZ Software");
   });
 });

@@ -124,7 +124,24 @@ class CatalogRepository @Inject constructor(
     suspend fun policyDefaults(): PolicyDefaults = policyDefaultsFlow.first()
 
     suspend fun tenantId(): String? = prefs.data.first()[tenantKey]
-    suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: "Carfectionist"
+
+    /** False for a shop with no WhatsApp (the tyre centre) — see [TenantFeatures]. */
+    val hasWhatsAppFlow: Flow<Boolean> = prefs.data.map { TenantFeatures.hasWhatsApp(it[tenantKey]) }
+    /** False for the tyre centre: no Warranty tab (see [TenantFeatures.hasWarranty]). */
+    val hasWarrantyFlow: Flow<Boolean> = prefs.data.map { TenantFeatures.hasWarranty(it[tenantKey]) }
+    suspend fun tradingName(): String = prefs.data.first()[nameKey] ?: mu.carfection.pos.ui.theme.Brand.NAME
+
+    /**
+     * The top bar's name and place line, from the signed-in shop's own settings — never a
+     * hard-coded studio: the tyre centre's tablet used to say "CARFECTIONIST · Helvetia".
+     * The place is the first part of the address ("Helvetia, 80840 Moka, MU" → "Helvetia ·
+     * Mauritius", exactly what Carfectionist's bar always said); no address → "Mauritius".
+     */
+    val shopHeaderFlow: Flow<Pair<String, String>> = prefs.data.map { p ->
+        val name = p[nameKey]?.trim()?.ifBlank { null } ?: mu.carfection.pos.ui.theme.Brand.NAME
+        val place = p[addressKey]?.lineSequence()?.flatMap { it.split(',') }?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
+        name to (if (place != null) "$place · Mauritius" else "Mauritius")
+    }
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
 
     /** Does the shop quote VAT-INCLUSIVE shelf prices? Display-only — prices stay stored net. */
@@ -134,7 +151,7 @@ class CatalogRepository @Inject constructor(
     suspend fun receiptBiz(): ReceiptBiz {
         val p = prefs.data.first()
         return ReceiptBiz(
-            name = p[nameKey] ?: "Carfectionist",
+            name = p[nameKey] ?: mu.carfection.pos.ui.theme.Brand.NAME,
             address = p[addressKey],
             brn = p[brnKey],
             vatNo = p[vatNoKey],
@@ -239,6 +256,12 @@ class CatalogRepository @Inject constructor(
                 photoPath = p.photoPath,
                 discountPolicy = p.discountPolicy,
                 priceInclusive = p.priceIncludesVat,
+                brand = p.brand?.ifBlank { null },
+                tyreWidth = p.tyreWidth,
+                tyreProfile = p.tyreProfile,
+                tyreRim = p.tyreRim,
+                tyreLoadIndex = p.tyreLoadIndex,
+                tyreSpeedRating = p.tyreSpeedRating,
                 legalEntityId = p.legalEntityId,
             )
         }
