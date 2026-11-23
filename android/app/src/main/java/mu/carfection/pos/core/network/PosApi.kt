@@ -916,6 +916,45 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }).decodeAs()
     }
 
+    /**
+     * Issue a draft quote two companies sell as ONE QUOTE PER COMPANY — the call the web's
+     * issueAcrossCompanies makes (issue_checkout), carrying the per-company discounts the back
+     * office stored on the draft (template_overrides.companyDiscounts, amounts in cents). Returns
+     * the quotes' ids in company order; the first keeps the draft's id. A retry under the same key
+     * hands back the same quotes.
+     */
+    suspend fun issueQuoteAcrossCompanies(draftId: String, key: String): List<String> {
+        val row = client.postgrest.from("documents").select(Columns.raw("template_overrides")) {
+            filter { eq("id", draftId) }
+        }.decodeList<JsonObject>().firstOrNull()
+        val stored = ((row?.get("template_overrides") as? JsonObject)?.get("companyDiscounts") as? JsonObject).orEmpty()
+        val plan = client.postgrest.rpc("checkout_document_ids", buildJsonObject { put("p_document_id", draftId) })
+            .decodeList<JsonObject>()
+            .mapNotNull { (it["legal_entity_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        val discounts = kotlinx.serialization.json.buildJsonArray {
+            if (plan.size > 1) plan.forEach { id ->
+                val d = stored[id] as? JsonObject ?: return@forEach
+                val kind = (d["kind"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val value = (d["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull() ?: 0.0
+                if (value <= 0 || (kind != "percent" && kind != "amount")) return@forEach
+                add(buildJsonObject {
+                    put("legal_entity_id", id)
+                    put("discount_kind", kind)
+                    put("discount_value", if (kind == "amount") value / 100.0 else value)
+                    val reason = (d["reason"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
+                    if (reason.isNullOrEmpty()) put("discount_reason", JsonNull) else put("discount_reason", reason)
+                })
+            }
+        }
+        return client.postgrest.rpc("issue_checkout", buildJsonObject {
+            put("p_document_id", draftId)
+            put("p_stock_location_id", JsonNull)
+            put("p_idempotency_key", key)
+            put("p_session_id", JsonNull)
+            if (discounts.isEmpty()) put("p_discounts", JsonNull) else put("p_discounts", discounts)
+        }).decodeList<JsonObject>().mapNotNull { (it["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content }
+    }
+
     /** Copy a quote into a new draft invoice (priced lines carried over). */
     suspend fun convertQuoteToInvoice(quoteId: String): SavedDoc =
         client.postgrest.rpc("convert_quote_to_invoice", buildJsonObject { put("p_quote_id", quoteId) }).decodeAs()

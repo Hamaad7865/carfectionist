@@ -84,8 +84,6 @@ export interface BuilderState {
   companyDiscounts?: Record<string, CompanyDiscount>;
   /** The draft's stored company as its last save returned it (hand-typed lines go to it). */
   docCompanyId?: string | null;
-  /** One of a visit's per-company quotes: Convert acts on one quote, so it stands down. */
-  checkoutGroupId?: string | null;
   customFields: { label: string; value: string }[];
   comment: string; // internal note — shown in Sales list + invoice screen, never on a receipt/PDF
   dirty: boolean;

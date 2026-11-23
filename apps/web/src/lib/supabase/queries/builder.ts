@@ -216,8 +216,6 @@ export interface LoadedDraft {
   companyDiscounts: Record<string, CompanyDiscount>;
   /** The draft's stored issuing company — where its hand-typed lines go on the next save. */
   legalEntityId: string | null;
-  /** Set when it was issued as one quote per company (issue_checkout) — the visit's group. */
-  checkoutGroupId: string | null;
   customFields: { label: string; value: string }[];
   comment: string;
   lines: {
@@ -281,7 +279,6 @@ export async function getDraft(id: string): Promise<LoadedDraft | null> {
     sectionConfig: flags as Partial<SectionFlags>,
     companyDiscounts: readCompanyDiscounts(to),
     legalEntityId: d.legal_entity_id ?? null,
-    checkoutGroupId: d.checkout_group_id ?? null,
     customFields: Array.isArray(cf) ? (cf as { label: string; value: string }[]) : [],
     comment: d.comment ?? "",
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

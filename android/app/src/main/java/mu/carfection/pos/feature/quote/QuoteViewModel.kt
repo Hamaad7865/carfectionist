@@ -1492,15 +1492,25 @@ class QuoteViewModel @Inject constructor(
     /** True while this draft's lines are sold by more than one company — it will go out as several quotes. */
     fun spansCompanies(s: QuoteState): Boolean = companyParts(s).size > 1
 
-    /** Already issued as one quote per company: accepting or billing only THIS one would leave the
-     *  other company's quote behind (accept_quote / convert_quote_to_* act on one document). */
-    private fun splitBlockReason(s: QuoteState): String? = when {
-        // checkout_group_id is set only on a split pair (issue_checkout), so this does not wait
-        // for the quote list to hold the sibling — a quote opened from the board is guarded too.
-        !s.checkoutGroupId.isNullOrEmpty() ->
-            "This visit has a quote from each company. Accepting them is done from the back office for now."
-        spansCompanies(s) ->
-            "These items are sold by two companies, so this goes out as two quotes. Send them first, then accept them from the back office."
+    /** This quote is (or, once issued, will be) one of a visit's per-company quotes. checkout_group_id
+     *  is set only on a split pair (issue_checkout), so this does not wait for the quote list. */
+    private fun isSplitVisit(s: QuoteState): Boolean = !s.checkoutGroupId.isNullOrEmpty() || spansCompanies(s)
+
+    /**
+     * What this tablet cannot do yet for a visit split per company. Signing it is fine: the database
+     * accepts every quote of the visit and opens ONE job (20261126000010). Billing it is not — the
+     * bill is issued per company and paid across both (issue_checkout / record_checkout_payment),
+     * which this till does not do yet, so goods-only accepts, deposits and Bill go to the back office.
+     */
+    private fun splitBlockReason(s: QuoteState, billing: Boolean = false): String? = when {
+        !isSplitVisit(s) -> null
+        billing -> "This visit is billed per company — bill it from the back office."
+        // An issued pair: the quote open may be the goods half, whose sibling holds the work.
+        !hasService(s) && !s.checkoutGroupId.isNullOrEmpty() ->
+            "This visit is billed per company — sign it on its quote with the work on it, or bill it from the back office."
+        !hasService(s) -> "Goods sold by two companies are billed per company — bill them from the back office."
+        s.depositCents > 0 ->
+            "A deposit on a visit billed per company is taken in the back office for now — accept without the deposit here."
         else -> null
     }
 
@@ -1950,7 +1960,7 @@ class QuoteViewModel @Inject constructor(
     fun openAccept() = _s.update {
         // Refused BEFORE the customer signs, not after: a pad that takes a signature and then
         // says no is worse than a button that explains itself.
-        splitBlockReason(it)?.let { reason -> return@update it.copy(error = reason) }
+        if (isSplitVisit(it) && !hasService(it)) splitBlockReason(it)?.let { reason -> return@update it.copy(error = reason) }
         it.copy(acceptOpen = true, startJobNow = hasService(it), agreedVia = null)
     }
 
@@ -2249,9 +2259,15 @@ class QuoteViewModel @Inject constructor(
                 // A draft — or a quote reopened with Revise — gets the builder's edits
                 // persisted first. Any other issued/accepted quote converts as-is; the
                 // RPC is idempotent and hands back the same job.
-                val quoteId =
+                val savedId =
                     if (s.status == "draft" || s.amending) api.saveQuoteDraft(s.quoteId, cid, s.vehicleId, linesJson(s), docDiscountKind(s), docDiscountValue(s), s.discountReason, intakeJson(s)).id
                     else s.quoteId ?: error("This quote hasn't been saved yet")
+                // Two companies sell what is on this draft: issue it as one quote per company
+                // first (the same issue_checkout the send uses) — accepting it as it stands would
+                // number ONE quote spanning both. The accept below then covers the whole visit.
+                val quoteId =
+                    if (s.status == "draft" && spansCompanies(s)) api.issueQuoteAcrossCompanies(savedId, "quote-accept:$savedId").firstOrNull() ?: savedId
+                    else savedId
                 // Signed, but the work is not starting today — no job, no card on the board.
                 // "Create job" on this quote raises it whenever the customer comes back.
                 if (!s.startJobNow) {
@@ -2417,7 +2433,7 @@ class QuoteViewModel @Inject constructor(
         if (s.busy) return // double-tap on a fresh quote = two quotes -> two invoices
         val cid = s.customerId ?: run { _s.update { it.copy(error = "No customer on this quote") }; return }
         if (s.lines.isEmpty()) { _s.update { it.copy(error = "Add a line before billing") }; return }
-        splitBlockReason(s)?.let { reason -> _s.update { it.copy(error = reason) }; return }
+        splitBlockReason(s, billing = true)?.let { reason -> _s.update { it.copy(error = reason) }; return }
         _s.update { it.copy(busy = true, error = null) }
         viewModelScope.launch {
             runCatching {
