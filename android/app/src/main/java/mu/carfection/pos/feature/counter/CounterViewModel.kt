@@ -778,6 +778,10 @@ class CounterViewModel @Inject constructor(
     // the visible grid is filtered down by category tab or a half-typed search.
     private var allProducts: List<ProductEntity> = emptyList()
 
+    /** The catalogue's services, whatever category tab is showing — the tyre till offers them
+     *  beside a tyre sale ("goes with these tyres"). Read-only; adds nothing to the cart itself. */
+    fun catalogueServices(): List<ProductEntity> = allProducts.filter { it.kind == "service" }
+
     // The cached customer list, for resolving a walk-in with no network to ask.
     private var allCustomers: List<CustomerEntity> = emptyList()
 

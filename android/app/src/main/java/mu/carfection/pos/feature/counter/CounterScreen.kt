@@ -1105,7 +1105,10 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         Spacer(Modifier.height(12.dp))
                         // line items: a walk-in cart carries its lines; a collect shows the invoice's REAL
                         // lines — what the client actually took (service/products), fetched when the pad opened.
-                        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                        // The tyre centre's walk-in sale billed by two companies shows one card per
+                        // bill instead (TyreTill.kt); Carfectionist's TYRE_TILL is false.
+                        if (TYRE_TILL && s.collect == null && s.tillBills.size > 1) TyrePayBills(s, Modifier.weight(1f))
+                        else Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             if (s.collect != null) {
                                 if (s.collectLines.isNotEmpty()) {
                                     // Every line, discounts included, so what's shown reconciles with the total.
@@ -1288,6 +1291,11 @@ private fun RowScope.SingleMethodPay(s: CounterUiState, vm: CounterViewModel) {
                     if (row.size == 1) Spacer(Modifier.weight(1f))
                 }
             }
+        }
+        // Tyre centre only: how this payment lands on each company's bill (reads, never decides).
+        if (TYRE_TILL) {
+            Spacer(Modifier.weight(1f))
+            TyreWhereMoneyGoes(s)
         }
     }
     // ── right: totals + entry (amount / cash tendered) + numpad + Record ──

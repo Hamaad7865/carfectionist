@@ -6,9 +6,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import mu.carfection.pos.R
 
-// The tyre centre's design tokens (docs/redesign/DESIGN-SPEC.md §2–3), under the same names
-// Carfectionist's flavor uses, so every shared screen takes this look with no code of its own.
-// Tokens only this brand has (lime highlight, company colours) are in TcTokens.kt.
+// The tyre centre's design tokens, under the same names Carfectionist's flavor uses, so every
+// shared screen takes this look with no code of its own.
+//
+// 2026-11-24, owner's call: the tyre app takes CARFECTIONIST's look (blue #2B8CFF, Barlow,
+// Barlow Condensed, IBM Plex Mono — the same values as src/carfectionist/.../BrandTokens.kt),
+// with its own logo and its own New-sale, Payment and Stock layouts (Kite file
+// https://kite.new/p/4y3zeeyaa6jwdfgj). The black-pill / lime look of docs/redesign/DESIGN-SPEC.md
+// was rejected for the tablet — do not restore it. Tokens only this brand has are in TcTokens.kt.
 
 object Brand {
     const val NAME = "Tyre Centre"
@@ -17,52 +22,43 @@ object Brand {
     val logo: Int = R.drawable.tc_logo
 }
 
-val Accent = Color(0xFF0F1720)          // primary: the black pill
-val AccentInk = Color(0xFFFFFFFF)       // on-primary
-val AccentSoft = Color(0x1A0F1720)      // primary @10% — selected soft fills
-val AccentLine = Color(0x590F1720)      // primary @35%
-val AccentBlue = Color(0xFF6A5CFF)      // avatar gradient partner
+val Accent = Color(0xFF2B8CFF)
+val AccentInk = Color(0xFFFFFFFF)
+val AccentSoft = Color(0x242B8CFF)      // accent @14%
+val AccentLine = Color(0x732B8CFF)      // accent @45%
+val AccentBlue = Color(0xFF4F74FF)
 
-val ScreenBg = Color(0xFFE8ECF1)        // app
-val CardBg = Color(0xFFFFFFFF)          // card
-val Inset = Color(0xFFF4F6F9)           // sub
-val InsetAlt = Color(0xFFEBEEF2)        // sidebar-active: keys / unselected chips
-val Tile = Color(0xFFFFFFFF)            // tiles are white cards on the app background
-val NavBg = Color(0xFFF7F8FA)           // sidebar
+val ScreenBg = Color(0xFFF2F4F7)
+val CardBg = Color(0xFFFFFFFF)
+val Inset = Color(0xFFEEF1F5)
+val InsetAlt = Color(0xFFE8ECF1)
+val Tile = Color(0xFFF6F8FA)
+val NavBg = Color(0xFFFFFFFF)
 
-val TextPrimary = Color(0xFF111927)     // ink
-val TextSecondary = Color(0xFF68737F)   // muted
-val TextMuted = Color(0xFF8C96A1)       // faint
-val Hairline = Color(0x120F1720)        // line rgba(15,23,32,.07)
-val HairlineStrong = Color(0x1F0F1720)
+val TextPrimary = Color(0xFF17202A)
+val TextSecondary = Color(0xFF5B6B7A)
+val TextMuted = Color(0xFF8494A3)
+val Hairline = Color(0x140F1A24)
+val HairlineStrong = Color(0x1F0F1A24)
 
-val Success = Color(0xFF0DA77C)
-val Warning = Color(0xFFB07C14)
-val Danger = Color(0xFFD63B50)
+val Success = Color(0xFF1FA361)
+val Warning = Color(0xFFC17A00)
+val Danger = Color(0xFFD63A3A)
 val Plate = Color(0xFFF0C542)
 
-// ─── Fonts (OFL, bundled in src/tyrecentre/res/font) ──────────────────────────
-// The shared screens call the UI family `Barlow`, the display family `Condensed` and the
-// numbers family `Mono`; here they are Manrope, Archivo and JetBrains Mono.
-val Manrope = FontFamily(
-    Font(R.font.manrope_400, FontWeight.Normal),
-    Font(R.font.manrope_500, FontWeight.Medium),
-    Font(R.font.manrope_600, FontWeight.SemiBold),
-    Font(R.font.manrope_700, FontWeight.Bold),
-    Font(R.font.manrope_800, FontWeight.ExtraBold),
+// ─── Fonts (the shared Barlow / IBM Plex Mono files in src/main/res/font) ─────
+val Barlow = FontFamily(
+    Font(R.font.barlow_regular, FontWeight.Normal),
+    Font(R.font.barlow_medium, FontWeight.Medium),
+    Font(R.font.barlow_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_bold, FontWeight.Bold),
+    Font(R.font.barlow_extrabold, FontWeight.ExtraBold),
 )
-val Archivo = FontFamily(
-    Font(R.font.archivo_300, FontWeight.Light),
-    Font(R.font.archivo_500, FontWeight.Medium),
-    Font(R.font.archivo_600, FontWeight.SemiBold),
-    Font(R.font.archivo_700, FontWeight.Bold),
+val Condensed = FontFamily(
+    Font(R.font.barlow_condensed_semibold, FontWeight.SemiBold),
+    Font(R.font.barlow_condensed_bold, FontWeight.Bold),
 )
-val JetBrainsMono = FontFamily(
-    Font(R.font.jetbrains_mono_400, FontWeight.Normal),
-    Font(R.font.jetbrains_mono_500, FontWeight.Medium),
-    Font(R.font.jetbrains_mono_600, FontWeight.SemiBold),
-    Font(R.font.jetbrains_mono_700, FontWeight.Bold),
+val Mono = FontFamily(
+    Font(R.font.ibm_plex_mono_regular, FontWeight.Normal),
+    Font(R.font.ibm_plex_mono_medium, FontWeight.Medium),
 )
-val Barlow: FontFamily = Manrope
-val Condensed: FontFamily = Archivo
-val Mono: FontFamily = JetBrainsMono
