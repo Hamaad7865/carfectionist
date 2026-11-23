@@ -26,7 +26,28 @@ data class ProductEntity(
     // a line from it is flagged, so the ledger extracts VAT and the line lands on the figure.
     // False (default): sellingPriceCents is VAT-exclusive and VAT is added on top.
     val priceInclusive: Boolean = false,
+    // Brand (any product) and tyre size (20261127000010); size columns all-or-nothing.
+    val brand: String? = null,
+    val tyreWidth: Int? = null,
+    val tyreProfile: Int? = null,
+    val tyreRim: Double? = null,
+    val tyreLoadIndex: String? = null,
+    val tyreSpeedRating: String? = null,
 ) {
+    val tyreSize: mu.carfection.pos.core.catalog.TyreSize?
+        get() = mu.carfection.pos.core.catalog.TyreSizes.fromColumns(tyreWidth, tyreProfile, tyreRim)
+
+    /** "Michelin · 205/55 R16 91V" under the name on a tile; "" when it has neither. */
+    val attrLabel: String
+        get() = listOfNotNull(
+            brand?.ifBlank { null },
+            tyreSize?.let { mu.carfection.pos.core.catalog.TyreSizes.formatSpec(it, tyreLoadIndex, tyreSpeedRating) },
+        ).joinToString(" · ")
+
+    /** The pickers' search: name, barcode, brand and size (any spelling, or a partial size). */
+    fun matchesSearch(q: String): Boolean =
+        mu.carfection.pos.core.catalog.TyreSizes.searchMatches(q, listOf(name, barcode), brand, tyreSize, tyreLoadIndex, tyreSpeedRating)
+
     /** Business rule: blank = 10, hard cap 20 (mirrors the DB check + web form). */
     val effectiveLowStock: Int
         get() = (lowStockThreshold ?: DEFAULT_LOW_STOCK).coerceAtMost(MAX_LOW_STOCK).toInt()

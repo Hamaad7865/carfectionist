@@ -1075,7 +1075,11 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                                         modifier = Modifier.size(24.dp).clip(RoundedCornerShape(6.dp)),
                                     )
                                 }
-                                Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 18.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp).weight(1f))
+                                Column(Modifier.padding(end = 20.dp).weight(1f)) {
+                                    Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 18.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    val attr = p.attrLabel
+                                    if (attr.isNotEmpty()) Text(attr, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                }
                             }
                             Spacer(Modifier.weight(1f))
                             Text(formatMUR(shelfCents(p.sellingPriceCents, p.vatRatePct, s.pricesInclVat, p.priceInclusive)), fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp, color = TextSecondary)

@@ -14,6 +14,9 @@ import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
+/** Brand + tyre size (20261127000010) — the till, quote picker and Stock all read them. */
+internal const val PRODUCT_ATTR_COLUMNS = "brand, tyre_width, tyre_profile, tyre_rim, tyre_load_index, tyre_speed_rating"
+
 /**
  * The POS ↔ backend seam. Every write goes through the SAME security-definer
  * RPCs the web app uses — the POS never re-implements an invariant, and the
@@ -25,7 +28,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Reads (catalogue sync; RLS scopes everything to the tenant) ──────────
     suspend fun fetchProducts(): List<ProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy")) {
+            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy, $PRODUCT_ATTR_COLUMNS")) {
                 filter { eq("is_active", true) }
             }
             .decodeList()
@@ -327,7 +330,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Stock ─────────────────────────────────────────────────────────────────────
     suspend fun fetchStockProducts(): List<StockProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, category, barcode, selling_price, price_includes_vat, vat_rate, low_stock_threshold, photo_path")) {
+            .select(Columns.raw("id, name, category, barcode, selling_price, price_includes_vat, vat_rate, low_stock_threshold, photo_path, $PRODUCT_ATTR_COLUMNS")) {
                 filter { eq("is_active", true); eq("is_stocked", true) }
                 order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }

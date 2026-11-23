@@ -561,10 +561,15 @@ private fun ProductTile(p: mu.carfection.pos.core.database.ProductEntity, inCart
                         modifier = Modifier.size(26.dp).clip(RoundedCornerShape(7.dp)),
                     )
                 }
-                Text(
-                    p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(end = 20.dp).weight(1f),
-                )
+                Column(Modifier.padding(end = 20.dp).weight(1f)) {
+                    Text(
+                        p.name, color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 17.5.sp,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                    // Brand · tyre size, the same line the web's pickers show (attrLabel).
+                    val attr = p.attrLabel
+                    if (attr.isNotEmpty()) Text(attr, color = TextMuted, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
             Spacer(Modifier.weight(1f))
             val oh = (onHand ?: 0).coerceAtLeast(0) // oversold rows read as empty, not "-1"

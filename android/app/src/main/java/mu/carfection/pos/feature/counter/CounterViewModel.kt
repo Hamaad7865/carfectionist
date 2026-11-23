@@ -657,7 +657,8 @@ class CounterViewModel @Inject constructor(
                         else -> it.category == s.tab
                     }
                 }
-                .filter { q.isEmpty() || it.name.lowercase().contains(q) || (it.barcode ?: "").contains(q) }
+                // Name, barcode, brand and tyre size ("michelin 205/55", "2055516") — TyreSizes.searchMatches.
+                .filter { q.isEmpty() || it.matchesSearch(q) }
             val cq = s.customerText.trim().lowercase()
             val matches = if (cq.isEmpty() || s.customerId != null) emptyList()
             else customers.filter { it.name.lowercase().contains(cq) }.take(6)

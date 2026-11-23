@@ -29,6 +29,13 @@ data class ProductDto(
     @SerialName("discount_policy") val discountPolicy: String = "inherit",
     // True: selling_price IS the VAT-inclusive shelf price exactly as typed (20260812000030).
     @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
+    // Brand + tyre size (20261127000010).
+    val brand: String? = null,
+    @SerialName("tyre_width") val tyreWidth: Int? = null,
+    @SerialName("tyre_profile") val tyreProfile: Int? = null,
+    @SerialName("tyre_rim") val tyreRim: FlexDouble? = null,
+    @SerialName("tyre_load_index") val tyreLoadIndex: String? = null,
+    @SerialName("tyre_speed_rating") val tyreSpeedRating: String? = null,
 )
 
 @Serializable
@@ -534,7 +541,17 @@ data class StockProductDto(
     @SerialName("vat_rate") val vatRate: FlexDouble? = null,
     @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
     @SerialName("photo_path") val photoPath: String? = null,
-)
+    // Brand + tyre size (20261127000010).
+    val brand: String? = null,
+    @SerialName("tyre_width") val tyreWidth: Int? = null,
+    @SerialName("tyre_profile") val tyreProfile: Int? = null,
+    @SerialName("tyre_rim") val tyreRim: FlexDouble? = null,
+    @SerialName("tyre_load_index") val tyreLoadIndex: String? = null,
+    @SerialName("tyre_speed_rating") val tyreSpeedRating: String? = null,
+) {
+    val tyreSize: mu.carfection.pos.core.catalog.TyreSize?
+        get() = mu.carfection.pos.core.catalog.TyreSizes.fromColumns(tyreWidth, tyreProfile, tyreRim)
+}
 
 @Serializable
 data class StockOnHandDto(
