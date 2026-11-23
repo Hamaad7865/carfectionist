@@ -93,6 +93,7 @@ fun PosShell(
     onSelect: (PosTab) -> Unit,
     tabs: List<PosTab>,
     studioName: String,
+    studioPlace: String = "Mauritius",
     staffName: String,
     staffRole: String,
     online: Boolean,
@@ -107,7 +108,7 @@ fun PosShell(
     // clock/battery never overlap the header, and the navigation bar so Samsung's One UI
     // taskbar (a full-height bottom bar on the real tablet) never covers footer buttons.
     Column(Modifier.fillMaxSize().background(ScreenBg).windowInsetsPadding(WindowInsets.systemBars)) {
-        Header(studioName, staffName, staffRole, online, pendingSync, heldSales, syncing, onSyncNow, onStaffClick)
+        Header(studioName, studioPlace, staffName, staffRole, online, pendingSync, heldSales, syncing, onSyncNow, onStaffClick)
         Row(Modifier.fillMaxSize()) {
             NavRail(active, tabs, onSelect)
             Box(Modifier.weight(1f).fillMaxHeight().background(ScreenBg)) { content() }
@@ -118,6 +119,7 @@ fun PosShell(
 @Composable
 private fun Header(
     studioName: String,
+    studioPlace: String = "Mauritius",
     staffName: String,
     staffRole: String,
     online: Boolean,
@@ -144,7 +146,7 @@ private fun Header(
         }
         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
             Text(studioName.uppercase(), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 16.sp, letterSpacing = Tracked2, color = TextPrimary)
-            Text("Helvetia · Mauritius", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, letterSpacing = 0.4.sp)
+            Text(studioPlace, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextMuted, letterSpacing = 0.4.sp)
         }
         Spacer(Modifier.weight(1f))
         // manual sync — pulls the catalogue fresh, drains the outbox, checks for an update.

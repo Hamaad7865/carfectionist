@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Printer, Download, Share2, ChevronDown, Mail, MessageCircle, Link2, Check } from "lucide-react";
 import { btn } from "@/components/ui/button";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 import { publicDocLinkAction } from "./actions";
 import { SendDocumentDialog } from "./SendDocumentDialog";
 
@@ -29,9 +30,10 @@ export function DocumentShareBar({
   onBeforeSend?: () => Promise<boolean>;
   /** Fires on a successful send; `issued` is set when the send is what issued a
    *  draft quotation. Defaults to refreshing the route. */
-  onSent?: (issued?: { number: string; status: string }) => void;
+  onSent?: (issued?: { number: string; status: string; parts?: number }) => void;
 }) {
   const router = useRouter();
+  const whatsapp = useWhatsApp();
   const [menuOpen, setMenuOpen] = useState(false);
   const [dialog, setDialog] = useState<null | "email" | "whatsapp">(null);
   const [copied, setCopied] = useState(false);
@@ -91,14 +93,14 @@ export function DocumentShareBar({
             aria-expanded={menuOpen}
             className={btn("primary")}
           >
-            <Share2 size={15} /> Email / WhatsApp
+            <Share2 size={15} /> {whatsapp ? "Email / WhatsApp" : "Email"}
             <ChevronDown size={14} className={`transition-transform ${menuOpen ? "rotate-180" : ""}`} />
           </button>
 
           {menuOpen && (
             <div role="menu" className="absolute right-0 z-50 mt-1.5 w-56 overflow-hidden rounded-[12px] border border-line bg-card p-1 shadow-[0_12px_32px_rgba(6,12,20,0.16)]">
               <MenuItem onClick={() => void openSend("email")} icon={<Mail size={15} className="text-link" />} label="Send Email" />
-              <MenuItem onClick={() => void openSend("whatsapp")} icon={<MessageCircle size={15} className="text-[#25D366]" />} label="Send WhatsApp" />
+              {whatsapp && <MenuItem onClick={() => void openSend("whatsapp")} icon={<MessageCircle size={15} className="text-[#25D366]" />} label="Send WhatsApp" />}
               <div className="my-1 h-px bg-line-2" />
               <MenuItem onClick={copyLink} icon={<Link2 size={15} className="text-muted" />} label="Copy share link" />
             </div>

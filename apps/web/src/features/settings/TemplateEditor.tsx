@@ -12,14 +12,9 @@ const field =
   "h-9 w-full rounded-[10px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand";
 const lbl = "mb-1 block text-[11px] font-bold uppercase tracking-wider text-faint";
 
-// The artwork a document falls back to when a slot is left blank. Mirrors the
-// constants in components/pdf/DocumentA4.tsx, so the preview here shows what
-// would actually print rather than an empty box.
-const DEFAULTS = {
-  header: "/brand/covered-by-diamonds.png",
-  footer: "/brand/diamondbrite-forever.png",
-  logo: "/brand/diamondbrite-logo.png",
-};
+// A blank slot prints nothing — there is no built-in artwork (DocumentA4.tsx), so
+// one shop can never print another's letterhead.
+const NO_DEFAULT = "";
 
 export function TemplateEditor({
   template,
@@ -144,7 +139,7 @@ export function TemplateEditor({
       <div>
         <p className="mb-1 text-[11px] font-bold uppercase tracking-wider text-faint">Letterhead artwork</p>
         <p className="mb-3 text-[11px] text-muted">
-          What prints at the top and bottom of every quote and invoice. Upload your own to replace the built-in Diamondbrite artwork — PNG, JPEG, WEBP or SVG, up to 5 MB. Changes apply once you save.
+          What prints at the top and bottom of every quote and invoice. Leave a slot empty to print without it. PNG, JPEG, WEBP or SVG, up to 5 MB. Changes apply once you save.
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           <BrandImageField
@@ -153,7 +148,7 @@ export function TemplateEditor({
             tenantId={tenantId}
             value={headerBannerPath}
             previewUrl={previews.header}
-            defaultPreview={DEFAULTS.header}
+            defaultPreview={NO_DEFAULT}
             onChange={setHeader}
           />
           <BrandImageField
@@ -162,7 +157,7 @@ export function TemplateEditor({
             tenantId={tenantId}
             value={footerBannerPath}
             previewUrl={previews.footer}
-            defaultPreview={DEFAULTS.footer}
+            defaultPreview={NO_DEFAULT}
             onChange={setFooter}
           />
           <BrandImageField
@@ -171,7 +166,7 @@ export function TemplateEditor({
             tenantId={tenantId}
             value={logoPath}
             previewUrl={previews.logo}
-            defaultPreview={DEFAULTS.logo}
+            defaultPreview={NO_DEFAULT}
             onChange={setLogo}
             aspect="aspect-[6/1]"
           />

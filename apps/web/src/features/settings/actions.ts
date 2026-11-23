@@ -21,7 +21,7 @@ const schema = z.object({
 export type TemplateResult = { ok: true } | { ok: false; error: string };
 
 export async function updateTemplateAction(input: z.infer<typeof schema>): Promise<TemplateResult> {
-  await requireRole("owner", "manager");
+  const ctx = await requireRole("owner", "manager");
   const parsed = schema.safeParse(input);
   if (!parsed.success) return { ok: false, error: "Invalid template" };
   const d = parsed.data;
@@ -40,10 +40,17 @@ export async function updateTemplateAction(input: z.infer<typeof schema>): Promi
   };
 
   const sb = await createClient();
-  const { error } = await sb
-    .from("document_templates")
-    .update({ name: d.name, config, is_default: true })
-    .eq("id", d.id);
+  // A shop set up after go-live has no template row yet (only Carfectionist was seeded
+  // one), so its first save creates it. Look for one first rather than trusting the
+  // empty id: a second click before the page refreshes must not add a second default.
+  let id = d.id;
+  if (!id) {
+    const { data: existing } = await sb.from("document_templates").select("id").eq("is_default", true).limit(1).maybeSingle();
+    id = (existing as { id?: string } | null)?.id ?? "";
+  }
+  const { error } = id
+    ? await sb.from("document_templates").update({ name: d.name, config, is_default: true }).eq("id", id)
+    : await sb.from("document_templates").insert({ tenant_id: ctx.tenantId, name: d.name, config, is_default: true });
   if (error) return { ok: false, error: error.message };
 
   revalidatePath("/settings/templates");

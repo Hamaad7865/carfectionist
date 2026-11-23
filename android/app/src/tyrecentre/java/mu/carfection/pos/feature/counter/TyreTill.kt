@@ -614,15 +614,29 @@ internal fun TyrePaid(s: CounterUiState, vm: CounterViewModel) {
                     result.offlineRef != null -> DarkCard("HELD", result.offlineRef, "The invoices follow when the tablet is back online")
                 }
                 Spacer(Modifier.height(18.dp))
-                bills.forEach { b ->
-                    val idx = companyIndexOf(b.legalEntityId, s.companies)
-                    val co = s.companies.getOrNull(idx)
-                    Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(10.dp).background(entityColours(idx).accent, RoundedCornerShape(2.dp)))
-                        Spacer(Modifier.width(10.dp))
-                        Text((co?.let(::companyName) ?: "Invoice") + " · ", color = TcBody, fontFamily = Barlow, fontSize = 14.sp)
-                        Text(b.number ?: "—", color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 13.sp, modifier = Modifier.weight(1f))
-                        Text(plainAmount(b.totalCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.SemiBold, fontSize = 13.5.sp)
+                // One compact card per company's bill: name and amount on one line (never wrapped),
+                // the invoice number under it. The old single row squeezed "3,450.00" and
+                // "TSINV-0001" onto two lines each beside a long company name.
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    bills.forEach { b ->
+                        val idx = companyIndexOf(b.legalEntityId, s.companies)
+                        val co = s.companies.getOrNull(idx)
+                        Row(
+                            Modifier.fillMaxWidth().background(Inset, RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(Modifier.width(4.dp).height(34.dp).background(entityColours(idx).accent, RoundedCornerShape(2.dp)))
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    co?.let(::companyName) ?: "Invoice", color = TextPrimary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                )
+                                Text(b.number ?: "—", color = TextSecondary, fontFamily = Mono, fontSize = 12.sp, maxLines = 1, softWrap = false)
+                            }
+                            Spacer(Modifier.width(10.dp))
+                            Text(formatMUR(b.totalCents), color = TextPrimary, fontFamily = Mono, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, softWrap = false)
+                        }
                     }
                 }
                 if (vm.canManage && result.offlineRef == null) VoidControl(result, vm)
@@ -631,7 +645,7 @@ internal fun TyrePaid(s: CounterUiState, vm: CounterViewModel) {
             var sendOpen by remember { mutableStateOf(false) }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FooterKey("Print again", Icons.Outlined.Print, Modifier.weight(1f), enabled = slips.isNotEmpty()) { vm.reprint() }
-                FooterKey("WhatsApp", Icons.Outlined.Chat, Modifier.weight(1f), enabled = result.offlineRef == null && !s.busy) { sendOpen = true }
+                if (s.whatsapp) FooterKey("WhatsApp", Icons.Outlined.Chat, Modifier.weight(1f), enabled = result.offlineRef == null && !s.busy) { sendOpen = true }
             }
             Spacer(Modifier.height(10.dp))
             Row(

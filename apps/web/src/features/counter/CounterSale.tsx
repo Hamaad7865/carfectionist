@@ -1,5 +1,6 @@
 "use client";
 
+import { attrLabel, pickerMatches } from "@/lib/products/attrs-row";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -13,6 +14,7 @@ import { setProductPriceAction } from "@/features/products/actions";
 import { getReceiptDataAction } from "./receipt-action";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 import { btn, btnBase } from "@/components/ui/button";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 import { OwnerOverrideDialog } from "@/features/documents/OwnerOverrideDialog";
 import {
   EMPTY_BASKET,
@@ -63,6 +65,7 @@ export function CounterSale({
   /** The shop quotes VAT-inclusive shelf prices — show what the customer pays, as the tablet does. */
   pricesInclVat?: boolean;
 }) {
+  const whatsapp = useWhatsApp();
   const router = useRouter();
   const [q, setQ] = useState("");
   // The product someone is trying to sell that has no price yet.
@@ -136,7 +139,7 @@ export function CounterSale({
       (p) =>
         (kind === "all" || p.kind === kind) &&
         (!cat || p.category === cat) &&
-        (!s || p.name.toLowerCase().includes(s) || (p.barcode ?? "").includes(s)),
+        (!s || pickerMatches(s, [p.name, p.barcode], p)),
     );
   }, [q, cat, kind, products]);
 
@@ -265,9 +268,11 @@ export function CounterSale({
             <button onClick={() => window.open(`/print/receipt/${done.invoiceId}`, "_blank")} className={btn("primary", "lg", "gap-2 text-[14px] px-5")}>
               <Printer size={17} /> Print receipt
             </button>
-            <button onClick={shareWhatsApp} className={btn("subtle", "lg", "gap-2")}>
-              <MessageCircle size={16} /> SMS / WhatsApp
-            </button>
+            {whatsapp && (
+              <button onClick={shareWhatsApp} className={btn("subtle", "lg", "gap-2")}>
+                <MessageCircle size={16} /> SMS / WhatsApp
+              </button>
+            )}
             <a href={`/api/documents/${done.invoiceId}/pdf`} target="_blank" rel="noreferrer" className={btn("subtle", "lg", "gap-2")}>
               <Download size={16} /> PDF
             </a>
@@ -443,7 +448,10 @@ export function CounterSale({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={p.photoUrl} alt="" className="size-7 shrink-0 rounded-[6px] object-cover" />
                   )}
-                  <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
+                  <span className="min-w-0">
+                    <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
+                    {attrLabel(p) && <span className="block truncate text-[10.5px] font-semibold text-muted">{attrLabel(p)}</span>}
+                  </span>
                 </span>
                 {unpriced ? (
                   <span className="mt-auto text-[11.5px] font-bold text-amber-ink">{canPrice ? "Set a price →" : "No price"}</span>

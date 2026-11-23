@@ -290,15 +290,17 @@ private fun ViewInvoiceDialog(s: JobsState, vm: JobsViewModel) {
                     }
                 }
 
-                SectionLabel("WHATSAPP")
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
-                    FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
-                    Box(
-                        Modifier.width(92.dp).height(48.dp).background(if (s.sendBusy || phone.isBlank()) InsetAlt else Color(0xFF25D366), RoundedCornerShape(12.dp))
-                            .clickable(enabled = !s.sendBusy && phone.isNotBlank()) { vm.sendInvoice("whatsapp", phone) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (s.sendBusy || phone.isBlank()) TextMuted else Color(0xFF06231A))
+                if (s.whatsapp) {
+                    SectionLabel("WHATSAPP")
+                    Row(horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                        FilledInput(value = phone, onValueChange = { phone = it }, placeholder = "+230 5XXX XXXX", modifier = Modifier.weight(1f), bg = Inset)
+                        Box(
+                            Modifier.width(92.dp).height(48.dp).background(if (s.sendBusy || phone.isBlank()) InsetAlt else Color(0xFF25D366), RoundedCornerShape(12.dp))
+                                .clickable(enabled = !s.sendBusy && phone.isNotBlank()) { vm.sendInvoice("whatsapp", phone) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(if (s.sendBusy) "…" else "Send", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (s.sendBusy || phone.isBlank()) TextMuted else Color(0xFF06231A))
+                        }
                     }
                 }
 

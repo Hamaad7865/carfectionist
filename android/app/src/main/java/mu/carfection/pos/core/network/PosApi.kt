@@ -16,6 +16,9 @@ import javax.inject.Singleton
 import kotlinx.serialization.Serializable
 import mu.carfection.pos.feature.counter.TYRE_TILL
 
+/** Brand + tyre size (20261127000010) — the till, quote picker and Stock all read them. */
+internal const val PRODUCT_ATTR_COLUMNS = "brand, tyre_width, tyre_profile, tyre_rim, tyre_load_index, tyre_speed_rating"
+
 /**
  * The POS ↔ backend seam. Every write goes through the SAME security-definer
  * RPCs the web app uses — the POS never re-implements an invariant, and the
@@ -27,10 +30,19 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Reads (catalogue sync; RLS scopes everything to the tenant) ──────────
     suspend fun fetchProducts(): List<ProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy, legal_entity_id")) {
+            .select(Columns.raw("id, name, kind, selling_price, price_includes_vat, vat_rate, barcode, is_stocked, category, low_stock_threshold, photo_path, discount_policy, legal_entity_id, $PRODUCT_ATTR_COLUMNS")) {
                 filter { eq("is_active", true) }
             }
             .decodeList()
+
+    /** The shop's active issuing companies, in the order the database numbers a split in. */
+    suspend fun fetchActiveCompanies(): List<CompanyDto> =
+        client.postgrest.from("legal_entities")
+            .select(Columns.raw("id, legal_name, trading_name, is_default, vat_registered, sort_order")) {
+                filter { eq("is_active", true) }
+            }
+            .decodeList<CompanyDto>()
+            .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
     suspend fun fetchCustomers(): List<CustomerDto> =
         client.postgrest.from("customers")
@@ -201,7 +213,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // delivered, a quote drops out of the working list.
     suspend fun fetchQuotes(): List<QuoteRowDto> =
         client.postgrest.from("documents")
-            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, revision_of, book_for_at, deposit_due, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
+            .select(Columns.raw("id, number, status, customer_id, vehicle_id, total_incl, updated_at, job_id, discount_kind, discount_value, discount_reason, intake, accepted_signature, revision_of, book_for_at, deposit_due, legal_entity_id, checkout_group_id, invoices:documents!source_document_id(id, number, doc_type, status, total_incl, revision_of), job:jobs!documents_job_id_fkey(status), customers(name, email, phone), vehicles(plate, make, model)")) {
                 filter { eq("doc_type", "quote") }
                 order("updated_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
                 limit(120) // deep enough that the search bar reaches past the last few days
@@ -329,7 +341,7 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
     // ── Stock ─────────────────────────────────────────────────────────────────────
     suspend fun fetchStockProducts(): List<StockProductDto> =
         client.postgrest.from("products")
-            .select(Columns.raw("id, name, category, barcode, selling_price, price_includes_vat, vat_rate, low_stock_threshold, photo_path")) {
+            .select(Columns.raw("id, name, category, barcode, selling_price, price_includes_vat, vat_rate, low_stock_threshold, photo_path, $PRODUCT_ATTR_COLUMNS")) {
                 filter { eq("is_active", true); eq("is_stocked", true) }
                 order("name", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
             }
@@ -909,6 +921,45 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         }).decodeAs()
     }
 
+    /**
+     * Issue a draft quote two companies sell as ONE QUOTE PER COMPANY — the call the web's
+     * issueAcrossCompanies makes (issue_checkout), carrying the per-company discounts the back
+     * office stored on the draft (template_overrides.companyDiscounts, amounts in cents). Returns
+     * the quotes' ids in company order; the first keeps the draft's id. A retry under the same key
+     * hands back the same quotes.
+     */
+    suspend fun issueQuoteAcrossCompanies(draftId: String, key: String): List<String> {
+        val row = client.postgrest.from("documents").select(Columns.raw("template_overrides")) {
+            filter { eq("id", draftId) }
+        }.decodeList<JsonObject>().firstOrNull()
+        val stored = ((row?.get("template_overrides") as? JsonObject)?.get("companyDiscounts") as? JsonObject).orEmpty()
+        val plan = client.postgrest.rpc("checkout_document_ids", buildJsonObject { put("p_document_id", draftId) })
+            .decodeList<JsonObject>()
+            .mapNotNull { (it["legal_entity_id"] as? kotlinx.serialization.json.JsonPrimitive)?.content }
+        val discounts = kotlinx.serialization.json.buildJsonArray {
+            if (plan.size > 1) plan.forEach { id ->
+                val d = stored[id] as? JsonObject ?: return@forEach
+                val kind = (d["kind"] as? kotlinx.serialization.json.JsonPrimitive)?.content
+                val value = (d["value"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull() ?: 0.0
+                if (value <= 0 || (kind != "percent" && kind != "amount")) return@forEach
+                add(buildJsonObject {
+                    put("legal_entity_id", id)
+                    put("discount_kind", kind)
+                    put("discount_value", if (kind == "amount") value / 100.0 else value)
+                    val reason = (d["reason"] as? kotlinx.serialization.json.JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
+                    if (reason.isNullOrEmpty()) put("discount_reason", JsonNull) else put("discount_reason", reason)
+                })
+            }
+        }
+        return client.postgrest.rpc("issue_checkout", buildJsonObject {
+            put("p_document_id", draftId)
+            put("p_stock_location_id", JsonNull)
+            put("p_idempotency_key", key)
+            put("p_session_id", JsonNull)
+            if (discounts.isEmpty()) put("p_discounts", JsonNull) else put("p_discounts", discounts)
+        }).decodeList<JsonObject>().mapNotNull { (it["id"] as? kotlinx.serialization.json.JsonPrimitive)?.content }
+    }
+
     /** Copy a quote into a new draft invoice (priced lines carried over). */
     suspend fun convertQuoteToInvoice(quoteId: String): SavedDoc =
         client.postgrest.rpc("convert_quote_to_invoice", buildJsonObject { put("p_quote_id", quoteId) }).decodeAs()
@@ -1078,13 +1129,22 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         idempotencyKey: String,
         stockLocationId: String? = null,
         sessionId: String? = null,
-    ): DocumentDto =
+    ): DocumentDto = try {
         client.postgrest.rpc("issue_document", buildJsonObject {
             put("p_document_id", documentId)
             if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
             put("p_idempotency_key", idempotencyKey)
             if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
         }).decodeAs()
+    } catch (e: Exception) {
+        // A bill two companies sell (a visit quoted per company, 20261126000010) is issued per
+        // company and paid across both — this till does not do that yet. Say so in plain words
+        // instead of the database's "issue one per company"; nothing was issued.
+        if (e.message?.contains("sold by another company") == true) {
+            throw IllegalStateException("This bill is issued per company — bill it from the back office.", e)
+        }
+        throw e
+    }
 
     /**
      * The shop's active issuing companies, in their order. One for Carfectionist; two for the
@@ -1108,13 +1168,6 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         "id, legal_name, trading_name, is_default, vat_registered, brn, vat_number, address, phone, " +
             "receipt_logo_path, receipt_footer_text"
 
-    suspend fun fetchActiveCompanies(): List<CompanyDto> =
-        client.postgrest.from("legal_entities")
-            .select(Columns.raw("id, legal_name, trading_name, is_default, vat_registered, sort_order")) {
-                filter { eq("is_active", true) }
-            }
-            .decodeList<CompanyDto>()
-            .sortedWith(compareBy({ it.sortOrder }, { it.id }))
 
     /**
      * A shop with more than one company: split the draft into one invoice per company and issue

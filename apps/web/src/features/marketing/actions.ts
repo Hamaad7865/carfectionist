@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { hasWhatsApp, NO_WHATSAPP } from "@/lib/auth/roles";
 import { normalizePhoneMU } from "@/lib/phone";
 import { countVariables, renderVariables } from "./render";
 import * as wa from "@/lib/whatsapp";
@@ -27,6 +28,7 @@ const templateSchema = z.object({
 
 export async function saveTemplateAction(input: z.infer<typeof templateSchema>): Promise<IdResult> {
   const ctx = await requireRole("owner");
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   const p = templateSchema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid template" };
   const sb = await createClient();
@@ -69,7 +71,8 @@ export async function saveTemplateAction(input: z.infer<typeof templateSchema>):
 }
 
 export async function submitTemplateAction(input: { id: string; examples: string[] }): Promise<Result> {
-  await requireRole("owner");
+  const ctx = await requireRole("owner");
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   const sb = await createClient();
   const { data: t } = await sb.from("wa_templates").select("name, language, category, body, status").eq("id", input.id).maybeSingle();
   if (!t) return { ok: false, error: "Template not found." };
@@ -90,7 +93,8 @@ export async function submitTemplateAction(input: { id: string; examples: string
 }
 
 export async function syncTemplatesAction(): Promise<Result> {
-  await requireRole("owner");
+  const ctx = await requireRole("owner");
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   const res = await wa.fetchTemplateStatuses();
   if (!res.ok) return res;
   const sb = await createClient();
@@ -127,6 +131,7 @@ const createCampaignSchema = z.object({
 
 export async function createCampaignAction(input: z.infer<typeof createCampaignSchema>): Promise<IdResult> {
   const ctx = await requireRole("owner");
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   const p = createCampaignSchema.safeParse(input);
   if (!p.success) return { ok: false, error: "Invalid campaign" };
   if (p.data.audience.customerIds.length === 0) return { ok: false, error: "Pick at least one recipient." };
@@ -172,7 +177,8 @@ export async function createCampaignAction(input: z.infer<typeof createCampaignS
 /** Send the next batch of pending recipients. Returns how many still remain so
  *  the client can call again until zero. Restartable — state is in the rows. */
 export async function sendBatchAction(campaignId: string): Promise<{ ok: true; remaining: number; sentNow: number } | { ok: false; error: string }> {
-  await requireRole("owner");
+  const ctx = await requireRole("owner");
+  if (!hasWhatsApp(ctx.tenantId)) return { ok: false, error: NO_WHATSAPP };
   if (!wa.isConfigured()) return { ok: false, error: "WhatsApp isn't connected yet — add the Meta Cloud API credentials to this deployment." };
   const sb = await createClient();
 

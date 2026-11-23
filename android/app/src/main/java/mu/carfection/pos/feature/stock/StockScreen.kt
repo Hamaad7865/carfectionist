@@ -83,6 +83,30 @@ fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
             placeholder = "Search products or scan a barcode…",
             modifier = Modifier.fillMaxWidth(), height = 44.dp, bg = CardBg, leadingSearch = true,
         )
+        // Brand + tyre size (20261127000010): the web catalogue's two filters and its summary.
+        val brands = viewModel.brands(s)
+        val showSize = viewModel.hasSizes(s) || s.sizeText.isNotEmpty()
+        if (brands.isNotEmpty() || showSize) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                if (showSize) {
+                    val bad = viewModel.sizeBad(s)
+                    FilledInput(
+                        value = s.sizeText, onValueChange = viewModel::setSizeText,
+                        placeholder = "Size e.g. 205/55",
+                        modifier = Modifier.width(190.dp).then(if (bad) Modifier.border(1.5.dp, Danger, RoundedCornerShape(10.dp)) else Modifier),
+                        height = 38.dp, bg = CardBg, fontSize = 13.sp,
+                    )
+                }
+                Row(Modifier.weight(1f).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                    if (brands.isNotEmpty()) FilterChip("All brands", s.brandKey.isEmpty()) { viewModel.setBrand("") }
+                    brands.forEach { b ->
+                        val on = b.key == s.brandKey
+                        FilterChip("${b.brand}  ${b.products}", on) { viewModel.setBrand(if (on) "" else b.key) }
+                    }
+                }
+            }
+            BrandSizeSummary(s, viewModel)
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
             FilledInput(
                 value = s.catQuery, onValueChange = viewModel::setCatQuery,
@@ -125,6 +149,7 @@ private fun StockCard(p: StockItem, vm: StockViewModel) {
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(p.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, lineHeight = 17.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (p.attr.isNotEmpty()) Text(p.attr, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 11.5.sp, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text("${p.category} · ${formatMUR(p.priceCents)}", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -186,6 +211,71 @@ private fun AdjustModal(a: AdjustState, vm: StockViewModel) {
                         else -> "Apply adjustment"
                     }
                     Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (a.canApply) AccentInk else TextMuted)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FilterChip(label: String, on: Boolean, onClick: () -> Unit) {
+    Box(Modifier.height(38.dp).background(if (on) AccentSoft else Color.Transparent, RoundedCornerShape(19.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Color(0x1F101A24), RoundedCornerShape(19.dp)).clickable(onClick = onClick).padding(horizontal = 15.dp), contentAlignment = Alignment.Center) {
+        Text(label, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextSecondary, maxLines = 1)
+    }
+}
+
+/**
+ * "In 205/55: Michelin 2 products · 6 in shop…" when a size is typed, or "Michelin sizes:
+ * 195/65 R15, 205/55 R16…" when a brand is picked. Tapping a row narrows the grid to it.
+ * Counts are the shop floor's, like the rest of this screen; the web shows every location.
+ */
+@Composable
+private fun BrandSizeSummary(s: StockState, vm: StockViewModel) {
+    val q = vm.sizeQuery(s)
+    data class Chip(val label: String, val products: Int, val qty: Int, val on: Boolean, val muted: Boolean, val onClick: (() -> Unit)?)
+    val title: String
+    val sub: String
+    val chips: List<Chip>
+    when {
+        q != null -> {
+            val rows = vm.brandsForSize(s, q)
+            val total = rows.sumOf { it.products }
+            title = "In ${mu.carfection.pos.core.catalog.TyreSizes.formatQuery(q)}"
+            sub = if (total == 0) "No tyres in this size" else "${rows.size} brand${if (rows.size == 1) "" else "s"} · $total product${if (total == 1) "" else "s"}"
+            chips = rows.map { r ->
+                Chip(r.brand.ifEmpty { "No brand recorded" }, r.products, r.qty.toInt(), r.key.isNotEmpty() && r.key == s.brandKey, r.key.isEmpty(),
+                    if (r.key.isEmpty()) null else ({ vm.setBrand(if (r.key == s.brandKey) "" else r.key) }))
+            }
+        }
+        s.brandKey.isNotEmpty() -> {
+            val rows = vm.sizesForBrand(s)
+            val name = vm.brands(s).firstOrNull { it.key == s.brandKey }?.brand ?: s.brandKey
+            title = "$name sizes"
+            sub = if (rows.isEmpty()) "No tyre sizes recorded for this brand" else "${rows.size} size${if (rows.size == 1) "" else "s"}"
+            chips = rows.map { r -> Chip(r.label, r.products, r.qty.toInt(), false, false) { vm.setSizeText(r.label) } }
+        }
+        else -> return
+    }
+    Column(Modifier.fillMaxWidth().background(CardBg, RoundedCornerShape(14.dp)).border(1.dp, Hairline, RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(title, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = TextPrimary)
+            Text(sub, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.sp, color = TextMuted)
+            Spacer(Modifier.weight(1f))
+            Text("Clear", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 12.5.sp, color = Accent, modifier = Modifier.clickable { vm.clearBrandSize() }.padding(horizontal = 6.dp, vertical = 4.dp))
+        }
+        if (chips.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            chips.forEach { c ->
+                Column(
+                    Modifier.background(if (c.on) AccentSoft else InsetAlt, RoundedCornerShape(11.dp))
+                        .border(if (c.on) 1.5.dp else 1.dp, if (c.on) AccentLine else Hairline, RoundedCornerShape(11.dp))
+                        .then(if (c.onClick != null) Modifier.clickable(onClick = c.onClick) else Modifier)
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
+                ) {
+                    Text(c.label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (c.muted) TextMuted else TextPrimary, maxLines = 1)
+                    Text(
+                        "${c.products} product${if (c.products == 1) "" else "s"} · ${c.qty} in shop",
+                        fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = if (c.qty > 0) TextSecondary else Danger, maxLines = 1,
+                    )
                 }
             }
         }

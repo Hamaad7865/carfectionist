@@ -31,6 +31,13 @@ data class ProductDto(
     @SerialName("price_includes_vat") val priceIncludesVat: Boolean = false,
     // The company that sells it, on a shop with several (null = the main company).
     @SerialName("legal_entity_id") val legalEntityId: String? = null,
+    // Brand + tyre size (20261127000010).
+    val brand: String? = null,
+    @SerialName("tyre_width") val tyreWidth: Int? = null,
+    @SerialName("tyre_profile") val tyreProfile: Int? = null,
+    @SerialName("tyre_rim") val tyreRim: FlexDouble? = null,
+    @SerialName("tyre_load_index") val tyreLoadIndex: String? = null,
+    @SerialName("tyre_speed_rating") val tyreSpeedRating: String? = null,
 )
 
 @Serializable
@@ -77,6 +84,9 @@ data class JobRow(val id: String)
     @SerialName("source_document_id") val sourceDocumentId: String? = null,
     // What the document comes to as it stands — the quote screen shows the running bill.
     @SerialName("total_incl") val totalIncl: FlexDouble = 0.0,
+    // The draft's company as stored: a draft follows its lines' company (app.draft_follows_lines),
+    // and a hand-typed line is stamped with it on the next save (app.lines_stamp_entity).
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
 )
 
 /**
@@ -175,6 +185,11 @@ data class QuoteRowDto(
     val job: JobStatusRefDto? = null,
     val customers: CustomerNameDto? = null,
     val vehicles: VehicleNameDto? = null,
+    // A two-company shop (tyre centre): the company this quote is numbered under, and the visit
+    // it belongs to — a quote both companies sold is issued as one quote per company, all sharing
+    // a checkout group (the first company's keeps the draft's id, which IS the group id).
+    @SerialName("legal_entity_id") val legalEntityId: String? = null,
+    @SerialName("checkout_group_id") val checkoutGroupId: String? = null,
 )
 
 @Serializable data class JobStatusRefDto(val status: String = "")
@@ -543,7 +558,17 @@ data class StockProductDto(
     @SerialName("vat_rate") val vatRate: FlexDouble? = null,
     @SerialName("low_stock_threshold") val lowStockThreshold: FlexDouble? = null,
     @SerialName("photo_path") val photoPath: String? = null,
-)
+    // Brand + tyre size (20261127000010).
+    val brand: String? = null,
+    @SerialName("tyre_width") val tyreWidth: Int? = null,
+    @SerialName("tyre_profile") val tyreProfile: Int? = null,
+    @SerialName("tyre_rim") val tyreRim: FlexDouble? = null,
+    @SerialName("tyre_load_index") val tyreLoadIndex: String? = null,
+    @SerialName("tyre_speed_rating") val tyreSpeedRating: String? = null,
+) {
+    val tyreSize: mu.carfection.pos.core.catalog.TyreSize?
+        get() = mu.carfection.pos.core.catalog.TyreSizes.fromColumns(tyreWidth, tyreProfile, tyreRim)
+}
 
 @Serializable
 data class StockOnHandDto(
@@ -919,3 +944,4 @@ data class CustomerPointsDto(@SerialName("points_balance") val pointsBalance: In
 /** One customer_points_ledger row's delta — used to sum what a single document earned. */
 @Serializable
 data class PointsDeltaDto(val delta: Int = 0)
+

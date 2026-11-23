@@ -101,8 +101,12 @@ android {
             buildConfigField("String", "BRAND", "\"tyrecentre\"")
             buildConfigField("String", "UPDATE_MANIFEST", "\"tyrecentre/latest.json\"")
             buildConfigField("String", "APK_PREFIX", "\"tyrecentre\"")
-            // Garage De L'Est (tyres + Service): only its staff appear on this app's PIN screen.
-            buildConfigField("String", "POS_TENANTS", "\"1f060b86-ad63-4dc7-93fb-a1fdfae18b27\"")
+            // Garage De L'Est (tyres + Service) and its TEST Tyre Sandbox
+            // (scripts/setup-tyre-sandbox.mjs): only their staff appear on this app's PIN screen.
+            buildConfigField(
+                "String", "POS_TENANTS",
+                "\"1f060b86-ad63-4dc7-93fb-a1fdfae18b27,44444444-4444-4444-8444-000000000004\"",
+            )
             prop("tyrecentre.pos.webUrl").takeIf { it.isNotBlank() }?.let {
                 buildConfigField("String", "POS_WEB_URL", "\"$it\"")
             }
@@ -146,6 +150,12 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
+
+// TyreSizeTest reads the web's fixture; without declaring it, editing only the fixture would leave
+// testDebugUnitTest UP-TO-DATE and the Kotlin mirror could drift from the web unnoticed.
+tasks.withType<Test>().configureEach {
+    inputs.file(rootProject.file("../apps/web/src/lib/products/tyre-size.fixture.json"))
 }
 
 hilt {

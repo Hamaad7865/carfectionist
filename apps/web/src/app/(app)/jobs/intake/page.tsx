@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getIntakeData } from "@/lib/supabase/queries/intake";
 import { IntakeFlow } from "@/features/intake/IntakeFlow";
+import { isTyreShop } from "@/lib/auth/roles";
 
 export default async function IntakePage() {
   const { tenantId, customers } = await getIntakeData();
@@ -14,7 +15,7 @@ export default async function IntakePage() {
         </Link>
         <div>
           <h2 className="font-display text-[20px] font-extrabold text-ink-strong">Reception · Intake</h2>
-          <p className="text-[12.5px] text-muted">Customer → vehicle → condition → quotation</p>
+          <p className="text-[12.5px] text-muted">{isTyreShop(tenantId) ? "Customer → vehicle → quotation" : "Customer → vehicle → condition → quotation"}</p>
         </div>
       </div>
       <IntakeFlow tenantId={tenantId} customers={customers} />

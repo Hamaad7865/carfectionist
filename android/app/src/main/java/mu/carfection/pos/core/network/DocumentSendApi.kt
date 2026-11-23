@@ -21,10 +21,12 @@ private data class SendDocumentBody(
     val note: String? = null,
     val saveContact: Boolean,
     val deviceCode: String? = null,
+    /** Send every company's quote of the visit, not just this one (the route's `group`). */
+    val group: Boolean? = null,
 )
 
 @Serializable
-private data class IssuedDto(val number: String? = null, val status: String? = null)
+private data class IssuedDto(val number: String? = null, val status: String? = null, val parts: Int? = null)
 
 @Serializable
 private data class SendDocumentResponse(val ok: Boolean = false, val error: String? = null, val issued: IssuedDto? = null)
@@ -34,7 +36,13 @@ private data class SendDocumentResponse(val ok: Boolean = false, val error: Stri
  * is what issued the document — sending a draft quotation issues it, and the tablet has
  * to stop showing a DRAFT chip over a quote the server has since frozen.
  */
-data class SendOutcome(val error: String?, val issuedNumber: String? = null, val issuedStatus: String? = null)
+data class SendOutcome(
+    val error: String?,
+    val issuedNumber: String? = null,
+    val issuedStatus: String? = null,
+    /** How many quotes this send numbered — 2 when a two-company quote went out as one per company. */
+    val issuedParts: Int = 1,
+)
 
 @Serializable
 private data class SendZReportBody(val to: String, val deviceCode: String? = null)
@@ -52,11 +60,11 @@ class DocumentSendApi @Inject constructor(private val client: SupabaseClient) {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     /** Sends, and reports back whether the send is what issued the document. */
-    suspend fun send(documentId: String, channel: String, to: String, note: String?, deviceCode: String?): SendOutcome =
+    suspend fun send(documentId: String, channel: String, to: String, note: String?, deviceCode: String?, group: Boolean = false): SendOutcome =
         withContext(Dispatchers.IO) {
             val token = client.auth.currentAccessTokenOrNull()
                 ?: return@withContext SendOutcome("Not signed in — sign in again and retry.")
-            val body = json.encodeToString(SendDocumentBody(channel, to, note = note?.takeIf { it.isNotBlank() }, saveContact = true, deviceCode = deviceCode))
+            val body = json.encodeToString(SendDocumentBody(channel, to, note = note?.takeIf { it.isNotBlank() }, saveContact = true, deviceCode = deviceCode, group = if (group) true else null))
             val conn = (URL("$base/api/documents/$documentId/send").openConnection() as HttpURLConnection).apply {
                 requestMethod = "POST"
                 connectTimeout = 15_000
@@ -73,7 +81,7 @@ class DocumentSendApi @Inject constructor(private val client: SupabaseClient) {
                     ?.bufferedReader()?.use(BufferedReader::readText) ?: ""
                 val parsed = runCatching { json.decodeFromString<SendDocumentResponse>(text) }.getOrNull()
                 when {
-                    parsed?.ok == true -> SendOutcome(null, parsed.issued?.number, parsed.issued?.status)
+                    parsed?.ok == true -> SendOutcome(null, parsed.issued?.number, parsed.issued?.status, parsed.issued?.parts ?: 1)
                     parsed?.error != null -> SendOutcome(parsed.error)
                     else -> SendOutcome("Send failed (HTTP $code)")
                 }

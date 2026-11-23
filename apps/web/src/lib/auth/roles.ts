@@ -122,3 +122,34 @@ export function titleForPath(pathname: string): string {
   )[0];
   return match?.label ?? "Carfectionist";
 }
+
+/** Shops that are tyre centres, not detailing studios: Garage De L'Est (tyres + Service) and its
+ *  TEST Tyre Sandbox (scripts/setup-tyre-sandbox.mjs). The tablet mirrors this list. */
+export const TYRE_TENANTS: readonly string[] = [
+  "1f060b86-ad63-4dc7-93fb-a1fdfae18b27",
+  "44444444-4444-4444-8444-000000000004",
+];
+
+/** Detailing-studio modules a tyre centre never uses: WhatsApp messages, marketing campaigns,
+ *  coating certificates and the detailing enquiry form. Hidden from its menu and refused by URL. */
+export const TYRE_HIDDEN_MODULES: readonly string[] = ["/messages", "/marketing", "/certificates", "/enquiries"];
+
+/** The modules this shop does not offer at all, whatever the user's role. */
+export function hiddenModulesFor(tenantId: string): readonly string[] {
+  return TYRE_TENANTS.includes(tenantId) ? TYRE_HIDDEN_MODULES : [];
+}
+
+/** True for a tyre-centre tenant: its screens drop detailing wording and tools. */
+export function isTyreShop(tenantId: string): boolean {
+  return TYRE_TENANTS.includes(tenantId);
+}
+
+/** WhatsApp runs on ONE number per deployment (the WHATSAPP_* secrets), and that number is
+ *  Carfectionist's. The tyre centre asked for no WhatsApp at all, and its customers must never
+ *  get a message from another business's number — so no screen offers it and every send path
+ *  refuses it. The tablet mirrors this list (core/TenantFeatures.kt). */
+export function hasWhatsApp(tenantId: string | null | undefined): boolean {
+  return !!tenantId && !isTyreShop(tenantId);
+}
+
+export const NO_WHATSAPP = "WhatsApp isn't offered for this business.";
