@@ -4,11 +4,12 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
-import { existsInTenant } from "@/lib/supabase/guards";
 import { getProductMovements, type MovementRow } from "@/lib/supabase/queries/movements";
 
-const ROLES = ["owner", "manager"] as const;
-type Result = { ok: true } | { ok: false; error: string };
+// Cashiers adjust too — but, like a manager, only with the owner's PIN for that one
+// move; public.record_stock_adjustment is what enforces it.
+const ROLES = ["owner", "manager", "cashier"] as const;
+type Result = { ok: true } | { ok: false; error: string; needsOwner?: boolean };
 
 const schema = z.object({
   productId: z.string().min(1),
@@ -20,35 +21,30 @@ const schema = z.object({
 });
 
 export async function recordAdjustmentAction(input: z.input<typeof schema>): Promise<Result> {
-  const ctx = await requireRole(...ROLES);
+  await requireRole(...ROLES);
   const p = schema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid adjustment" };
   const sb = await createClient();
 
-  // Validate the client-supplied FKs belong to the caller's tenant (RLS-scoped
-  // lookups return null for a foreign-tenant id) before writing the movement.
-  const { data: prod } = await sb.from("products").select("id, cost_price").eq("id", p.data.productId).maybeSingle();
-  if (!prod) return { ok: false, error: "Unknown product." };
-  if (!(await existsInTenant(sb, "stock_locations", p.data.locationId))) return { ok: false, error: "Unknown location." };
-  // Valuation: use the product's current cost so on-hand value stays consistent.
+  // The RPC checks product + location are this shop's, stamps who moved it at the
+  // product's current cost, and — for anyone but the owner — consumes the owner's
+  // single-use approval for exactly this move.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const unitCost = Number((prod as any).cost_price);
-  const { data: appUser } = await sb.from("app_users").select("id").eq("auth_user_id", ctx.userId).maybeSingle();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const createdBy = (appUser as any)?.id ?? null;
-
-  const { error } = await sb.from("stock_movements").insert({
-    tenant_id: ctx.tenantId,
-    product_id: p.data.productId,
-    location_id: p.data.locationId,
-    qty: p.data.qty,
-    unit_cost: unitCost,
-    ref_type: "adjustment",
-    ref_id: null,
-    note: p.data.note || null,
-    created_by: createdBy,
+  const { error } = await (sb as any).rpc("record_stock_adjustment", {
+    p_product_id: p.data.productId,
+    p_location_id: p.data.locationId,
+    p_qty: p.data.qty,
+    p_note: p.data.note,
   });
-  if (error) return { ok: false, error: error.message };
+  if (error) {
+    const msg = String(error.message ?? "");
+    if (/requires the owner/i.test(msg)) {
+      return { ok: false, needsOwner: true, error: "This adjustment needs the owner's approval." };
+    }
+    if (/unknown product/i.test(msg)) return { ok: false, error: "Unknown product." };
+    if (/unknown location/i.test(msg)) return { ok: false, error: "Unknown location." };
+    return { ok: false, error: msg || "Could not record the adjustment." };
+  }
   revalidatePath("/products");
   return { ok: true };
 }

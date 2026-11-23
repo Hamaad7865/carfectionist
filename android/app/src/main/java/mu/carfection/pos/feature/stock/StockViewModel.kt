@@ -12,13 +12,17 @@ import mu.carfection.pos.core.data.AdjustmentRow
 import mu.carfection.pos.core.data.CatalogRepository
 import mu.carfection.pos.core.data.StockAdjustmentSlip
 import mu.carfection.pos.core.data.StockBalance
+import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.data.adjustmentRow
 import mu.carfection.pos.core.network.StockAdjustmentDto
 import mu.carfection.pos.core.money.rupeesToCents
 import mu.carfection.pos.core.money.shelfCents
-import mu.carfection.pos.core.network.NewStockMovementDto
+import mu.carfection.pos.core.network.OverrideApi
+import mu.carfection.pos.core.network.OverrideOutcome
 import mu.carfection.pos.core.network.PosApi
 import mu.carfection.pos.core.network.StockProductDto
+import mu.carfection.pos.core.network.UserNameDto
+import mu.carfection.pos.core.network.pinErrorCopy
 import mu.carfection.pos.core.catalog.AttrItem
 import mu.carfection.pos.core.catalog.BrandRow
 import mu.carfection.pos.core.catalog.SizeQuery
@@ -70,6 +74,24 @@ data class AdjustState(val productId: String, val name: String, val onHand: Int,
     val canApply: Boolean get() = delta != 0 && reason.isNotBlank()
 }
 
+/**
+ * "Ask the owner" for one adjustment (20261128000020): anyone but the owner needs the owner's
+ * PIN, and the approval is single-use and bound to exactly this product, location and quantity.
+ */
+data class StockApproval(
+    val adj: AdjustState,
+    /** Active owners of this tenant. Null = still loading. */
+    val owners: List<UserNameDto>? = null,
+    val ownersError: String? = null,
+    val ownerId: String? = null,
+    /** Masked; cleared the instant a submit resolves either way. */
+    val pin: String = "",
+    val busy: Boolean = false,
+    val error: String? = null,
+) {
+    val canSubmit: Boolean get() = !busy && ownerId != null && pin.length == 4
+}
+
 data class StockState(
     val loading: Boolean = true,
     val products: List<StockProductDto> = emptyList(),
@@ -84,6 +106,7 @@ data class StockState(
     val tenant: String? = null,
     val locationId: String? = null,
     val adj: AdjustState? = null,
+    val approval: StockApproval? = null,
     // The shop quotes VAT-inclusive shelf prices — show gross here too. Display only.
     val pricesInclVat: Boolean = false,
     val vatDefault: Double = 15.0,
@@ -111,12 +134,16 @@ class StockViewModel @Inject constructor(
     private val catalog: CatalogRepository,
     private val printer: mu.carfection.pos.core.hardware.ReceiptPrinter,
     private val hw: mu.carfection.pos.core.hardware.HardwareSettings,
+    private val session: SessionRepository,
+    private val overrideApi: OverrideApi,
 ) : ViewModel() {
     private val _s = MutableStateFlow(StockState())
     val state = _s.asStateFlow()
 
-    /** Resolved once per session — it never changes while signed in. */
-    private var appUserId: String? = null
+    /** The owner IS the authorisation; everyone else asks for the owner's PIN per adjustment. */
+    private val isOwner: Boolean get() = session.userRole.equals("owner", true)
+    /** The adjust dialog's Apply says up front that the owner's PIN comes next. */
+    val needsOwner: Boolean get() = !isOwner
 
     init {
         load()
@@ -307,23 +334,75 @@ class StockViewModel @Inject constructor(
         // The dialog already disables Apply without a reason; this is the guarantee the
         // LEDGER gets, independent of whatever the UI does.
         if (a.reason.isBlank()) { _s.update { it.copy(toast = "Pick a reason first") }; return }
+        if (!isOwner) { openApproval(a); return }
         _s.update { it.copy(adj = null) }
         post(a.productId, a.delta, a.reason, a.result, "${a.name} → ${a.result} on hand")
     }
 
+    // ── owner approval ────────────────────────────────────────────────────────
+    private fun openApproval(a: AdjustState) {
+        _s.update { it.copy(adj = null, approval = StockApproval(a)) }
+        // Fetched fresh each time: an RLS read that runs before the session is ready returns
+        // an empty list rather than an error, so a cached one could strand the picker.
+        viewModelScope.launch {
+            runCatching { api.fetchApprovingOwners() }
+                .onSuccess { list ->
+                    _s.update { st -> st.approval?.let { ap -> st.copy(approval = ap.copy(owners = list, ownerId = ap.ownerId ?: list.singleOrNull()?.id)) } ?: st }
+                }
+                .onFailure { e -> _s.update { st -> st.approval?.let { st.copy(approval = it.copy(ownersError = e.uiMessage())) } ?: st } }
+        }
+    }
+
+    /** Back to the adjust dialog, with the move and reason still filled in. */
+    fun closeApproval() = _s.update { st -> st.copy(adj = st.approval?.adj, approval = null) }
+    fun pickApprovalOwner(id: String) = _s.update { st -> st.approval?.let { st.copy(approval = it.copy(ownerId = id, error = null)) } ?: st }
+    fun setApprovalPin(p: String) = _s.update { st -> st.approval?.let { st.copy(approval = it.copy(pin = p.filter(Char::isDigit).take(4), error = null)) } ?: st }
+
+    fun submitApproval() {
+        val ap = _s.value.approval ?: return
+        val ownerId = ap.ownerId ?: return
+        if (!ap.canSubmit) return
+        val loc = _s.value.locationId
+        if (loc == null) { _s.update { it.copy(toast = "Not synced — pull the catalogue first") }; return }
+        val a = ap.adj
+        _s.update { st -> st.copy(approval = ap.copy(busy = true, error = null)) }
+        viewModelScope.launch {
+            val result = overrideApi.requestOverride(
+                appUserId = ownerId, pin = ap.pin, kind = "stock_adjustment", refType = "product",
+                refId = a.productId, reason = a.reason, locationId = loc, qty = a.delta.toDouble(),
+            )
+            // Win or lose, the PIN has done its job — never held past the one request.
+            val fail: String? = when (result) {
+                is OverrideOutcome.Approved -> null
+                is OverrideOutcome.PinRejected -> pinErrorCopy(result.reason)
+                OverrideOutcome.NotOwner -> "That didn't check out as an owner — try again."
+                is OverrideOutcome.Failed -> result.message
+            }
+            if (fail != null) {
+                _s.update { st -> st.approval?.let { st.copy(approval = it.copy(pin = "", busy = false, error = fail)) } ?: st }
+                return@launch
+            }
+            _s.update { it.copy(approval = null) }
+            post(a.productId, a.delta, a.reason, a.result, "${a.name} → ${a.result} on hand (owner approved)")
+        }
+    }
+
     private fun post(productId: String, delta: Int, note: String, newOnHand: Int, toast: String? = null) {
         val s = _s.value
-        val tenant = s.tenant; val loc = s.locationId
-        if (tenant == null || loc == null) { _s.update { it.copy(toast = "Not synced — pull the catalogue first") }; return }
+        val loc = s.locationId
+        if (s.tenant == null || loc == null) { _s.update { it.copy(toast = "Not synced — pull the catalogue first") }; return }
         _s.update { it.copy(onHand = it.onHand + (productId to newOnHand), toast = toast) }
         viewModelScope.launch {
-            // Stamp WHO moved the stock. Every historical row has created_by null because the
-            // JWT carries a name but not the app_users id, so the ledger could never answer
-            // "who did this" — and that is the first question asked of a printed adjustment log.
-            val by = appUserId ?: api.currentAppUserId()?.also { appUserId = it }
-            runCatching { api.adjustStock(NewStockMovementDto(tenant, productId, loc, delta.toDouble(), refType = "adjustment", note = note, createdBy = by)) }
+            // record_stock_adjustment stamps who moved it and, for anyone but the owner,
+            // consumes the owner's approval for exactly this move.
+            runCatching { api.adjustStock(productId, loc, delta.toDouble(), note) }
                 .onFailure { e ->
-                    val msg = if (e.message?.contains("row-level security", true) == true) "Stock adjustments need owner or manager access" else "Couldn't save the adjustment — try again"
+                    val m = e.message.orEmpty()
+                    val msg = when {
+                        m.contains("requires the owner", true) -> "That adjustment needs the owner's approval"
+                        m.contains("not open to this role", true) -> "Your role can't adjust stock"
+                        else -> "Couldn't save the adjustment — try again"
+                    }
                     _s.update { it.copy(error = e.uiMessage(), toast = msg) }; load()
                 }
         }

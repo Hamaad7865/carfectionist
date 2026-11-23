@@ -63,7 +63,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           companies={companies}
         />
       )}
-      {tab === "inventory" && invOps && <InventoryPanel data={invOps} />}
+      {tab === "inventory" && invOps && <InventoryPanel data={invOps} isOwner={shop?.role === "owner"} />}
       {tab === "categories" && categoryData && <CategoriesPanel data={categoryData} />}
       {tab === "transfers" && transferData && <TransfersPanel transfers={transferData.transfers} refData={transferData.ref} />}
       {tab === "recipes" && recipeData && <RecipesPanel data={recipeData} />}
