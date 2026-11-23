@@ -1109,13 +1109,22 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         idempotencyKey: String,
         stockLocationId: String? = null,
         sessionId: String? = null,
-    ): DocumentDto =
+    ): DocumentDto = try {
         client.postgrest.rpc("issue_document", buildJsonObject {
             put("p_document_id", documentId)
             if (stockLocationId != null) put("p_stock_location_id", stockLocationId) else put("p_stock_location_id", JsonNull)
             put("p_idempotency_key", idempotencyKey)
             if (sessionId != null) put("p_session_id", sessionId) else put("p_session_id", JsonNull)
         }).decodeAs()
+    } catch (e: Exception) {
+        // A bill two companies sell (a visit quoted per company, 20261126000010) is issued per
+        // company and paid across both — this till does not do that yet. Say so in plain words
+        // instead of the database's "issue one per company"; nothing was issued.
+        if (e.message?.contains("sold by another company") == true) {
+            throw IllegalStateException("This bill is issued per company — bill it from the back office.", e)
+        }
+        throw e
+    }
 
     /** Records a payment + recomputes status. Idempotent. */
     suspend fun recordPayment(
