@@ -1239,7 +1239,8 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         )
                     }
                 }
-                TotalLine("VAT 15%", formatMUR(t.vatCents), TextSecondary)
+                if (vm.vatExemptOnly(s)) TotalLine("VAT", "VAT exempt", TextSecondary)
+                else TotalLine("VAT 15%", formatMUR(t.vatCents), TextSecondary)
                 Row(Modifier.fillMaxWidth().padding(top = 4.dp), verticalAlignment = Alignment.Bottom) {
                     Text("TOTAL", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, letterSpacing = 1.sp, color = TextPrimary)
                     Spacer(Modifier.weight(1f))

@@ -389,13 +389,16 @@ export function DocumentBuilder({
 
   // One assembly, shared by the totals and the discount-allowance math below — a line's
   // policy rides beside the fields computeTotals already wanted.
+  // A non-VAT company's line carries no VAT whatever it says (lines_stamp_entity forces 0) — so a
+  // hand-typed line on its quote must not show 15% on screen that the database will not store.
+  const vatFreeLine = (productId: string | null) => multiCompany && companyById.get(companyOf(productId) ?? "")?.vatRegistered === false;
   const lineInputs = state.lines.map((l) => ({
     qty: l.qty,
     unitCents: l.unitCents,
     discountPct: l.discountPct,
     discountKind: l.discountKind,
     discountAmountCents: l.discountAmountCents,
-    vatRatePct: l.vatRatePct,
+    vatRatePct: vatFreeLine(l.productId) ? 0 : l.vatRatePct,
     policy: l.discountPolicy,
     priceInclusive: l.priceInclusive,
   }));
@@ -1305,7 +1308,11 @@ export function DocumentBuilder({
             {discountShown > 0 && (
               <div className="flex justify-between py-1 text-amber-ink"><span>Discount</span><span className="num">−{formatMUR(discountShown)}</span></div>
             )}
-            <div className="flex justify-between py-1 text-muted"><span>VAT (15%)</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
+            {multiCompany && state.lines.length > 0 && state.lines.every((l) => vatFreeLine(l.productId)) ? (
+              <div className="flex justify-between py-1 text-muted"><span>VAT</span><span className="text-[12px] font-bold text-body">VAT exempt</span></div>
+            ) : (
+              <div className="flex justify-between py-1 text-muted"><span>VAT (15%)</span><span className="num text-ink">{formatMUR(totals.vatCents)}</span></div>
+            )}
             <div className="mt-1 flex justify-between rounded-[10px] bg-sub px-3 py-2 font-bold"><span className="text-ink">Total (MUR)</span><span className="num text-brand">{formatMUR(totals.totalCents)}</span></div>
           </div>
           )}

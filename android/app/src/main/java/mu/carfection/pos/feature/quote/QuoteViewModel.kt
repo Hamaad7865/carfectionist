@@ -830,6 +830,10 @@ class QuoteViewModel @Inject constructor(
                     // minutes (same reasoning as pricesInclVat above).
                     carwashPct = _s.value.carwashPct,
                     policyDefaults = _s.value.policyDefaults,
+                    // Loaded once, in init: drop them and the next operator's builder stops
+                    // splitting — the bill discount returns and Accept runs on a two-company draft.
+                    companies = _s.value.companies,
+                    productCompany = _s.value.productCompany,
                 )
             }
         }
@@ -1439,13 +1443,15 @@ class QuoteViewModel @Inject constructor(
     }
 
     fun totals(s: QuoteState): DocDiscountTotals = computeDocTotals(
-        s.lines.map {
+        s.lines.mapIndexed { i, it ->
             DocLineIn(
                 qty = it.qty.toDouble(), unitCents = it.unitCents,
                 discountKind = if (it.discountMode == DiscountMode.AMT) "amount" else "percent",
                 discountPct = it.discountPct.toDouble(),
                 discountAmtInclCents = if (it.discountMode == DiscountMode.AMT) it.discountAmtCents else 0L,
-                vatRatePct = it.vatRate,
+                // A non-VAT company's line carries no VAT whatever it says (lines_stamp_entity
+                // forces 0): never show 15% the database will not store.
+                vatRatePct = if (vatFreeLine(s, i)) 0.0 else it.vatRate,
                 priceInclusive = it.priceInclusive,
             )
         },
@@ -1461,6 +1467,13 @@ class QuoteViewModel @Inject constructor(
         vatRatePct = vatRate,
         priceInclusive = priceInclusive,
     )
+
+    /** True when line [i] is sold by a company that is not VAT-registered (two-company shops only). */
+    private fun vatFreeLine(s: QuoteState, i: Int): Boolean =
+        s.companies.size > 1 && lineCompany(s, i)?.let { id -> s.companies.firstOrNull { it.id == id } }?.vatRegistered == false
+
+    /** The quote's only company, when it is not VAT-registered — its footer says "VAT exempt". */
+    fun vatExemptOnly(s: QuoteState): Boolean = companyParts(s).singleOrNull()?.company?.vatRegistered == false
 
     /** The company that sells line [i] — what the database will stamp on it when it is saved. */
     fun lineCompany(s: QuoteState, i: Int): String? =
@@ -1482,7 +1495,9 @@ class QuoteViewModel @Inject constructor(
     /** Already issued as one quote per company: accepting or billing only THIS one would leave the
      *  other company's quote behind (accept_quote / convert_quote_to_* act on one document). */
     private fun splitBlockReason(s: QuoteState): String? = when {
-        s.checkoutGroupId != null && s.checkoutGroupId.isNotEmpty() && s.quotes.count { it.checkoutGroupId == s.checkoutGroupId } > 1 ->
+        // checkout_group_id is set only on a split pair (issue_checkout), so this does not wait
+        // for the quote list to hold the sibling — a quote opened from the board is guarded too.
+        !s.checkoutGroupId.isNullOrEmpty() ->
             "This visit has a quote from each company. Accepting them is done from the back office for now."
         spansCompanies(s) ->
             "These items are sold by two companies, so this goes out as two quotes. Send them first, then accept them from the back office."
