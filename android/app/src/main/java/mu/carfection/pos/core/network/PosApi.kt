@@ -446,6 +446,21 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         return all
     }
 
+    /**
+     * One product's movements since [fromIso], newest first — sales, jobs, transfers,
+     * adjustments alike — for the tyre centre's stock detail panel (latest moves and the
+     * weekly "sold" bars). Read-only; [limit] keeps a busy product's panel quick.
+     */
+    suspend fun fetchProductMoves(productId: String, fromIso: String, limit: Long = 300): List<ProductMoveDto> =
+        client.postgrest.from("stock_movements")
+            .select(Columns.raw("id, qty, ref_type, note, moved_at, location_id, stock_locations(name)")) {
+                filter { eq("product_id", productId); gte("moved_at", fromIso) }
+                order("moved_at", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                order("id", io.github.jan.supabase.postgrest.query.Order.DESCENDING)
+                limit(limit)
+            }
+            .decodeList()
+
     /** On-hand at EVERY location for these products — the log shows warehouse rows too. */
     suspend fun fetchStockOnHandFor(productIds: Collection<String>): List<StockOnHandDto> =
         productIds.distinct().chunked(60).flatMap { ids ->

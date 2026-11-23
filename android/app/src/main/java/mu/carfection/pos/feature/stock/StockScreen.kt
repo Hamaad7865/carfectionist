@@ -62,7 +62,11 @@ private val LowRing = Color(0x59C17A00)
 fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() } // refresh stock on entry
-    Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    // The tyre centre's flavor draws its own stock screen (TyreStock.kt); Carfectionist's
+    // TYRE_STOCK is false, so the classic grid below is unchanged there. Both share the
+    // adjust dialog, the adjustment log and the toast underneath.
+    if (TYRE_STOCK) TyreStock(s, viewModel)
+    else Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("STOCK", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
             Text("Shop-floor view — quick adjustments only", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)

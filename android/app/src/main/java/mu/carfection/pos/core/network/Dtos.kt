@@ -637,6 +637,18 @@ data class StockMoveDto(
     val qty: FlexDouble = 0.0,
 )
 
+/** A product's movement with what caused it — the tyre stock detail panel's ledger line. */
+@Serializable
+data class ProductMoveDto(
+    val id: String,
+    val qty: FlexDouble = 0.0,
+    @SerialName("ref_type") val refType: String? = null,
+    val note: String? = null,
+    @SerialName("moved_at") val movedAt: String? = null,
+    @SerialName("location_id") val locationId: String? = null,
+    @SerialName("stock_locations") val location: LocationNameDto? = null,
+)
+
 @Serializable data class AppUserIdDto(val id: String)
 
 // ── Staff (technicians) ──────────────────────────────────────────────────────

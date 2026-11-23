@@ -100,6 +100,13 @@ data class StockState(
     val logPrinting: Boolean = false,
     /** Which stretch of time the log covers. */
     val logRange: LogRange = LogRange.WEEK,
+    // ── read-only extras the tyre centre's stock screen shows (TyreStock.kt) ─────
+    /** Units held at every location that is NOT the shop floor (warehouse, stores). */
+    val elsewhereOnHand: Map<String, Int> = emptyMap(),
+    /** The product open in the detail panel, its recent moves, and whether they're loading. */
+    val detailId: String? = null,
+    val detailMoves: List<mu.carfection.pos.core.network.ProductMoveDto> = emptyList(),
+    val detailBusy: Boolean = false,
 ) {
     val logSelected: List<AdjustmentRow> get() = log.filter { it.id in logPicked }
     val logAllPicked: Boolean get() = log.isNotEmpty() && logPicked.size == log.size
@@ -143,8 +150,29 @@ class StockViewModel @Inject constructor(
             }.onSuccess { (products, onHand, loc, tenant) ->
                 _s.update { it.copy(loading = false, products = products, onHand = onHand, locationId = loc, tenant = tenant) }
             }.onFailure { e -> _s.update { it.copy(loading = false, error = e.uiMessage()) } }
+            // Everything held away from the shop floor, for the screens that show it. Its own
+            // runCatching: if it fails the shop counts above still stand.
+            runCatching {
+                val shop = _s.value.locationId
+                api.fetchStockOnHand().filter { it.locationId != shop }.groupBy { it.productId }
+                    .mapValues { (_, rows) -> rows.sumOf { it.qtyOnHand }.roundToInt() }
+            }.onSuccess { away -> _s.update { it.copy(elsewhereOnHand = away) } }
+            _s.value.detailId?.let(::openDetail)
         }
     }
+
+    /** Six weeks of one product's moves for the detail panel. Reads only. */
+    fun openDetail(productId: String) {
+        _s.update { it.copy(detailId = productId, detailBusy = true, detailMoves = if (it.detailId == productId) it.detailMoves else emptyList()) }
+        viewModelScope.launch {
+            val mu = java.time.ZoneId.of("Indian/Mauritius")
+            val from = java.time.ZonedDateTime.now(mu).toLocalDate().minusDays(42).atStartOfDay(mu).toOffsetDateTime().toString()
+            val moves = runCatching { api.fetchProductMoves(productId, from) }.getOrDefault(emptyList())
+            _s.update { if (it.detailId == productId) it.copy(detailMoves = moves, detailBusy = false) else it }
+        }
+    }
+
+    fun closeDetail() = _s.update { it.copy(detailId = null, detailMoves = emptyList(), detailBusy = false) }
 
     private data class Quad(val products: List<StockProductDto>, val onHand: Map<String, Int>, val loc: String?, val tenant: String?)
 
@@ -322,6 +350,8 @@ class StockViewModel @Inject constructor(
             // "who did this" — and that is the first question asked of a printed adjustment log.
             val by = appUserId ?: api.currentAppUserId()?.also { appUserId = it }
             runCatching { api.adjustStock(NewStockMovementDto(tenant, productId, loc, delta.toDouble(), refType = "adjustment", note = note, createdBy = by)) }
+                // The open detail panel lists this product's moves — show the new one.
+                .onSuccess { if (_s.value.detailId == productId) openDetail(productId) }
                 .onFailure { e ->
                     val msg = if (e.message?.contains("row-level security", true) == true) "Stock adjustments need owner or manager access" else "Couldn't save the adjustment — try again"
                     _s.update { it.copy(error = e.uiMessage(), toast = msg) }; load()
