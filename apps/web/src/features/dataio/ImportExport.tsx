@@ -106,6 +106,9 @@ export function ImportExport({ kind, pricesInclVat = false }: { kind: Kind; pric
                     {pricesInclVat && (
                       <> Sell prices in your file are read as <span className="font-semibold">VAT-inclusive</span> (what the customer pays) and stored net — the shelf price stays exactly what the sheet says.</>
                     )}
+                    {rows?.some((r) => "brand" in r || "tyre_size" in r) && (
+                      <> <span className="num">brand</span> and <span className="num">tyre_size</span> (with <span className="num">load_index</span>, <span className="num">speed_rating</span>) set each product&apos;s brand and size; a blank cell clears it.</>
+                    )}
                     {rows?.some((r) => (r.sold_by ?? "").trim() !== "") && (
                       <> A <span className="num">sold_by</span> column moves each product to that company (its name or invoice prefix); a company without VAT sells at 0%, at the price as typed.</>
                     )}
@@ -129,6 +132,7 @@ export function ImportExport({ kind, pricesInclVat = false }: { kind: Kind; pric
                   <Stat n={applied.inserted} l="Added" tone="text-mint" />
                   <Stat n={applied.updated} l="Updated" tone="text-link" />
                   {kind === "products" && <Stat n={applied.stock_adjusted ?? 0} l="Stock set" />}
+                  {kind === "products" && (applied.attrs_set ?? 0) > 0 && <Stat n={applied.attrs_set ?? 0} l="Brand / size" />}
                   <Stat n={applied.skipped} l="Skipped" tone={applied.skipped ? "text-amber-ink" : undefined} />
                 </div>
                 {applied.errors.length > 0 && (

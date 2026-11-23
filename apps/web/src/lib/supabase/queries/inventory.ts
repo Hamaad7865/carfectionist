@@ -4,6 +4,7 @@ import { getStockLocations, pickSalesFloor, type StockLocation } from "@/lib/sup
 import { productPhotoUrl } from "@/lib/supabase/storage";
 import { stockState, type StockState } from "@/lib/stock/low";
 import { rupeesToCents } from "@/lib/money";
+import { sizeFromColumns, type TyreSize } from "@/lib/products/tyre-size";
 
 export interface InventoryRow {
   id: string;
@@ -18,6 +19,12 @@ export interface InventoryRow {
   /** The company that sells it (legal_entities); null = the shop's main company. */
   legalEntityId: string | null;
   barcode: string | null;
+  /** Maker, free text, any product (20261127000010). */
+  brand: string | null;
+  /** Tyre size, when the product is a tyre; null otherwise. */
+  tyreSize: TyreSize | null;
+  tyreLoadIndex: string | null;
+  tyreSpeedRating: string | null;
   /** The stored object path (product-photos bucket) — kept for the form to re-save it as-is. */
   photoPath: string | null;
   /** Ready-to-render URL. Public bucket, so this never expires. */
@@ -58,7 +65,7 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
   const makeProdQ = () => {
     let q = sb
       .from("products")
-      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active, photo_path, discount_policy, legal_entity_id");
+      .select("id, name, sku, description, kind, category, unit, barcode, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_stocked, is_active, photo_path, discount_policy, legal_entity_id, brand, tyre_width, tyre_profile, tyre_rim, tyre_load_index, tyre_speed_rating");
     if (!includeArchived) q = q.eq("is_active", true);
     return q.order("category").order("name");
   };
@@ -106,6 +113,10 @@ export async function getInventory(includeArchived = false): Promise<InventoryDa
       discountPolicy: p.discount_policy,
       legalEntityId: p.legal_entity_id ?? null,
       barcode: p.barcode,
+      brand: p.brand ?? null,
+      tyreSize: sizeFromColumns(p.tyre_width, p.tyre_profile, p.tyre_rim),
+      tyreLoadIndex: p.tyre_load_index ?? null,
+      tyreSpeedRating: p.tyre_speed_rating ?? null,
       photoPath: p.photo_path ?? null,
       photoUrl: productPhotoUrl(p.photo_path),
       costCents: cost,

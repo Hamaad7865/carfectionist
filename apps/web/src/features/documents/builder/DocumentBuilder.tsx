@@ -1,5 +1,6 @@
 "use client";
 
+import { attrLabel, pickerMatches } from "@/lib/products/attrs-row";
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState, Fragment } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -440,7 +441,7 @@ export function DocumentBuilder({
   // ~70 services, "show me the services" is the common ask at the desk — searching
   // by name first meant knowing the name.
   const filtered = ctx.products
-    .filter((p) => (catKind === "all" || p.kind === catKind) && p.name.toLowerCase().includes(catQuery.toLowerCase()))
+    .filter((p) => (catKind === "all" || p.kind === catKind) && pickerMatches(catQuery, [p.name], p))
     .slice(0, catQuery ? 8 : 12);
   const custFiltered = allCustomers.filter((c) => c.name.toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8);
 
@@ -791,7 +792,10 @@ export function DocumentBuilder({
                           <span className="size-7 shrink-0 rounded-[6px] bg-sub" />
                         )}
                         <span className="w-14 text-[9px] font-bold uppercase tracking-wide text-link">{p.kind}</span>
-                        <span className="flex-1 text-[13px] font-semibold text-body">{p.name}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[13px] font-semibold text-body">{p.name}</span>
+                          {attrLabel(p) && <span className="block truncate text-[11px] font-semibold text-muted">{attrLabel(p)}</span>}
+                        </span>
                         <span className="num text-[12.5px] font-bold text-muted">{formatMUR(shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat))}</span>
                         <span className="grid size-6 place-items-center rounded-[7px] bg-[rgba(43,140,255,0.14)] text-link"><Plus size={14} strokeWidth={2.6} /></span>
                       </button>

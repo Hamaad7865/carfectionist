@@ -1,5 +1,6 @@
 "use client";
 
+import { attrLabel, pickerMatches } from "@/lib/products/attrs-row";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -138,7 +139,7 @@ export function CounterSale({
       (p) =>
         (kind === "all" || p.kind === kind) &&
         (!cat || p.category === cat) &&
-        (!s || p.name.toLowerCase().includes(s) || (p.barcode ?? "").includes(s)),
+        (!s || pickerMatches(s, [p.name, p.barcode], p)),
     );
   }, [q, cat, kind, products]);
 
@@ -447,7 +448,10 @@ export function CounterSale({
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={p.photoUrl} alt="" className="size-7 shrink-0 rounded-[6px] object-cover" />
                   )}
-                  <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
+                  <span className="min-w-0">
+                    <span className="line-clamp-2 text-[12.5px] font-semibold leading-tight text-body">{p.name}</span>
+                    {attrLabel(p) && <span className="block truncate text-[10.5px] font-semibold text-muted">{attrLabel(p)}</span>}
+                  </span>
                 </span>
                 {unpriced ? (
                   <span className="mt-auto text-[11.5px] font-bold text-amber-ink">{canPrice ? "Set a price →" : "No price"}</span>

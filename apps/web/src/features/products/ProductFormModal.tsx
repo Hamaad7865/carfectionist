@@ -9,6 +9,7 @@ import { saveProductAction } from "./actions";
 import { ProductPhotoField } from "./ProductPhotoField";
 import type { InventoryRow } from "@/lib/supabase/queries/inventory";
 import { btn } from "@/components/ui/button";
+import { formatTyreSize, formatTyreSpec, parseSizeQuery, parseTyreSpec, showsTyreFields } from "@/lib/products/tyre-size";
 
 const KINDS = ["service", "product", "consumable"] as const;
 const UNITS = ["piece", "ml", "l", "g", "kg", "m2", "service"] as const;
@@ -21,6 +22,7 @@ type PForm = {
   sellingPrice: string; costPrice: string; vatRate: string; barcode: string;
   isStocked: boolean; threshold: string; isActive: boolean; photoPath: string;
   legalEntityId: string;
+  brand: string; tyreSize: string; tyreLoadIndex: string; tyreSpeedRating: string;
 };
 
 /** A company the shop bills under — offered as "Sold by" only when there are several. */
@@ -49,9 +51,13 @@ const seed = (p: InventoryRow | undefined, inclVat: boolean, vatDefault: number,
   isActive: p?.isActive ?? true,
   photoPath: p?.photoPath ?? "",
   legalEntityId: p?.legalEntityId ?? defaultCompany,
+  brand: p?.brand ?? "",
+  tyreSize: p?.tyreSize ? formatTyreSize(p.tyreSize) : "",
+  tyreLoadIndex: p?.tyreLoadIndex ?? "",
+  tyreSpeedRating: p?.tyreSpeedRating ?? "",
 });
 
-export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], defaultKind, tenantId, companies = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; defaultKind?: (typeof KINDS)[number]; tenantId: string; companies?: SoldByOption[] }) {
+export function ProductFormModal({ open, onClose, product, vatDefault, pricesInclVat = false, categories = [], brands = [], defaultKind, tenantId, companies = [] }: { open: boolean; onClose: () => void; product: InventoryRow | null; vatDefault: number; pricesInclVat?: boolean; categories?: string[]; brands?: string[]; defaultKind?: (typeof KINDS)[number]; tenantId: string; companies?: SoldByOption[] }) {
   // "Sold by" exists only for a shop that bills under more than one company.
   const multiCompany = companies.length > 1;
   const mainCompany = companies.find((c) => c.isDefault)?.id ?? companies[0]?.id ?? "";
@@ -85,6 +91,21 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
   // Call the thing what it is — a service is not a "product" to the person
   // typing it in, even though they share one table.
   const noun = isService ? "service" : "product";
+
+  // Tyre size: shown for goods under a tyre-like category, and always once a size is set.
+  const tyreFields = showsTyreFields({ kind: f.kind, category: f.category, hasSize: f.tyreSize.trim() !== "" || !!product?.tyreSize });
+  const sizeRead = f.tyreSize.trim() ? parseSizeQuery(f.tyreSize) : null;
+  const sizeFull = sizeRead && sizeRead.width != null && sizeRead.profile != null && sizeRead.rim != null ? sizeRead : null;
+  const fromName = tyreFields && !f.tyreSize.trim() ? parseTyreSpec(f.name) : null;
+  const useFromName = () => {
+    if (!fromName) return;
+    setF((s) => ({
+      ...s,
+      tyreSize: formatTyreSize(fromName.size),
+      tyreLoadIndex: s.tyreLoadIndex || (fromName.loadIndex ?? ""),
+      tyreSpeedRating: s.tyreSpeedRating || (fromName.speedRating ?? ""),
+    }));
+  };
 
   // Effective VAT rate (product override else business default) and the net
   // price we'll store when the entered sell price is VAT-inclusive. Prices may
@@ -128,6 +149,11 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
       threshold: f.threshold,
       isActive: f.isActive,
       photoPath: f.photoPath,
+      brand: f.brand,
+      // Hidden fields send nothing, so a product moved out of "Tyres" keeps no stray size.
+      tyreSize: tyreFields ? f.tyreSize : "",
+      tyreLoadIndex: tyreFields ? f.tyreLoadIndex : "",
+      tyreSpeedRating: tyreFields ? f.tyreSpeedRating : "",
       ...(multiCompany && f.legalEntityId ? { legalEntityId: f.legalEntityId } : {}),
     });
     setBusy(false);
@@ -170,12 +196,36 @@ export function ProductFormModal({ open, onClose, product, vatDefault, pricesInc
             onChange={(path) => set("photoPath", path)}
           />
         </Field>
-        <Field label="Category" hint="Groups it in the catalogue">
-          <input className={inputCls} value={f.category} onChange={(e) => set("category", e.target.value)} placeholder={multiCompany ? "e.g. Tyres" : "e.g. Car Accessories"} list="product-categories" />
-          <datalist id="product-categories">
-            {categories.map((c) => <option key={c} value={c} />)}
-          </datalist>
-        </Field>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Category" hint="Groups it in the catalogue">
+            <input className={inputCls} value={f.category} onChange={(e) => set("category", e.target.value)} placeholder={multiCompany ? "e.g. Tyres" : "e.g. Car Accessories"} list="product-categories" />
+            <datalist id="product-categories">
+              {categories.map((c) => <option key={c} value={c} />)}
+            </datalist>
+          </Field>
+          <Field label="Brand" hint="Who makes it">
+            <input className={inputCls} value={f.brand} onChange={(e) => set("brand", e.target.value)} placeholder={multiCompany ? "e.g. Michelin" : "e.g. Meguiar's"} list="product-brands" />
+            <datalist id="product-brands">
+              {brands.map((b) => <option key={b} value={b} />)}
+            </datalist>
+          </Field>
+        </div>
+        {tyreFields && (
+          <div className="rounded-[12px] border border-line bg-sub p-3">
+            <div className="grid grid-cols-[1fr_110px_110px] gap-3">
+              <Field label="Tyre size" hint={sizeFull ? `Reads as ${formatTyreSpec({ width: sizeFull.width!, profile: sizeFull.profile!, rim: sizeFull.rim! }, f.tyreLoadIndex.trim() || null, f.tyreSpeedRating.trim().toUpperCase() || null)}` : f.tyreSize.trim() ? "Write it like 205/55 R16" : "Width / profile R rim"}>
+                <input className={inputCls} value={f.tyreSize} onChange={(e) => set("tyreSize", e.target.value)} placeholder="205/55 R16" />
+              </Field>
+              <Field label="Load index"><input className={inputCls} value={f.tyreLoadIndex} onChange={(e) => set("tyreLoadIndex", e.target.value)} placeholder="91" inputMode="numeric" /></Field>
+              <Field label="Speed rating"><input className={inputCls} value={f.tyreSpeedRating} onChange={(e) => set("tyreSpeedRating", e.target.value.toUpperCase())} placeholder="V" maxLength={1} /></Field>
+            </div>
+            {fromName && (
+              <button type="button" onClick={useFromName} className="mt-2 text-[12px] font-semibold text-brand hover:underline">
+                Use {formatTyreSpec(fromName.size, fromName.loadIndex, fromName.speedRating)} from the name
+              </button>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-2 gap-3">
           <Field label="Type">
             <select className={inputCls} value={f.kind} onChange={(e) => set("kind", e.target.value as PForm["kind"])}>

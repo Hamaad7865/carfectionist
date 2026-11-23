@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fetchAllRows } from "@/lib/supabase/paginate";
 import { toCsv, type CsvColumn } from "@/lib/csv";
 import { grossCents } from "@/lib/money";
+import { formatTyreSize, sizeFromColumns } from "@/lib/products/tyre-size";
 
 const slug = (s: string) => "stock_" + s.trim().toLowerCase().replace(/\s+/g, "_");
 
@@ -12,7 +13,7 @@ export async function GET() {
 
   const sb = await createClient();
   const [prodData, ohData, locRes, bsRes, coRes] = await Promise.all([
-    fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_active, legal_entity_id").order("name")),
+    fetchAllRows(() => sb.from("products").select("id, sku, name, category, barcode, unit, selling_price, price_includes_vat, cost_price, vat_rate, low_stock_threshold, is_active, legal_entity_id, brand, tyre_width, tyre_profile, tyre_rim, tyre_load_index, tyre_speed_rating").order("name")),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
     sb.from("stock_locations").select("id, name, is_default").order("is_default", { ascending: false }),
     sb.from("business_settings").select("vat_rate, prices_vat_exclusive").limit(1),
@@ -55,10 +56,22 @@ export async function GET() {
     ohByProduct.set(r.product_id, m);
   }
 
+  // brand is every shop's column; the tyre columns appear once the shop has sized a product.
+  // The import reads all four back (features/dataio/actions.ts → applyImportedAttrs).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hasSizes = (prodData as any[]).some((p) => p.tyre_width != null);
   const baseCols: CsvColumn[] = [
     { key: "sku", header: "sku" },
     { key: "name", header: "name" },
     { key: "category", header: "category" },
+    { key: "brand", header: "brand" },
+    ...(hasSizes
+      ? [
+          { key: "tyre_size", header: "tyre_size" },
+          { key: "load_index", header: "load_index" },
+          { key: "speed_rating", header: "speed_rating" },
+        ]
+      : []),
     { key: "barcode", header: "barcode" },
     { key: "unit", header: "unit" },
     { key: "selling_price", header: "selling_price" },
@@ -77,6 +90,7 @@ export async function GET() {
       sku: p.sku ?? "",
       name: p.name ?? "",
       category: p.category ?? "",
+      brand: p.brand ?? "",
       barcode: p.barcode ?? "",
       unit: p.unit ?? "",
       selling_price: sheetPrice(p.selling_price, p.vat_rate, p.price_includes_vat === true),
@@ -85,6 +99,12 @@ export async function GET() {
       low_stock_threshold: p.low_stock_threshold ?? "",
       is_active: p.is_active ? "yes" : "no",
     };
+    if (hasSizes) {
+      const size = sizeFromColumns(p.tyre_width, p.tyre_profile, p.tyre_rim);
+      row.tyre_size = size ? formatTyreSize(size) : "";
+      row.load_index = p.tyre_load_index ?? "";
+      row.speed_rating = p.tyre_speed_rating ?? "";
+    }
     if (multiCompany) row.sold_by = soldBy(p.legal_entity_id ?? null);
     for (const l of locs) row[l.col] = oh[l.col] ?? 0;
     return row;

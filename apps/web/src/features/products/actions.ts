@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSessionContext, requireRole, type SessionContext } from "@/lib/auth/session";
 import { logAudit } from "@/lib/supabase/audit";
 import type { ActivityRow } from "./activity";
+import { attrColumns } from "@/lib/products/attr-columns";
 
 const ROLES = ["owner", "manager"] as const;
 type Result<T = undefined> = { ok: true; data?: T } | { ok: false; error: string };
@@ -60,12 +61,22 @@ const schema = z.object({
   photoPath: strOpt,
   // Sold by — sent only by a shop with several companies; absent = leave it as it is.
   legalEntityId: z.string().uuid().nullable().optional(),
+  // Brand (any product) and tyre size (20261127000010) — validated by attrColumns.
+  brand: z.string().optional(),
+  tyreSize: z.string().optional(),
+  tyreLoadIndex: z.string().optional(),
+  tyreSpeedRating: z.string().optional(),
 });
 
 export async function saveProductAction(input: z.input<typeof schema>): Promise<Result<{ id: string }>> {
   const ctx = await requireRole(...ROLES);
   const p = schema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid product" };
+  const attrs = attrColumns(
+    { brand: p.data.brand, tyreSize: p.data.tyreSize, loadIndex: p.data.tyreLoadIndex, speedRating: p.data.tyreSpeedRating },
+    p.data.kind,
+  );
+  if (!attrs.ok) return { ok: false, error: attrs.error };
   const sb = await createClient();
 
   // Services are never stocked (DB check constraint).
@@ -89,6 +100,17 @@ export async function saveProductAction(input: z.input<typeof schema>): Promise<
     is_active: p.data.isActive,
     photo_path: p.data.photoPath,
     ...(p.data.legalEntityId !== undefined ? { legal_entity_id: p.data.legalEntityId } : {}),
+    // Absent = leave as stored, so a caller that doesn't know about them never wipes them.
+    ...(p.data.brand !== undefined ? { brand: attrs.columns.brand } : {}),
+    ...(p.data.tyreSize !== undefined
+      ? {
+          tyre_width: attrs.columns.tyre_width,
+          tyre_profile: attrs.columns.tyre_profile,
+          tyre_rim: attrs.columns.tyre_rim,
+          tyre_load_index: attrs.columns.tyre_load_index,
+          tyre_speed_rating: attrs.columns.tyre_speed_rating,
+        }
+      : {}),
   };
 
   if (p.data.id) {

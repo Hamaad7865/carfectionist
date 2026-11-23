@@ -1,0 +1,543 @@
+{
+  "_comment": "Shared by apps/web/src/lib/products/tyre-size.test.ts and android core/catalog/TyreSizeTest.kt. Change one, both suites must still pass.",
+  "spec": [
+    {
+      "in": "Michelin Primacy 4 205/55R16 91V",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16,
+        "load": "91",
+        "speed": "V"
+      }
+    },
+    {
+      "in": "TEST Tyre 205/55 R16",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16,
+        "load": null,
+        "speed": null
+      }
+    },
+    {
+      "in": "Pirelli P Zero 225/45ZR17 XL 94Y",
+      "out": {
+        "width": 225,
+        "profile": 45,
+        "rim": 17,
+        "load": "94",
+        "speed": "Y"
+      }
+    },
+    {
+      "in": "Bridgestone 195 65 R 15 91H",
+      "out": {
+        "width": 195,
+        "profile": 65,
+        "rim": 15,
+        "load": "91",
+        "speed": "H"
+      }
+    },
+    {
+      "in": "225/45-17",
+      "out": {
+        "width": 225,
+        "profile": 45,
+        "rim": 17,
+        "load": null,
+        "speed": null
+      }
+    },
+    {
+      "in": "Truck 215/75 R17.5 126/124M",
+      "out": {
+        "width": 215,
+        "profile": 75,
+        "rim": 17.5,
+        "load": "126/124",
+        "speed": "M"
+      }
+    },
+    {
+      "in": "Valve stem TR414",
+      "out": null
+    },
+    {
+      "in": "Wax 500/50 bottle",
+      "out": null
+    },
+    {
+      "in": "",
+      "out": null
+    }
+  ],
+  "query": [
+    {
+      "in": "205",
+      "out": {
+        "width": 205,
+        "profile": null,
+        "rim": null
+      }
+    },
+    {
+      "in": "205/55",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": null
+      }
+    },
+    {
+      "in": "205/5",
+      "out": {
+        "width": 205,
+        "profile": null,
+        "rim": null
+      }
+    },
+    {
+      "in": "205/55 R16",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16
+      }
+    },
+    {
+      "in": "205/55r16",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16
+      }
+    },
+    {
+      "in": "205/55 ZR16",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16
+      }
+    },
+    {
+      "in": "205 55 16",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16
+      }
+    },
+    {
+      "in": "205-55-16",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16
+      }
+    },
+    {
+      "in": "2055516",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": 16
+      }
+    },
+    {
+      "in": "20555",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": null
+      }
+    },
+    {
+      "in": "R16",
+      "out": {
+        "width": null,
+        "profile": null,
+        "rim": 16
+      }
+    },
+    {
+      "in": "r 15",
+      "out": {
+        "width": null,
+        "profile": null,
+        "rim": 15
+      }
+    },
+    {
+      "in": "215/75 R17.5",
+      "out": {
+        "width": 215,
+        "profile": 75,
+        "rim": 17.5
+      }
+    },
+    {
+      "in": "205/55 R",
+      "out": {
+        "width": 205,
+        "profile": 55,
+        "rim": null
+      }
+    },
+    {
+      "in": "16",
+      "out": null
+    },
+    {
+      "in": "20",
+      "out": null
+    },
+    {
+      "in": "michelin",
+      "out": null
+    },
+    {
+      "in": "999/55",
+      "out": null
+    },
+    {
+      "in": "205/12",
+      "out": null
+    },
+    {
+      "in": "R30",
+      "out": null
+    },
+    {
+      "in": "",
+      "out": null
+    },
+    {
+      "in": "   ",
+      "out": null
+    }
+  ],
+  "summary": {
+    "items": [
+      {
+        "brand": "Michelin",
+        "size": [
+          205,
+          55,
+          16
+        ],
+        "qty": 4
+      },
+      {
+        "brand": "MICHELIN ",
+        "size": [
+          205,
+          55,
+          16
+        ],
+        "qty": 2
+      },
+      {
+        "brand": "Michelin",
+        "size": [
+          195,
+          65,
+          15
+        ],
+        "qty": 0
+      },
+      {
+        "brand": "Bridgestone",
+        "size": [
+          205,
+          55,
+          16
+        ],
+        "qty": 8
+      },
+      {
+        "brand": "Bridgestone",
+        "size": [
+          205,
+          55,
+          17
+        ],
+        "qty": 1
+      },
+      {
+        "brand": null,
+        "size": [
+          205,
+          55,
+          16
+        ],
+        "qty": 3
+      },
+      {
+        "brand": "Meguiar's",
+        "size": null,
+        "qty": 5
+      },
+      {
+        "brand": "Bridgestone",
+        "size": null,
+        "qty": null
+      }
+    ],
+    "brandsForSize": [
+      {
+        "query": "205/55",
+        "out": [
+          [
+            "bridgestone",
+            "Bridgestone",
+            2,
+            9
+          ],
+          [
+            "michelin",
+            "Michelin",
+            2,
+            6
+          ],
+          [
+            "",
+            "",
+            1,
+            3
+          ]
+        ]
+      },
+      {
+        "query": "205/55 R16",
+        "out": [
+          [
+            "bridgestone",
+            "Bridgestone",
+            1,
+            8
+          ],
+          [
+            "michelin",
+            "Michelin",
+            2,
+            6
+          ],
+          [
+            "",
+            "",
+            1,
+            3
+          ]
+        ]
+      },
+      {
+        "query": "R15",
+        "out": [
+          [
+            "michelin",
+            "Michelin",
+            1,
+            0
+          ]
+        ]
+      },
+      {
+        "query": "185",
+        "out": []
+      }
+    ],
+    "sizesForBrand": [
+      {
+        "brand": "michelin",
+        "out": [
+          [
+            "195/65 R15",
+            1,
+            0
+          ],
+          [
+            "205/55 R16",
+            2,
+            6
+          ]
+        ]
+      },
+      {
+        "brand": "bridgestone",
+        "out": [
+          [
+            "205/55 R16",
+            1,
+            8
+          ],
+          [
+            "205/55 R17",
+            1,
+            1
+          ]
+        ]
+      },
+      {
+        "brand": "meguiar's",
+        "out": []
+      }
+    ],
+    "brandOptions": [
+      [
+        "bridgestone",
+        "Bridgestone",
+        3,
+        9
+      ],
+      [
+        "meguiar's",
+        "Meguiar's",
+        1,
+        5
+      ],
+      [
+        "michelin",
+        "Michelin",
+        3,
+        6
+      ]
+    ]
+  },
+  "format": [
+    {
+      "size": [
+        205,
+        55,
+        16
+      ],
+      "load": "91",
+      "speed": "V",
+      "out": "205/55 R16 91V"
+    },
+    {
+      "size": [
+        215,
+        75,
+        17.5
+      ],
+      "load": null,
+      "speed": null,
+      "out": "215/75 R17.5"
+    }
+  ],
+  "search": {
+    "items": [
+      {
+        "name": "Primacy 4",
+        "barcode": "3528701",
+        "brand": "Michelin",
+        "size": [
+          205,
+          55,
+          16
+        ],
+        "load": "91",
+        "speed": "V"
+      },
+      {
+        "name": "Turanza T005",
+        "barcode": null,
+        "brand": "Bridgestone",
+        "size": [
+          205,
+          55,
+          17
+        ],
+        "load": null,
+        "speed": null
+      },
+      {
+        "name": "Ultimate Wax",
+        "barcode": "5012",
+        "brand": "Meguiar's",
+        "size": null,
+        "load": null,
+        "speed": null
+      }
+    ],
+    "cases": [
+      {
+        "q": "",
+        "out": [
+          0,
+          1,
+          2
+        ]
+      },
+      {
+        "q": "wax",
+        "out": [
+          2
+        ]
+      },
+      {
+        "q": "michelin",
+        "out": [
+          0
+        ]
+      },
+      {
+        "q": "michelin 205/55",
+        "out": [
+          0
+        ]
+      },
+      {
+        "q": "205/55",
+        "out": [
+          0,
+          1
+        ]
+      },
+      {
+        "q": "205/55 R16",
+        "out": [
+          0
+        ]
+      },
+      {
+        "q": "205/55r17",
+        "out": [
+          1
+        ]
+      },
+      {
+        "q": "2055516",
+        "out": [
+          0
+        ]
+      },
+      {
+        "q": "r17",
+        "out": [
+          1
+        ]
+      },
+      {
+        "q": "91v",
+        "out": [
+          0
+        ]
+      },
+      {
+        "q": "3528701",
+        "out": [
+          0
+        ]
+      },
+      {
+        "q": "bridgestone r16",
+        "out": []
+      }
+    ]
+  }
+}

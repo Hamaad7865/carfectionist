@@ -26,9 +26,10 @@ import { productPhotoUrl } from "@/lib/supabase/storage";
 import type { SectionFlags } from "@/lib/pdf/fiscal-lock";
 import { parseRichDoc } from "@/lib/rich/schema";
 import type { RichDoc } from "@/lib/rich/types";
+import { ATTR_SELECT, attrsFromRow, type ProductAttrs } from "@/lib/products/attrs-row";
 import type { BuilderBusiness } from "@/features/documents/builder/toDocumentProps";
 
-export interface CatalogueProduct {
+export interface CatalogueProduct extends ProductAttrs {
   id: string;
   name: string;
   unitCents: number;
@@ -96,7 +97,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
   const [bsRes, tmplRes, prodRes, custRes, vehRes] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
-    sb.from("products").select("id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy").eq("is_active", true).order("kind").order("name"),
+    sb.from("products").select(`id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy, ${ATTR_SELECT}`).eq("is_active", true).order("kind").order("name"),
     sb.from("customers").select("id, name, country, email, phone, address, brn, vat_number").order("name"),
     sb.from("vehicles").select("id, customer_id, plate, make, model").eq("is_active", true).order("plate"),
   ]);
@@ -141,6 +142,7 @@ export async function getBuilderContext(): Promise<BuilderContext> {
       discountPolicy: p.discount_policy,
       priceIncludesVat: p.price_includes_vat === true,
       photoUrl: productPhotoUrl(p.photo_path),
+      ...attrsFromRow(p),
     })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     customers: (custRes.data ?? []).map((c: any) => ({
