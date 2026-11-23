@@ -243,11 +243,14 @@ try {
   });
   await step("two quotes: one per company, linked", async () => {
     const qd = await draft(mixedLines(), { doc_type: "quote" });
+    // The sandbox's service company now persists between runs and has quoted before, so its
+    // next quote number is read, not assumed to be the first.
+    const wantSvc = await next(SANDBOX, "quote", false);
     const split = await q("select id, checkout_group_id, total_incl from public.split_document_by_company($1)", [qd]);
     const nums = [];
     for (const s of split) nums.push((await one("select number from public.issue_document($1, null, null, null)", [s.id])).number);
     check("two quotes in their own series, one group", `${nums[1]} ${split.every((s) => s.checkout_group_id === qd)} ${split.map((s) => s.total_incl).join("/")}`,
-      "TESTWQ-00001 true 4600.00/1300.00");
+      `${wantSvc} true 4600.00/1300.00`);
   });
 
   // ── 7. reversing one checkout payment ──────────────────────────────────────────────────────
