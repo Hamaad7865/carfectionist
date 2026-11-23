@@ -399,10 +399,12 @@ private fun ProductGrid(s: CounterUiState, vm: CounterViewModel, shown: List<Pro
             TyreTile(p, qty, s.onHand[p.id], s.pricesInclVat, s.companies, s.several,
                 onAdd = { vm.add(p) },
                 onAddFour = {
-                    val cur = s.cart.firstOrNull { it.product.id == p.id }?.qty ?: 0.0
-                    // add() raises the oversell prompt itself when stock runs out; setQty does
-                    // the same for the jump to +4, so the till's stock rules hold.
-                    if (vm.add(p)) vm.setQty(p.id, cur + 4)
+                    // Already in the sale: straight to +4, so a refused oversell leaves the count
+                    // where it was (add() first would have bumped it by one on the way).
+                    // New to the sale: add() puts the line in (and asks about stock itself),
+                    // then the jump to 4. setQty raises the oversell prompt for the jump.
+                    val cur = s.cart.firstOrNull { it.product.id == p.id }?.qty
+                    if (cur != null) vm.setQty(p.id, cur + 4) else if (vm.add(p)) vm.setQty(p.id, 4.0)
                 },
             )
         }
@@ -828,6 +830,13 @@ internal fun TyrePayBills(s: CounterUiState, modifier: Modifier) {
                             Text(plainAmount(s.rowGrossCents(i)), color = TextPrimary, fontFamily = Mono, fontSize = 14.sp)
                         }
                     }
+                    // This company's own bill discount — the lines above carry only their own, so
+                    // without this row they would not add up to the bill total under them.
+                    val off = b.totals.orderDiscountInclCents
+                    if (off > 0) Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("Discount", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        Text("− ${plainAmount(off)}", color = Success, fontFamily = Mono, fontSize = 14.sp)
+                    }
                     Box(Modifier.fillMaxWidth().height(1.dp).background(Color(0xFFE6EAF0)))
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("Bill ${n + 1} total", color = TextSecondary, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, modifier = Modifier.weight(1f))
@@ -847,21 +856,21 @@ internal fun TyrePayBills(s: CounterUiState, modifier: Modifier) {
 }
 
 /**
- * Under the payment methods: how the money lands on each company's bill. Paying in full settles
- * every bill at its own total; a part payment follows the allocation the cashier picked
- * (CounterUiState.allocation, the same value record_checkout_payment receives) — so this strip
- * only reads figures, it never decides them.
+ * Under the payment methods: how a payment in full lands on each company's bill — every bill at
+ * its own total. A part payment (a deposit) is NOT drawn here: where it goes is the cashier's
+ * allocation choice, shown by the "This payment goes to" chips above, and this strip would
+ * otherwise show full totals the deposit doesn't cover. It only reads figures, never decides them.
  */
 @Composable
 internal fun TyreWhereMoneyGoes(s: CounterUiState) {
     val bills = s.tillBills
-    if (bills.size < 2 || s.collect != null) return
+    if (bills.size < 2 || s.collect != null || s.isPartPayment) return
     val total = bills.sumOf { it.totals.totalCents }.coerceAtLeast(1L)
     Column(
         Modifier.fillMaxWidth().background(Footer, RoundedCornerShape(14.dp)).border(1.dp, Color(0xFFE6EAF0), RoundedCornerShape(14.dp)).padding(horizontal = 16.dp, vertical = 13.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        SectionLabel(if (s.isPartPayment) "THIS PAYMENT FOLLOWS YOUR CHOICE ABOVE" else "WHERE THE MONEY GOES")
+        SectionLabel("WHERE THE MONEY GOES")
         Row(Modifier.fillMaxWidth().height(12.dp), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
             bills.forEach { b ->
                 val share = (b.totals.totalCents.toFloat() / total).coerceAtLeast(0.02f)

@@ -1203,7 +1203,10 @@ private fun PaymentPad(s: CounterUiState, vm: CounterViewModel) {
                         // Rs 880.00 line sat directly above a Rs 836.00 total with nothing to explain
                         // the difference, which is exactly the "the bill doesn't add up to what they
                         // are being charged" failure the line rendering above was already fixed for.
-                        val basketOffCents = if (s.collect != null) 0L
+                        // The tyre centre's per-company cards (TyrePayBills) already show each
+                        // bill's own discount, VAT included; a second, sale-wide figure here read
+                        // as a different discount.
+                        val basketOffCents = if (s.collect != null || (TYRE_TILL && s.tillBills.size > 1)) 0L
                             else if (s.pricesInclVat) s.basketAppliedGrossCents else s.basketAppliedCents
                         if (basketOffCents > 0) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
