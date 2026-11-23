@@ -7,7 +7,8 @@ import type { SessionContext } from "@/lib/auth/session";
 import type { BrandInfo } from "@/lib/brand";
 import { Sidebar } from "./Sidebar";
 import { Topbar } from "./Topbar";
-import { hiddenModulesFor } from "@/lib/auth/roles";
+import { hasWhatsApp, hiddenModulesFor } from "@/lib/auth/roles";
+import { ShopFeaturesProvider } from "./ShopFeatures";
 
 export function AppShell({
   ctx,
@@ -58,7 +59,7 @@ export function AppShell({
           className="flex-1 overflow-y-auto"
           style={{ background: "radial-gradient(900px 500px at 100% 0%, rgba(43,140,255,.045), transparent 60%)" }}
         >
-          {children}
+          <ShopFeaturesProvider whatsapp={hasWhatsApp(ctx.tenantId)}>{children}</ShopFeaturesProvider>
         </main>
       </div>
     </div>

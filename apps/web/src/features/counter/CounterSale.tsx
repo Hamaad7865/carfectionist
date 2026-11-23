@@ -13,6 +13,7 @@ import { setProductPriceAction } from "@/features/products/actions";
 import { getReceiptDataAction } from "./receipt-action";
 import type { ReceiptData } from "@/lib/supabase/queries/receipt";
 import { btn, btnBase } from "@/components/ui/button";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 import { OwnerOverrideDialog } from "@/features/documents/OwnerOverrideDialog";
 import {
   EMPTY_BASKET,
@@ -63,6 +64,7 @@ export function CounterSale({
   /** The shop quotes VAT-inclusive shelf prices — show what the customer pays, as the tablet does. */
   pricesInclVat?: boolean;
 }) {
+  const whatsapp = useWhatsApp();
   const router = useRouter();
   const [q, setQ] = useState("");
   // The product someone is trying to sell that has no price yet.
@@ -265,9 +267,11 @@ export function CounterSale({
             <button onClick={() => window.open(`/print/receipt/${done.invoiceId}`, "_blank")} className={btn("primary", "lg", "gap-2 text-[14px] px-5")}>
               <Printer size={17} /> Print receipt
             </button>
-            <button onClick={shareWhatsApp} className={btn("subtle", "lg", "gap-2")}>
-              <MessageCircle size={16} /> SMS / WhatsApp
-            </button>
+            {whatsapp && (
+              <button onClick={shareWhatsApp} className={btn("subtle", "lg", "gap-2")}>
+                <MessageCircle size={16} /> SMS / WhatsApp
+              </button>
+            )}
             <a href={`/api/documents/${done.invoiceId}/pdf`} target="_blank" rel="noreferrer" className={btn("subtle", "lg", "gap-2")}>
               <Download size={16} /> PDF
             </a>

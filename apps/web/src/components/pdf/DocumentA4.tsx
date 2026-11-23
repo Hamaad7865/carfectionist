@@ -75,11 +75,11 @@ export interface DocumentA4Props {
   voided?: boolean;
 }
 
-// Baked-in Diamondbrite artwork (served from apps/web/public) — the default so
-// every document carries the brand without any template config.
-const DEFAULT_HEADER = "/brand/covered-by-diamonds.png";
-const DEFAULT_FOOTER = "/brand/diamondbrite-forever.png";
-const DEFAULT_LOGO = "/brand/diamondbrite-logo.png";
+// No built-in artwork. The Diamondbrite banners and logo used to be the fallback for
+// any shop without its own, so every other business (the tyre centre, the HAZ demo)
+// printed Carfectionist's letterhead. Each shop's template now names its own artwork —
+// Carfectionist's points at /brand/* (migration 20261125000010) — and a blank slot
+// prints nothing.
 
 const INK = "#20242a";
 const MUTED = "#6b7280";
@@ -264,9 +264,9 @@ export function DocumentA4(props: DocumentA4Props) {
     });
   }
 
-  const headerUrl = props.assets?.headerBannerUrl || DEFAULT_HEADER;
-  const footerUrl = props.assets?.footerBannerUrl || DEFAULT_FOOTER;
-  const logoUrl = props.assets?.logoUrl || DEFAULT_LOGO;
+  const headerUrl = props.assets?.headerBannerUrl || null;
+  const footerUrl = props.assets?.footerBannerUrl || null;
+  const logoUrl = props.assets?.logoUrl || null;
 
   return (
     <div className="paper" style={s.page}>
@@ -275,7 +275,7 @@ export function DocumentA4(props: DocumentA4Props) {
       {props.voided && <div style={s.voidWatermark}>VOID</div>}
 
       {/* header band */}
-      <img src={headerUrl} alt={from.tradingName} style={s.banner} />
+      {headerUrl && <img src={headerUrl} alt={from.tradingName} style={s.banner} />}
 
       <div style={s.body}>
         {/* title + logo */}
@@ -457,7 +457,7 @@ export function DocumentA4(props: DocumentA4Props) {
       </div>
 
       {/* footer band + disclaimer */}
-      {sections.footerBanner && <img src={footerUrl} alt="" style={s.banner} />}
+      {sections.footerBanner && footerUrl && <img src={footerUrl} alt="" style={s.banner} />}
       <div style={s.disclaimer}>This is an electronically generated document, no signature is required.</div>
     </div>
   );

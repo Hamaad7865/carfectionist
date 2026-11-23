@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { getBrand } from "@/lib/brand-server";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionContext } from "@/lib/auth/session";
+import { hasWhatsApp } from "@/lib/auth/roles";
 
 const ITEMS = [
   { key: "business", label: "Business profile", href: "/settings" },
@@ -23,10 +25,12 @@ async function showCompanies(active: string): Promise<boolean> {
 }
 
 export async function SettingsNav({ active }: { active: string }) {
-  const companies = await showCompanies(active);
+  const [companies, session] = await Promise.all([showCompanies(active), getSessionContext()]);
+  // The WhatsApp number is Carfectionist's; a shop without WhatsApp has no tab for it.
+  const whatsapp = hasWhatsApp(session?.tenantId);
   return (
     <div className="mb-6 flex flex-wrap gap-1.5 border-b border-line pb-4">
-      {ITEMS.filter((i) => i.key !== "companies" || companies).map((i) => (
+      {ITEMS.filter((i) => (i.key !== "companies" || companies) && (i.key !== "whatsapp" || whatsapp)).map((i) => (
         <Link
           key={i.key}
           href={i.href}

@@ -77,10 +77,24 @@ describe("DocumentA4 — reproduces the Diamondbrite Rs 88,780 document", () => 
     expect(html).toContain("This is an electronically generated document, no signature is required.");
   });
 
-  it("carries the Diamondbrite artwork by default", () => {
-    expect(html).toContain("/brand/covered-by-diamonds.png");
-    expect(html).toContain("/brand/diamondbrite-forever.png");
-    expect(html).toContain("/brand/diamondbrite-logo.png");
+  it("never borrows the Diamondbrite artwork: a shop without its own prints none", () => {
+    // The tyre centre once printed Carfectionist's letterhead through this fallback.
+    expect(html).not.toContain("/brand/covered-by-diamonds.png");
+    expect(html).not.toContain("/brand/diamondbrite-forever.png");
+    expect(html).not.toContain("/brand/diamondbrite-logo.png");
+    expect(html).not.toContain("<img");
+  });
+
+  it("prints the artwork its own template names", () => {
+    const own = renderToStaticMarkup(
+      <DocumentA4
+        {...base}
+        assets={{ headerBannerUrl: "/brand/covered-by-diamonds.png", footerBannerUrl: "/brand/diamondbrite-forever.png", logoUrl: "/brand/diamondbrite-logo.png" }}
+      />,
+    );
+    expect(own).toContain("/brand/covered-by-diamonds.png");
+    expect(own).toContain("/brand/diamondbrite-forever.png");
+    expect(own).toContain("/brand/diamondbrite-logo.png");
   });
 });
 

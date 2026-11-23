@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { effectiveModules, hasModule, navForUser, defaultModulesForRole, TOGGLEABLE_MODULES, groupNav, NAV, NAV_GROUPS, hiddenModulesFor } from "./roles";
+import { effectiveModules, hasModule, navForUser, defaultModulesForRole, TOGGLEABLE_MODULES, groupNav, NAV, NAV_GROUPS, hiddenModulesFor, hasWhatsApp } from "./roles";
 
 describe("per-user module access", () => {
   it("owner is always full-access, regardless of override", () => {
@@ -91,5 +91,18 @@ describe("hiddenModulesFor", () => {
   });
   it("Carfectionist keeps every module", () => {
     expect(hiddenModulesFor("11111111-1111-4111-8111-000000000001")).toEqual([]);
+  });
+});
+
+describe("hasWhatsApp", () => {
+  it("the tyre centre has none — the deployment's number is Carfectionist's", () => {
+    expect(hasWhatsApp("1f060b86-ad63-4dc7-93fb-a1fdfae18b27")).toBe(false);
+  });
+  it("Carfectionist and its sandbox keep it", () => {
+    expect(hasWhatsApp("11111111-1111-4111-8111-000000000001")).toBe(true);
+    expect(hasWhatsApp("22222222-2222-4222-8222-000000000002")).toBe(true);
+  });
+  it("no session, no WhatsApp", () => {
+    expect(hasWhatsApp(null)).toBe(false);
   });
 });

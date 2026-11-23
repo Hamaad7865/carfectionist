@@ -1,4 +1,6 @@
 import { headers } from "next/headers";
+import { redirect } from "next/navigation";
+import { hasWhatsApp } from "@/lib/auth/roles";
 import { requireRole } from "@/lib/auth/session";
 import { SettingsNav } from "@/features/settings/SettingsNav";
 import { WhatsAppPanel } from "@/features/settings/WhatsAppPanel";
@@ -9,7 +11,9 @@ import { secretState, probeConnection, isConfigured, webhookVerifyToken } from "
 // than merely checking that values exist — so on setup day the app itself tells
 // you exactly what's missing instead of failing somewhere downstream.
 export default async function WhatsAppSettingsPage() {
-  await requireRole("owner"); // credentials + test sends = owner territory
+  const ctx = await requireRole("owner"); // credentials + test sends = owner territory
+  // Never show another business's number as "connected" to a shop without WhatsApp.
+  if (!hasWhatsApp(ctx.tenantId)) redirect("/settings");
 
   const secrets = secretState();
   const [probe, marketing] = await Promise.all([

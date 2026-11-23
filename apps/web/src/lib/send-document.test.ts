@@ -136,3 +136,17 @@ describe("sendDocument — what may be sent without a number", () => {
     expect(r).toEqual({ ok: false, error: "Document not found." });
   });
 });
+
+describe("sendDocument — a shop with no WhatsApp", () => {
+  beforeEach(() => issueDocument.mockClear());
+
+  it("refuses a tyre-centre WhatsApp send BEFORE issuing the quote", async () => {
+    // The deployment's one WhatsApp number is Carfectionist's: refusing after the issue
+    // would leave a quote numbered for a send that never happened.
+    const tyreQuote = { ...draftQuote, tenant_id: "1f060b86-ad63-4dc7-93fb-a1fdfae18b27" };
+    const r = await sendDocument({ sb: client([tyreQuote]), docId: "doc-1", channel: "whatsapp", to: "+230 5252 5252", origin: "https://x.test" });
+
+    expect(r).toEqual({ ok: false, error: "WhatsApp isn't offered for this business." });
+    expect(issueDocument).not.toHaveBeenCalled();
+  });
+});

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, MessageCircle, Mail, Send, Check, Eye, RefreshCw, Clock, Bell, Loader2 } from "lucide-react";
 import { deliverDocumentAction, getSendContextAction, type SendContext } from "./actions";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 import { btn } from "@/components/ui/button";
 
 // The "Send to customer" sheet, modelled on the owner's Refrens reference: a
@@ -27,7 +28,7 @@ function prettyPhone(e164: string | null): string {
 
 export function SendDocumentDialog({
   documentId,
-  channel,
+  channel: askedChannel,
   onClose,
   onSent,
 }: {
@@ -38,6 +39,8 @@ export function SendDocumentDialog({
    *  draft quotation, so the caller can retire its Draft chip. */
   onSent?: (issued?: { number: string; status: string }) => void;
 }) {
+  // A shop with no WhatsApp (the tyre centre) gets the email sheet, whoever opened it.
+  const channel = useWhatsApp() ? askedChannel : "email";
   const [ctx, setCtx] = useState<SendContext | null>(null);
   const [loading, setLoading] = useState(true);
   const [to, setTo] = useState("");

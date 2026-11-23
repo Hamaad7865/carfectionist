@@ -434,6 +434,8 @@ fun quoteLine(
     )
 
 data class QuoteState(
+    /** False at a shop with no WhatsApp: no WhatsApp send, no "agreed by WhatsApp". */
+    val whatsapp: Boolean = true,
     // The shop quotes VAT-inclusive shelf prices — show/accept gross. Display only; the
     // lines still save the net unit_price the ledger adds VAT to.
     val pricesInclVat: Boolean = false,
@@ -755,6 +757,7 @@ class QuoteViewModel @Inject constructor(
 
     init {
         viewModelScope.launch { deviceRole.takesPayments.collect { t -> _s.update { it.copy(takesPayments = t) } } }
+        viewModelScope.launch { catalog.hasWhatsAppFlow.collect { w -> _s.update { it.copy(whatsapp = w) } } }
     }
 
     init {
@@ -802,6 +805,7 @@ class QuoteViewModel @Inject constructor(
                 // it has a Checkout, which swallows the accept-with-deposit confirmation entirely.
                 if (it == false) _s.value = QuoteState(
                     products = _s.value.products,
+                    whatsapp = _s.value.whatsapp, // shop-wide, re-emits only on a tenant change
                     technicians = _s.value.technicians,
                     takesPayments = _s.value.takesPayments,
                     pricesInclVat = _s.value.pricesInclVat,

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatMUR, parseMoneyInput } from "@/lib/money";
 import { btn } from "@/components/ui/button";
+import { useWhatsApp } from "@/components/shell/ShopFeatures";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { entityColours } from "@/lib/tyrecentre/entity-colours";
 import type { CheckoutBill } from "@/lib/supabase/queries/checkout";
@@ -36,6 +37,7 @@ export function CheckoutBillsPanel({
   customerPhone: string | null;
 }) {
   const router = useRouter();
+  const whatsapp = useWhatsApp();
   const open = bills.filter((b) => b.docType === "invoice" && b.outstandingCents > 0 && (b.status === "issued" || b.status === "partly_paid"));
   const owedCents = open.reduce((s, b) => s + b.outstandingCents, 0);
   const [amount, setAmount] = useState(() => (owedCents / 100).toFixed(2));
@@ -122,7 +124,7 @@ export function CheckoutBillsPanel({
               {busy === "email" ? "Sending…" : "Email all"}
             </button>
           )}
-          {customerPhone && (
+          {whatsapp && customerPhone && (
             <button type="button" onClick={() => void sendAll("whatsapp")} disabled={!!busy} className={btn("ghost", "sm")}>
               {busy === "whatsapp" ? "Sending…" : "WhatsApp all"}
             </button>
