@@ -20,7 +20,7 @@ const RichEditor = dynamic(() => import("./RichEditor"), {
     <div className="rounded-[9px] border border-line-2 bg-sub px-3 py-4 text-[12px] text-faint">Loading editor…</div>
   ),
 });
-import { computeTotals, computeLineTotals, computeAllowance, lineAllowanceCents, policyOf, formatMUR, parseMoneyInput, grossCents, shelfCents, netFromGrossCents, unitCentsFromTyped } from "@/lib/money";
+import { computeTotals, computeLineTotals, computeAllowance, lineAllowanceCents, policyOf, formatMUR, parseMoneyInput, shelfCents } from "@/lib/money";
 import { DocumentA4 } from "@/components/pdf/DocumentA4";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { saveDraftAction, issueDocumentAction, convertQuoteToInvoiceAction } from "@/features/documents/actions";
@@ -28,7 +28,7 @@ import { DeleteDraftButton } from "@/features/documents/DeleteDraftButton";
 import { DocumentShareBar } from "@/features/documents/DocumentShareBar";
 import type { SaveDraftInput } from "@/features/documents/payload";
 import type { BuilderContext, BuilderCustomer, BuilderVehicle } from "@/lib/supabase/queries/builder";
-import { reducer, toSaveDraftLines, groupBuilderLines, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
+import { reducer, toSaveDraftLines, groupBuilderLines, lineVatMode, nextLineVat, type BuilderState, type BuilderLine, type BuilderCar } from "./state";
 import { toDocumentProps } from "./toDocumentProps";
 import { billToAddress } from "@/lib/pdf/fiscal-lock";
 import { NewCustomerButton } from "./NewCustomerButton";
@@ -933,12 +933,19 @@ export function DocumentBuilder({
                           ))}
                         </select>
                       )}
-                      <button
-                        onClick={() => !readOnly && dispatch({ type: "patchLine", key: l.key, patch: { vatRatePct: l.vatRatePct > 0 ? 0 : 15 } })}
-                        className={`h-7 rounded-[7px] px-2.5 text-[10.5px] font-bold ${l.vatRatePct > 0 ? "bg-[rgba(43,140,255,0.14)] text-link" : "bg-shade/[0.06] text-faint"}`}
-                      >
-                        VAT
-                      </button>
+                      {/* Incl. VAT → + VAT → No VAT: what the typed rate means (nextLineVat). */}
+                      {(() => {
+                        const mode = lineVatMode(l);
+                        return (
+                          <button
+                            onClick={() => !readOnly && dispatch({ type: "patchLine", key: l.key, patch: nextLineVat(l) })}
+                            title={mode === "incl" ? "The price already includes VAT — click to add VAT on top" : mode === "plus" ? "VAT is added on top of the price — click to make this line VAT-free" : "No VAT on this line — click if the price includes VAT"}
+                            className={`h-7 whitespace-nowrap rounded-[7px] px-2.5 text-[10.5px] font-bold ${mode === "incl" ? "bg-[rgba(43,140,255,0.14)] text-link" : mode === "plus" ? "bg-amber/15 text-amber-ink" : "bg-shade/[0.06] text-faint"}`}
+                          >
+                            {mode === "incl" ? "Incl. VAT" : mode === "plus" ? "+ VAT" : "No VAT"}
+                          </button>
+                        );
+                      })()}
                       {!readOnly && (
                         <div
                           className={`flex items-center rounded-[7px] border border-line-2 bg-sub ${lineDiscountDisabled ? "opacity-50" : ""}`}
@@ -971,7 +978,7 @@ export function DocumentBuilder({
                            identity — ~13% of values land a cent out, so a round-trip rewrote the field
                            under the cursor and saved a mangled rate). The line amount and the printed
                            document state the ex-VAT price; this box is entry, not presentation. */
-                        <div className="relative w-[96px]" title={ctx.pricesInclVat ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
+                        <div className="relative w-[96px]" title={l.priceInclusive ? "Unit rate (incl. VAT)" : "Unit rate (excl. VAT)"}>
                           <span className="num absolute left-2 top-1/2 -translate-y-1/2 text-[11px] text-faint">Rs</span>
                           <MoneyField
                             // Gross in, net stored — ONE WAY. The typed text is never derived back
@@ -980,13 +987,12 @@ export function DocumentBuilder({
                             // takes gross too; this box used to take net, so the same typed 1500
                             // billed Rs 1,725.00 here and Rs 1,500.00 there.
                             syncKey={l.productId ?? l.key}
-                            // A flagged line's stored unit IS the shelf figure — show it as stored.
-                            cents={l.priceInclusive ? l.unitCents : ctx.pricesInclVat ? grossCents(l.unitCents, l.vatRatePct) : l.unitCents}
-                            // Typing under gross pricing makes THAT figure the price: stored as
-                            // typed with price_includes_vat, the ledger extracts the VAT and the
-                            // total lands on the typed number (20260812000020) — no conversion
-                            // left to round a cent off.
-                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: ctx.pricesInclVat ? { unitCents: c, priceInclusive: true } : { unitCents: unitCentsFromTyped(c, l.vatRatePct, false) } })}
+                            // The box always shows the stored unit verbatim; the line's VAT button says
+                            // what it means (ON = incl. VAT, the ledger extracts it per
+                            // 20260812000020; OFF = ex-VAT, VAT added on top). Typing never converts,
+                            // so no rounding can move the figure, and toggling VAT keeps it as typed.
+                            cents={l.unitCents}
+                            onCents={(c) => dispatch({ type: "patchLine", key: l.key, patch: { unitCents: c } })}
                             placeholder="rate"
                             className="num h-7 w-full rounded-[7px] border border-line-2 bg-sub pl-6 pr-2 text-right text-[12px] font-semibold text-ink outline-none placeholder:text-faint focus:border-brand"
                           />

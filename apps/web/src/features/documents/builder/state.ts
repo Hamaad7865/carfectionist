@@ -142,6 +142,28 @@ export function toSaveDraftLines(lines: BuilderLine[]) {
   }));
 }
 
+/** The line's VAT button (owner rule, 2026-11-23), all companies. The typed figure never
+ *  changes — only its meaning:
+ *   - "incl": the typed Rs 200 already CONTAINS VAT (total 200, VAT 26.09 extracted)
+ *   - "plus": VAT is added on top (Rs 200 + 30 = Rs 230)
+ *   - "none": the line is VAT-free (0%) */
+export type LineVatMode = "incl" | "plus" | "none";
+type VatFields = Pick<BuilderLine, "priceInclusive" | "vatRatePct">;
+
+export function lineVatMode(l: VatFields): LineVatMode {
+  if (l.vatRatePct <= 0) return "none";
+  return l.priceInclusive ? "incl" : "plus";
+}
+
+/** One click on the button: Incl. VAT → + VAT → No VAT → Incl. VAT. */
+export function nextLineVat(l: VatFields): VatFields {
+  switch (lineVatMode(l)) {
+    case "incl": return { priceInclusive: false, vatRatePct: l.vatRatePct };
+    case "plus": return { priceInclusive: false, vatRatePct: 0 };
+    case "none": return { priceInclusive: true, vatRatePct: 15 };
+  }
+}
+
 export function blankLine(): BuilderLine {
   // A hand-typed line starts as work: that is what the shop types by hand, and the row's
   // own Service/Product control is right there to say otherwise.
