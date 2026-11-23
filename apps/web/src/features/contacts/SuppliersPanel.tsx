@@ -56,18 +56,22 @@ export function SuppliersPanel({ suppliers }: { suppliers: SupplierRow[] }) {
       </div>
 
       <div className="overflow-hidden rounded-[14px] border border-line bg-card">
-        <div className="grid grid-cols-[1fr_160px_1fr_44px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
+        <div className="hidden grid-cols-[1fr_160px_1fr_44px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th sm:grid">
           <span>Supplier</span><span>Phone</span><span>Email</span><span />
         </div>
         {suppliers.length === 0 ? (
           <div className="px-5 py-14 text-center text-[13px] text-faint">No suppliers yet. Add your first with “New supplier”.</div>
         ) : (
           suppliers.map((s) => (
-            <div key={s.id} className="grid grid-cols-[1fr_160px_1fr_44px] items-center gap-3 border-b border-line px-5 py-3.5 text-[13px]">
+            // Phones: name on top, phone · email under it, edit on the right. sm and up: the table.
+            <div key={s.id} className="grid grid-cols-[minmax(0,1fr)_44px] items-center gap-x-3 gap-y-0.5 border-b border-line px-4 py-3.5 text-[13px] sm:grid-cols-[1fr_160px_1fr_44px] sm:px-5">
               <span className="min-w-0 truncate font-bold text-body" title={s.name}>{s.name}</span>
-              <span className="num text-muted">{s.phone ?? "—"}</span>
-              <span className="min-w-0 truncate text-muted">{s.email ?? "—"}</span>
-              <button onClick={() => launch(s)} className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-body"><Pencil size={14} /></button>
+              <span className="num col-start-1 row-start-2 min-w-0 truncate text-[12px] text-muted sm:col-start-auto sm:row-start-auto sm:text-[13px]">
+                {s.phone ?? "—"}
+                {s.email && <span className="sm:hidden"> · {s.email}</span>}
+              </span>
+              <span className="hidden min-w-0 truncate text-muted sm:block">{s.email ?? "—"}</span>
+              <button onClick={() => launch(s)} aria-label={`Edit ${s.name}`} className="col-start-2 row-span-2 row-start-1 grid size-10 place-items-center justify-self-end rounded-md text-faint hover:bg-sub hover:text-body sm:col-start-auto sm:row-span-1 sm:row-start-auto sm:size-7"><Pencil size={14} /></button>
             </div>
           ))
         )}

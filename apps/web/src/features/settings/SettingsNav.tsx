@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { chipRail } from "@/components/ui/rail";
+import { ChipRail } from "@/components/ui/ChipRail";
 import { getBrand } from "@/lib/brand-server";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionContext } from "@/lib/auth/session";
@@ -8,6 +10,7 @@ const ITEMS = [
   { key: "business", label: "Business profile", href: "/settings" },
   { key: "companies", label: "Companies", href: "/settings/companies" },
   { key: "pos-rules", label: "POS rules", href: "/settings/pos-rules" },
+  { key: "appointments", label: "Appointments", href: "/settings/appointments" },
   { key: "templates", label: "Document template", href: "/settings/templates" },
   { key: "team", label: "Team & roles", href: "/settings/team" },
   { key: "locations", label: "Stock locations", href: "/settings/locations" },
@@ -29,16 +32,20 @@ export async function SettingsNav({ active }: { active: string }) {
   // The WhatsApp number is Carfectionist's; a shop without WhatsApp has no tab for it.
   const whatsapp = hasWhatsApp(session?.tenantId);
   return (
-    <div className="mb-6 flex flex-wrap gap-1.5 border-b border-line pb-4">
+    // Phones: one row you swipe sideways (py-1 keeps the active tab's glow unclipped).
+    <div className="mb-6 border-b border-line pb-3 md:pb-4">
+      <ChipRail className={`${chipRail} py-1`}>
       {ITEMS.filter((i) => (i.key !== "companies" || companies) && (i.key !== "whatsapp" || whatsapp)).map((i) => (
         <Link
           key={i.key}
           href={i.href}
-          className={`inline-flex h-9 items-center justify-center rounded-[10px] px-3.5 text-[13px] font-bold ${active === i.key ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body hover:border-brand"}`}
+          aria-current={active === i.key ? "page" : undefined}
+          className={`inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] px-3.5 text-[13px] font-bold ${active === i.key ? "grad-brand shadow-brand text-white" : "border border-line-2 bg-card text-body hover:border-brand"}`}
         >
           {i.label}
         </Link>
       ))}
+      </ChipRail>
     </div>
   );
 }

@@ -274,9 +274,9 @@ export function CataloguePanel({ products, locations, showArchived, vatDefault, 
                     {!r.isActive && <span className="shrink-0 rounded-[5px] bg-shade/[0.08] px-1.5 py-0.5 text-[9px] font-bold text-faint">ARCHIVED</span>}
                   </div>
                   {attrLine(r) && <div className="mt-0.5 truncate text-[11px] font-semibold text-muted">{attrLine(r)}</div>}
-                  <div className="mt-1 flex items-center gap-2 text-[11px] text-muted">
-                    {r.category && <span className="rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 font-semibold text-link">{r.category}</span>}
-                    {r.stock && <span>{locations.map((l) => `${l.name} ${qty(r.stock![l.id])}`).join(" · ")}</span>}
+                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted">
+                    {r.category && <span className="max-w-full truncate rounded-[6px] bg-[rgba(43,140,255,0.08)] px-2 py-0.5 font-semibold text-link">{r.category}</span>}
+                    {r.stock && <span className="whitespace-nowrap">{locations.map((l) => `${l.name} ${qty(r.stock![l.id])}`).join(" · ")}</span>}
                   </div>
                 </div>
                 <div className="shrink-0 text-right">

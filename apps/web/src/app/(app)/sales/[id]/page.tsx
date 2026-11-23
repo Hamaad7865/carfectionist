@@ -179,10 +179,10 @@ export default async function DocumentDetailPage({
   return (
     <div className="p-4 sm:p-6">
       <div className="mx-auto max-w-5xl">
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between sm:gap-4">
+          <div className="min-w-0">
             <Link href="/sales" className="text-[13px] font-semibold text-muted hover:text-body">← Sales</Link>
-            <div className="mt-1 flex items-center gap-3">
+            <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
               <h2 className="font-display text-[22px] font-extrabold text-ink-strong">{title}</h2>
               <span className="num text-muted">{doc.number}</span>
               <StatusPill status={doc.status} />
@@ -193,7 +193,7 @@ export default async function DocumentDetailPage({
           </div>
           {/* flex-wrap: when the row runs out of room, whole buttons move to the
               next line — labels never break mid-text (the screenshotted bug). */}
-          <div className="flex flex-wrap items-center justify-end gap-2">
+          <div className="flex flex-wrap items-center gap-2 sm:justify-end">
             {doc.docType === "invoice" && (
               <a href={`/print/receipt/${doc.id}`} target="_blank" rel="noreferrer" className={btn()}>
                 <Receipt size={15} /> Receipt
@@ -263,7 +263,7 @@ export default async function DocumentDetailPage({
         {doc.docType === "quote" &&
           !(doc.intake && (doc.intake.markers.length > 0 || doc.intake.photos.length > 0)) &&
           !(billedHref && !doc.jobId) && (
-          <div className="mt-4 flex items-center justify-between rounded-[13px] border border-line bg-card px-4 py-2.5">
+          <div className="mt-4 flex flex-col gap-3 rounded-[13px] border border-line bg-card px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:py-2.5">
             <span className="text-[12.5px] text-muted">
               {doc.jobId
                 ? "This quote has a job on the board."
@@ -303,8 +303,8 @@ export default async function DocumentDetailPage({
             signature, but it is not the price any more — and it has left the working
             list, so this banner is the only thing that can say where the work went. */}
         {doc.revisedById && (
-          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(245,166,35,0.3)] bg-[rgba(245,166,35,0.07)] px-4 py-2.5 text-[12.5px] text-body">
-            <ArrowRight size={15} className="text-amber-ink" />
+          <div className="mt-4 rounded-[13px] leading-relaxed border border-[rgba(245,166,35,0.3)] bg-[rgba(245,166,35,0.07)] px-4 py-2.5 text-[12.5px] text-body">
+            <ArrowRight size={15} className="mr-1.5 inline-block align-[-3px] text-amber-ink" />
             Revised — replaced by{" "}
             <Link href={`/sales/${doc.revisedById}`} className="font-bold text-link hover:underline">{doc.revisedByNumber ?? "the newer quote"}</Link>
             {" "}— this one is filed in the archive.
@@ -312,8 +312,8 @@ export default async function DocumentDetailPage({
         )}
 
         {isInvoice && doc.creditedByNumber && (
-          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
-            <FileMinus size={15} className="text-pink" />
+          <div className="mt-4 rounded-[13px] leading-relaxed border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
+            <FileMinus size={15} className="mr-1.5 inline-block align-[-3px] text-pink" />
             Credited by{" "}
             <Link href={`/sales/${doc.creditedById}`} className="num font-bold text-pink hover:underline">{doc.creditedByNumber}</Link>.
           </div>
@@ -331,8 +331,8 @@ export default async function DocumentDetailPage({
         )}
 
         {doc.docType === "credit_note" && doc.sourceId && (
-          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
-            <FileMinus size={15} className="text-pink" />
+          <div className="mt-4 rounded-[13px] leading-relaxed border border-[rgba(255,84,104,0.25)] bg-[rgba(255,84,104,0.05)] px-4 py-2.5 text-[12.5px] text-body">
+            <FileMinus size={15} className="mr-1.5 inline-block align-[-3px] text-pink" />
             Credit note against invoice{" "}
             <Link href={`/sales/${doc.sourceId}`} className="font-bold text-link hover:underline">{doc.sourceNumber ?? "—"}</Link>.
           </div>
@@ -343,8 +343,8 @@ export default async function DocumentDetailPage({
             "why is this 1,759.99?" without archaeology. Mirrored on the tablet's payment
             panel, which names the same source quote. */}
         {doc.docType === "invoice" && doc.sourceId && (
-          <div className="mt-4 flex items-center gap-2 rounded-[13px] border border-[rgba(43,140,255,0.25)] bg-[rgba(43,140,255,0.05)] px-4 py-2.5 text-[12.5px] text-body">
-            <FileText size={15} className="text-link" />
+          <div className="mt-4 rounded-[13px] leading-relaxed border border-[rgba(43,140,255,0.25)] bg-[rgba(43,140,255,0.05)] px-4 py-2.5 text-[12.5px] text-body">
+            <FileText size={15} className="mr-1.5 inline-block align-[-3px] text-link" />
             Billed from quote{" "}
             <Link href={`/sales/${doc.sourceId}`} className="font-bold text-link hover:underline">{doc.sourceNumber ?? "—"}</Link>
             {" "}— the prices on it are the ones the customer agreed.
@@ -444,16 +444,20 @@ export default async function DocumentDetailPage({
           ) : (
           /* Lines */
           <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-            <div className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-th">
+            <div className="hidden grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line bg-band px-5 py-2.5 text-[10.5px] font-bold uppercase tracking-[0.1em] text-th sm:grid">
               <span>Item</span>
               <span className="text-right">Qty</span>
               <span className="text-right">Rate</span>
               <span className="text-right">Amount</span>
             </div>
             {doc.lines.map((l, i) => (
-              <div key={i} className="grid grid-cols-[1fr_60px_110px_110px] gap-3 border-b border-line px-5 py-2.5">
-                <div>
+              <div key={i} className="grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 border-b border-line px-4 py-3 sm:grid-cols-[1fr_60px_110px_110px] sm:gap-3 sm:px-5 sm:py-2.5">
+                <div className="min-w-0">
                   <div className="text-[13px] font-semibold text-ink">{l.title}</div>
+                  {/* Phones: qty × rate under the name; the two columns are desktop-only. */}
+                  <div className="num mt-0.5 text-[12px] text-muted sm:hidden">
+                    {l.unit ? `${l.qty} ${l.unit}` : l.qty} × {formatMUR(l.rateCents)}
+                  </div>
                   {/* Same renderer the PDF uses. This screen once derived its own
                       figures and disagreed with the document it links to; the
                       description is not going to repeat that. */}
@@ -472,8 +476,8 @@ export default async function DocumentDetailPage({
                     </div>
                   )}
                 </div>
-                <span className="num text-right text-[12.5px] text-muted">{l.unit ? `${l.qty} ${l.unit}` : l.qty}</span>
-                <span className="num text-right text-[12.5px] text-body">{formatMUR(l.rateCents)}</span>
+                <span className="num hidden text-right text-[12.5px] text-muted sm:block">{l.unit ? `${l.qty} ${l.unit}` : l.qty}</span>
+                <span className="num hidden text-right text-[12.5px] text-body sm:block">{formatMUR(l.rateCents)}</span>
                 <span className="num text-right text-[13px] font-semibold text-ink">
                   {l.discount && (
                     <span className="block text-[11.5px] font-normal text-faint line-through">{formatMUR(l.discount.fullAmountCents)}</span>
@@ -482,8 +486,8 @@ export default async function DocumentDetailPage({
                 </span>
               </div>
             ))}
-            <div className="flex justify-end px-5 py-3">
-              <div className="w-56 text-[13px]">
+            <div className="flex justify-end px-4 py-3 sm:px-5">
+              <div className="w-full text-[13px] sm:w-56">
                 {/* Subtotal is the sum BEFORE any discount, so the column foots:
                     subtotal − line discounts − order discount + VAT = Total. On an
                     undiscounted invoice both discount rows are absent and this is the

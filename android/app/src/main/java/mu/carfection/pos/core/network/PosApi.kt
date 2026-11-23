@@ -481,8 +481,19 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
             .decodeList<AppUserIdDto>().firstOrNull()?.id
     }.getOrNull()
 
-    suspend fun adjustStock(row: NewStockMovementDto) {
-        client.postgrest.from("stock_movements").insert(row)
+    /**
+     * One manual adjustment, through record_stock_adjustment (20261128000020). It checks the
+     * product and location are this shop's, stamps who moved it, and — for anyone but the
+     * owner — consumes the owner's single-use approval for exactly this move; without one it
+     * raises "stock adjustment requires the owner".
+     */
+    suspend fun adjustStock(productId: String, locationId: String, qty: Double, note: String) {
+        client.postgrest.rpc("record_stock_adjustment", buildJsonObject {
+            put("p_product_id", productId)
+            put("p_location_id", locationId)
+            put("p_qty", qty)
+            put("p_note", note)
+        })
     }
 
     // ── Point of Sale device registry ────────────────────────────────────────────

@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { CalendarPlus, ArrowRight, Check, X } from "lucide-react";
 import { Field, inputCls, FormError } from "@/components/ui/form";
-import { DEPARTMENTS } from "@/lib/departments";
 import { createAppointmentAction, setAppointmentStatusAction, convertAppointmentToJobAction } from "./actions";
 import type { AppointmentsData } from "@/lib/supabase/queries/appointments";
 import { btn } from "@/components/ui/button";
@@ -102,7 +101,7 @@ export function AppointmentsPanel({ data }: { data: AppointmentsData }) {
             <Field label="Place of work">
               <select className={inputCls} value={department} onChange={(e) => setDepartment(e.target.value)}>
                 <option value="">—</option>
-                {DEPARTMENTS.map((d) => <option key={d.slug} value={d.slug}>{d.label}</option>)}
+                {data.workPlaces.map((place) => <option key={place.id} value={place.name}>{place.name}</option>)}
               </select>
             </Field>
             <Field label="Assigned to">

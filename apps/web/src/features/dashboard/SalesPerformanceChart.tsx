@@ -123,13 +123,40 @@ function SalesTooltip({
   );
 }
 
+/** True on a phone-width screen. False on the server and first paint. */
+function useNarrow(): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639.98px)');
+    const sync = () => setNarrow(mq.matches);
+    sync();
+    mq.addEventListener('change', sync);
+    return () => mq.removeEventListener('change', sync);
+  }, []);
+  return narrow;
+}
+
+/** What the dashboard mounts: the chart, told whether it is on a phone. */
+export function ResponsiveSalesPerformanceChart({ data }: { data: SalesPerformanceData }) {
+  return <SalesPerformanceChart data={data} narrow={useNarrow()} />;
+}
+
+/** Pure (no hooks), so it can be rendered or called directly. `narrow` = a phone:
+ *  the whole period on one screen (thinner bars, every few day labels) instead of
+ *  a 720px plot you must swipe sideways through. */
 export function SalesPerformanceChart({
   data,
+  narrow = false,
 }: {
   data: SalesPerformanceData;
+  narrow?: boolean;
 }) {
-  const minPlotWidth =
-    data.status === 'ready' ? Math.max(720, data.points.length * 38) : 720;
+  const points = data.status === 'ready' ? data.points.length : 0;
+  const minPlotWidth = narrow
+    ? Math.max(280, points * 9)
+    : data.status === 'ready'
+      ? Math.max(720, points * 38)
+      : 720;
 
   return (
     <figure
@@ -187,9 +214,13 @@ export function SalesPerformanceChart({
                 <ComposedChart
                   data={data.points}
                   width={minPlotWidth}
-                  height={CHART_HEIGHT}
+                  height={narrow ? 280 : CHART_HEIGHT}
                   accessibilityLayer
-                  margin={{ top: 12, right: 18, bottom: 48, left: 8 }}
+                  margin={
+                    narrow
+                      ? { top: 8, right: 6, bottom: 36, left: 0 }
+                      : { top: 12, right: 18, bottom: 48, left: 8 }
+                  }
                 >
                   <CartesianGrid
                     vertical={false}
@@ -198,11 +229,12 @@ export function SalesPerformanceChart({
                   />
                   <XAxis
                     dataKey="axisLabel"
-                    interval={0}
+                    interval={narrow ? 'preserveStartEnd' : 0}
+                    minTickGap={narrow ? 6 : undefined}
                     angle={-35}
                     textAnchor="end"
-                    height={64}
-                    tick={{ fill: '#68737f', fontSize: 11 }}
+                    height={narrow ? 52 : 64}
+                    tick={{ fill: '#68737f', fontSize: narrow ? 10 : 11 }}
                     axisLine={{ stroke: 'rgba(15,23,32,0.12)' }}
                     tickLine={false}
                   />
@@ -212,8 +244,8 @@ export function SalesPerformanceChart({
                     }
                     tickCount={data.hasSales ? 5 : 2}
                     tickFormatter={formatCompactMUR}
-                    width={76}
-                    tick={{ fill: '#68737f', fontSize: 11 }}
+                    width={narrow ? 64 : 76}
+                    tick={{ fill: '#68737f', fontSize: narrow ? 10 : 11 }}
                     axisLine={false}
                     tickLine={false}
                   />
@@ -236,7 +268,7 @@ export function SalesPerformanceChart({
                     name="Counter / direct"
                     stackId="sales"
                     fill="#2b8cff"
-                    maxBarSize={28}
+                    maxBarSize={narrow ? 14 : 28}
                     isAnimationActive={false}
                   />
                   <Bar
@@ -244,8 +276,8 @@ export function SalesPerformanceChart({
                     name="Workshop jobs"
                     stackId="sales"
                     fill="#6a5cff"
-                    maxBarSize={28}
-                    radius={[4, 4, 0, 0]}
+                    maxBarSize={narrow ? 14 : 28}
+                    radius={narrow ? [2, 2, 0, 0] : [4, 4, 0, 0]}
                     isAnimationActive={false}
                   />
                   <Line

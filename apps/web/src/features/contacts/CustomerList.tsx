@@ -37,7 +37,7 @@ export function CustomerList({ customers, selectedId }: { customers: CustomerSum
           className="h-10 w-full rounded-[10px] border border-line-2 bg-sub pl-9 pr-3 text-[13px] text-ink outline-none focus:border-brand"
         />
       </div>
-      <div className="max-h-[70vh] overflow-y-auto">
+      <div className="lg:max-h-[70vh] lg:overflow-y-auto">
         {customers.length === 0 ? (
           <div className="p-6 text-center text-[12.5px] text-faint">No customers.</div>
         ) : filtered.length === 0 ? (
@@ -49,7 +49,7 @@ export function CustomerList({ customers, selectedId }: { customers: CustomerSum
               <Link
                 key={c.id}
                 href={`/contacts?c=${c.id}`}
-                className={`mb-1 flex w-full items-center gap-3 rounded-[11px] border px-3 py-2.5 ${on ? "border-link bg-[rgba(43,140,255,0.08)]" : "border-transparent hover:bg-sub"}`}
+                className={`mb-1 flex w-full items-center gap-3 rounded-[11px] border px-3 py-3 lg:py-2.5 ${on ? "border-link bg-[rgba(43,140,255,0.08)]" : "border-transparent hover:bg-sub"}`}
               >
                 <span
                   className="grid size-9 shrink-0 place-items-center rounded-[10px] font-display text-[12px] font-extrabold text-th"

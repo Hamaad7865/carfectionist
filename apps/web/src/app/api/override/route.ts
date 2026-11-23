@@ -74,6 +74,8 @@ interface OverrideRequestBody {
   refId?: unknown;
   reason?: unknown;
   maxDiscountCents?: unknown;
+  locationId?: unknown;
+  qty?: unknown;
 }
 
 export async function POST(req: Request) {
@@ -90,8 +92,9 @@ export async function POST(req: Request) {
 
   const appUserId = typeof body.appUserId === "string" ? body.appUserId : "";
   const pin = typeof body.pin === "string" ? body.pin : "";
-  const kind = body.kind === "discount" || body.kind === "reversal" ? body.kind : null;
-  const refType = body.refType === "document" || body.refType === "payment" ? body.refType : null;
+  const kind =
+    body.kind === "discount" || body.kind === "reversal" || body.kind === "stock_adjustment" ? body.kind : null;
+  const refType = body.refType === "document" || body.refType === "payment" || body.refType === "product" ? body.refType : null;
   const refId = typeof body.refId === "string" ? body.refId : "";
   const reason = typeof body.reason === "string" ? body.reason.trim() : "";
 
@@ -99,6 +102,8 @@ export async function POST(req: Request) {
   if (!PIN_RE.test(pin)) return json({ error: "bad_request" }, 400);
   if (!kind) return json({ error: "bad_request" }, 400);
   if (!refType) return json({ error: "bad_request" }, 400);
+  // A stock adjustment approves a move of one product; nothing else approves against a product.
+  if ((kind === "stock_adjustment") !== (refType === "product")) return json({ error: "bad_request" }, 400);
   if (!UUID_RE.test(refId)) return json({ error: "bad_request" }, 400);
   if (!reason) return json({ error: "bad_request" }, 400);
 
@@ -109,13 +114,22 @@ export async function POST(req: Request) {
   // into "up to Rs 50,000" the next time the ceiling is checked. `discount`
   // is the only kind that carries a figure — a reversal override is a single-
   // use yes/no, consumed by app.require_owner_or_override, not a ceiling.
-  let scope: Record<string, number> = {};
+  // A stock adjustment carries the exact move approved — record_stock_adjustment
+  // only consumes it for that location and that quantity.
+  let scope: Record<string, number | string> = {};
   if (kind === "discount") {
     const raw = body.maxDiscountCents;
     if (typeof raw !== "number" || !Number.isFinite(raw) || !Number.isInteger(raw) || raw < 0) {
       return json({ error: "bad_request" }, 400);
     }
     scope = { max_discount_incl: raw / 100 };
+  } else if (kind === "stock_adjustment") {
+    const loc = typeof body.locationId === "string" ? body.locationId : "";
+    const qty = body.qty;
+    if (!UUID_RE.test(loc) || typeof qty !== "number" || !Number.isFinite(qty) || qty === 0) {
+      return json({ error: "bad_request" }, 400);
+    }
+    scope = { location_id: loc, qty };
   }
 
   const admin = createAdminClient();

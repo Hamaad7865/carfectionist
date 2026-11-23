@@ -52,7 +52,7 @@ export function CustomerDialog({ customer }: { customer?: CustomerSummary }) {
   return (
     <>
       {editing ? (
-        <button onClick={launch} className="inline-flex h-[38px] items-center gap-1.5 rounded-[10px] border border-line-2 bg-card px-3.5 text-[12.5px] font-bold text-body hover:border-brand">
+        <button onClick={launch} className="inline-flex h-10 items-center justify-center gap-1.5 sm:h-[38px] rounded-[10px] border border-line-2 bg-card px-3.5 text-[12.5px] font-bold text-body hover:border-brand">
           <Pencil size={14} /> Edit
         </button>
       ) : (

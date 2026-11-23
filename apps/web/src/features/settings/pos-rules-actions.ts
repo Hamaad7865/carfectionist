@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { requireRole } from "@/lib/auth/session";
+import { isTyreShop } from "@/lib/auth/roles";
 
 const ROLES = ["owner", "manager"] as const;
 
@@ -30,28 +31,34 @@ const schema = z.object({
 // The action echoes back the PERSISTED (post-snap) values so the form can show what
 // was actually saved — a "150" cap that snapped to 5 must not sit next to a "Saved"
 // badge still reading 150.
-export type SavedPosRules = z.infer<typeof schema>;
+export type SavedPosRules = Omit<z.infer<typeof schema>, "carwashPct"> & { carwashPct?: number };
 type Result = { ok: true; saved: SavedPosRules } | { ok: false; error: string };
 
 export async function savePosRulesAction(input: z.input<typeof schema>): Promise<Result> {
   const ctx = await requireRole(...ROLES);
   const p = schema.safeParse(input);
   if (!p.success) return { ok: false, error: p.error.issues[0]?.message ?? "Invalid POS rules" };
+  const tyreShop = isTyreShop(ctx.tenantId);
+  if (tyreShop && (p.data.defaultPolicyService === "carwash" || p.data.defaultPolicyGoods === "carwash")) {
+    return { ok: false, error: "Carwash discount rules are not available for a tyre centre." };
+  }
+
+  const rules = {
+    default_policy_service: p.data.defaultPolicyService,
+    default_policy_goods: p.data.defaultPolicyGoods,
+    default_opening_float: p.data.defaultOpeningFloat,
+    allow_negative_stock: p.data.allowNegativeStock,
+    reversal_requires_owner: p.data.reversalRequiresOwner,
+  };
   const sb = await createClient();
   const { error } = await sb
     .from("business_settings")
-    .update({
-      discount_carwash_pct: p.data.carwashPct,
-      default_policy_service: p.data.defaultPolicyService,
-      default_policy_goods: p.data.defaultPolicyGoods,
-      default_opening_float: p.data.defaultOpeningFloat,
-      allow_negative_stock: p.data.allowNegativeStock,
-      reversal_requires_owner: p.data.reversalRequiresOwner,
-    })
+    .update(tyreShop ? rules : { ...rules, discount_carwash_pct: p.data.carwashPct })
     .eq("id", ctx.tenantId);
   if (error) return { ok: false, error: error.message };
   // The builder reads the cap + defaults from these; the sales pages clamp on them.
   revalidatePath("/settings/pos-rules");
   revalidatePath("/sales");
-  return { ok: true, saved: p.data };
+  const { carwashPct, ...saved } = p.data;
+  return { ok: true, saved: tyreShop ? saved : { ...saved, carwashPct } };
 }

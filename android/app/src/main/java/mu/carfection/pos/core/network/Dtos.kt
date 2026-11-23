@@ -590,24 +590,6 @@ data class StockOnHandDto(
     @SerialName("is_active") val isActive: Boolean = true,
 )
 
-/**
- * An adjustment movement (owner/manager only, per the sm_insert RLS policy).
- * NOTE: `refType` has NO default on purpose — kotlinx.serialization omits
- * default-valued fields, which would drop `ref_type` from the insert payload and
- * fail the RLS `with check (ref_type = 'adjustment')`.
- */
-@Serializable
-data class NewStockMovementDto(
-    @SerialName("tenant_id") val tenantId: String,
-    @SerialName("product_id") val productId: String,
-    @SerialName("location_id") val locationId: String,
-    val qty: Double,
-    @SerialName("ref_type") val refType: String,
-    val note: String? = null,
-    // Who adjusted. Omitted from the JSON when null so the column keeps its own default.
-    @SerialName("created_by") val createdBy: String? = null,
-)
-
 @Serializable data class ProductNameDto(val name: String? = null)
 @Serializable data class LocationNameDto(val name: String? = null)
 

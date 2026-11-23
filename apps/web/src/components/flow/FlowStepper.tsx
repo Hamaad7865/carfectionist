@@ -34,19 +34,19 @@ function Node({ s }: { s: FlowStep }) {
   );
 
   const body = (
-    <div className="flex min-w-0 items-start gap-2.5 sm:block sm:text-center">
-      <div className="flex items-center gap-2.5 sm:flex-col sm:gap-1.5">{circle}</div>
-      <div className="min-w-0 sm:mt-1.5">
-        <div className={`text-[11px] font-bold uppercase tracking-[0.08em] ${declined ? "text-rose" : done || current ? "text-ink" : "text-faint"}`}>
+    <div className="min-w-0 text-center">
+      <div className="flex flex-col items-center gap-1.5">{circle}</div>
+      <div className="mt-1.5 min-w-0">
+        <div className={`text-[9.5px] font-bold uppercase leading-tight tracking-[0.04em] sm:text-[11px] sm:leading-normal sm:tracking-[0.08em] ${declined ? "text-rose" : done || current ? "text-ink" : "text-faint"}`}>
           {s.label}
         </div>
         {(s.at || s.detail) && (
-          <div className="mt-0.5 text-[10.5px] leading-tight text-muted">
+          <div className="mt-0.5 hidden text-[10.5px] leading-tight text-muted sm:block">
             {s.detail && <div className="truncate">{s.detail}</div>}
             {s.at && <div className="text-faint">{s.at}</div>}
           </div>
         )}
-        {current && !s.at && !s.detail && <div className="mt-0.5 text-[10.5px] text-link">Next step</div>}
+        {current && !s.at && !s.detail && <div className="mt-0.5 hidden text-[10.5px] text-link sm:block">Next step</div>}
       </div>
     </div>
   );
@@ -56,16 +56,16 @@ function Node({ s }: { s: FlowStep }) {
   // its column and fades in; the rail (z-10, below) paints over it, so hovering
   // never hides the lines.
   return (
-    <div className="min-w-0 flex-1 sm:text-center">
+    <div className="min-w-0 flex-1 text-center">
       {s.href ? (
         <Link
           href={s.href}
-          className="block rounded-[11px] px-2 py-2 transition-colors duration-150 ease-out hover:bg-sub"
+          className="block rounded-[11px] px-0.5 py-2 sm:px-2 transition-colors duration-150 ease-out hover:bg-sub"
         >
           {body}
         </Link>
       ) : (
-        <div className="px-2 py-2">{body}</div>
+        <div className="px-0.5 py-2 sm:px-2">{body}</div>
       )}
     </div>
   );
@@ -74,13 +74,15 @@ function Node({ s }: { s: FlowStep }) {
 export function FlowStepper({ steps }: { steps: FlowStep[] }) {
   const n = steps.length;
   return (
-    <div className="rounded-[15px] border border-line bg-card px-4 py-3.5">
-      <div className="relative flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-0">
+    // Phones keep the same one-row journey, just smaller: circles and step names,
+    // with the dates and details from sm up.
+    <div className="rounded-[15px] border border-line bg-card px-2 py-2.5 sm:px-4 sm:py-3.5">
+      <div className="relative flex items-start">
         {/* connector rail — one segment per gap, painted above the hover cards
             (z-10) so a hovered step can't cover the lines. Pointer-events off so
             it never eats a click. Columns are equal (flex-1), so segment i runs
             from column i's centre +18px to column i+1's centre −18px. */}
-        <div className="pointer-events-none absolute inset-0 z-10 hidden sm:block" aria-hidden>
+        <div className="pointer-events-none absolute inset-0 z-10" aria-hidden>
           {steps.slice(0, -1).map((s, i) => (
             <span
               key={s.key}

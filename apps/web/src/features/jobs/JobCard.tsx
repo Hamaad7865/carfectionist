@@ -7,7 +7,6 @@ import { Play, Pause, Plus, Check, Trash2, FileText, FilePlus2 } from "lucide-re
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 import type { JobDetail, JobRefData } from "@/lib/supabase/queries/jobs";
-import { DEPARTMENTS } from "@/lib/departments";
 import { CarDiagram } from "@/features/intake/CarDiagram";
 import { PhotoUploader, type IntakePhoto } from "@/features/intake/PhotoUploader";
 import { markerMeta } from "@/features/intake/damage";
@@ -542,7 +541,10 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
           onChange={(e) => run(() => setJobDepartmentAction(job.id, e.target.value || null))}
         >
           <option value="">— department —</option>
-          {DEPARTMENTS.map((d) => <option key={d.slug} value={d.slug}>{d.label}</option>)}
+          {job.department && !refData.workPlaces.some((place) => place.name === job.department) && (
+            <option value={job.department}>{job.department} (removed)</option>
+          )}
+          {refData.workPlaces.map((place) => <option key={place.id} value={place.name}>{place.name}</option>)}
         </select>
       </div>
 
@@ -624,14 +626,14 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
               <li key={d.id}>
                 <Link
                   href={d.status === "draft" ? `/sales/${d.id}/edit` : `/sales/${d.id}`}
-                  className="flex items-center justify-between gap-3 rounded-[11px] border border-line bg-sub px-3.5 py-2.5 hover:border-line-2"
+                  className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5 rounded-[11px] border border-line bg-sub px-3.5 py-2.5 hover:border-line-2"
                 >
-                  <span className="flex items-center gap-2.5">
+                  <span className="flex min-w-0 flex-wrap items-center gap-x-2.5 gap-y-1">
                     <span className="text-[13px] font-semibold text-ink">{DOC_LABEL[d.docType] ?? d.docType}</span>
                     {d.number && <span className="num text-[12px] text-muted">{d.number}</span>}
                     <StatusPill status={d.status} />
                   </span>
-                  <span className="flex items-center gap-3 text-[13px]">
+                  <span className="ml-auto flex items-center gap-3 whitespace-nowrap text-[13px]">
                     {d.docType === "invoice" && d.outstandingCents > 0 && (
                       <span className="num text-[12px] font-semibold text-amber-ink">{formatMUR(d.outstandingCents)} due</span>
                     )}

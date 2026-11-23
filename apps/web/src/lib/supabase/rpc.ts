@@ -544,3 +544,19 @@ export const saveStockLocation = (
 
 export const deleteStockLocation = (sb: Client, id: string) =>
   callRpc<void>(sb, "delete_stock_location", { p_id: id });
+
+export interface WorkPlaceRow {
+  id: string;
+  tenant_id: string;
+  name: string;
+  sort_order: number;
+}
+
+export const saveWorkPlace = (sb: Client, input: { id?: string | null; name: string }) =>
+  callRpc<WorkPlaceRow>(sb, "save_work_place", {
+    p_id: input.id ?? null,
+    p_name: input.name,
+  });
+
+export const deleteWorkPlace = (sb: Client, id: string) =>
+  callRpc<boolean>(sb, "delete_work_place", { p_id: id });

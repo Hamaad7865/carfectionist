@@ -29,9 +29,25 @@ export function fakeAdmin(tables: Record<string, Row[]>) {
         })
         .slice(0, limit);
 
+    const settle = () => {
+      const rows = run();
+      if (patch) for (const r of rows) Object.assign(r, patch);
+      if (removing) {
+        for (const r of rows) {
+          const i = all.indexOf(r);
+          if (i >= 0) all.splice(i, 1);
+        }
+      }
+      return rows;
+    };
+
     const builder: Record<string, unknown> = {
       select: () => proxy,
       eq: (col: string, val: unknown) => {
+        filters.push([col, val]);
+        return proxy;
+      },
+      is: (col: string, val: null | boolean) => {
         filters.push([col, val]);
         return proxy;
       },
@@ -44,13 +60,13 @@ export function fakeAdmin(tables: Record<string, Row[]>) {
         return proxy;
       },
       single: async () => {
-        const rows = run();
+        const rows = settle();
         return rows.length === 1
           ? { data: rows[0], error: null }
           : { data: null, error: { message: `single() saw ${rows.length} rows` } };
       },
       maybeSingle: async () => {
-        const rows = run();
+        const rows = settle();
         return rows.length > 1
           ? { data: null, error: { message: `maybeSingle() saw ${rows.length} rows` } }
           : { data: rows[0] ?? null, error: null };
@@ -70,14 +86,7 @@ export function fakeAdmin(tables: Record<string, Row[]>) {
       // Awaiting the chain runs it: an update writes to the rows the filters keep,
       // a delete removes them and hands them back as `data` (as PostgREST does).
       then: (resolve: (v: unknown) => void) => {
-        const rows = run();
-        if (patch) for (const r of rows) Object.assign(r, patch);
-        if (removing) {
-          for (const r of rows) {
-            const i = all.indexOf(r);
-            if (i >= 0) all.splice(i, 1);
-          }
-        }
+        const rows = settle();
         resolve({ data: rows, error: null });
       },
     };

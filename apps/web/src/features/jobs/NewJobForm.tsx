@@ -4,7 +4,6 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { createJobAction } from "./actions";
-import { DEPARTMENTS } from "@/lib/departments";
 import type { IntakeRef } from "@/lib/supabase/queries/jobs";
 import { btn } from "@/components/ui/button";
 
@@ -119,7 +118,7 @@ export function NewJobForm({ intake }: { intake: IntakeRef }) {
           <span className={lbl}>Place of work</span>
           <select className={field} value={department} onChange={(e) => setDepartment(e.target.value)}>
             <option value="">— department —</option>
-            {DEPARTMENTS.map((d) => <option key={d.slug} value={d.slug}>{d.label}</option>)}
+            {intake.workPlaces.map((place) => <option key={place.id} value={place.name}>{place.name}</option>)}
           </select>
         </label>
         <label className="block sm:col-span-2">

@@ -99,6 +99,7 @@ Below, each table lists only its columns beyond the implicit
 | receipt_header_text | `text` **(0002)** |
 | receipt_footer_text | `text` **(0002)** |
 | receipt_logo_path | `text` **(0002)** |
+| appointment_reminder_days | `smallint not null default 3 check (1..30)` — how far ahead the bell shows live appointments |
 
 *Phase 3 (additive, not shipped yet):* `credit_note_prefix 'CN-'`,
 `credit_note_next_number`, `credit_note_number_padding`.
@@ -115,6 +116,18 @@ Below, each table lists only its columns beyond the implicit
 Surrogate `id` (not `auth.uid()` as PK) so a future SaaS can let one login belong to
 multiple tenants by dropping the unique. All `created_by` / `technician_id` FKs point
 at `app_users(id)`.
+
+### work_places `(upd)`
+Tenant-owned place-of-work picker values. Columns: `name text not null` (1–60
+characters) and `sort_order integer not null default 0`. A tenant cannot create
+case-insensitive duplicate names. Everyone in the tenant can select the rows;
+only an owner or manager can create, rename or delete one, through
+`save_work_place` / `delete_work_place`.
+
+`jobs.department` and `appointments.department` keep the selected name as a text
+snapshot. Renaming a managed place updates those snapshots in the same
+transaction. Deleting a place removes it from future pickers but intentionally
+preserves the old job and appointment history.
 
 ### customers `(upd)`
 `name text not null`, `email text`, `phone text`, `address text`,

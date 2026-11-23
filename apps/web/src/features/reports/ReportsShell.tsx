@@ -15,10 +15,13 @@ const STORE_KEY = "reports-rail-open";
  */
 export function ReportsShell({
   rail,
+  mobileNav,
   children,
 }: {
   /** Links + explainer card — the shell provides the frame + toggle. */
   rail: React.ReactNode;
+  /** Phones: the report picker as one swipeable row above the report (the rail is md+). */
+  mobileNav?: React.ReactNode;
   /** Date bar + report body — rendered in the flex-1 column that grows. */
   children: React.ReactNode;
 }) {
@@ -41,10 +44,12 @@ export function ReportsShell({
   }, [open]);
 
   return (
-    <div className="flex h-full min-h-0">
+    // Phones: one column that scrolls with the page. md and up: rail + its own scroll column.
+    <div className="flex min-h-0 flex-col md:h-full md:flex-row">
+      {mobileNav && <div className="shrink-0 border-b border-line bg-sub px-4 pt-3 pb-2.5 md:hidden">{mobileNav}</div>}
       {open ? (
         <aside
-          className="rail-spring flex min-h-0 w-[236px] shrink-0 flex-col border-r border-line bg-sub"
+          className="rail-spring hidden min-h-0 w-[236px] shrink-0 flex-col md:flex border-r border-line bg-sub"
           aria-label="Report list"
         >
           <div className="flex items-center justify-between py-1 pl-5 pr-3 pt-2">
@@ -66,7 +71,7 @@ export function ReportsShell({
         </aside>
       ) : (
         <aside
-          className="rail-spring flex min-h-0 w-[52px] shrink-0 flex-col items-center gap-2 border-r border-line bg-sub py-3"
+          className="rail-spring hidden min-h-0 w-[52px] shrink-0 flex-col md:flex items-center gap-2 border-r border-line bg-sub py-3"
           aria-label="Report list (collapsed)"
         >
           <button

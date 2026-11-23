@@ -22,6 +22,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -135,6 +137,7 @@ fun StockScreen(viewModel: StockViewModel = hiltViewModel()) {
         }
     }
     s.adj?.let { AdjustModal(it, viewModel) }
+    s.approval?.let { ApprovalModal(it, viewModel) }
     if (s.logOpen) AdjustmentLogDialog(s, viewModel)
     s.toast?.let { LaunchedEffect(it) { delay(2000); viewModel.clearToast() } }
     s.toast?.let { Toast(it) }
@@ -212,9 +215,66 @@ private fun AdjustModal(a: AdjustState, vm: StockViewModel) {
                     val label = when {
                         a.delta == 0 -> "Choose + or −"
                         a.reason.isBlank() -> "Pick a reason"
+                        vm.needsOwner -> "Ask the owner"
                         else -> "Apply adjustment"
                     }
                     Text(label, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (a.canApply) AccentInk else TextMuted)
+                }
+            }
+        }
+    }
+}
+
+/** "Ask the owner" — the owner picks their name and types their own PIN for this one move. */
+@Composable
+private fun ApprovalModal(ap: StockApproval, vm: StockViewModel) {
+    val a = ap.adj
+    Dialog(onDismissRequest = { if (!ap.busy) vm.closeApproval() }) {
+        Column(Modifier.width(460.dp).background(CardBg, RoundedCornerShape(22.dp)).border(1.dp, Color(0x1F101A24), RoundedCornerShape(22.dp)).padding(horizontal = 20.dp, vertical = 18.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text("ASK THE OWNER", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 20.sp, letterSpacing = 1.2.sp, color = TextPrimary)
+                Text("Stock adjustments need an owner's PIN.", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 13.sp, color = TextSecondary)
+            }
+            Column(Modifier.fillMaxWidth().background(InsetAlt, RoundedCornerShape(12.dp)).border(1.dp, Hairline, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(a.name, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(
+                    "${if (a.delta > 0) "+${a.delta}" else a.delta.toString()}  → new on-hand ${a.result}",
+                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = if (a.delta < 0) Danger else Success,
+                )
+                Text("Reason: ${a.reason}", fontFamily = Barlow, fontSize = 12.sp, color = TextMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            val owners = ap.owners
+            when {
+                // Before the loading check: a failed fetch leaves owners null forever.
+                ap.ownersError != null -> Text(ap.ownersError, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+                owners == null -> Text("Loading owners…", color = TextMuted, fontFamily = Barlow, fontSize = 13.sp)
+                owners.isEmpty() -> Text("No active owner is set up on this account yet.", color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp)
+                else -> {
+                    Text("APPROVING OWNER", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, color = TextMuted)
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        owners.forEach { o ->
+                            val on = o.id == ap.ownerId
+                            Box(Modifier.height(40.dp).background(if (on) AccentSoft else InsetAlt, RoundedCornerShape(20.dp)).border(if (on) 1.5.dp else 1.dp, if (on) AccentLine else Hairline, RoundedCornerShape(20.dp)).clickable { vm.pickApprovalOwner(o.id) }.padding(horizontal = 14.dp), contentAlignment = Alignment.Center) {
+                                Text(o.displayName, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 13.sp, color = if (on) Accent else TextPrimary)
+                            }
+                        }
+                    }
+                    Text("OWNER'S PIN", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.sp, letterSpacing = 1.2.sp, color = TextMuted)
+                    // Masked, never logged; the ViewModel clears it the instant the request resolves.
+                    FilledInput(
+                        value = ap.pin, onValueChange = vm::setApprovalPin,
+                        placeholder = "••••", modifier = Modifier.width(140.dp), height = 44.dp, bg = InsetAlt,
+                        masked = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.NumberPassword),
+                    )
+                    ap.error?.let { Text(it, color = Danger, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.5.sp) }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Box(Modifier.weight(1f).height(52.dp).border(1.dp, Color(0x2E101A24), RoundedCornerShape(13.dp)).clickable(enabled = !ap.busy) { vm.closeApproval() }, contentAlignment = Alignment.Center) {
+                    Text("Back", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.5.sp, color = TextSecondary)
+                }
+                Box(Modifier.weight(2f).height(52.dp).background(if (ap.canSubmit) Accent else InsetAlt, RoundedCornerShape(13.dp)).clickable(enabled = ap.canSubmit) { vm.submitApproval() }, contentAlignment = Alignment.Center) {
+                    Text(if (ap.busy) "Checking…" else "Approve & apply", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (ap.canSubmit) AccentInk else TextMuted)
                 }
             }
         }

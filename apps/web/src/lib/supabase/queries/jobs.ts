@@ -372,6 +372,7 @@ export interface JobDetail {
 export interface JobRefData {
   technicians: { id: string; name: string }[];
   consumables: { id: string; name: string; unit: string }[];
+  workPlaces: { id: string; name: string }[];
 }
 
 export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefData } | null> {
@@ -379,12 +380,13 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
   const { data: job } = await sb.from("jobs").select("*, customers(name), vehicles(make, model, plate)").eq("id", id).maybeSingle();
   if (!job) return null;
 
-  const [timerRes, usersRes, prodRes, docRes, photoRes] = await Promise.all([
+  const [timerRes, usersRes, prodRes, docRes, photoRes, placesRes] = await Promise.all([
     sb.from("job_timers").select("started_at, stopped_at").eq("job_id", id),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
     sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name"),
     sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid, created_at").eq("job_id", id).order("created_at"),
     sb.from("job_photos").select("storage_path, phase, caption").eq("job_id", id).order("created_at"),
+    sb.from("work_places").select("id, name").order("sort_order").order("name"),
   ]);
 
   // Bills that belong to this job but do not carry its job_id. The claim in
@@ -518,7 +520,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       vehicle: j.vehicles ? [j.vehicles.make, j.vehicles.model].filter(Boolean).join(" ") : null,
       plate: j.vehicles?.plate ?? null,
       technicianId: j.technician_id,
-      department: j.department ?? null,
+      department: departmentLabel(j.department),
       revision: 0,
       checklist: Array.isArray(j.checklist) ? j.checklist : [],
       damageMarkers: Array.isArray(j.damage_markers) ? j.damage_markers : [],
@@ -545,6 +547,8 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       technicians: ((usersRes.data ?? []) as any[]).map((u) => ({ id: u.id, name: u.display_name.replace(/\s*\(.*\)\s*$/, "").trim() })),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       consumables: ((prodRes.data ?? []) as any[]).map((p) => ({ id: p.id, name: p.name, unit: p.unit })),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      workPlaces: ((placesRes.data ?? []) as any[]).map((place) => ({ id: place.id, name: place.name })),
     },
   };
 }
@@ -553,16 +557,18 @@ export interface IntakeRef {
   customers: { id: string; name: string }[];
   vehicles: { id: string; customerId: string; label: string }[];
   technicians: { id: string; name: string }[];
+  workPlaces: { id: string; name: string }[];
 }
 
 export async function getIntakeRef(): Promise<IntakeRef> {
   const sb = await createClient();
-  const [custRes, vehRes, usersRes] = await Promise.all([
+  const [custRes, vehRes, usersRes, placesRes] = await Promise.all([
     sb.from("customers").select("id, name").order("name"),
     // Picker for a NEW job/quote — a retired car stays readable on whatever already
     // references it, it just can't be picked again here.
     sb.from("vehicles").select("id, customer_id, make, model, plate").eq("is_active", true),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
+    sb.from("work_places").select("id, name").order("sort_order").order("name"),
   ]);
   return {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -571,5 +577,7 @@ export async function getIntakeRef(): Promise<IntakeRef> {
     vehicles: ((vehRes.data ?? []) as any[]).map((v) => ({ id: v.id, customerId: v.customer_id, label: `${[v.make, v.model].filter(Boolean).join(" ")} · ${v.plate}` })),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     technicians: ((usersRes.data ?? []) as any[]).map((u) => ({ id: u.id, name: u.display_name.replace(/\s*\(.*\)\s*$/, "").trim() })),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    workPlaces: ((placesRes.data ?? []) as any[]).map((place) => ({ id: place.id, name: place.name })),
   };
 }

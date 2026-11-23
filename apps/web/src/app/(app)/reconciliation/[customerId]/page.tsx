@@ -62,28 +62,30 @@ export default async function ReconciliationCustomerPage({
         <Link href="/reconciliation" className={btn("quiet", "sm")}>
           <ChevronLeft size={14} /> Reconciliation
         </Link>
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate font-display text-[19px] font-extrabold text-ink-strong sm:text-[20px]">{aged.customerName}</h2>
+        {/* Phones: Back and the actions on the first row, the customer's full name under them. */}
+        <div className="order-last min-w-0 basis-full sm:order-none sm:basis-0 sm:flex-1">
+          <h2 className="break-words font-display sm:truncate text-[19px] font-extrabold text-ink-strong sm:text-[20px]">{aged.customerName}</h2>
           {aged.customerEmail && <div className="text-[12.5px] font-medium text-muted">{aged.customerEmail}</div>}
         </div>
-        <a href={`/api/reports/statement/${customerId}/pdf`} target="_blank" rel="noreferrer" className={btn("ghost", "sm")}>
+        <a href={`/api/reports/statement/${customerId}/pdf`} target="_blank" rel="noreferrer" className={btn("ghost", "sm", "ml-auto sm:ml-0")}>
           <Download size={14} /> PDF
         </a>
         <StatementSendButton customerId={customerId} customerName={aged.customerName} email={aged.customerEmail} />
       </div>
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
-        <div className="rounded-[15px] border border-line bg-card p-5">
+      {/* Phones: the balance across the top, open bills and oldest side by side under it. */}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3.5">
+        <div className="col-span-2 rounded-[15px] border border-line bg-card p-4 sm:col-span-1 sm:p-5">
           <div className="text-[13px] font-semibold text-muted">Balance owed</div>
-          <div className="num mt-2 text-[30px] font-extrabold text-ink-strong">{formatMUR(aged.soldeCents)}</div>
+          <div className="num mt-1 text-[26px] font-extrabold text-ink-strong sm:mt-2 sm:text-[30px]">{formatMUR(aged.soldeCents)}</div>
         </div>
-        <div className="rounded-[15px] border border-line bg-card p-5">
+        <div className="rounded-[15px] border border-line bg-card p-4 sm:p-5">
           <div className="text-[13px] font-semibold text-muted">Open bills</div>
-          <div className="num mt-2 text-[30px] font-extrabold text-ink-strong">{openBills}</div>
+          <div className="num mt-1 text-[22px] font-extrabold text-ink-strong sm:mt-2 sm:text-[30px]">{openBills}</div>
         </div>
-        <div className="rounded-[15px] border border-line bg-card p-5">
+        <div className="rounded-[15px] border border-line bg-card p-4 sm:p-5">
           <div className="text-[13px] font-semibold text-muted">Oldest unpaid</div>
-          <div className="num mt-2 text-[30px] font-extrabold text-ink-strong">
+          <div className="num mt-1 text-[22px] font-extrabold text-ink-strong sm:mt-2 sm:text-[30px]">
             {oldest ? `${ageDays(oldest, today)}d` : "—"}
           </div>
           {oldest && <div className="num mt-1 text-[12.5px] font-medium text-faint">since {oldest}</div>}

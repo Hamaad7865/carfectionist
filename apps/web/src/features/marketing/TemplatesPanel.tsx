@@ -119,7 +119,7 @@ function SubmitDialog({ template, onClose, onDone }: { template: WaTemplateRow; 
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4" onClick={onClose}>
-      <div className="w-full max-w-md rounded-[16px] border border-line bg-card p-5" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[92dvh] w-full max-w-md overflow-y-auto rounded-[16px] border border-line bg-card p-5" onClick={(e) => e.stopPropagation()}>
         <div className="font-display text-[15px] font-bold text-ink-strong">Submit for WhatsApp approval</div>
         <p className="mt-1 text-[12.5px] text-muted">WhatsApp reviews marketing templates (usually minutes to a few hours). {vc > 0 && "Give an example for each variable so reviewers see how it reads."}</p>
         {vc > 0 && (

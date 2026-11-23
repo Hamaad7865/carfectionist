@@ -23,6 +23,8 @@ private data class OverrideRequestBody(
     val refId: String,
     val reason: String,
     val maxDiscountCents: Long? = null,
+    val locationId: String? = null,
+    val qty: Double? = null,
 )
 
 @Serializable
@@ -88,10 +90,13 @@ class OverrideApi @Inject constructor(private val client: SupabaseClient) {
         refId: String,
         reason: String,
         maxDiscountCents: Long? = null,
+        /** A "stock_adjustment" approval is bound to this location and quantity. */
+        locationId: String? = null,
+        qty: Double? = null,
     ): OverrideOutcome = withContext(Dispatchers.IO) {
         val token = client.auth.currentAccessTokenOrNull()
             ?: return@withContext OverrideOutcome.Failed("Not signed in — sign in again and retry.")
-        val body = json.encodeToString(OverrideRequestBody(appUserId, pin, kind, refType, refId, reason, maxDiscountCents))
+        val body = json.encodeToString(OverrideRequestBody(appUserId, pin, kind, refType, refId, reason, maxDiscountCents, locationId, qty))
         val conn = (URL("$base/api/override").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
             connectTimeout = 15_000

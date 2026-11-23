@@ -11,6 +11,7 @@ import type { InventoryOpsData, MovementRow } from "@/lib/supabase/queries/movem
 import { pickSalesFloor } from "@/lib/supabase/locations";
 import { onHandAt, roundQty } from "@/lib/stock/balance";
 import { btn } from "@/components/ui/button";
+import { StockApprovalDialog, type PendingAdjustment } from "./StockApprovalDialog";
 
 /** The shop's stock-movement vocabulary. Mirror of the tablet's STOCK_REASONS
  *  (android .../feature/stock/StockViewModel.kt) — keep the two in step so the
@@ -27,7 +28,7 @@ const REF_STYLE: Record<string, { label: string; cls: string }> = {
 };
 const num = (n: number) => (Number.isInteger(n) ? String(n) : String(n));
 
-export function InventoryPanel({ data }: { data: InventoryOpsData }) {
+export function InventoryPanel({ data, isOwner }: { data: InventoryOpsData; isOwner: boolean }) {
   const router = useRouter();
   const [productId, setProductId] = useState("");
   const [query, setQuery] = useState("");
@@ -40,6 +41,8 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Anyone but the owner records a move only after the owner approves exactly it.
+  const [asking, setAsking] = useState<PendingAdjustment | null>(null);
   // Pending until the refreshed counts have landed, so the old number never
   // sits there looking confirmed.
   const [refreshing, startRefresh] = useTransition();
@@ -83,15 +86,30 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
     if (!(mag > 0)) return setError("Enter a quantity greater than zero.");
     if (!productId || !locationId) return setError("Pick a product and a location.");
     if (!note.trim()) return setError("A reason is required — the owner reads it straight off the stock ledger.");
+    const pending: PendingAdjustment = {
+      productId,
+      productName,
+      locationId,
+      locationName: locName,
+      qty: dir * mag,
+      unit,
+      note: note.trim(),
+    };
+    if (!isOwner) return setAsking(pending);
+    await record(pending);
+  }
+
+  async function record(a: PendingAdjustment) {
     setBusy(true);
-    const r = await recordAdjustmentAction({ productId, locationId, qty: dir * mag, note });
+    const r = await recordAdjustmentAction({ productId: a.productId, locationId: a.locationId, qty: a.qty, note: a.note });
     setBusy(false);
     if (r.ok) {
       setQtyStr("");
       setNote("");
       setHistoryNonce((n) => n + 1);
       startRefresh(() => router.refresh());
-    } else setError(r.error);
+    } else if (r.needsOwner) setAsking(a);
+    else setError(r.error);
   }
 
   return (
@@ -196,7 +214,7 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
             </div>
           </Field>
           <button onClick={submit} disabled={busy} className={btn("primary", "lg")}>
-            {busy ? "Saving…" : "Record"}
+            {busy ? "Saving…" : isOwner ? "Record" : "Record (owner PIN)"}
           </button>
         </div>
         {productId && (
@@ -235,6 +253,13 @@ export function InventoryPanel({ data }: { data: InventoryOpsData }) {
         )}
         <div className="mt-3"><FormError error={error} /></div>
       </div>
+      {asking && (
+        <StockApprovalDialog
+          adjustment={asking}
+          onClose={() => setAsking(null)}
+          onApproved={() => { const a = asking; setAsking(null); record(a); }}
+        />
+      )}
 
       {/* ledger */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">

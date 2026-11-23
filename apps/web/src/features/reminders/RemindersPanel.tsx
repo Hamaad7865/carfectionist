@@ -84,7 +84,7 @@ export function RemindersPanel({ data, today }: { data: RemindersData; today: st
 
       {/* list */}
       <div className="overflow-hidden rounded-[15px] border border-line bg-card">
-        <div className="grid grid-cols-[100px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th">
+        <div className="hidden grid-cols-[100px_1fr_1fr_100px_150px] gap-3 border-b border-line bg-band px-5 py-3 text-[10px] font-bold uppercase tracking-[0.1em] text-th md:grid">
           <span>Due</span><span>Customer</span><span>Vehicle · what</span><span>Status</span><span className="text-right">Actions</span>
         </div>
         {data.reminders.length === 0 ? (
@@ -93,17 +93,18 @@ export function RemindersPanel({ data, today }: { data: RemindersData; today: st
           data.reminders.map((r) => {
             const st = STATUS_STYLE[r.status] ?? STATUS_STYLE.pending;
             return (
-              <div key={r.id} className="grid grid-cols-[100px_1fr_1fr_100px_150px] items-center gap-3 border-b border-line px-5 py-3 text-[12.5px]">
-                <span className={`num ${r.overdue ? "font-bold text-rose" : "text-muted"}`}>{r.dueDate}{r.overdue && <span className="ml-1 text-[9px] font-bold uppercase">due</span>}</span>
-                <span className="truncate text-body">{r.customerName}</span>
-                <span className="truncate text-muted">{r.vehicle}<span className="text-faint"> · {r.kind}</span></span>
-                <span><span className={`inline-block rounded-full px-2.5 py-1 text-[10.5px] font-bold ${st.cls}`}>{st.label}</span></span>
-                <span className="flex justify-end gap-1.5">
+              // Phones: customer + status, then due date, then vehicle; actions on the right.
+              <div key={r.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 border-b border-line px-4 py-3 text-[12.5px] md:grid-cols-[100px_1fr_1fr_100px_150px] md:gap-3 md:px-5">
+                <span className={`num col-start-1 row-start-2 md:col-start-auto md:row-start-auto md:row-span-1 ${r.overdue ? "font-bold text-rose" : "text-muted"}`}>{r.dueDate}{r.overdue && <span className="ml-1 text-[9px] font-bold uppercase">due</span>}</span>
+                <span className="col-start-1 row-start-1 truncate font-semibold text-body md:col-start-auto md:row-start-auto md:row-span-1 md:font-normal">{r.customerName}</span>
+                <span className="col-start-1 row-start-3 truncate text-muted md:col-start-auto md:row-start-auto md:row-span-1">{r.vehicle}<span className="text-faint"> · {r.kind}</span></span>
+                <span className="col-start-2 row-start-1 justify-self-end md:col-start-auto md:row-start-auto md:row-span-1 md:justify-self-auto"><span className={`inline-block rounded-full px-2.5 py-1 text-[10.5px] font-bold ${st.cls}`}>{st.label}</span></span>
+                <span className="col-start-2 row-span-2 row-start-2 flex justify-end gap-1.5 md:col-start-auto md:row-start-auto md:row-span-1">
                   {(r.status === "pending" || r.status === "sent") && (
                     <>
-                      {r.status === "pending" && <button title="Mark sent" onClick={() => setStatus(r.id, "sent")} disabled={busy} className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-amber-ink"><Send size={14} /></button>}
-                      <button title="Mark done" onClick={() => setStatus(r.id, "done")} disabled={busy} className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-mint"><Check size={15} /></button>
-                      <button title="Dismiss" onClick={() => setStatus(r.id, "dismissed")} disabled={busy} className="grid size-7 place-items-center rounded-md text-faint hover:bg-sub hover:text-rose"><X size={14} /></button>
+                      {r.status === "pending" && <button title="Mark sent" onClick={() => setStatus(r.id, "sent")} disabled={busy} className="grid size-9 place-items-center rounded-md text-faint md:size-7 hover:bg-sub hover:text-amber-ink"><Send size={14} /></button>}
+                      <button title="Mark done" onClick={() => setStatus(r.id, "done")} disabled={busy} className="grid size-9 place-items-center rounded-md text-faint md:size-7 hover:bg-sub hover:text-mint"><Check size={15} /></button>
+                      <button title="Dismiss" onClick={() => setStatus(r.id, "dismissed")} disabled={busy} className="grid size-9 place-items-center rounded-md text-faint md:size-7 hover:bg-sub hover:text-rose"><X size={14} /></button>
                     </>
                   )}
                 </span>

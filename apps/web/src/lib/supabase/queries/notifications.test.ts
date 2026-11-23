@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { applyDismissals, type Dismissal, type NotifItem } from "./notifications";
+import {
+  appointmentReminderItem,
+  appointmentReminderWindow,
+  applyDismissals,
+  type Dismissal,
+  type NotifItem,
+} from "./notifications";
 
 // The bell shows live CONDITIONS, not messages. So "dismiss" can never mean
 // delete — the alert is recomputed from the ledger every time and would just
@@ -56,5 +62,50 @@ describe("applyDismissals", () => {
     // guards the boundary: `count > seenCount` must not be `>=`
     const a = alert({ count: 0 });
     expect(applyDismissals([a], [seen({ seenCount: 0 })], TODAY)).toEqual([]);
+  });
+});
+
+describe("appointment reminders", () => {
+  it("builds the next-day window from the configured tenant value", () => {
+    expect(appointmentReminderWindow("2026-11-23T16:00:00.000Z", 3)).toEqual({
+      start: "2026-11-23T16:00:00.000Z",
+      end: "2026-11-26T16:00:00.000Z",
+    });
+  });
+
+  it("clamps an invalid window before querying", () => {
+    expect(appointmentReminderWindow("2026-11-23T16:00:00.000Z", 99).end).toBe(
+      "2026-12-23T16:00:00.000Z",
+    );
+  });
+
+  it("names the earliest appointment and preserves the server count", () => {
+    const item = appointmentReminderItem([
+      {
+        id: "b",
+        scheduled_at: "2026-11-25T08:00:00.000Z",
+        service: "Alignment",
+        customers: { name: "Second" },
+      },
+      {
+        id: "a",
+        scheduled_at: "2026-11-24T06:00:00.000Z",
+        service: null,
+        customers: { name: "First" },
+      },
+    ], 4);
+
+    expect(item).toEqual({
+      key: "appointments",
+      label: "4 upcoming appointments",
+      detail: "First · 2026-11-24 10:00",
+      href: "/appointments",
+      tone: "info",
+      count: 4,
+    });
+  });
+
+  it("does not create an alert when no booking is in the window", () => {
+    expect(appointmentReminderItem([], 0)).toBeNull();
   });
 });

@@ -23,9 +23,9 @@ export function CompanyChip({ name, index }: { name: string; index: number }) {
     <span
       style={entityVars(index)}
       title={`Sold by ${name}`}
-      className={`inline-flex h-6 max-w-[150px] items-center truncate rounded-full px-2.5 text-[11px] font-bold ${ENTITY.soft} ${ENTITY.ink}`}
+      className={`inline-flex h-6 min-w-0 max-w-full items-center rounded-full px-2.5 text-[11px] font-bold ${ENTITY.soft} ${ENTITY.ink}`}
     >
-      {name}
+      <span className="min-w-0 truncate">{name}</span>
     </span>
   );
 }
