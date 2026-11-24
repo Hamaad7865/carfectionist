@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
@@ -47,53 +52,59 @@ fun List<FlowStepUi>.withCurrent(): List<FlowStepUi> {
 
 @Composable
 fun FlowStrip(steps: List<FlowStepUi>, modifier: Modifier = Modifier) {
-    Row(
+    BoxWithConstraints(
         modifier
             .fillMaxWidth()
             .background(CardBg, RoundedCornerShape(13.dp))
             .border(1.dp, Hairline, RoundedCornerShape(13.dp))
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.Top,
+            .padding(horizontal = 12.dp, vertical = 12.dp),
     ) {
-        steps.forEachIndexed { i, s ->
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+        val stepWidth = maxWidth / steps.size.coerceAtLeast(1).toFloat()
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+            steps.forEachIndexed { i, s ->
+            Column(Modifier.width(stepWidth), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
                     Box(Modifier.weight(1f).height(2.dp).background(if (i == 0) CardBg else if (steps[i - 1].state == FlowState.DONE) Accent else Hairline))
-                    val (bg, border, mark) = when (s.state) {
-                        FlowState.DONE -> Triple(Accent, Accent, "✓")
-                        FlowState.DECLINED -> Triple(Danger, Danger, "✕")
-                        FlowState.CURRENT -> Triple(CardBg, Accent, "")
-                        FlowState.TODO -> Triple(CardBg, Hairline, "")
+                    val (bg, border) = when (s.state) {
+                        FlowState.DONE -> Accent to Accent
+                        FlowState.DECLINED -> Danger to Danger
+                        FlowState.CURRENT -> CardBg to Accent
+                        FlowState.TODO -> CardBg to Hairline
                     }
                     Box(
-                        Modifier.size(22.dp).background(bg, CircleShape).border(2.dp, border, CircleShape),
+                        Modifier.size(30.dp).background(bg, CircleShape).border(2.dp, border, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        if (mark.isNotEmpty()) Text(mark, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AccentInk)
-                        else if (s.state == FlowState.CURRENT) Box(Modifier.size(8.dp).background(Accent, CircleShape))
+                        when (s.state) {
+                            FlowState.DONE -> Icon(Icons.Filled.Check, null, tint = AccentInk, modifier = Modifier.size(17.dp))
+                            FlowState.DECLINED -> Icon(Icons.Filled.Close, null, tint = AccentInk, modifier = Modifier.size(16.dp))
+                            FlowState.CURRENT -> Box(Modifier.size(10.dp).background(Accent, CircleShape))
+                            FlowState.TODO -> Unit
+                        }
                     }
                     Box(Modifier.weight(1f).height(2.dp).background(if (i == steps.lastIndex) CardBg else if (s.state == FlowState.DONE) Accent else Hairline))
                 }
-                Spacer(Modifier.height(5.dp))
+                Spacer(Modifier.height(7.dp))
                 Text(
                     s.label.uppercase(),
-                    fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, letterSpacing = 0.8.sp,
+                    fontFamily = Barlow, fontWeight = FontWeight.ExtraBold, fontSize = 10.5.sp, lineHeight = 13.sp, letterSpacing = 0.6.sp,
                     color = when (s.state) {
                         FlowState.DECLINED -> Danger
                         FlowState.TODO -> TextMuted
                         else -> TextPrimary
                     },
-                    maxLines = 1, textAlign = TextAlign.Center,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
                 )
                 s.detail?.let {
                     Text(
-                        it, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 9.sp, color = TextMuted,
+                        it, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 9.5.sp, lineHeight = 12.sp, color = TextMuted,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(horizontal = 2.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 3.dp),
                     )
                 }
             }
-            if (i != steps.lastIndex) Spacer(Modifier.width(0.dp))
+            }
         }
     }
 }

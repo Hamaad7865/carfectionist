@@ -124,7 +124,7 @@ fun SplashOverlay(onDone: () -> Unit) {
                     modifier = Modifier.alpha(wordAlpha.value),
                 )
                 androidx.compose.material3.Text(
-                    "HELVETIA · MAURITIUS",
+                    "${Brand.LOCATION.uppercase()} · MAURITIUS",
                     fontFamily = Barlow,
                     fontWeight = FontWeight.SemiBold,
                     fontSize = 12.sp,

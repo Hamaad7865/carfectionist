@@ -86,11 +86,16 @@ private val secLabel = 11.sp
 fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltViewModel()) {
     val s by viewModel.state.collectAsState()
 
+    if (TYRE_TILL) {
+        TyreIntakeScreen(s, viewModel, onStartQuote)
+        return
+    }
+
     Column(Modifier.fillMaxSize().padding(start = 16.dp, top = 14.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         // title row
         Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("RECEPTION · INTAKE", fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, letterSpacing = 1.5.sp, color = TextPrimary)
-            Text(if (TYRE_TILL) "Customer → car → quotation" else "Customer → cars → condition → quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
+            Text("Customer → cars → condition → quotation", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextMuted)
         }
 
         Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -100,9 +105,7 @@ fun IntakeScreen(onStartQuote: () -> Unit, viewModel: IntakeViewModel = hiltView
                 CustomerCard(s, viewModel)
                 VehicleCard(s, viewModel)
             }
-            // RIGHT 54fr — condition & damage. A tyre shop doesn't survey bodywork: its intake is
-            // just the customer and the car, straight on to the quotation.
-            if (!TYRE_TILL) ConditionCard(s, viewModel, Modifier.weight(54f).fillMaxHeight())
+            ConditionCard(s, viewModel, Modifier.weight(54f).fillMaxHeight())
         }
 
         // footer

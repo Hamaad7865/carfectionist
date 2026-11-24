@@ -15,6 +15,8 @@ object Brand {
     const val NAME = "Carfectionist"
     const val WORDMARK = "CARFECTIONIST"
     const val APP_NAME = "Carfectionist POS"
+    const val LOCATION = "Helvetia"
+    const val USE_BRAND_LOCATION = false
     val logo: Int = R.drawable.logo_carfectionist
 }
 

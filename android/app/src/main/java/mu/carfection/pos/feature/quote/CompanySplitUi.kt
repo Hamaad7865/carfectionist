@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -126,8 +127,20 @@ private fun CompanyBlock(s: QuoteState, part: CompanyPart) {
         else Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text("VAT", fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 12.5.sp, color = TextSecondary)
             Spacer(Modifier.weight(1f))
-            Box(Modifier.height(20.dp).background(InsetAlt, RoundedCornerShape(10.dp)).padding(horizontal = 8.dp), contentAlignment = Alignment.Center) {
-                Text("VAT exempt", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 10.5.sp, color = TextSecondary)
+            Box(
+                Modifier.height(28.dp).background(InsetAlt, RoundedCornerShape(9.dp)).padding(horizontal = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    "VAT exempt",
+                    fontFamily = Barlow,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 11.sp,
+                    lineHeight = 13.sp,
+                    textAlign = TextAlign.Center,
+                    color = TextSecondary,
+                    maxLines = 1,
+                )
             }
         }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {

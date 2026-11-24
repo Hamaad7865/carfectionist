@@ -2164,6 +2164,18 @@ class QuoteViewModel @Inject constructor(
                     })
                 }
             })
+            h.workRequest?.let { request ->
+                put("work_request", buildJsonObject {
+                    put("services", buildJsonArray { request.services.forEach(::add) })
+                    request.tyreSize?.let { put("tyre_size", it) }
+                    request.wheelPosition?.let { put("wheel_position", it) }
+                    request.quantity?.let { put("quantity", it) }
+                    request.priority?.let { put("priority", it) }
+                    request.odometer?.let { put("odometer", it) }
+                    request.concern?.let { put("concern", it) }
+                    put("keys_received", request.keysReceived)
+                })
+            }
         }
     }
 

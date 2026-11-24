@@ -33,6 +33,24 @@ enum class DamageType(val label: String, val color: Color, val letter: String) {
     SWIRL("Swirl", Color(0xFF1FA361), "W"),
 }
 
+enum class TyreIntakeService(val label: String) {
+    REPLACEMENT("Tyre replacement"),
+    PUNCTURE("Puncture repair"),
+    BALANCING("Wheel balancing"),
+    ALIGNMENT("Wheel alignment"),
+}
+
+enum class WheelPosition(val label: String, val defaultTyreQuantity: Int) {
+    ALL("All wheels", 4),
+    FRONT("Front", 2),
+    REAR("Rear", 2),
+}
+
+enum class IntakePriority(val label: String) {
+    NORMAL("Normal"),
+    URGENT("Urgent"),
+}
+
 data class IntakeState(
     val query: String = "",
     val results: List<CustomerEntity> = emptyList(),
@@ -66,6 +84,14 @@ data class IntakeState(
     val photosByCar: Map<String, List<String>> = emptyMap(),
     val photoUrls: Map<String, String> = emptyMap(),
     val photoUploading: Boolean = false,
+    val tyreServices: Set<TyreIntakeService> = emptySet(),
+    val tyreSize: String = "",
+    val wheelPosition: WheelPosition = WheelPosition.ALL,
+    val tyreQuantity: Int = 4,
+    val priority: IntakePriority = IntakePriority.NORMAL,
+    val odometer: String = "",
+    val concern: String = "",
+    val keysReceived: Boolean = false,
     val busy: Boolean = false,
     val error: String? = null,
     // Someone already on file who looks like the one being typed, or the person already holding
@@ -81,6 +107,11 @@ data class IntakeState(
     val photoPaths: List<String> get() = vehicle?.let { photosByCar[it.id] }.orEmpty()
     /** Damage notes across every ticked car — what the footer counts. */
     val markerTotal: Int get() = picked.sumOf { markersByCar[it.id]?.size ?: 0 }
+    val hasTyreRequest: Boolean
+        get() = tyreServices.isNotEmpty() &&
+            (TyreIntakeService.REPLACEMENT !in tyreServices || tyreSize.trim().isNotBlank())
+    val canStartTyreIntake: Boolean
+        get() = customer != null && picked.isNotEmpty() && hasTyreRequest && !photoUploading
 }
 
 @HiltViewModel
@@ -273,6 +304,9 @@ class IntakeViewModel @Inject constructor(
             it.copy(
                 customer = c, query = "", results = emptyList(), vehicles = emptyList(),
                 picked = emptyList(), activeId = null, markersByCar = emptyMap(), photosByCar = emptyMap(),
+                tyreServices = emptySet(), tyreSize = "", wheelPosition = WheelPosition.ALL,
+                tyreQuantity = 4, priority = IntakePriority.NORMAL, odometer = "", concern = "",
+                keysReceived = false, photoUploading = false,
             )
         }
         viewModelScope.launch { runCatching { api.fetchVehicles(c.id) }.onSuccess { vs -> _s.update { it.copy(vehicles = vs) } } }
@@ -282,6 +316,9 @@ class IntakeViewModel @Inject constructor(
         it.copy(
             customer = null, vehicles = emptyList(), picked = emptyList(), activeId = null,
             markersByCar = emptyMap(), photosByCar = emptyMap(), addVehOpen = false,
+            tyreServices = emptySet(), tyreSize = "", wheelPosition = WheelPosition.ALL,
+            tyreQuantity = 4, priority = IntakePriority.NORMAL, odometer = "", concern = "",
+            keysReceived = false, photoUploading = false,
         )
     }
 
@@ -291,12 +328,33 @@ class IntakeViewModel @Inject constructor(
     fun setNvModel(v: String) = _s.update { it.copy(nvModel = v) }
     fun setNvColour(v: String) = _s.update { it.copy(nvColour = v) }
     fun setNvCategory(v: String) = _s.update { it.copy(nvCategory = v) }
+    fun toggleTyreService(service: TyreIntakeService) = _s.update {
+        it.copy(
+            tyreServices = if (service in it.tyreServices) it.tyreServices - service else it.tyreServices + service,
+            error = null,
+        )
+    }
+    fun setTyreSize(v: String) = _s.update { it.copy(tyreSize = v) }
+    fun setWheelPosition(v: WheelPosition) = _s.update {
+        it.copy(
+            wheelPosition = v,
+            tyreQuantity = v.defaultTyreQuantity,
+        )
+    }
+    fun changeTyreQuantity(delta: Int) = _s.update {
+        it.copy(tyreQuantity = (it.tyreQuantity + delta).coerceIn(1, 8))
+    }
+    fun setPriority(v: IntakePriority) = _s.update { it.copy(priority = v) }
+    fun setOdometer(v: String) = _s.update { it.copy(odometer = v.filter(Char::isDigit).take(7)) }
+    fun setConcern(v: String) = _s.update { it.copy(concern = v.take(320)) }
+    fun toggleKeysReceived() = _s.update { it.copy(keysReceived = !it.keysReceived) }
 
-    fun saveVehicle() {
+    fun saveVehicle(singleSelection: Boolean = false) {
         val st = _s.value
         val cust = st.customer ?: return
         val plate = st.nvPlate.trim()
         if (plate.isBlank()) { _s.update { it.copy(error = "Enter a plate") }; return }
+        _s.update { it.copy(busy = true, error = null, plateTaken = null) }
         viewModelScope.launch {
             runCatching {
                 val tenant = catalog.tenantId() ?: error("no tenant")
@@ -304,7 +362,14 @@ class IntakeViewModel @Inject constructor(
             }.onSuccess { v ->
                 _s.update {
                     it.copy(
-                        vehicles = it.vehicles + v, picked = it.picked + v, activeId = v.id,
+                        vehicles = it.vehicles + v,
+                        picked = if (singleSelection) listOf(v) else it.picked + v,
+                        activeId = v.id,
+                        markersByCar = if (singleSelection) emptyMap() else it.markersByCar,
+                        photosByCar = if (singleSelection) emptyMap() else it.photosByCar,
+                        photoUrls = if (singleSelection) emptyMap() else it.photoUrls,
+                        photoUploading = if (singleSelection) false else it.photoUploading,
+                        busy = false,
                         addVehOpen = false, nvPlate = "", nvMake = "", nvModel = "", nvColour = "", nvCategory = "",
                     )
                 }
@@ -314,9 +379,9 @@ class IntakeViewModel @Inject constructor(
                     // Offer the record, don't describe it. Naming the owner and leaving staff to
                     // go and search is what made altering the plate the faster way out.
                     val holder = api.plateHolder(plate)
-                    if (holder != null) _s.update { it.copy(plateTaken = holder, error = null) }
-                    else _s.update { it.copy(error = "$plate is already registered to another customer — search for them by name or phone.") }
-                } else _s.update { it.copy(error = e.uiMessage()) }
+                    if (holder != null) _s.update { it.copy(busy = false, plateTaken = holder, error = null) }
+                    else _s.update { it.copy(busy = false, error = "$plate is already registered to another customer — search for them by name or phone.") }
+                } else _s.update { it.copy(busy = false, error = e.uiMessage()) }
             }
         }
     }
@@ -338,6 +403,19 @@ class IntakeViewModel @Inject constructor(
         } else {
             it.copy(picked = it.picked + v, activeId = v.id)
         }
+    }
+
+    /** Tyre intake is one incoming vehicle per quote; selection replaces rather than accumulates. */
+    fun toggleTyreVehicle(v: VehicleDto) = _s.update {
+        val selected = it.picked.any { picked -> picked.id == v.id }
+        it.copy(
+            picked = if (selected) emptyList() else listOf(v),
+            activeId = if (selected) null else v.id,
+            markersByCar = emptyMap(),
+            photosByCar = emptyMap(),
+            photoUrls = emptyMap(),
+            photoUploading = false,
+        )
     }
 
     /** Switch the condition panel to another ticked car. */
@@ -391,6 +469,18 @@ class IntakeViewModel @Inject constructor(
                 // fields are prefilled instead of staff retyping them off the customer's card.
                 customerPhone = c.phone, customerEmail = c.email,
                 cars = cars,
+                workRequest = st.tyreServices.takeIf { it.isNotEmpty() }?.let { services ->
+                    mu.carfection.pos.core.data.IntakeWorkRequest(
+                        services = services.map { it.label },
+                        tyreSize = st.tyreSize.trim().ifBlank { null },
+                        wheelPosition = st.wheelPosition.label,
+                        quantity = if (TyreIntakeService.REPLACEMENT in services) st.tyreQuantity else null,
+                        priority = st.priority.label,
+                        odometer = st.odometer.ifBlank { null },
+                        concern = st.concern.trim().ifBlank { null },
+                        keysReceived = st.keysReceived,
+                    )
+                },
             ),
         )
         _s.value = IntakeState()

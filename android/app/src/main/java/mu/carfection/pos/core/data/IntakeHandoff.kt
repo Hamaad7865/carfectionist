@@ -21,6 +21,28 @@ data class HandoffCar(
     val photoPaths: List<String>,
 )
 
+/** Tyre-centre reception details carried into the quotation draft as intake notes. */
+data class IntakeWorkRequest(
+    val services: List<String>,
+    val tyreSize: String? = null,
+    val wheelPosition: String? = null,
+    val quantity: Int? = null,
+    val priority: String? = null,
+    val odometer: String? = null,
+    val concern: String? = null,
+    val keysReceived: Boolean = false,
+) {
+    val summary: String
+        get() = buildList {
+            if (services.isNotEmpty()) add(services.joinToString(", "))
+            tyreSize?.let { add(it) }
+            quantity?.let { qty ->
+                if (qty > 0) add("$qty tyre${if (qty == 1) "" else "s"}")
+            }
+            wheelPosition?.let(::add)
+        }.joinToString(" · ")
+}
+
 /**
  * What reception hands the quote builder: the picked customer and EVERY car they brought
  * in on this visit. Markers and photos are stamped onto each car's job when the quote is
@@ -37,6 +59,7 @@ data class IntakeHandoff(
     val customerPhone: String? = null,
     val customerEmail: String? = null,
     val cars: List<HandoffCar>,
+    val workRequest: IntakeWorkRequest? = null,
 ) {
     /** The first car — what a single-car quote builds on, exactly as it always did. */
     val vehicleId: String get() = cars.first().vehicleId

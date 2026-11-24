@@ -1044,6 +1044,8 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
         }
     }
 
+    s.intake?.workRequest?.let { IntakeRequestBanner(it) }
+
     Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         // LEFT 53 — category rail + search + product grid (the same catalogue Checkout browses,
         // so it gets the same rail: 795 products under 40-odd categories are not browsable as chips)
@@ -1593,6 +1595,40 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun IntakeRequestBanner(request: mu.carfection.pos.core.data.IntakeWorkRequest) {
+    Row(
+        Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp))
+            .border(1.dp, AccentLine, RoundedCornerShape(12.dp))
+            .padding(horizontal = 13.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(Modifier.background(Accent, RoundedCornerShape(7.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+            Text("INTAKE", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, letterSpacing = 0.8.sp, color = AccentInk)
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                request.summary.ifBlank { "Reception request" },
+                fontFamily = Barlow,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = TextPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            request.concern?.let {
+                Text(it, fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 10.5.sp, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        request.priority?.let {
+            Box(Modifier.background(CardBg, RoundedCornerShape(8.dp)).padding(horizontal = 8.dp, vertical = 4.dp)) {
+                Text(it, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 9.5.sp, color = if (it == "Urgent") Danger else TextSecondary)
             }
         }
     }

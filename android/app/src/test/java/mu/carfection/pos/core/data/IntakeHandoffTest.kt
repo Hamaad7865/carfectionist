@@ -104,4 +104,22 @@ class IntakeHandoffTest {
         val c = CustomerEntity("c1", "Walk-in", "59856161")
         assertNull(c.email)
     }
+
+    @Test
+    fun `tyre reception request travels with the intake handoff`() {
+        val request = IntakeWorkRequest(
+            services = listOf("Tyre replacement", "Wheel balancing"),
+            tyreSize = "185/65 R14",
+            wheelPosition = "All wheels",
+            quantity = 4,
+            priority = "Normal",
+            odometer = "84320",
+            concern = "Vibration above 80 km/h",
+            keysReceived = true,
+        )
+        val h = handoff().copy(workRequest = request)
+
+        assertEquals(request, h.workRequest)
+        assertEquals("Tyre replacement, Wheel balancing · 185/65 R14 · 4 tyres · All wheels", h.workRequest?.summary)
+    }
 }

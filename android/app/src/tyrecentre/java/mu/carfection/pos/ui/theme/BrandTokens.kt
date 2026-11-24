@@ -19,6 +19,8 @@ object Brand {
     const val NAME = "Tyre Centre"
     const val WORDMARK = "TYRE CENTRE"
     const val APP_NAME = "Tyre Centre POS"
+    const val LOCATION = "Ecroignard"
+    const val USE_BRAND_LOCATION = true
     val logo: Int = R.drawable.tc_logo
 }
 

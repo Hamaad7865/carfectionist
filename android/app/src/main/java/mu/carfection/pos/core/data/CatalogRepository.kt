@@ -133,14 +133,22 @@ class CatalogRepository @Inject constructor(
 
     /**
      * The top bar's name and place line, from the signed-in shop's own settings — never a
-     * hard-coded studio: the tyre centre's tablet used to say "CARFECTIONIST · Helvetia".
-     * The place is the first part of the address ("Helvetia, 80840 Moka, MU" → "Helvetia ·
-     * Mauritius", exactly what Carfectionist's bar always said); no address → "Mauritius".
+     * hard-coded studio. Flavours with a fixed physical shop use [Brand.LOCATION]; otherwise
+     * the place is the first part of the signed-in tenant's address.
      */
     val shopHeaderFlow: Flow<Pair<String, String>> = prefs.data.map { p ->
         val name = p[nameKey]?.trim()?.ifBlank { null } ?: mu.carfection.pos.ui.theme.Brand.NAME
-        val place = p[addressKey]?.lineSequence()?.flatMap { it.split(',') }?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
-        name to (if (place != null) "$place · Mauritius" else "Mauritius")
+        val storedPlace = p[addressKey]
+            ?.lineSequence()
+            ?.flatMap { it.split(',') }
+            ?.map { it.trim() }
+            ?.firstOrNull { it.isNotEmpty() }
+        val place = if (mu.carfection.pos.ui.theme.Brand.USE_BRAND_LOCATION) {
+            mu.carfection.pos.ui.theme.Brand.LOCATION
+        } else {
+            storedPlace ?: "Mauritius"
+        }
+        name to if (place == "Mauritius") place else "$place · Mauritius"
     }
     suspend fun vatDefault(): Double = prefs.data.first()[vatKey] ?: 15.0
 
