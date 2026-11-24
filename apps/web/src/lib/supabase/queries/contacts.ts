@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 
 export interface ContactVehicle {
   id: string;
@@ -80,18 +81,18 @@ export interface ContactsData {
 
 export async function getContacts(selectedId?: string): Promise<ContactsData> {
   const sb = await createClient();
-  const [custRes, vehRes, docRes, supRes, bsRes] = await Promise.all([
-    sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, is_company, wa_opt_out, points_balance").order("name"),
-    sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes, is_active, is_coated"),
-    sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at, revision_of"),
-    sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name"),
+  // fetchAllRows: these lists are aggregated in JS (spend, balances, history, counts);
+  // PostgREST's 1000-row cap would otherwise hand back an arbitrary subset and a
+  // customer's paid invoices could silently vanish from their page.
+  const [custRows, vehicles, docs, supRows, bsRes] = await Promise.all([
+    fetchAllRows(() => sb.from("customers").select("id, name, phone, email, address, brn, vat_number, notes, country, is_company, wa_opt_out, points_balance").order("name")),
+    fetchAllRows(() => sb.from("vehicles").select("id, customer_id, make, model, plate, color, year, category, vin, notes, is_active, is_coated")),
+    fetchAllRows(() => sb.from("documents").select("id, customer_id, doc_type, number, status, total_incl, amount_paid, issue_date, created_at, revision_of")),
+    fetchAllRows(() => sb.from("suppliers").select("id, name, phone, email, address, brn, vat_number, notes").order("name")),
     sb.from("business_settings").select("point_value_rupees, points_enabled").limit(1).maybeSingle(),
   ]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const vehicles = (vehRes.data ?? []) as any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const docs = (docRes.data ?? []) as any[];
+  const custRes = { data: custRows };
+  const supRes = { data: supRows };
 
   const outstandingByCust = new Map<string, number>();
   const spendByCust = new Map<string, number>();
