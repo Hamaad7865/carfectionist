@@ -5,13 +5,20 @@ import { THEME_INIT_SCRIPT, THEME_INIT_SCRIPT_SYSTEM } from "@/lib/theme";
 import type { Metadata } from "next";
 import { getSessionContext, requireSession } from "@/lib/auth/session";
 import { getShopBrand } from "@/lib/brand-server";
+import { brandIcons } from "@/lib/brand";
 
 /** Another shop's tab says its own name, never "Carfection". */
 export async function generateMetadata(): Promise<Metadata> {
   const ctx = await getSessionContext();
   if (!ctx) return {};
   const brand = await getShopBrand(ctx.tenantId);
-  return brand.key === "shop" || brand.key === "tyrecentre" ? { title: brand.name, description: brand.pageDescription } : {};
+  if (brand.key !== "shop" && brand.key !== "tyrecentre") return {};
+  const icons = brandIcons(brand);
+  return {
+    title: brand.name,
+    description: brand.pageDescription,
+    icons: { icon: icons.favicon, apple: icons.apple },
+  };
 }
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {

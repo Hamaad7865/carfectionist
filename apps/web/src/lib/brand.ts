@@ -57,6 +57,26 @@ export function brandForHost(host: string | null | undefined): BrandInfo {
   return h === "hazsoftware.com" || h.endsWith(".hazsoftware.com") ? HAZ : CARFECTIONIST;
 }
 
+/** Favicon, Apple touch icon and installed-app icons. The gold car belongs to Carfectionist
+ *  alone; the HAZ demo and every other shop (the tyre centre) get the neutral HAZ mark. */
+export function brandIcons(brand: BrandInfo) {
+  const set = brand.key === "carfectionist" ? "carfectionist" : "haz";
+  return {
+    favicon: `/icons/${set}-favicon.png`,
+    apple: `/icons/${set}-apple.png`,
+    app: [
+      { src: `/icons/${set}-192.png`, sizes: "192x192", type: "image/png", purpose: "any" },
+      { src: `/icons/${set}-512.png`, sizes: "512x512", type: "image/png", purpose: "any" },
+      { src: `/icons/${set}-maskable-512.png`, sizes: "512x512", type: "image/png", purpose: "maskable" },
+    ],
+  } as const;
+}
+
+/** Display name for the installed app and the browser tab. */
+export function brandAppName(brand: BrandInfo): string {
+  return brand.key === "carfectionist" ? "Carfectionist" : brand.name;
+}
+
 /** The Carfectionist shop and its TEST Sandbox: the only tenants that wear the Carfectionist brand. */
 export const CARFECTIONIST_TENANTS: readonly string[] = [
   "11111111-1111-4111-8111-000000000001",

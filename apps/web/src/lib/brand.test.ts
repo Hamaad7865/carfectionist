@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { brandForHost, brandForShop, CARFECTIONIST, HAZ } from "./brand";
+import { brandAppName, brandForHost, brandForShop, brandIcons, CARFECTIONIST, HAZ, TYRECENTRE } from "./brand";
 
 describe("brandForHost", () => {
   it("presents HAZ Software on the hazsoftware.com demo host", () => {
@@ -44,5 +44,16 @@ describe("brandForShop", () => {
   });
   it("falls back to HAZ Software when the shop has no name", () => {
     expect(brandForShop(CARFECTIONIST, "other", null).name).toBe("HAZ Software");
+  });
+});
+
+describe("brandIcons / brandAppName", () => {
+  it("gives the gold car only to Carfectionist; another shop installs its own name with the HAZ icon", () => {
+    expect(brandIcons(CARFECTIONIST).favicon).toContain("carfectionist");
+    const shop = brandForShop(CARFECTIONIST, "1f060b86-ad63-4dc7-93fb-a1fdfae18b27", "Garage De L'Est LTEE");
+    expect(brandAppName(shop)).toBe("Garage De L'Est LTEE");
+    expect(JSON.stringify(brandIcons(shop)).toLowerCase()).not.toContain("carfection");
+    expect(JSON.stringify(brandIcons(HAZ)).toLowerCase()).not.toContain("carfection");
+    expect(JSON.stringify(brandIcons(TYRECENTRE)).toLowerCase()).not.toContain("carfection");
   });
 });
