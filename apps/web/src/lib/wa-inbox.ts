@@ -34,7 +34,8 @@ export async function upsertConversation(
   // Unknown number → try to match a customer by their stored phone.
   let customerId = opts.customerId ?? null;
   if (!customerId) {
-    const { data: cust } = await admin.from("customers").select("id, phone").eq("tenant_id", tenantId).not("phone", "is", null);
+    const { fetchAllRows } = await import("@/lib/supabase/paginate");
+    const cust = await fetchAllRows(() => admin.from("customers").select("id, phone").eq("tenant_id", tenantId).not("phone", "is", null)).catch(() => []);
     const { normalizePhoneMU } = await import("@/lib/phone");
     customerId = ((cust ?? []) as any[]).find((c) => normalizePhoneMU(c.phone) === phone)?.id ?? null;
   }

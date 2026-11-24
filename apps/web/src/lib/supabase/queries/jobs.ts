@@ -2,7 +2,7 @@ import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 import { departmentLabel } from "@/lib/departments";
 import { signVehiclePhotos } from "@/lib/supabase/storage";
-import { fetchAllRows } from "@/lib/supabase/paginate";
+import { fetchAllRows, fetchAllResult } from "@/lib/supabase/paginate";
 import { jobClock } from "@/features/jobs/clock";
 import { JOB_COLUMNS as COLUMNS } from "@/features/jobs/columns";
 import { pickDoc, pickQuote, liveInvoices, outstandingCents, toJobDoc, type JobDoc, type RawDoc } from "@/features/jobs/job-docs";
@@ -43,9 +43,9 @@ function nameById(rows: any[], id: string | null, field = "display_name"): strin
 export async function getJobsBoard(): Promise<Record<string, JobCardSummary[]>> {
   const sb = await createClient();
   const [jobsRes, custRes, vehRes, usersRes, timerRes] = await Promise.all([
-    sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, board_dismissed_at, paused_at, paused_ms").order("created_at", { ascending: false }),
-    sb.from("customers").select("id, name"),
-    sb.from("vehicles").select("id, make, model, plate"),
+    fetchAllResult(() => sb.from("jobs").select("id, status, notes, customer_id, vehicle_id, technician_id, department, created_at, started_at, ready_at, delivered_at, board_dismissed_at, paused_at, paused_ms").order("created_at", { ascending: false })),
+    fetchAllResult(() => sb.from("customers").select("id, name")),
+    fetchAllResult(() => sb.from("vehicles").select("id, make, model, plate")),
     sb.from("app_users").select("id, display_name"),
     sb.from("job_timers").select("job_id, stopped_at").is("stopped_at", null),
   ]);
@@ -383,7 +383,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
   const [timerRes, usersRes, prodRes, docRes, photoRes, placesRes] = await Promise.all([
     sb.from("job_timers").select("started_at, stopped_at").eq("job_id", id),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
-    sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name"),
+    fetchAllResult(() => sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name")),
     sb.from("documents").select("id, doc_type, status, number, total_incl, amount_paid, created_at").eq("job_id", id).order("created_at"),
     sb.from("job_photos").select("storage_path, phase, caption").eq("job_id", id).order("created_at"),
     sb.from("work_places").select("id, name").order("sort_order").order("name"),
@@ -563,10 +563,10 @@ export interface IntakeRef {
 export async function getIntakeRef(): Promise<IntakeRef> {
   const sb = await createClient();
   const [custRes, vehRes, usersRes, placesRes] = await Promise.all([
-    sb.from("customers").select("id, name").order("name"),
+    fetchAllResult(() => sb.from("customers").select("id, name").order("name")),
     // Picker for a NEW job/quote — a retired car stays readable on whatever already
     // references it, it just can't be picked again here.
-    sb.from("vehicles").select("id, customer_id, make, model, plate").eq("is_active", true),
+    fetchAllResult(() => sb.from("vehicles").select("id, customer_id, make, model, plate").eq("is_active", true)),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
     sb.from("work_places").select("id, name").order("sort_order").order("name"),
   ]);

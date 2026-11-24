@@ -1,6 +1,6 @@
 import { ATTR_SELECT, attrsFromRow, type ProductAttrs } from "@/lib/products/attrs-row";
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/paginate";
+import { fetchAllRows, fetchAllResult } from "@/lib/supabase/paginate";
 import { getStockLocations, type StockLocation } from "@/lib/supabase/locations";
 import { balancesAfter, roundQty, type OnHand } from "@/lib/stock/balance";
 
@@ -124,7 +124,7 @@ export async function getInventoryOps(): Promise<InventoryOpsData> {
       .order("moved_at", { ascending: false })
       .order("id", { ascending: false }) // a stock count files many rows in one instant; balances need one fixed order
       .limit(120),
-    sb.from("products").select(`id, name, unit, ${ATTR_SELECT}`).eq("is_stocked", true).eq("is_active", true).order("name"),
+    fetchAllResult(() => sb.from("products").select(`id, name, unit, ${ATTR_SELECT}`).eq("is_stocked", true).eq("is_active", true).order("name")),
     getStockLocations(sb, true),
     fetchAllRows(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
   ]);

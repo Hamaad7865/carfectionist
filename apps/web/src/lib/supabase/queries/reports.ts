@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { netFromGrossCents, rupeesToCents } from "@/lib/money";
-import { fetchAllRows } from "@/lib/supabase/paginate";
+import { fetchAllRows, fetchAllResult } from "@/lib/supabase/paginate";
 import { muDate, muDateTime, muToday } from "@/lib/mu-date";
 import { monthLabel } from "@/features/pos/month-label";
 import { parseLegacyBalance } from "@/lib/legacy-balance";
@@ -501,7 +501,7 @@ export interface CustomerStatement {
 
 export async function getStatementCustomers(): Promise<{ id: string; name: string }[]> {
   const sb = await createClient();
-  const { data } = await sb.from("customers").select("id, name").order("name");
+  const { data } = await fetchAllResult(() => sb.from("customers").select("id, name").order("name"));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ((data ?? []) as any[]).map((c) => ({ id: c.id, name: c.name }));
 }

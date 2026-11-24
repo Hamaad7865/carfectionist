@@ -1,6 +1,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { muDateTime } from "@/lib/mu-date";
-import { formatPhone } from "@/lib/phone";
+import { formatPhone, normalizePhoneMU } from "@/lib/phone";
+import { fetchAllRows } from "@/lib/supabase/paginate";
 
 // ─── WhatsApp inbox ──────────────────────────────────────────────────────────
 // One thread per customer phone number. Meta's 24-hour rule: a free-typed reply
@@ -55,6 +56,32 @@ export interface ThreadDetail {
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
+/** A thread is matched to a customer only when it is first created, so a number
+ *  that messaged us (or got a quote) BEFORE their customer card existed stays
+ *  "Not in contacts" forever. Re-match unlinked threads by phone on read and
+ *  persist the link (best-effort) so it sticks. Mutates the rows passed in. */
+async function linkUnmatched(sb: Awaited<ReturnType<typeof createClient>>, convs: any[]): Promise<void> {
+  const unlinked = convs.filter((c) => !c.customer_id);
+  if (unlinked.length === 0) return;
+  const custs = await fetchAllRows<{ id: string; name: string; phone: string | null }>(() =>
+    sb.from("customers").select("id, name, phone").not("phone", "is", null),
+  ).catch(() => []);
+  const byPhone = new Map<string, { id: string; name: string }>();
+  for (const c of custs) {
+    const p = normalizePhoneMU(c.phone);
+    if (p && !byPhone.has(p)) byPhone.set(p, { id: c.id, name: c.name });
+  }
+  await Promise.all(
+    unlinked.map(async (c) => {
+      const hit = byPhone.get(c.phone_e164);
+      if (!hit) return;
+      c.customer_id = hit.id;
+      c.customers = { name: hit.name };
+      await sb.from("wa_conversations").update({ customer_id: hit.id }).eq("id", c.id).is("customer_id", null);
+    }),
+  );
+}
+
 function windowState(lastInboundAt: string | null): { open: boolean; minutesLeft: number | null } {
   if (!lastInboundAt) return { open: false, minutesLeft: null };
   const left = Date.parse(lastInboundAt) + WINDOW_MS - Date.now();
@@ -72,6 +99,7 @@ export async function getConversations(): Promise<{ rows: ConversationRow[]; unr
 
   const convs = (data ?? []) as any[];
   if (convs.length === 0) return { rows: [], unreadTotal: 0 };
+  await linkUnmatched(sb, convs);
 
   // Last message of each thread, for the preview line.
   const { data: msgs } = await sb
@@ -123,6 +151,7 @@ export async function getThread(id: string): Promise<ThreadDetail | null> {
     .maybeSingle();
   if (!conv) return null;
   const c = conv as any;
+  await linkUnmatched(sb, [c]);
 
   const [{ data: msgs }, { data: users }] = await Promise.all([
     sb.from("wa_messages")

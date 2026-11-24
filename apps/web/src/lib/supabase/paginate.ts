@@ -42,6 +42,22 @@ export async function fetchAllRows<T = any>(make: () => any, orderCol: string | 
   return out;
 }
 
+/** fetchAllRows in the `{ data, error }` shape of a plain PostgREST read, so an
+ *  unbounded `sb.from(...).select(...)` inside a Promise.all can be paged past
+ *  the cap without touching the code that reads `.data`. Errors are returned,
+ *  not thrown, exactly as the plain read would. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export async function fetchAllResult<T = any>(
+  make: () => any, // eslint-disable-line @typescript-eslint/no-explicit-any
+  orderCol: string | string[] = "id",
+): Promise<{ data: T[] | null; error: { message: string } | null }> {
+  try {
+    return { data: await fetchAllRows<T>(make, orderCol), error: null };
+  } catch (e) {
+    return { data: null, error: { message: e instanceof Error ? e.message : String(e) } };
+  }
+}
+
 // Keyset pagination for reads whose ordering key is immutable. `make` must
 // return a fresh query ordered by the same cursor represented by `cursorOf`,
 // and must restrict rows to values strictly after `after` when it is non-null.

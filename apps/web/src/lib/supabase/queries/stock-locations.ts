@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 import { getStockLocations, type StockLocation } from "@/lib/supabase/locations";
 
@@ -21,9 +22,9 @@ export async function getLocationsAdmin(): Promise<LocationAdminRow[]> {
   const sb = await createClient();
   const [locations, ohRes, mvRes, txRes] = await Promise.all([
     getStockLocations(sb),
-    sb.from("stock_on_hand").select("location_id, product_id, qty_on_hand"),
+    fetchAllResult(() => sb.from("stock_on_hand").select("location_id, product_id, qty_on_hand"), ["product_id", "location_id"]),
     // Ids only — we need "did anything ever happen here", not the ledger itself.
-    sb.from("stock_movements").select("location_id"),
+    fetchAllResult(() => sb.from("stock_movements").select("location_id")),
     sb.from("stock_transfers").select("from_location_id, to_location_id"),
   ]);
 

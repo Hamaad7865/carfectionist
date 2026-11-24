@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents } from "@/lib/money";
 
@@ -91,7 +92,7 @@ export async function getPurchaseOrders(): Promise<POData> {
       .order("created_at", { ascending: false })
       .limit(50),
     sb.from("suppliers").select("id, name").order("name"),
-    sb.from("products").select("id, name, unit, cost_price").eq("is_stocked", true).eq("is_active", true).order("name"),
+    fetchAllResult(() => sb.from("products").select("id, name, unit, cost_price").eq("is_stocked", true).eq("is_active", true).order("name")),
     sb.from("stock_locations").select("id, name, is_default").order("name"),
   ]);
 

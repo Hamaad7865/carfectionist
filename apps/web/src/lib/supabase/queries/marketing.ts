@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 import { muDateTime } from "@/lib/mu-date";
 import { normalizePhoneMU } from "@/lib/phone";
@@ -89,7 +90,7 @@ export interface AudienceContact {
 /** Every contact with the info the audience picker needs; phone pre-normalized. */
 export async function getAudience(): Promise<AudienceContact[]> {
   const sb = await createClient();
-  const { data } = await sb.from("customers").select("id, name, phone, is_company, wa_opt_out").order("name");
+  const { data } = await fetchAllResult(() => sb.from("customers").select("id, name, phone, is_company, wa_opt_out").order("name"));
   return ((data ?? []) as any[]).map((c) => ({
     id: c.id,
     name: c.name,

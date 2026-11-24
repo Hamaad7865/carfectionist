@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 import { rupeesToCents, policyOf, CARWASH_MAX_PCT, DEFAULT_POLICIES, type DiscountPolicy, type PolicyDefaults } from "@/lib/money";
 
@@ -126,9 +127,9 @@ export async function getBuilderContext(): Promise<BuilderContext> {
   const [bsRes, tmplRes, prodRes, custRes, vehRes, coRes] = await Promise.all([
     sb.from("business_settings").select("*").limit(1).single(),
     sb.from("document_templates").select("config").eq("is_default", true).limit(1).maybeSingle(),
-    sb.from("products").select(`id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy, legal_entity_id, ${ATTR_SELECT}`).eq("is_active", true).order("kind").order("name"),
-    sb.from("customers").select("id, name, country, email, phone, address, brn, vat_number").order("name"),
-    sb.from("vehicles").select("id, customer_id, plate, make, model").eq("is_active", true).order("plate"),
+    fetchAllResult(() => sb.from("products").select(`id, name, selling_price, price_includes_vat, vat_rate, is_stocked, kind, photo_path, discount_policy, legal_entity_id, ${ATTR_SELECT}`).eq("is_active", true).order("kind").order("name")),
+    fetchAllResult(() => sb.from("customers").select("id, name, country, email, phone, address, brn, vat_number").order("name")),
+    fetchAllResult(() => sb.from("vehicles").select("id, customer_id, plate, make, model").eq("is_active", true).order("plate")),
     sb.from("legal_entities").select(`id, vat_registered, quote_prefix, sort_order, is_default, ${ISSUER_FIELDS.join(", ")}`).eq("is_active", true).order("sort_order").order("id"),
   ]);
 

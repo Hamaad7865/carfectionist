@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 import { departmentLabel } from "@/lib/departments";
 
@@ -34,8 +35,8 @@ export async function getAppointments(nowISO: string): Promise<AppointmentsData>
       .select("id, service, department, scheduled_at, status, notes, job_id, customers(name), vehicles(plate, make, model), app_users!appointments_technician_id_fkey(display_name)")
       .order("scheduled_at", { ascending: true })
       .limit(200),
-    sb.from("customers").select("id, name").order("name"),
-    sb.from("vehicles").select("id, customer_id, plate, make, model").order("plate"),
+    fetchAllResult(() => sb.from("customers").select("id, name").order("name")),
+    fetchAllResult(() => sb.from("vehicles").select("id, customer_id, plate, make, model").order("plate")),
     sb.from("app_users").select("id, display_name, role").eq("is_active", true).in("role", ["technician", "manager", "owner"]),
     sb.from("work_places").select("id, name").order("sort_order").order("name"),
   ]);

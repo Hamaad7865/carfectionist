@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 
 export interface ReminderRow {
@@ -27,8 +28,8 @@ export async function getReminders(todayISO: string): Promise<RemindersData> {
       .from("maintenance_reminders")
       .select("id, kind, due_date, status, notes, customers(name), vehicles(plate, make, model)")
       .order("due_date"),
-    sb.from("customers").select("id, name").order("name"),
-    sb.from("vehicles").select("id, customer_id, plate, make, model").order("plate"),
+    fetchAllResult(() => sb.from("customers").select("id, name").order("name")),
+    fetchAllResult(() => sb.from("vehicles").select("id, customer_id, plate, make, model").order("plate")),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */

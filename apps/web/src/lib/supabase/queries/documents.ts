@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import { fetchAllRows } from "@/lib/supabase/paginate";
+import { fetchAllRows, fetchAllResult } from "@/lib/supabase/paginate";
 import { methodLabelFor } from "@/lib/method-label";
 
 export interface DocFilters {
@@ -65,7 +65,7 @@ export async function listDocuments(f: DocFilters): Promise<DocList> {
     // which is how a cancelled job kept a live-looking row in the working list.
     // A quote counts as dead only when every job it produced was cancelled — one
     // re-booked after a cancellation is live business again.
-    sb.from("jobs").select("id, status, source_quote_id, cancel_reason"),
+    fetchAllResult(() => sb.from("jobs").select("id, status, source_quote_id, cancel_reason")),
     // A quote that has been REVISED is last week's price. The revision carries the
     // work now, so the original drops out of the working list the moment that
     // revision stops being a draft — and comes back on its own if the revision is

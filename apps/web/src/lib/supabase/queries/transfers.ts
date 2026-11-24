@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 import { getStockLocations } from "@/lib/supabase/locations";
 
@@ -35,8 +36,8 @@ export async function getTransfers(): Promise<{ transfers: Transfer[]; ref: Tran
       .order("created_at", { ascending: false })
       .limit(30),
     getStockLocations(sb), // ALL of them — see locName
-    sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name"),
-    sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"),
+    fetchAllResult(() => sb.from("products").select("id, name, unit").eq("is_stocked", true).eq("is_active", true).order("name")),
+    fetchAllResult(() => sb.from("stock_on_hand").select("product_id, location_id, qty_on_hand"), ["product_id", "location_id"]),
   ]);
 
   /* eslint-disable @typescript-eslint/no-explicit-any */

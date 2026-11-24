@@ -1,3 +1,4 @@
+import { fetchAllResult } from "@/lib/supabase/paginate";
 import { createClient } from "@/lib/supabase/server";
 
 export interface RecipeComponent {
@@ -21,8 +22,8 @@ export interface RecipesData {
 export async function getRecipes(): Promise<RecipesData> {
   const sb = await createClient();
   const [svcRes, compRes, recRes] = await Promise.all([
-    sb.from("products").select("id, name").eq("kind", "service").eq("is_active", true).order("name"),
-    sb.from("products").select("id, name, unit").in("kind", ["consumable", "product"]).eq("is_active", true).order("name"),
+    fetchAllResult(() => sb.from("products").select("id, name").eq("kind", "service").eq("is_active", true).order("name")),
+    fetchAllResult(() => sb.from("products").select("id, name, unit").in("kind", ["consumable", "product"]).eq("is_active", true).order("name")),
     sb.from("service_recipes").select("id, service_product_id, component_product_id, expected_qty, products!service_recipes_component_product_id_fkey(name, unit)"),
   ]);
 
