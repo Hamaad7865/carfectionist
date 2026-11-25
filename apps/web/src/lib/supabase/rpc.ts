@@ -306,8 +306,14 @@ export interface ImportReport {
 }
 export const importCustomers = (sb: Client, rows: unknown[], dryRun: boolean) =>
   callRpc<ImportReport>(sb, "import_customers", { p_rows: rows, p_dry_run: dryRun });
-export const importProducts = (sb: Client, rows: unknown[], dryRun: boolean) =>
-  callRpc<ImportReport>(sb, "import_products", { p_rows: rows, p_dry_run: dryRun });
+/** `pricesInclVat`: true = the sheet's prices include VAT (stored net), false = they are net (stored as
+ *  typed), omitted/null = the shop's own setting (business_settings.prices_vat_exclusive). */
+export const importProducts = (sb: Client, rows: unknown[], dryRun: boolean, pricesInclVat?: boolean | null) =>
+  callRpc<ImportReport>(sb, "import_products", {
+    p_rows: rows,
+    p_dry_run: dryRun,
+    ...(typeof pricesInclVat === "boolean" ? { p_prices_incl_vat: pricesInclVat } : {}),
+  });
 
 export const createJob = (sb: Client, a: CreateJobArgs) =>
   callRpc<{ id: string }>(sb, "create_job", {

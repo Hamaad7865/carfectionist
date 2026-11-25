@@ -80,6 +80,7 @@ export async function GET() {
     { key: "barcode", header: "barcode" },
     { key: "unit", header: "unit" },
     { key: "selling_price", header: "selling_price" },
+    { key: "price_includes_vat", header: "price_includes_vat" },
     { key: "cost_price", header: "cost_price" },
     { key: "vat_rate", header: "vat_rate" },
     { key: "low_stock_threshold", header: "low_stock_threshold" },
@@ -99,6 +100,10 @@ export async function GET() {
       barcode: p.barcode ?? "",
       unit: p.unit ?? "",
       selling_price: sheetPrice(p.selling_price, p.vat_rate, p.price_includes_vat === true),
+      // What the price in this row means. A gross-quoting shop (and any flagged product) exports shelf
+      // prices = "yes"; a net-quoting shop exports net = "no". Importing the sheet back therefore reads
+      // every price exactly the way it was written.
+      price_includes_vat: p.price_includes_vat === true || grossQuoting ? "yes" : "no",
       cost_price: p.cost_price ?? "",
       vat_rate: p.vat_rate ?? "",
       low_stock_threshold: p.low_stock_threshold ?? "",

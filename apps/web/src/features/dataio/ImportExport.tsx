@@ -106,6 +106,9 @@ export function ImportExport({ kind, pricesInclVat = false }: { kind: Kind; pric
                     {pricesInclVat && (
                       <> Sell prices in your file are read as <span className="font-semibold">VAT-inclusive</span> (what the customer pays) and stored net — the shelf price stays exactly what the sheet says.</>
                     )}
+                    {rows?.some((r) => "price_includes_vat" in r) && (
+                      <> A <span className="num">price_includes_vat</span> column says, row by row, whether the <span className="num">selling_price</span> includes VAT (<span className="font-semibold">yes</span>, stored net) or is already net (<span className="font-semibold">no</span>); blank follows the shop setting{pricesInclVat ? " (VAT-inclusive)" : " (net)"}.</>
+                    )}
                     {rows?.some((r) => "brand" in r || "tyre_size" in r) && (
                       <> <span className="num">brand</span> and <span className="num">tyre_size</span> (with <span className="num">load_index</span>, <span className="num">speed_rating</span>) set each product&apos;s brand and size; a blank cell clears it.</>
                     )}
@@ -113,6 +116,17 @@ export function ImportExport({ kind, pricesInclVat = false }: { kind: Kind; pric
                       <> A <span className="num">sold_by</span> column moves each product to that company (its name or invoice prefix); a company without VAT sells at 0%, at the price as typed.</>
                     )}
                   </p>
+                )}
+                {kind === "products" && preview.errors.length > 0 && (
+                  <div className="mt-3 rounded-[10px] border border-[rgba(245,166,35,0.35)] bg-[rgba(245,166,35,0.07)] p-3 text-[12px] text-amber-ink">
+                    <div className="mb-1 flex items-center gap-1.5 font-bold"><AlertTriangle size={13} /> {preview.errors.length} row(s) will not be imported</div>
+                    <ul className="list-disc space-y-0.5 pl-4">
+                      {preview.errors.slice(0, 4).map((er, i) => (
+                        <li key={i}><span className="num">{er.sku || er.name || "row"}</span>: {er.error}</li>
+                      ))}
+                      {preview.errors.length > 4 && <li>…and {preview.errors.length - 4} more</li>}
+                    </ul>
+                  </div>
                 )}
                 <div className="mt-5 flex gap-2">
                   <button onClick={reset} className="h-10 flex-1 rounded-[11px] border border-line-2 bg-sub text-[13px] font-bold text-body">Cancel</button>
