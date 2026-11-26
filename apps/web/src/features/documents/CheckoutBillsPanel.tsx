@@ -3,10 +3,12 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Printer } from "lucide-react";
 import { formatMUR, parseMoneyInput } from "@/lib/money";
 import { btn } from "@/components/ui/button";
 import { useWhatsApp } from "@/components/shell/ShopFeatures";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { printDocsHref } from "@/lib/documents/print-href";
 import { entityColours } from "@/lib/tyrecentre/entity-colours";
 import type { CheckoutBill } from "@/lib/supabase/queries/checkout";
 import { recordCheckoutPaymentAction, sendCheckoutBillsAction } from "./actions";
@@ -116,9 +118,21 @@ export function CheckoutBillsPanel({
         ))}
       </ul>
 
-      {issued.length > 1 && (customerEmail || customerPhone) && (
+      {issued.length > 1 && (noun !== "quote" || customerEmail || (whatsapp && customerPhone)) && (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-line pt-3">
-          <span className="flex-1 text-[12px] text-muted">Send every {noun} of this sale</span>
+          {noun !== "quote" && (
+            <a
+              href={printDocsHref(issued.map((b) => b.id))}
+              target="_blank"
+              rel="noreferrer"
+              className={btn("subtle", "sm")}
+            >
+              <Printer size={13} /> {issued.length === 2 ? "Print both bills" : `Print all ${issued.length} bills`}
+            </a>
+          )}
+          {(customerEmail || (whatsapp && customerPhone)) && (
+            <span className="flex-1 text-[12px] text-muted">Send every {noun} of this sale</span>
+          )}
           {customerEmail && (
             <button type="button" onClick={() => void sendAll("email")} disabled={!!busy} className={btn("ghost", "sm")}>
               {busy === "email" ? "Sending…" : "Email all"}

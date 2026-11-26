@@ -5,7 +5,7 @@ import { useEffect } from "react";
 /** Opens the browser's native print dialog (Windows print / Save as PDF) once
  *  the banner images + fonts are ready, with a visible fallback button. Hidden
  *  from the printout itself via the page's @media print rules. */
-export function PrintToolbar() {
+export function PrintToolbar({ count = 1 }: { count?: number }) {
   useEffect(() => {
     let done = false;
     const go = () => {
@@ -42,7 +42,7 @@ export function PrintToolbar() {
         onClick={() => window.print()}
         style={{ height: 38, padding: "0 18px", borderRadius: 10, border: "none", background: "#0f1316", color: "#fff", fontWeight: 700, fontSize: 13, cursor: "pointer" }}
       >
-        Print / Save as PDF
+        {count > 1 ? `Print all ${count} / Save as PDF` : "Print / Save as PDF"}
       </button>
       <button
         onClick={() => window.close()}

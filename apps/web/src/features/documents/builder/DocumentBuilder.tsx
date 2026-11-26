@@ -116,6 +116,7 @@ function MoneyField({ cents, onCents, className, placeholder, syncKey }: { cents
 }
 
 const NARROW_QUERY = "(max-width: 1023.98px)";
+const CATALOGUE_PICKER_LIMIT = 12;
 function subscribeNarrow(cb: () => void) {
   const mq = window.matchMedia(NARROW_QUERY);
   mq.addEventListener("change", cb);
@@ -146,6 +147,9 @@ export function DocumentBuilder({
   const [previewChoice, setPreviewChoice] = useState<boolean | null>(null);
   const showPreview = previewChoice ?? !narrow;
   const [catQuery, setCatQuery] = useState("");
+  const [catOpen, setCatOpen] = useState(false);
+  const [catActive, setCatActive] = useState(0);
+  const catInputRef = useRef<HTMLInputElement>(null);
   const [openDesc, setOpenDesc] = useState<string | null>(null); // which line's description is being edited
   const [catKind, setCatKind] = useState<"all" | "service" | "product">("all");
   const [custQuery, setCustQuery] = useState("");
@@ -525,10 +529,43 @@ export function DocumentBuilder({
   // Catalogue picker: filter by kind as well as text. With ~800 products and only
   // ~70 services, "show me the services" is the common ask at the desk — searching
   // by name first meant knowing the name.
-  const filtered = ctx.products
-    .filter((p) => (catKind === "all" || p.kind === catKind) && pickerMatches(catQuery, [p.name], p))
-    .slice(0, catQuery ? 8 : 12);
+  const catalogueMatches = ctx.products.filter(
+    (p) => (catKind === "all" || p.kind === catKind) && pickerMatches(catQuery, [p.name], p),
+  );
+  const filtered = catalogueMatches.slice(0, CATALOGUE_PICKER_LIMIT);
+  const activeCatalogueIndex = filtered.length > 0 ? Math.min(catActive, filtered.length - 1) : -1;
   const custFiltered = allCustomers.filter((c) => c.name.toLowerCase().includes(custQuery.toLowerCase())).slice(0, 8);
+
+  function addCatalogueProduct(p: BuilderContext["products"][number]) {
+    // From the catalogue: the product's own kind answers, so this stays null.
+    // Under gross quoting the figure ON SCREEN is the price: the shelf gross is
+    // stored as shown with price_includes_vat, so the ledger extracts the VAT
+    // and the line lands on the displayed number.
+    dispatch({
+      type: "addLine",
+      line: {
+        key: newKey(),
+        productId: p.id,
+        vehicleId: state.activeCarId,
+        title: p.name,
+        description: "",
+        rich: null,
+        unitLabel: "",
+        qty: 1,
+        unitCents: shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat),
+        priceInclusive: p.priceIncludesVat || ctx.pricesInclVat,
+        discountPct: 0,
+        discountKind: "percent",
+        discountAmountCents: 0,
+        discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults),
+        vatRatePct: p.vatRatePct,
+        lineKind: null,
+      },
+    });
+    setCatQuery("");
+    setCatActive(0);
+    setCatOpen(false);
+  }
 
   function addAdhoc() {
     // Clamp at zero like MoneyField — a typed "-500" must not build a negative-total
@@ -843,62 +880,173 @@ export function DocumentBuilder({
             <div className={`${label} mb-2.5`}>Line items</div>
             {!readOnly && (
               <>
-                <div className="relative mb-2">
-                  <Search size={16} className="absolute left-3.5 top-3.5 text-faint" />
-                  <input value={catQuery} onChange={(e) => setCatQuery(e.target.value)} placeholder="Search catalogue — services and products…" className={`${inputCls} pl-[38px]`} />
-                </div>
-                <div className="mb-2.5 flex items-center gap-1.5">
-                  {([["all", "All"], ["service", "Services"], ["product", "Products"]] as const).map(([k, label]) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => setCatKind(k)}
-                      className={`h-7 rounded-[8px] px-2.5 text-[11.5px] font-bold ${catKind === k ? "grad-brand text-white" : "border border-line-2 bg-sub text-body hover:border-brand"}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                  <span className="ml-auto text-[11px] text-faint">
-                    {ctx.products.filter((p) => catKind === "all" || p.kind === catKind).length} in catalogue
-                  </span>
-                </div>
-                {(catQuery || catKind !== "all") && (
-                  <div className="mb-3 flex flex-col gap-1.5">
-                    {filtered.map((p) => (
+                <div
+                  className="relative mb-3.5"
+                  onBlur={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setCatOpen(false);
+                  }}
+                >
+                  <div className="relative mb-2">
+                    <Search size={16} className="pointer-events-none absolute left-3.5 top-3.5 text-faint" />
+                    <input
+                      ref={catInputRef}
+                      value={catQuery}
+                      role="combobox"
+                      aria-label="Search catalogue"
+                      aria-autocomplete="list"
+                      aria-expanded={catOpen}
+                      aria-controls={catOpen ? "builder-catalogue-results" : undefined}
+                      aria-activedescendant={
+                        catOpen && activeCatalogueIndex >= 0
+                          ? `builder-catalogue-option-${filtered[activeCatalogueIndex].id}`
+                          : undefined
+                      }
+                      autoComplete="off"
+                      spellCheck={false}
+                      onFocus={() => {
+                        setCatOpen(true);
+                        setCatActive(0);
+                      }}
+                      onClick={() => setCatOpen(true)}
+                      onChange={(e) => {
+                        setCatQuery(e.target.value);
+                        setCatActive(0);
+                        setCatOpen(true);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          setCatOpen(false);
+                          return;
+                        }
+                        if (!catOpen || filtered.length === 0) return;
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setCatActive((active) => {
+                            const next = Math.min(active + 1, filtered.length - 1);
+                            requestAnimationFrame(() =>
+                              document.getElementById(`builder-catalogue-option-${filtered[next].id}`)
+                                ?.scrollIntoView({ block: "nearest" }),
+                            );
+                            return next;
+                          });
+                        } else if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setCatActive((active) => {
+                            const next = Math.max(active - 1, 0);
+                            requestAnimationFrame(() =>
+                              document.getElementById(`builder-catalogue-option-${filtered[next].id}`)
+                                ?.scrollIntoView({ block: "nearest" }),
+                            );
+                            return next;
+                          });
+                        } else if (e.key === "Enter") {
+                          e.preventDefault();
+                          addCatalogueProduct(filtered[activeCatalogueIndex]);
+                        }
+                      }}
+                      placeholder={`Search ${catalogueMatches.length > 100 ? `${catalogueMatches.length} ` : ""}services and products…`}
+                      className={`${inputCls} pl-[38px] pr-10`}
+                    />
+                    {catQuery && (
                       <button
-                        key={p.id}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
                         onClick={() => {
-                          // From the catalogue: the product's own kind answers, so this stays null.
-                          // Under gross quoting the figure ON SCREEN is the price: the shelf
-                          // gross is stored as shown with price_includes_vat, so the ledger
-                          // extracts the VAT and the line lands on the displayed number —
-                          // the same rule the tablet's quote builder applies (20260812000020).
-                          // A price_includes_vat product carries the EXACT gross the owner typed
-                          // (20260812000030); shelfCents shows it verbatim instead of re-grossing a
-                          // net, so its 9,900 dash cam lands on 9,900.00, not 9,900.01.
-                          dispatch({ type: "addLine", line: { key: newKey(), productId: p.id, vehicleId: state.activeCarId, title: p.name, description: "", rich: null, unitLabel: "", qty: 1, unitCents: shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat), priceInclusive: p.priceIncludesVat || ctx.pricesInclVat, discountPct: 0, discountKind: "percent", discountAmountCents: 0, discountPolicy: policyOf(p.discountPolicy, p.kind, ctx.posRules.policyDefaults), vatRatePct: p.vatRatePct, lineKind: null } });
                           setCatQuery("");
+                          setCatActive(0);
+                          setCatOpen(true);
                         }}
-                        className="flex items-center gap-2.5 rounded-[10px] border border-line bg-sub px-3 py-2.5 text-left"
+                        className="absolute right-3 top-1/2 grid size-5 -translate-y-1/2 place-items-center rounded-[5px] text-faint hover:bg-sub hover:text-body"
+                        aria-label="Clear catalogue search"
                       >
-                        {p.photoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={p.photoUrl} alt="" className="size-7 shrink-0 rounded-[6px] object-cover" />
-                        ) : (
-                          <span className="size-7 shrink-0 rounded-[6px] bg-sub" />
-                        )}
-                        <span className="w-14 text-[9px] font-bold uppercase tracking-wide text-link">{p.kind}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-[13px] font-semibold text-body">{p.name}</span>
-                          {attrLabel(p) && <span className="block truncate text-[11px] font-semibold text-muted">{attrLabel(p)}</span>}
-                        </span>
-                        <span className="num text-[12.5px] font-bold text-muted">{formatMUR(shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat))}</span>
-                        <span className="grid size-6 place-items-center rounded-[7px] bg-[rgba(43,140,255,0.14)] text-link"><Plus size={14} strokeWidth={2.6} /></span>
+                        <X size={14} strokeWidth={2.4} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    {([["all", "All"], ["service", "Services"], ["product", "Products"]] as const).map(([k, label]) => (
+                      <button
+                        key={k}
+                        type="button"
+                        onClick={() => {
+                          setCatKind(k);
+                          setCatActive(0);
+                          setCatOpen(true);
+                          catInputRef.current?.focus();
+                        }}
+                        className={`h-7 rounded-[8px] px-2.5 text-[11.5px] font-bold ${catKind === k ? "grad-brand text-white" : "border border-line-2 bg-sub text-body hover:border-brand"}`}
+                      >
+                        {label}
                       </button>
                     ))}
-                    {filtered.length === 0 && <div className="px-3 py-2 text-[12px] text-faint">No match.</div>}
+                    <span className="ml-auto text-[11px] text-faint">
+                      {ctx.products.filter((p) => catKind === "all" || p.kind === catKind).length} in catalogue
+                    </span>
                   </div>
-                )}
+                  {catOpen && (
+                    <div
+                      id="builder-catalogue-results"
+                      role="listbox"
+                      aria-label="Catalogue results"
+                      className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-[12px] border border-line-2 bg-card p-1.5 shadow-[0_16px_40px_rgba(15,23,32,0.18)]"
+                    >
+                      {filtered.length > 0 ? (
+                        <>
+                          <div className="max-h-72 overflow-y-auto">
+                            {filtered.map((p, index) => (
+                              <button
+                                key={p.id}
+                                id={`builder-catalogue-option-${p.id}`}
+                                type="button"
+                                role="option"
+                                aria-selected={index === activeCatalogueIndex}
+                                onMouseEnter={() => setCatActive(index)}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => addCatalogueProduct(p)}
+                                className={`flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2.5 text-left ${
+                                  index === activeCatalogueIndex
+                                    ? "bg-[rgba(43,140,255,0.10)] ring-1 ring-[rgba(43,140,255,0.22)]"
+                                    : "hover:bg-sub"
+                                }`}
+                              >
+                                {p.photoUrl ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={p.photoUrl} alt="" className="size-8 shrink-0 rounded-[7px] object-cover" />
+                                ) : (
+                                  <span className="grid size-8 shrink-0 place-items-center rounded-[7px] bg-sub text-faint">
+                                    <Plus size={14} />
+                                  </span>
+                                )}
+                                <span className="w-14 shrink-0 text-[9px] font-bold uppercase tracking-wide text-link">{p.kind}</span>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate text-[13px] font-semibold text-body">{p.name}</span>
+                                  {attrLabel(p) && <span className="block truncate text-[11px] font-semibold text-muted">{attrLabel(p)}</span>}
+                                </span>
+                                <span className="num shrink-0 text-[12.5px] font-bold text-muted">
+                                  {formatMUR(shelfCents(p.unitCents, p.vatRatePct, ctx.pricesInclVat, p.priceIncludesVat))}
+                                </span>
+                                <span className="grid size-6 shrink-0 place-items-center rounded-[7px] bg-[rgba(43,140,255,0.14)] text-link">
+                                  <Plus size={14} strokeWidth={2.6} />
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                          <div className="flex items-center justify-between border-t border-line px-2.5 py-2 text-[10.5px] text-faint">
+                            <span>↑↓ choose · Enter add</span>
+                            <span>
+                              {filtered.length} of {catalogueMatches.length}
+                              {catalogueMatches.length > CATALOGUE_PICKER_LIMIT ? " — keep typing to narrow" : ""}
+                            </span>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="px-3 py-7 text-center text-[12.5px] text-faint">
+                          No {catQuery.trim() ? `match for “${catQuery.trim()}”` : `${catKind === "all" ? "items" : catKind + "s"} in the catalogue`}.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
 
                 <div className="mb-3.5 flex flex-wrap gap-2 rounded-[11px] border border-dashed border-line-2 bg-sub p-2.5">
                   <input value={adName} onChange={(e) => setAdName(e.target.value)} placeholder="Type an ad-hoc line — e.g. Headlight restoration" className="h-[42px] min-w-[180px] flex-1 rounded-[9px] border border-line-2 bg-sub px-3 text-[13px] font-medium text-ink outline-none placeholder:text-faint" />

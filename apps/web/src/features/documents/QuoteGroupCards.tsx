@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { Printer } from "lucide-react";
 import { formatMUR } from "@/lib/money";
+import { btn } from "@/components/ui/button";
 import { StatusPill } from "@/components/ui/StatusPill";
+import { printDocsHref } from "@/lib/documents/print-href";
 import { entityVars, ENTITY } from "@/lib/tyrecentre/entity-colours";
 import type { CheckoutBill } from "@/lib/supabase/queries/checkout";
 import type { DocumentDetail } from "@/lib/supabase/queries/document";
@@ -19,11 +21,19 @@ export function QuoteGroupCards({
   parts: { bill: CheckoutBill; doc: DocumentDetail }[];
 }) {
   const combined = parts.reduce((s, p) => s + p.doc.totalCents, 0);
+  const printAllHref = printDocsHref(parts.map((p) => p.bill.id));
   return (
     <section aria-label="Quotes of this visit" className="@container flex min-w-0 flex-col gap-4 rounded-[15px] border border-line bg-card p-4 sm:p-5">
-      <div className="flex flex-col gap-0.5">
-        <span className="font-mono text-[10.5px] tracking-[0.1em] text-muted">THIS VISIT</span>
-        <span className="text-[16px] font-extrabold text-ink-strong">{parts.length} quotes, one per company</span>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-col gap-0.5">
+          <span className="font-mono text-[10.5px] tracking-[0.1em] text-muted">THIS VISIT</span>
+          <span className="text-[16px] font-extrabold text-ink-strong">{parts.length} quotes, one per company</span>
+        </div>
+        {printAllHref && (
+          <a href={printAllHref} target="_blank" rel="noreferrer" className={btn("subtle", "md")}>
+            <Printer size={15} /> {parts.length === 2 ? "Print both quotes" : `Print all ${parts.length} quotes`}
+          </a>
+        )}
       </div>
 
       <div className="grid gap-3.5 @[620px]:grid-cols-2">
