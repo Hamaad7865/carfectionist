@@ -5,6 +5,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -73,6 +75,7 @@ import java.time.format.DateTimeFormatter
 enum class PosTab(val label: String, val icon: ImageVector, val title: String, val caption: String) {
     INTAKE("Intake", PosIcons.Intake, "Reception · Intake", "Customer → vehicle → condition → quotation"),
     QUOTE("Quotes", PosIcons.Quote, "Quotations", "Build a quote, then convert to a job"),
+    APPOINTMENTS("Bookings", PosIcons.Appointments, "Appointments", "Book cars and follow up before their next alignment"),
     JOBS("Jobs", PosIcons.Jobs, "Jobs board", "Scheduled · In progress · Ready · Done"),
     SALE("Checkout", PosIcons.Checkout, "Checkout", "Collect payment — job invoices & counter sales"),
     STOCK("Stock", PosIcons.Stock, "Stock", "On-hand per product · quick adjust"),
@@ -255,23 +258,27 @@ private fun NavRail(active: PosTab, tabs: List<PosTab>, onSelect: (PosTab) -> Un
             .padding(horizontal = if (compact) 5.dp else 7.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        tabs.forEach { tab ->
-            val sel = tab == active
-            Column(
-                Modifier.fillMaxWidth().height(if (compact) 48.dp else 68.dp)
-                    .background(if (sel) AccentSoft else Color.Transparent, RoundedCornerShape(13.dp))
-                    .clickable { onSelect(tab) },
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-            ) {
-                Icon(tab.icon, tab.label, tint = if (sel) Accent else TextSecondary, modifier = Modifier.size(22.dp))
-                if (!compact) {
-                    Spacer(Modifier.height(5.dp))
-                    Text(tab.label.uppercase(), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 9.5.sp, letterSpacing = 0.8.sp, color = if (sel) Accent else TextSecondary)
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            tabs.forEach { tab ->
+                val sel = tab == active
+                Column(
+                    Modifier.fillMaxWidth().height(if (compact) 48.dp else 68.dp)
+                        .background(if (sel) AccentSoft else Color.Transparent, RoundedCornerShape(13.dp))
+                        .clickable { onSelect(tab) },
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(tab.icon, tab.label, tint = if (sel) Accent else TextSecondary, modifier = Modifier.size(22.dp))
+                    if (!compact) {
+                        Spacer(Modifier.height(5.dp))
+                        Text(tab.label.uppercase(), fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 9.5.sp, letterSpacing = 0.8.sp, color = if (sel) Accent else TextSecondary)
+                    }
                 }
             }
         }
-        Spacer(Modifier.weight(1f))
         // tuck the rail away — the content gets the width back
         Box(
             Modifier.fillMaxWidth().height(34.dp).clickable { open = false },

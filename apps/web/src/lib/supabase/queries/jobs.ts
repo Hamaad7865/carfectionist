@@ -8,6 +8,7 @@ import { JOB_COLUMNS as COLUMNS } from "@/features/jobs/columns";
 import { pickDoc, pickQuote, liveInvoices, outstandingCents, toJobDoc, type JobDoc, type RawDoc } from "@/features/jobs/job-docs";
 import { getSupersededBills, type SupersededBill } from "./document";
 import type { Marker } from "@/features/intake/damage";
+import { isTyreShop } from "@/lib/auth/roles";
 
 // Lives in features/jobs/columns so client components can read it without
 // importing this server-only module. Re-exported here for existing callers.
@@ -330,6 +331,8 @@ export interface JobPhoto {
 export interface JobDetail {
   id: string;
   tenantId: string;
+  customerId: string;
+  vehicleId: string;
   status: string;
   service: string | null;
   customer: string | null;
@@ -373,6 +376,7 @@ export interface JobRefData {
   technicians: { id: string; name: string }[];
   consumables: { id: string; name: string; unit: string }[];
   workPlaces: { id: string; name: string }[];
+  tyreShop: boolean;
 }
 
 export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefData } | null> {
@@ -514,6 +518,8 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
     job: {
       id: j.id,
       tenantId: j.tenant_id,
+      customerId: j.customer_id,
+      vehicleId: j.vehicle_id,
       status: j.status,
       service: j.notes,
       customer: j.customers?.name ?? null,
@@ -549,6 +555,7 @@ export async function getJob(id: string): Promise<{ job: JobDetail; ref: JobRefD
       consumables: ((prodRes.data ?? []) as any[]).map((p) => ({ id: p.id, name: p.name, unit: p.unit })),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       workPlaces: ((placesRes.data ?? []) as any[]).map((place) => ({ id: place.id, name: place.name })),
+      tyreShop: isTyreShop(j.tenant_id),
     },
   };
 }

@@ -73,6 +73,89 @@ data class NewVehicleDto(
 )
 
 @Serializable
+data class AppointmentDto(
+    val id: String,
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("vehicle_id") val vehicleId: String,
+    val service: String? = null,
+    val department: String? = null,
+    @SerialName("technician_id") val technicianId: String? = null,
+    @SerialName("scheduled_at") val scheduledAt: String,
+    @SerialName("duration_minutes") val durationMinutes: Int? = null,
+    val status: String = "scheduled",
+    val notes: String? = null,
+    @SerialName("job_id") val jobId: String? = null,
+    @SerialName("aligned_on") val alignedOn: String? = null,
+    @SerialName("aligned_at_km") val alignedAtKm: Int? = null,
+    @SerialName("next_at_km") val nextAtKm: Int? = null,
+    @SerialName("created_at") val createdAt: String? = null,
+    @SerialName("updated_at") val updatedAt: String? = null,
+    val customers: JobCustomerDto? = null,
+    val vehicles: JobVehicleDto? = null,
+    val technician: JobTechDto? = null,
+)
+
+@Serializable
+data class AppointmentUpdateDto(
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("vehicle_id") val vehicleId: String,
+    val service: String? = null,
+    val department: String? = null,
+    @SerialName("technician_id") val technicianId: String? = null,
+    @SerialName("scheduled_at") val scheduledAt: String,
+    @SerialName("duration_minutes") val durationMinutes: Int? = null,
+    val notes: String? = null,
+    @SerialName("aligned_on") val alignedOn: String? = null,
+    @SerialName("aligned_at_km") val alignedAtKm: Int? = null,
+    @SerialName("next_at_km") val nextAtKm: Int? = null,
+)
+
+@Serializable
+data class NewAppointmentDto(
+    @SerialName("tenant_id") val tenantId: String,
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("vehicle_id") val vehicleId: String,
+    val service: String? = null,
+    val department: String? = null,
+    @SerialName("technician_id") val technicianId: String? = null,
+    @SerialName("scheduled_at") val scheduledAt: String,
+    @SerialName("duration_minutes") val durationMinutes: Int? = null,
+    val status: String = "scheduled",
+    val notes: String? = null,
+    @SerialName("aligned_on") val alignedOn: String? = null,
+    @SerialName("aligned_at_km") val alignedAtKm: Int? = null,
+    @SerialName("next_at_km") val nextAtKm: Int? = null,
+    @SerialName("created_by") val createdBy: String? = null,
+)
+
+@Serializable
+internal data class LegacyAppointmentUpdateDto(
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("vehicle_id") val vehicleId: String,
+    val service: String? = null,
+    val department: String? = null,
+    @SerialName("technician_id") val technicianId: String? = null,
+    @SerialName("scheduled_at") val scheduledAt: String,
+    @SerialName("duration_minutes") val durationMinutes: Int? = null,
+    val notes: String? = null,
+)
+
+@Serializable
+internal data class LegacyNewAppointmentDto(
+    @SerialName("tenant_id") val tenantId: String,
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("vehicle_id") val vehicleId: String,
+    val service: String? = null,
+    val department: String? = null,
+    @SerialName("technician_id") val technicianId: String? = null,
+    @SerialName("scheduled_at") val scheduledAt: String,
+    @SerialName("duration_minutes") val durationMinutes: Int? = null,
+    val status: String = "scheduled",
+    val notes: String? = null,
+    @SerialName("created_by") val createdBy: String? = null,
+)
+
+@Serializable
 data class JobRow(val id: String)
 
 @Serializable data class SavedDoc(

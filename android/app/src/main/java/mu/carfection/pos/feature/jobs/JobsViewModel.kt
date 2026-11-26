@@ -14,6 +14,8 @@ import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import mu.carfection.pos.core.data.CatalogRepository
+import mu.carfection.pos.core.data.AppointmentFromJobBus
+import mu.carfection.pos.feature.appointments.canBookFollowUpFromJob
 import mu.carfection.pos.core.data.OpenJobBus
 import mu.carfection.pos.core.data.SessionRepository
 import mu.carfection.pos.core.data.saleReceiptDoc
@@ -224,6 +226,7 @@ class JobsViewModel @Inject constructor(
     // The till that rang it — issue_document stamps the service for the cash-up.
     // Null when nothing is open (workshop billing): the sale still lands in the day.
     private val till: mu.carfection.pos.core.data.TillRepository,
+    private val appointmentFromJobBus: AppointmentFromJobBus,
 ) : ViewModel() {
     private var appUserId: String? = null
     private val _s = MutableStateFlow(JobsState())
@@ -670,6 +673,17 @@ class JobsViewModel @Inject constructor(
         }
     }
     fun close() = _s.update { it.copy(activeJobId = null, photos = emptyList(), photoUrls = emptyMap(), photoUploading = null) }
+
+    fun bookNextAppointment(onNavigate: () -> Unit) {
+        val job = active(_s.value) ?: return
+        if (!canBookFollowUpFromJob(job.status)) {
+            _s.update { it.copy(error = "Finish the job before booking its next appointment") }
+            return
+        }
+        appointmentFromJobBus.request(job)
+        close()
+        onNavigate()
+    }
     fun clearToast() = _s.update { it.copy(toast = null, error = null) }
     fun note(msg: String) = _s.update { it.copy(toast = msg) }
 

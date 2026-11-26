@@ -36,9 +36,10 @@ class DeviceRoleTest {
 
     @Test
     fun `a quotation device has no Checkout tab`() {
-        assertTrue("a till keeps every tab", visibleTabs(true) == PosTab.entries.toList())
-        assertFalse("Checkout is gone", visibleTabs(false).contains(PosTab.SALE))
-        assertEquals("nothing else is lost", PosTab.entries.size - 1, visibleTabs(false).size)
+        assertTrue("a tyre till keeps every tab", visibleTabs(true, showAppointments = true) == PosTab.entries.toList())
+        assertFalse("Checkout is gone", visibleTabs(false, showAppointments = true).contains(PosTab.SALE))
+        assertEquals("nothing else is lost", PosTab.entries.size - 1, visibleTabs(false, showAppointments = true).size)
+        assertFalse("appointments stays tyre-centre only", visibleTabs(true).contains(PosTab.APPOINTMENTS))
     }
 
     @Test

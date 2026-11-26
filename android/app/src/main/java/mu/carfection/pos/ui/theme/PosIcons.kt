@@ -57,6 +57,16 @@ object PosIcons {
         moveTo(9.8f, 12.5f); horizontalLineToRelative(4.4f); moveTo(9.8f, 16f); horizontalLineToRelative(4.4f)
     }
 
+    // calendar + clock
+    val Appointments: ImageVector = strokeIcon("Appointments") {
+        roundRect(3.5f, 5.5f, 17f, 15f, 2.2f)
+        moveTo(7.5f, 3.3f); verticalLineTo(7.4f)
+        moveTo(16.5f, 3.3f); verticalLineTo(7.4f)
+        moveTo(3.8f, 9.5f); horizontalLineToRelative(16.4f)
+        circle(12f, 15f, 3.3f)
+        moveTo(12f, 12.9f); verticalLineTo(15.1f); lineTo(13.6f, 16.2f)
+    }
+
     // three kanban bars
     val Jobs: ImageVector = strokeIcon("Jobs") {
         roundRect(3.2f, 4f, 4.9f, 12f, 1.4f)

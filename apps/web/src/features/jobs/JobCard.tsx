@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Play, Pause, Plus, Check, Trash2, FileText, FilePlus2 } from "lucide-react";
+import { Play, Pause, Plus, Check, Trash2, FileText, FilePlus2, CalendarPlus, X } from "lucide-react";
 import { StatusPill } from "@/components/ui/StatusPill";
 import { formatMUR } from "@/lib/money";
 import type { JobDetail, JobRefData } from "@/lib/supabase/queries/jobs";
@@ -30,6 +30,7 @@ import {
 import { estimatedFinish } from "./clock";
 import { paidAheadBills } from "./job-docs";
 import { btn } from "@/components/ui/button";
+import { createAppointmentFromJobAction } from "@/features/appointments/actions";
 
 const DOC_LABEL: Record<string, string> = { quote: "Quotation", invoice: "Invoice", credit_note: "Credit note" };
 
@@ -211,6 +212,140 @@ function fmt(sec: number): string {
 }
 
 const field = "h-9 rounded-[10px] border border-line-2 bg-sub px-2.5 text-[13px] text-ink outline-none focus:border-brand";
+
+function localDate(iso: string | null): string {
+  if (!iso) return "";
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) return "";
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Indian/Mauritius",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(value);
+}
+
+function FollowUpAppointmentButton({
+  job,
+  tyreShop,
+}: {
+  job: JobDetail;
+  tyreShop: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState("");
+  const [duration, setDuration] = useState("45");
+  const [alignedOn, setAlignedOn] = useState(
+    () => localDate(job.readyAt ?? job.deliveredAt) || localDate(new Date().toISOString()),
+  );
+  const [alignedAt, setAlignedAt] = useState("");
+  const [nextAt, setNextAt] = useState("");
+  const [notes, setNotes] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!tyreShop || !["ready", "delivered"].includes(job.status)) return null;
+
+  async function create() {
+    setError(null);
+    const when = new Date(scheduledAt);
+    if (Number.isNaN(when.getTime())) return setError("Pick the next appointment date and time.");
+    const minutes = Number(duration);
+    const alignedKm = alignedAt.trim() ? Number(alignedAt) : null;
+    const nextKm = nextAt.trim() ? Number(nextAt) : null;
+    if (!alignedOn || alignedKm == null || nextKm == null) {
+      return setError("Enter the alignment date, aligned mileage and next mileage.");
+    }
+    if (!Number.isInteger(minutes) || minutes < 1 || minutes > 1440) return setError("Enter a duration between 1 and 1440 minutes.");
+    if (!Number.isInteger(alignedKm) || !Number.isInteger(nextKm) || alignedKm < 0 || nextKm <= alignedKm) {
+      return setError("Next mileage must be greater than aligned mileage.");
+    }
+    setBusy(true);
+    const result = await createAppointmentFromJobAction({
+      jobId: job.id,
+      scheduledAt: when.toISOString(),
+      durationMinutes: minutes,
+      alignedOn,
+      alignedAtKm: alignedKm,
+      nextAtKm: nextKm,
+      notes: notes.trim() || undefined,
+    });
+    setBusy(false);
+    if (!result.ok) return setError(result.error);
+    setOpen(false);
+    router.push("/appointments");
+  }
+
+  return (
+    <>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-[rgba(43,140,255,0.26)] bg-[rgba(43,140,255,0.055)] p-4">
+        <div>
+          <div className="text-[13.5px] font-bold text-ink-strong">Next tyre-centre visit</div>
+          <p className="mt-0.5 text-[12px] text-muted">Optional — book this customer&apos;s next alignment while the job details are fresh.</p>
+        </div>
+        <button onClick={() => setOpen(true)} className={`${btn("primary", "sm")} gap-2`}>
+          <CalendarPlus size={15} /> Book next appointment
+        </button>
+      </div>
+      {open && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-[rgba(15,23,36,0.44)] p-4 backdrop-blur-[2px]" role="dialog" aria-modal="true" aria-labelledby="follow-up-title">
+          <div className="w-full max-w-lg overflow-hidden rounded-[18px] border border-line bg-card shadow-2xl">
+            <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+              <div>
+                <h3 id="follow-up-title" className="font-display text-[18px] font-extrabold text-ink-strong">Book next appointment</h3>
+                <p className="mt-1 text-[12.5px] text-muted">{job.plate} · {job.vehicle ?? "Vehicle"} · {job.customer ?? "Client"}</p>
+              </div>
+              <button onClick={() => !busy && setOpen(false)} className="grid size-8 place-items-center rounded-lg bg-sub text-muted" aria-label="Close">
+                <X size={16} />
+              </button>
+            </div>
+            <div className="flex flex-col gap-3 p-5">
+              {error && <p className="rounded-[10px] border border-[rgba(214,59,80,0.3)] bg-[rgba(214,59,80,0.08)] px-3 py-2 text-[12px] text-rose">{error}</p>}
+              <div className="grid grid-cols-[1fr_100px] gap-3">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-th">Next appointment</span>
+                  <input type="datetime-local" className={field} value={scheduledAt} onChange={(e) => setScheduledAt(e.target.value)} />
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-bold uppercase tracking-wide text-th">Minutes</span>
+                  <input type="number" min={1} max={1440} className={field} value={duration} onChange={(e) => setDuration(e.target.value)} />
+                </label>
+              </div>
+              <div className="rounded-[12px] border border-line bg-band p-3">
+                <div className="mb-2.5 text-[10px] font-bold uppercase tracking-[0.08em] text-th">Alignment follow-up</div>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[11px] font-bold text-muted">Aligned on</span>
+                  <input type="date" className={field} value={alignedOn} onChange={(e) => setAlignedOn(e.target.value)} />
+                </label>
+                <div className="mt-2.5 grid grid-cols-2 gap-3">
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-bold text-muted">Aligned at</span>
+                    <input inputMode="numeric" className={field} value={alignedAt} onChange={(e) => setAlignedAt(e.target.value.replace(/\D/g, "").slice(0, 7))} placeholder="km" />
+                  </label>
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-bold text-muted">Next at</span>
+                    <input inputMode="numeric" className={field} value={nextAt} onChange={(e) => setNextAt(e.target.value.replace(/\D/g, "").slice(0, 7))} placeholder="km" />
+                  </label>
+                </div>
+              </div>
+              <label className="flex flex-col gap-1">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-th">Notes</span>
+                <input className={field} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Optional" />
+              </label>
+              <div className="flex justify-end gap-2 border-t border-line pt-3">
+                <button disabled={busy} onClick={() => setOpen(false)} className={btn("subtle")}>Cancel</button>
+                <button disabled={busy} onClick={create} className={`${btn("primary")} gap-2`}>
+                  <CalendarPlus size={15} /> {busy ? "Booking…" : "Book appointment"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData }) {
   const router = useRouter();
@@ -397,6 +532,8 @@ export function JobCard({ job, refData }: { job: JobDetail; refData: JobRefData 
       </div>
 
       {errNote("top")}
+
+      <FollowUpAppointmentButton job={job} tyreShop={refData.tyreShop} />
 
       {/* the job's life, in order — only what has actually happened */}
       <div className="mt-5 rounded-[15px] border border-line bg-card p-4">

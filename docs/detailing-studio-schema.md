@@ -129,6 +129,19 @@ snapshot. Renaming a managed place updates those snapshots in the same
 transaction. Deleting a place removes it from future pickers but intentionally
 preserves the old job and appointment history.
 
+### appointments `(upd)`
+Tenant-scoped booking linked to `customers` and `vehicles`, with `scheduled_at`,
+`duration_minutes`, `service`, `department`, `technician_id`, `notes`, `status`
+(`scheduled | confirmed | arrived | done | cancelled | no_show`), and optional
+`job_id` after conversion. Tyre-centre follow-up values are `aligned_on date`,
+`aligned_at_km integer`, and `next_at_km integer`; kilometre values are
+non-negative and `next_at_km`, when both values are present, must be greater
+than `aligned_at_km`. A finished job (`ready` or `delivered`) may optionally
+seed the next appointment. `convert_appointment_to_job(id, start_now,
+checklist)` locks one live appointment, creates the job, carries the schedule
+and duration, and either keeps it scheduled or starts it immediately in one
+transaction; a linked appointment cannot be converted twice.
+
 ### customers `(upd)`
 `name text not null`, `email text`, `phone text`, `address text`,
 `country text not null default 'MU'` (template "For" box), `brn text`,

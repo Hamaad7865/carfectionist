@@ -18,6 +18,7 @@ import mu.carfection.pos.feature.counter.TYRE_TILL
 
 /** Brand + tyre size (20261127000010) — the till, quote picker and Stock all read them. */
 internal const val PRODUCT_ATTR_COLUMNS = "brand, tyre_width, tyre_profile, tyre_rim, tyre_load_index, tyre_speed_rating"
+internal val APPOINTMENT_STATUSES = setOf("scheduled", "confirmed", "arrived", "done", "cancelled", "no_show")
 
 /**
  * The POS ↔ backend seam. Every write goes through the SAME security-definer
@@ -204,6 +205,121 @@ class PosApi @Inject constructor(private val client: SupabaseClient) {
         client.postgrest.from("vehicles")
             .insert(row) { select(Columns.raw("id, plate, make, model, color, category")) }
             .decodeSingle()
+
+    suspend fun updateVehicleDetails(id: String, make: String?, model: String?, colour: String?) {
+        client.postgrest.from("vehicles").update({
+            set("make", make)
+            set("model", model)
+            set("color", colour)
+        }) { filter { eq("id", id) } }
+    }
+
+    // ── Appointments ───────────────────────────────────────────────────────
+    private val appointmentColumns = Columns.raw(
+        "id, customer_id, vehicle_id, service, department, technician_id, scheduled_at, " +
+            "duration_minutes, status, notes, job_id, aligned_on, aligned_at_km, next_at_km, " +
+            "created_at, updated_at, customers(name, phone), " +
+            "vehicles(plate, make, model, color), " +
+            "technician:app_users!appointments_technician_id_fkey(display_name)",
+    )
+
+    private val legacyAppointmentColumns = Columns.raw(
+        "id, customer_id, vehicle_id, service, department, technician_id, scheduled_at, " +
+            "duration_minutes, status, notes, job_id, created_at, updated_at, customers(name, phone), " +
+            "vehicles(plate, make, model, color), " +
+            "technician:app_users!appointments_technician_id_fkey(display_name)",
+    )
+
+    @Volatile private var appointmentAlignmentColumnsAvailable: Boolean? = null
+
+    suspend fun fetchAppointments(): List<AppointmentDto> {
+        suspend fun select(columns: Columns): List<AppointmentDto> = client.postgrest.from("appointments")
+            .select(columns) {
+                order("scheduled_at", io.github.jan.supabase.postgrest.query.Order.ASCENDING)
+                limit(400)
+            }
+            .decodeList()
+        return try {
+            select(appointmentColumns)
+                .also { appointmentAlignmentColumnsAvailable = true }
+        } catch (e: Exception) {
+            if (!e.isMissingAppointmentAlignmentColumns()) throw e
+            appointmentAlignmentColumnsAvailable = false
+            select(legacyAppointmentColumns).map(AppointmentDto::withLegacyAlignment)
+        }
+    }
+
+    suspend fun insertAppointment(row: NewAppointmentDto): AppointmentDto {
+        if (appointmentAlignmentColumnsAvailable != false) {
+            try {
+                return client.postgrest.from("appointments")
+                    .insert(row) { select(appointmentColumns) }
+                    .decodeSingle<AppointmentDto>()
+                    .also { appointmentAlignmentColumnsAvailable = true }
+            } catch (e: Exception) {
+                if (!e.isMissingAppointmentAlignmentColumns()) throw e
+                appointmentAlignmentColumnsAvailable = false
+            }
+        }
+        return client.postgrest.from("appointments")
+            .insert(
+                LegacyNewAppointmentDto(
+                    tenantId = row.tenantId,
+                    customerId = row.customerId,
+                    vehicleId = row.vehicleId,
+                    service = row.service,
+                    department = row.department,
+                    technicianId = row.technicianId,
+                    scheduledAt = row.scheduledAt,
+                    durationMinutes = row.durationMinutes,
+                    status = row.status,
+                    notes = legacyAlignmentNotes(row.notes, row.alignedOn, row.alignedAtKm, row.nextAtKm),
+                    createdBy = row.createdBy,
+                ),
+            ) { select(legacyAppointmentColumns) }
+            .decodeSingle<AppointmentDto>()
+            .withLegacyAlignment()
+    }
+
+    suspend fun updateAppointment(id: String, row: AppointmentUpdateDto) {
+        if (appointmentAlignmentColumnsAvailable != false) {
+            try {
+                client.postgrest.from("appointments")
+                    .update(row) { filter { eq("id", id) } }
+                appointmentAlignmentColumnsAvailable = true
+                return
+            } catch (e: Exception) {
+                if (!e.isMissingAppointmentAlignmentColumns()) throw e
+                appointmentAlignmentColumnsAvailable = false
+            }
+        }
+        client.postgrest.from("appointments")
+            .update(
+                LegacyAppointmentUpdateDto(
+                    customerId = row.customerId,
+                    vehicleId = row.vehicleId,
+                    service = row.service,
+                    department = row.department,
+                    technicianId = row.technicianId,
+                    scheduledAt = row.scheduledAt,
+                    durationMinutes = row.durationMinutes,
+                    notes = legacyAlignmentNotes(row.notes, row.alignedOn, row.alignedAtKm, row.nextAtKm),
+                ),
+            ) { filter { eq("id", id) } }
+    }
+
+    suspend fun setAppointmentStatus(id: String, status: String) {
+        require(status in APPOINTMENT_STATUSES) { "Invalid appointment status" }
+        client.postgrest.from("appointments")
+            .update({ set("status", status) }) { filter { eq("id", id) } }
+    }
+
+    suspend fun convertAppointmentToJob(id: String, startNow: Boolean): String =
+        client.postgrest.rpc("convert_appointment_to_job", buildJsonObject {
+            put("p_appointment_id", id)
+            put("p_start_now", startNow)
+            put("p_checklist", if (TYRE_TILL) tyreChecklistJson() else JsonArray(emptyList()))
+        }).decodeAs<JobRow>().id
 
     // documents→documents is self-referencing, and PostgREST will NOT take a constraint-name
     // hint for that ("no relationship … using the hint documents_source_document_id_fkey") —

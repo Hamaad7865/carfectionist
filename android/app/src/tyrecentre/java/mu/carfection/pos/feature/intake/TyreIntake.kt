@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -109,12 +110,12 @@ internal fun TyreIntakeScreen(
 ) {
     Box(Modifier.fillMaxSize()) {
         Column(
-            Modifier.fillMaxSize().padding(horizontal = 18.dp, vertical = 15.dp),
+            Modifier.fillMaxSize().imePadding().padding(horizontal = 18.dp, vertical = 15.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             IntakeHeading(state, viewModel)
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                if (maxWidth >= 940.dp) {
+                if (maxWidth >= 1080.dp) {
                     Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         Column(
                             Modifier.weight(1f).fillMaxHeight().verticalScroll(rememberScrollState()),
@@ -366,15 +367,16 @@ private fun IntakeSideSheet(
         properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnBackPress = !busy, dismissOnClickOutside = !busy),
     ) {
         Box(
-            Modifier.fillMaxSize().background(Color(0x9E0C1424)).clickable(enabled = !busy) { onDismiss() },
+            Modifier.fillMaxSize().imePadding().background(Color(0x9E0C1424)).clickable(enabled = !busy) { onDismiss() },
             contentAlignment = Alignment.Center,
         ) {
-            Box(
+            BoxWithConstraints(
                 Modifier.fillMaxSize().navigationBarsPadding().padding(start = 16.dp, top = 18.dp, end = 18.dp, bottom = 18.dp),
                 contentAlignment = Alignment.CenterEnd,
             ) {
+                val sheetFraction = if (maxWidth >= 760.dp) 0.44f else 0.92f
                 Column(
-                    Modifier.fillMaxHeight().fillMaxWidth(0.44f).widthIn(min = 500.dp, max = 620.dp)
+                    Modifier.fillMaxHeight().fillMaxWidth(sheetFraction).widthIn(max = 620.dp)
                         .shadow(28.dp, SheetShape, clip = false, ambientColor = Color(0x66101A24), spotColor = Color(0x88101A24))
                         .clip(SheetShape)
                         .background(CardBg)
@@ -581,6 +583,8 @@ private fun VehiclePhotoAction(s: IntakeState, vm: IntakeViewModel, modifier: Mo
                     fontWeight = FontWeight.Bold,
                     fontSize = 14.sp,
                     color = TextPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -682,6 +686,8 @@ private fun WorkRequestStep(s: IntakeState, vm: IntakeViewModel) {
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 13.sp,
                 color = TextMuted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -699,9 +705,11 @@ private fun IntakeSummary(
             .shadow(14.dp, RoundedCornerShape(22.dp), clip = false, ambientColor = Color(0x2A101A24), spotColor = Color(0x42101A24))
             .clip(RoundedCornerShape(22.dp))
             .background(TcDark),
-        verticalArrangement = Arrangement.SpaceBetween,
     ) {
-        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(15.dp)) {
+        Column(
+            Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(15.dp),
+        ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 22.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {

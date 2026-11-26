@@ -30,6 +30,7 @@ import mu.carfection.pos.core.sync.OutboxRepository
 import mu.carfection.pos.core.sync.catalogSyncActive
 import mu.carfection.pos.core.sync.runCatalogSync
 import mu.carfection.pos.feature.counter.CounterScreen
+import mu.carfection.pos.feature.appointments.AppointmentsScreen
 import mu.carfection.pos.feature.cert.CertScreen
 import mu.carfection.pos.feature.dash.DashScreen
 import androidx.compose.runtime.LaunchedEffect
@@ -299,7 +300,11 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                 PosShell(
                     active = tab,
                     onSelect = rootViewModel::navigate,
-                    tabs = mu.carfection.pos.core.data.visibleTabs(takesPayments, hasWarranty),
+                    tabs = mu.carfection.pos.core.data.visibleTabs(
+                        takesPayments,
+                        hasWarranty,
+                        showAppointments = BuildConfig.BRAND == "tyrecentre",
+                    ),
                     studioName = shopHeader.first,
                     studioPlace = shopHeader.second,
                     staffName = rootViewModel.staffName,
@@ -328,7 +333,13 @@ fun PosApp(rootViewModel: RootViewModel = hiltViewModel()) {
                             )
                         PosTab.INTAKE -> IntakeScreen(onStartQuote = { rootViewModel.navigate(PosTab.QUOTE) })
                         PosTab.QUOTE -> QuoteScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onViewJob = { rootViewModel.navigate(PosTab.JOBS) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) })
-                        PosTab.JOBS -> JobsScreen(onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) }, onGoCheckout = { rootViewModel.navigate(PosTab.SALE) }, onGoQuotes = { rootViewModel.navigate(PosTab.QUOTE) })
+                        PosTab.APPOINTMENTS -> AppointmentsScreen(onGoJobs = { rootViewModel.navigate(PosTab.JOBS) })
+                        PosTab.JOBS -> JobsScreen(
+                            onGoIntake = { rootViewModel.navigate(PosTab.INTAKE) },
+                            onGoCheckout = { rootViewModel.navigate(PosTab.SALE) },
+                            onGoQuotes = { rootViewModel.navigate(PosTab.QUOTE) },
+                            onGoAppointments = { rootViewModel.navigate(PosTab.APPOINTMENTS) },
+                        )
                         PosTab.STOCK -> StockScreen()
                         PosTab.CERT -> CertScreen()
                         PosTab.CONTACTS -> mu.carfection.pos.feature.contacts.ContactsScreen(onJobStarted = { rootViewModel.navigate(PosTab.JOBS) })

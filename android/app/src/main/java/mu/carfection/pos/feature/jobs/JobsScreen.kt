@@ -93,6 +93,8 @@ import mu.carfection.pos.ui.FilledInput
 import mu.carfection.pos.ui.theme.Inset
 import kotlinx.coroutines.delay
 import mu.carfection.pos.core.network.JobBoardDto
+import mu.carfection.pos.feature.counter.TYRE_TILL
+import mu.carfection.pos.feature.appointments.canBookFollowUpFromJob
 import mu.carfection.pos.ui.theme.Accent
 import mu.carfection.pos.ui.theme.AccentInk
 import mu.carfection.pos.ui.theme.AccentLine
@@ -153,7 +155,13 @@ private fun vehLabel(j: JobBoardDto): String = listOfNotNull(j.vehicles?.make, j
 private fun Modifier.card(radius: Int = 16) = this.background(CardBg, RoundedCornerShape(radius.dp)).border(1.dp, Hairline, RoundedCornerShape(radius.dp))
 
 @Composable
-fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, onGoQuotes: () -> Unit, viewModel: JobsViewModel = hiltViewModel()) {
+fun JobsScreen(
+    onGoIntake: () -> Unit,
+    onGoCheckout: () -> Unit,
+    onGoQuotes: () -> Unit,
+    onGoAppointments: () -> Unit,
+    viewModel: JobsViewModel = hiltViewModel(),
+) {
     val s by viewModel.state.collectAsState()
     LaunchedEffect(Unit) { viewModel.load() } // refresh the board on entry
     // Billing a quoted job builds its bill on the quote screen, where the catalogue is.
@@ -175,7 +183,7 @@ fun JobsScreen(onGoIntake: () -> Unit, onGoCheckout: () -> Unit, onGoQuotes: () 
                 JobCol.entries.forEach { col -> JobColumn(s, viewModel, col, Modifier.weight(1f)) }
             }
         }
-        viewModel.active(s)?.let { JobDetailSheet(s, it, viewModel, onGoCheckout) }
+        viewModel.active(s)?.let { JobDetailSheet(s, it, viewModel, onGoCheckout, onGoAppointments) }
     }
     if (s.certOpen) CertIssueDialog(s, viewModel)
     if (s.invoiceOpen) InvoiceDialog(s, viewModel)
@@ -472,7 +480,13 @@ private fun JobCard(j: JobBoardDto, col: JobCol, edge: Color, onDismiss: (() -> 
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGoCheckout: () -> Unit) {
+private fun JobDetailSheet(
+    s: JobsState,
+    j: JobBoardDto,
+    vm: JobsViewModel,
+    onGoCheckout: () -> Unit,
+    onGoAppointments: () -> Unit,
+) {
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().background(Color(0x66101A24)).clickable(onClick = vm::close))
         Column(Modifier.align(Alignment.CenterEnd).width(560.dp).fillMaxHeight().background(CardBg).border(1.dp, Hairline)) {
@@ -654,6 +668,23 @@ private fun JobDetailSheet(s: JobsState, j: JobBoardDto, vm: JobsViewModel, onGo
                         }
                         Box(Modifier.weight(1f).height(48.dp).border(1.dp, AccentLine, RoundedCornerShape(13.dp)).clickable { vm.openCertIssue() }, contentAlignment = Alignment.Center) {
                             Text("＋  Certificate", color = Accent, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 14.5.sp)
+                        }
+                    }
+                    if (TYRE_TILL && canBookFollowUpFromJob(j.status)) {
+                        Box(
+                            Modifier.fillMaxWidth().height(48.dp)
+                                .background(AccentSoft, RoundedCornerShape(13.dp))
+                                .border(1.dp, AccentLine, RoundedCornerShape(13.dp))
+                                .clickable(enabled = !s.busy) { vm.bookNextAppointment(onGoAppointments) },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                "＋  Book next appointment",
+                                color = Accent,
+                                fontFamily = Barlow,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.5.sp,
+                            )
                         }
                     }
                 }

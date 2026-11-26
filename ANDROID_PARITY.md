@@ -49,6 +49,13 @@ Convention mirrors FRONTEND_PROGRESS.md: build → verify on emulator-5554 → c
   Supabase session so RLS/attribution/header all work. **Verified on the reseeded DB: 8-staff roster loaded
   over the network, PIN → real session, and Intake-created job then appeared on the board.** Config in
   `local.properties` (`pos.webUrl` / `pos.deviceKey`); needs the web routes reachable from the tablet.
+- [x] **Tyre-centre appointments (Android)** — tablet overview + follow-up queue, shared status
+  updates, searchable clients, vehicle entry, `Reg No / Make / Aligned at / Next at`, date/time
+  booking, phone/SMS follow-up, and a responsive high-density modal. The APK works before or after
+  the additive alignment migration by preserving a namespaced compatibility marker in appointment
+  notes; structured columns are used automatically once available. A ready/delivered job can
+  optionally open a prefilled follow-up appointment, and an appointment can become either a
+  scheduled job or an immediately started job.
 - [ ] **6 · Role-based UI gating** — now UNBLOCKED (roles are real per logged-in operator via
   `session.userRole`). Hide owner/manager-only tabs+actions (Stock adjust, corrections, Today) for cashiers.
   Buildable next; verify by logging in as a technician vs owner PIN.

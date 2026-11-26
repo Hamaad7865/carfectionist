@@ -19,6 +19,7 @@ const data: AppointmentsData = {
     { id: "place-1", name: "Prayag Tyre Center & SpareParts" },
     { id: "place-2", name: "Tyre bay" },
   ],
+  isTyreShop: true,
 };
 
 describe("AppointmentsPanel", () => {
@@ -29,5 +30,15 @@ describe("AppointmentsPanel", () => {
     expect(html).toContain("Tyre bay");
     expect(html).not.toContain("Detailing studio");
     expect(html).not.toContain("Car wash");
+  });
+
+  it("uses the same tyre alignment follow-up fields as the tablet", () => {
+    const html = renderToStaticMarkup(<AppointmentsPanel data={data} />);
+
+    expect(html).toContain("Alignment follow-up");
+    expect(html).toContain("Aligned on");
+    expect(html).toContain("Aligned at");
+    expect(html).toContain("Next at");
+    expect(html).toContain("Wheel alignment");
   });
 });

@@ -329,6 +329,18 @@ export const createJob = (sb: Client, a: CreateJobArgs) =>
     p_checklist: a.checklist,
   });
 
+export const convertAppointmentToJob = (
+  sb: Client,
+  appointmentId: string,
+  startNow: boolean,
+  checklist: unknown,
+) =>
+  callRpc<{ id: string }>(sb, "convert_appointment_to_job", {
+    p_appointment_id: appointmentId,
+    p_start_now: startNow,
+    p_checklist: checklist,
+  });
+
 export interface RecordPaymentArgs {
   invoiceId: string;
   method: "cash" | "card" | "juice" | "bank_transfer" | "cheque" | "points";
