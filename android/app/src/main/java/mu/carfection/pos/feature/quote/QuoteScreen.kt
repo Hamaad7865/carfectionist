@@ -1166,15 +1166,21 @@ private fun ColumnScope.QuoteBuilder(s: QuoteState, vm: QuoteViewModel, onViewJo
             }
             // totals footer
             Box(Modifier.height(1.dp).fillMaxWidth().background(Hairline))
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            // Lines two companies sell go out as one quote each (tyre centre): a block per
+            // company and the combined total replace the single quote's footer. The split may
+            // grow into the card's free height (it scrolls inside once that runs out).
+            val parts = vm.companyParts(s)
+            val splitFills = parts.size > 1 && !s.acceptOpen
+            Column(
+                Modifier.fillMaxWidth().then(if (splitFills) Modifier.weight(1f, fill = false) else Modifier)
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 // One of a visit's per-company quotes: the others, one tap away.
                 VisitSiblings(s) { q -> vm.openQuote(q) }
-                // Lines two companies sell go out as one quote each (tyre centre): a block per
-                // company and the combined total replace the single quote's footer.
-                val parts = vm.companyParts(s)
                 // Read below as well (the Sign/Accept button), so it lives outside the branch.
                 val discountBlockReason = vm.discountBlockReason(s)
-                if (parts.size > 1) CompanySplitTotals(s, parts) else {
+                if (parts.size > 1) CompanySplitTotals(s, parts, if (splitFills) Modifier.weight(1f, fill = false) else Modifier) else {
                 val t = vm.totals(s)
                 // Ex-VAT footer (owner decision, 2026-08-14): Subtotal and Line discounts are
                 // taxable figures, VAT is its own row, and the TOTAL still lands on the typed

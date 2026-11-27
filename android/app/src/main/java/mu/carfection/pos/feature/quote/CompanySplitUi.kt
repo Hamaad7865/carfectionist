@@ -1,5 +1,10 @@
 package mu.carfection.pos.feature.quote
 
+import mu.carfection.pos.core.data.DiscountMode
+import mu.carfection.pos.ui.theme.Success
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -71,13 +76,32 @@ internal fun CompanyMark(part: CompanyPart?) {
  * the back office sets each company's own discount.
  */
 @Composable
-internal fun CompanySplitTotals(s: QuoteState, parts: List<CompanyPart>) {
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+internal fun CompanySplitTotals(s: QuoteState, parts: List<CompanyPart>, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(
             if (s.status == "draft" || s.amending) "Goes out as ${parts.size} quotes, one per company" else "${parts.size} quotes, one per company",
             fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary,
         )
-        parts.forEach { part -> CompanyBlock(s, part) }
+        // Takes whatever height the card has left; a longer quote scrolls inside it, so
+        // "Customer pays in all" and the Accept / Save buttons never get pushed off the card.
+        Column(
+            Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            // While signing, the pad needs the room: one line per company, not the full blocks.
+            if (s.acceptOpen) parts.forEach { part ->
+                val c = companyColours(part.index)
+                Row(
+                    Modifier.fillMaxWidth().background(c.tint, RoundedCornerShape(10.dp)).border(1.dp, c.border, RoundedCornerShape(10.dp))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(part.company.legalName, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 13.sp, color = TextPrimary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                    Text(formatMUR(part.totals.totalCents), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = c.ink)
+                }
+            } else parts.forEach { part -> CompanyBlock(s, part) }
+        }
         Row(
             Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(12.dp)).border(1.dp, AccentLine, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.Bottom,
@@ -86,7 +110,7 @@ internal fun CompanySplitTotals(s: QuoteState, parts: List<CompanyPart>) {
             Spacer(Modifier.weight(1f))
             Text(formatMUR(combinedTotalCents(parts)), fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 24.sp, color = Accent)
         }
-        if (s.status == "draft" || s.amending) {
+        if ((s.status == "draft" || s.amending) && !s.acceptOpen) {
             Text(
                 "No discount on the whole bill while it spans two companies — set each company's own discount in the back office.",
                 fontFamily = Barlow, fontWeight = FontWeight.Medium, fontSize = 11.sp, color = TextMuted,
@@ -119,6 +143,15 @@ private fun CompanyBlock(s: QuoteState, part: CompanyPart) {
                 Text(line.title, fontFamily = Barlow, fontSize = 12.sp, color = TextSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 Text("${line.qty}", fontFamily = Mono, fontSize = 11.5.sp, color = TextMuted, modifier = Modifier.width(26.dp))
                 Text(formatMUR(t.lineExclCents[k] + t.lineVatCents[k]), fontFamily = Mono, fontSize = 12.sp, color = TextPrimary)
+            }
+            // The line total above is already after its discount; say so, or the price looks wrong.
+            val discount = when {
+                line.discountMode == DiscountMode.PCT && line.discountPct > 0 -> "${line.discountPct}% discount"
+                line.discountMode == DiscountMode.AMT && line.discountAmtCents > 0 -> "${formatMUR(line.discountAmtCents)} discount"
+                else -> null
+            }
+            if (discount != null) {
+                Text("  − $discount", fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 11.5.sp, color = Success)
             }
         }
         Box(Modifier.fillMaxWidth().height(1.dp).background(c.border))

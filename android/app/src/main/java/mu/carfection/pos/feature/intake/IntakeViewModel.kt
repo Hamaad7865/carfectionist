@@ -197,7 +197,25 @@ class IntakeViewModel @Inject constructor(
         }
     }
 
-    fun toggleNewCust() = _s.update { it.copy(newCustOpen = !it.newCustOpen, error = null) }
+    /**
+     * Open (or close) the new-customer form. Opening it carries what was typed in the search
+     * box across, so nobody types it twice: digits become the mobile, a plate-looking value
+     * (letters + digits, e.g. "2087 JL 25") waits as the new vehicle's plate, anything else
+     * is the name.
+     */
+    fun toggleNewCust() = _s.update {
+        if (it.newCustOpen) return@update it.copy(newCustOpen = false, error = null)
+        val q = it.query.trim()
+        val compact = q.replace(" ", "").removePrefix("+230")
+        val isPhone = compact.length >= 7 && compact.all(Char::isDigit)
+        val isPlate = !isPhone && q.any(Char::isDigit) && q.any(Char::isLetter) && q.length <= 12
+        it.copy(
+            newCustOpen = true, error = null,
+            nPhone = if (isPhone && it.nPhone.isBlank()) compact else it.nPhone,
+            nName = if (!isPhone && !isPlate && it.nName.isBlank()) q else it.nName,
+            nvPlate = if (isPlate && it.nvPlate.isBlank()) q.uppercase() else it.nvPlate,
+        )
+    }
     fun setNName(v: String) = _s.update { it.copy(nName = v) }
     fun setNPhone(v: String) = _s.update { it.copy(nPhone = v) }
     fun setNIsCompany(v: Boolean) = _s.update { it.copy(nIsCompany = v) }
@@ -254,6 +272,8 @@ class IntakeViewModel @Inject constructor(
                 // along so it reaches the quote's send dialog without a retype off the card.
                 runCatching { catalog.cacheCustomer(CustomerEntity(c.id, c.name, c.phone, c.email)) }
                 pickCustomer(CustomerEntity(c.id, c.name, c.phone, c.email))
+                // A brand-new customer has no car on file: go straight to adding it.
+                _s.update { it.copy(addVehOpen = true) }
             }.onFailure { e -> _s.update { it.copy(busy = false, error = e.uiMessage()) } }
         }
     }

@@ -355,6 +355,8 @@ private fun SizeFinder(
 @Composable
 private fun SizeBox(label: String, value: String, hint: String, onChange: (String) -> Unit, modifier: Modifier) {
     val set = value.isNotEmpty()
+    // Enter walks width → profile → rim; the last box just closes the keyboard.
+    val imeFlow = mu.carfection.pos.ui.rememberImeFlow(KeyboardOptions(keyboardType = KeyboardType.Decimal))
     Column(
         modifier.height(64.dp).background(if (set) Color(0xFFF4F9FF) else Inset, RoundedCornerShape(12.dp))
             .border(2.dp, if (set) Accent else Inset, RoundedCornerShape(12.dp)).padding(horizontal = 14.dp),
@@ -363,7 +365,8 @@ private fun SizeBox(label: String, value: String, hint: String, onChange: (Strin
         SectionLabel(label, color = if (set) Accent else TextMuted)
         BasicTextField(
             value = value, onValueChange = onChange, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+            keyboardOptions = imeFlow.first,
+            keyboardActions = imeFlow.second,
             textStyle = TextStyle(color = if (set) Accent else TextPrimary, fontFamily = Condensed, fontWeight = FontWeight.Bold, fontSize = 28.sp),
             decorationBox = { inner ->
                 Box {

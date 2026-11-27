@@ -1,5 +1,12 @@
 package mu.carfection.pos.feature.intake
 
+import androidx.compose.material.icons.automirrored.outlined.List
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -64,6 +71,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -438,14 +446,17 @@ private fun NewCustomerFormBody(s: IntakeState, vm: IntakeViewModel) {
             Segment("Business", s.nIsCompany, modifier = Modifier.weight(1f)) { vm.setNIsCompany(true) }
         }
         TyreField("FULL NAME", s.nName, vm::setNName, if (s.nIsCompany) "Company name" else "Customer name")
-        TyreField("MOBILE", s.nPhone, vm::setNPhone, "5xxx xxxx", keyboard = KeyboardType.Phone)
+        TyreField(
+            "MOBILE", s.nPhone, vm::setNPhone, "5xxx xxxx", keyboard = KeyboardType.Phone,
+            onSubmit = if (s.nIsCompany) null else ({ if (!s.busy) vm.saveNewCustomer() }),
+        )
         if (s.nIsCompany) {
             TyreField("EMAIL", s.nEmail, vm::setNEmail, "accounts@example.mu", keyboard = KeyboardType.Email)
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TyreField("BRN", s.nBrn, vm::setNBrn, "BRN", Modifier.weight(1f))
                 TyreField("VAT", s.nVat, vm::setNVat, "VAT no.", Modifier.weight(1f))
             }
-            TyreField("ADDRESS", s.nAddress, vm::setNAddress, "Business address")
+            TyreField("ADDRESS", s.nAddress, vm::setNAddress, "Business address", onSubmit = { if (!s.busy) vm.saveNewCustomer() })
         }
         s.existingCustomer?.let { existing ->
             Column(
@@ -467,15 +478,26 @@ private fun NewCustomerFormBody(s: IntakeState, vm: IntakeViewModel) {
 @Composable
 private fun NewVehicleFormBody(s: IntakeState, vm: IntakeViewModel) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        val saveVehicle = { if (!s.busy && s.nvPlate.isNotBlank()) vm.saveVehicle(singleSelection = true) }
+        // Only the plate and model need typing; make, colour and body type are one tap each.
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            TyreField("REGISTRATION", s.nvPlate, vm::setNvPlate, "2087 JL 25", Modifier.weight(1f))
-            TyreField("MAKE", s.nvMake, vm::setNvMake, "Toyota", Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TyreField("REGISTRATION", s.nvPlate, vm::setNvPlate, "2087 JL 25", Modifier.weight(1f), caps = true)
             TyreField("MODEL / YEAR", s.nvModel, vm::setNvModel, "Yaris · 2020", Modifier.weight(1f))
-            TyreField("COLOUR", s.nvColour, vm::setNvColour, "Silver", Modifier.weight(1f))
         }
-        TyreField("BODY TYPE", s.nvCategory, vm::setNvCategory, "Sedan, SUV, pickup…")
+        var pickList by rememberSaveable { mutableStateOf<String?>(null) }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            TyreField("MAKE", s.nvMake, vm::setNvMake, "Toyota", Modifier.weight(1f), onPick = { pickList = "Make" })
+            TyreField("COLOUR", s.nvColour, vm::setNvColour, "Silver", Modifier.weight(1f), onPick = { pickList = "Colour" })
+        }
+        TyreField("BODY TYPE", s.nvCategory, vm::setNvCategory, "Sedan, SUV…", onSubmit = saveVehicle, onPick = { pickList = "Body type" })
+        pickList?.let { which ->
+            val (options, current, set) = when (which) {
+                "Make" -> Triple(VEHICLE_MAKES, s.nvMake, vm::setNvMake)
+                "Colour" -> Triple(VEHICLE_COLORS, s.nvColour, vm::setNvColour)
+                else -> Triple(VEHICLE_CATEGORIES, s.nvCategory, vm::setNvCategory)
+            }
+            PresetPicker(which, options, multi = false, isSelected = { it.equals(current, true) }, onDismiss = { pickList = null }) { set(it) }
+        }
         s.plateTaken?.let { holder ->
             Column(
                 Modifier.fillMaxWidth().background(AccentSoft, RoundedCornerShape(14.dp))
@@ -628,7 +650,17 @@ private fun WorkRequestStep(s: IntakeState, vm: IntakeViewModel) {
         }
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
-            TyreField("TYRE SIZE", s.tyreSize, vm::setTyreSize, "185/65 R14", Modifier.weight(1.35f))
+            var pickSize by rememberSaveable { mutableStateOf(false) }
+            TyreField("TYRE SIZE", s.tyreSize, vm::setTyreSize, "185/65 R14", Modifier.weight(1.35f), caps = true, onPick = { pickSize = true })
+            if (pickSize) {
+                PresetPicker(
+                    title = "Tyre size",
+                    options = COMMON_TYRE_SIZES,
+                    multi = false,
+                    isSelected = { it.equals(s.tyreSize.trim(), ignoreCase = true) },
+                    onDismiss = { pickSize = false },
+                ) { vm.setTyreSize(it) }
+            }
             Column(Modifier.weight(1.2f), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                 FieldLabel("WHEEL POSITION")
                 Row(Modifier.fillMaxWidth().height(52.dp).background(Inset, RoundedCornerShape(12.dp)).padding(3.dp)) {
@@ -660,13 +692,28 @@ private fun WorkRequestStep(s: IntakeState, vm: IntakeViewModel) {
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 FieldLabel("CUSTOMER CONCERN")
                 Spacer(Modifier.weight(1f))
                 Text("${s.concern.length}/320", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 12.sp, color = TextMuted)
             }
-            MultilineEntry(s.concern, vm::setConcern, "Vibration, noise, uneven wear, requested brand…")
+            var pickConcern by rememberSaveable { mutableStateOf(false) }
+            MultilineEntry(s.concern, vm::setConcern, "What the customer says — or tap the list icon", onPick = { pickConcern = true })
+            if (pickConcern) {
+                PresetPicker(
+                    title = "Customer concern",
+                    options = CONCERN_PHRASES,
+                    multi = true,
+                    isSelected = { s.concern.contains(it, ignoreCase = true) },
+                    onDismiss = { pickConcern = false },
+                ) { phrase ->
+                    val parts = s.concern.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                    vm.setConcern(
+                        (if (parts.any { it.equals(phrase, true) }) parts.filterNot { it.equals(phrase, true) } else parts + phrase).joinToString(", ")
+                    )
+                }
+            }
         }
 
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -937,6 +984,9 @@ private fun TyreField(
     placeholder: String,
     modifier: Modifier = Modifier,
     keyboard: KeyboardType = KeyboardType.Text,
+    caps: Boolean = false,
+    onSubmit: (() -> Unit)? = null,
+    onPick: (() -> Unit)? = null,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(5.dp)) {
         FieldLabel(label)
@@ -949,26 +999,109 @@ private fun TyreField(
             radius = 12.dp,
             bg = CardBg,
             fontSize = 15.sp,
-            keyboardOptions = KeyboardOptions(keyboardType = keyboard),
+            keyboardOptions = KeyboardOptions(
+                keyboardType = keyboard,
+                capitalization = if (caps) KeyboardCapitalization.Characters else KeyboardCapitalization.Words,
+            ),
+            onSubmit = onSubmit,
+            trailing = onPick?.let { { PickIcon(it) } },
         )
     }
 }
 
+/** Small list icon inside a box: opens the preset picker for that box. */
 @Composable
-private fun MultilineEntry(value: String, onValueChange: (String) -> Unit, placeholder: String) {
+private fun PickIcon(onClick: () -> Unit) {
+    Box(
+        Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)).background(AccentSoft).clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(Icons.AutoMirrored.Outlined.List, contentDescription = "Choose from list", tint = Accent, modifier = Modifier.size(22.dp))
+    }
+}
+
+/**
+ * A small modal of preset answers. Single choice closes on tap; multi choice toggles and
+ * closes with Done. Free typing in the box still works — this only saves keystrokes.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PresetPicker(
+    title: String,
+    options: List<String>,
+    multi: Boolean,
+    isSelected: (String) -> Boolean,
+    onDismiss: () -> Unit,
+    onPick: (String) -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(
+            Modifier.fillMaxSize().background(Color(0x9E0C1424)).clickable { onDismiss() }.padding(24.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+        Column(
+            Modifier.widthIn(max = 560.dp).fillMaxWidth().clip(RoundedCornerShape(20.dp)).background(CardBg)
+                .clickable(enabled = false) {}.verticalScroll(rememberScrollState()).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(title, fontFamily = Barlow, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp, color = TextPrimary, modifier = Modifier.weight(1f))
+                if (multi) Text("Tap all that apply", fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, color = TextMuted)
+            }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                options.forEach { option ->
+                    val on = isSelected(option)
+                    Box(
+                        Modifier.heightIn(min = 50.dp).clip(RoundedCornerShape(12.dp))
+                            .background(if (on) Accent else Inset)
+                            .border(1.dp, if (on) Accent else Hairline, RoundedCornerShape(12.dp))
+                            .clickable { onPick(option); if (!multi) onDismiss() }
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(option, fontFamily = Barlow, fontWeight = FontWeight.Bold, fontSize = 17.sp, color = if (on) Color.White else TextPrimary)
+                    }
+                }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                PrimaryAction(if (multi) "Done" else "Close", Modifier.width(160.dp), h = 52.dp) { onDismiss() }
+            }
+        }
+        }
+    }
+}
+
+/** Common passenger sizes in Mauritius — one tap fills the size box. */
+private val COMMON_TYRE_SIZES = listOf(
+    "175/65 R14", "185/65 R14", "185/65 R15", "195/65 R15", "205/55 R16", "215/60 R16",
+    "205/65 R16", "215/55 R17", "225/45 R17", "225/65 R17", "265/65 R17", "245/70 R16",
+)
+
+/** Tap-to-add phrases for the customer's concern. */
+private val CONCERN_PHRASES = listOf(
+    "Vibration at speed", "Pulls left", "Pulls right", "Noise", "Uneven wear", "Flat tyre",
+    "Slow puncture", "Steering off-centre", "Customer brings own tyres",
+)
+
+@Composable
+private fun MultilineEntry(value: String, onValueChange: (String) -> Unit, placeholder: String, onPick: (() -> Unit)? = null) {
+    Box {
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
         modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp).background(CardBg, RoundedCornerShape(12.dp))
-            .border(1.dp, Hairline, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp, vertical = 10.dp),
-        textStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp, color = TextPrimary),
+            .border(1.dp, Hairline, RoundedCornerShape(12.dp))
+            .padding(start = 14.dp, top = 12.dp, bottom = 12.dp, end = if (onPick != null) 60.dp else 14.dp),
+        textStyle = TextStyle(fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp, color = TextPrimary),
         cursorBrush = SolidColor(Accent),
         maxLines = 3,
     ) { inner ->
         Box {
-            if (value.isEmpty()) Text(placeholder, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 14.sp, lineHeight = 20.sp, color = TextMuted)
+            if (value.isEmpty()) Text(placeholder, fontFamily = Barlow, fontWeight = FontWeight.SemiBold, fontSize = 16.sp, lineHeight = 22.sp, color = TextMuted)
             inner()
         }
+    }
+    if (onPick != null) Box(Modifier.align(Alignment.TopEnd).padding(top = 8.dp, end = 8.dp)) { PickIcon(onPick) }
     }
 }
 
